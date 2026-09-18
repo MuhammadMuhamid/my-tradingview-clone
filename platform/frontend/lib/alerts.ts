@@ -9,7 +9,8 @@
 import {
   ADX_DEFAULTS, BOLLINGER_DEFAULTS, isIntrabarFrequency, MACD_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
-  type AlertFrequency, type MaAlert,
+  type AlertFrequency, type AlertGate, type FilterSide, type MaAlert,
+  type StAtrMethod,
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
@@ -263,26 +264,81 @@ export function stLabel(
  * second trigger is the misunderstanding this wording exists to prevent.
  */
 export function describeFilters(a: MaAlert): string {
-  const parts: string[] = [];
+  const gates = gatesOf(a);
+  if (gates.length === 0) return "";
+  return ` — only while ${gates.map(describeGate).join(" and ")}`;
+}
+
+/** The gates an alert carries: the list, or the legacy fields behind it. */
+function gatesOf(a: MaAlert): AlertGate[] {
+  if (a.filters && a.filters.length > 0) return a.filters;
+  const gates: AlertGate[] = [];
   if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
-    parts.push(`RSI ${a.filterRsiLength} is ${a.filterRsiSide} ${a.filterRsiLevel}`);
+    gates.push({
+      kind: "rsi", length: a.filterRsiLength,
+      level: a.filterRsiLevel ?? 50, side: a.filterRsiSide as FilterSide,
+    });
   }
   if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
-    parts.push(
-      `price is ${a.filterMaSide} the ${maLabel(a.filterMaType, a.filterMaLength)}`
-    );
+    gates.push({
+      kind: "ma", type: a.filterMaType, length: a.filterMaLength,
+      side: a.filterMaSide as FilterSide,
+    });
   }
   if (a.filterStPeriod !== null && a.filterStSide !== null) {
-    parts.push(
-      `price is ${a.filterStSide} the ` +
-      stLabel({
-        stPeriod: a.filterStPeriod,
-        stMultiplier: a.filterStMultiplier,
-        stAtrMethod: a.filterStAtrMethod,
-      })
-    );
+    gates.push({
+      kind: "supertrend", period: a.filterStPeriod,
+      multiplier: a.filterStMultiplier ?? 3,
+      atrMethod: (a.filterStAtrMethod as StAtrMethod | null) ?? "rma",
+      side: a.filterStSide as FilterSide,
+    });
   }
-  return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
+  return gates;
+}
+
+/**
+ * One gate as a sentence fragment.
+ *
+ * ── This sentence exists twice ────────────────────────────────────────────
+ *
+ * The server builds the same phrases for the push notification, in
+ * `alerts/alertConditions.ts`. Nothing in the type system stops the two
+ * drifting the moment one is edited, so BOTH assert the same literals
+ * verbatim in their tests. If you change a word here, change it there.
+ *
+ * Against the SIGNAL line the MACD sides are named for the mood they describe:
+ * "MACD is above signal line" is the same rule wearing a name nobody
+ * recognises. Against ZERO they keep above/below, because there the mood words
+ * would be wrong — the centreline says which way the trend leans, not whether
+ * momentum turned.
+ */
+export function describeGate(gate: AlertGate): string {
+  // Deliberately without an article: the phrases that need one carry it.
+  const tf = gate.timeframe ? `${gate.timeframe} ` : "";
+  const lead = gate.timeframe ? "the " : "";
+  switch (gate.kind) {
+    case "rsi":
+      return `${lead}${tf}RSI ${gate.length} is ${gate.side} ${gate.level}`;
+    case "ma":
+      return `price is ${gate.side} the ${tf}${maLabel(gate.type, gate.length)}`;
+    case "supertrend":
+      return `price is ${gate.side} the ${tf}` + stLabel({
+        stPeriod: gate.period,
+        stMultiplier: gate.multiplier,
+        stAtrMethod: gate.atrMethod,
+      });
+    case "rsi_ma":
+      return `${lead}${tf}RSI ${gate.length} is ${gate.side} its ` +
+        `${maLabel(gate.maType, gate.maLength)}`;
+    case "macd": {
+      const label = `MACD ${gate.fastLength}/${gate.slowLength}/${gate.signalLength}`;
+      if (gate.target === "zero") return `${lead}${tf}${label} is ${gate.side} zero`;
+      const mood = gate.side === "above"
+        ? "bullish (above signal)"
+        : "bearish (below signal)";
+      return `${lead}${tf}${label} is ${mood}`;
+    }
+  }
 }
 
 /** The mode phrase shared by every kind that compares against a level. */

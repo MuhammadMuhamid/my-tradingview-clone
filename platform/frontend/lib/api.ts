@@ -837,6 +837,41 @@ export type FilterSide = "above" | "below";
 /** Which average of true range a Supertrend uses. `rma` is Wilder's. */
 export type StAtrMethod = "rma" | "sma";
 
+/**
+ * The timeframes a gate may be measured on. Mirrors `FILTER_TIMEFRAMES`.
+ *
+ * Omitting one means the alert's own timeframe, which is what every gate
+ * written before the list form meant.
+ */
+export const FILTER_TIMEFRAMES = [
+  "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d",
+] as const;
+export type FilterTimeframe = (typeof FILTER_TIMEFRAMES)[number];
+
+/** Mirrors the backend's `MAX_ALERT_FILTERS`. */
+export const MAX_ALERT_FILTERS = 10;
+
+/** Mirrors the backend's `FILTER_KINDS`, in the order the editor offers them. */
+export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd"] as const;
+export type FilterKind = (typeof FILTER_KINDS)[number];
+
+/** One gate. Mirrors the backend's `AlertFilter` union exactly. */
+export type AlertGate =
+  | { kind: "rsi"; timeframe?: FilterTimeframe; side: FilterSide; length: number; level: number }
+  | { kind: "ma"; timeframe?: FilterTimeframe; side: FilterSide; type: MaType; length: number }
+  | {
+      kind: "supertrend"; timeframe?: FilterTimeframe; side: FilterSide;
+      period: number; multiplier: number; atrMethod: StAtrMethod;
+    }
+  | {
+      kind: "rsi_ma"; timeframe?: FilterTimeframe; side: FilterSide;
+      length: number; maType: MaType; maLength: number;
+    }
+  | {
+      kind: "macd"; timeframe?: FilterTimeframe; side: FilterSide;
+      fastLength: number; slowLength: number; signalLength: number; target: MacdTarget;
+    };
+
 /** Mirrors the backend's `FILTER_DEFAULTS`. */
 export const FILTER_DEFAULTS = {
   rsi: { length: 50, level: 50, side: "above" as FilterSide },
@@ -844,7 +879,25 @@ export const FILTER_DEFAULTS = {
   supertrend: {
     period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
   },
+  rsi_ma: {
+    length: 50, maType: "ema" as MaType, maLength: 14, side: "above" as FilterSide,
+  },
+  macd: {
+    fastLength: 12, slowLength: 26, signalLength: 9,
+    target: "signal" as MacdTarget, side: "above" as FilterSide,
+  },
 } as const;
+
+/** A fresh gate of one kind, at its defaults. */
+export function defaultGate(kind: FilterKind): AlertGate {
+  switch (kind) {
+    case "rsi": return { kind, ...FILTER_DEFAULTS.rsi };
+    case "ma": return { kind, ...FILTER_DEFAULTS.ma };
+    case "supertrend": return { kind, ...FILTER_DEFAULTS.supertrend };
+    case "rsi_ma": return { kind, ...FILTER_DEFAULTS.rsi_ma };
+    case "macd": return { kind, ...FILTER_DEFAULTS.macd };
+  }
+}
 
 /** Mirrors the backend's `RSI_DEFAULTS` / `MACD_DEFAULTS` / `SUPERTREND_DEFAULTS`. */
 export const RSI_DEFAULTS = { length: 50, level: 50, maLength: 14 } as const;
@@ -962,7 +1015,12 @@ export interface MaAlert {
    * `stochastic`. One field because all three answer the same question.
    */
   indicatorTarget: string | null;
-  /** Optional trend gates, available on every family; null when unset. */
+  /**
+   * The gates this alert carries, in order. Null on a row written before the
+   * list form, where the legacy `filter*` fields below are read instead.
+   */
+  filters: AlertGate[] | null;
+  /** Legacy single gates, superseded by `filters`; null when unset. */
   filterRsiLength: number | null;
   filterRsiLevel: number | null;
   filterRsiSide: string | null;
@@ -1119,6 +1177,15 @@ export interface MaAlertUpdate {
   adxSmoothing?: number;
   adxLevel?: number;
   // ── optional trend gates, accepted on every family ──
+  /**
+   * The gate list. Sending it REPLACES the alert's gates outright; sending an
+   * empty array removes them all. Omitting it keeps whatever the alert has.
+   *
+   * There is deliberately no merge: "add this to whatever each alert already
+   * carries" cannot be shown honestly for a selection whose alerts carry
+   * different gates.
+   */
+  filters?: AlertGate[];
   filterRsi?: boolean;
   filterRsiLength?: number;
   filterRsiLevel?: number;

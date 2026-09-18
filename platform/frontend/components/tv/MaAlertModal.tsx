@@ -7,7 +7,7 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
-  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
+  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest, filterRequestForEdit,
   type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
 import {
@@ -171,14 +171,29 @@ export function MaAlertModal({
     setBusy(true);
     setErr(null);
     try {
-      await api.createMaAlert({
+      /*
+       * Editing goes through PATCH, not the upsert: gates are part of what
+       * identifies an alert, so an upsert whose gates just changed would arm a
+       * SECOND alert and leave the original behind with the old gates. `match`
+       * is found by the condition alone, which is the row being edited.
+       */
+      const body = {
         symbol, timeframe, conditionKind: family, maType, maLength,
-        ...(family === "ma_vs_ma" ? { ma2Type, ma2Length, mode: mode === "cross_down" ? "cross_down" : "cross_up" } : { mode }),
+        ...(family === "ma_vs_ma"
+          ? {
+              ma2Type, ma2Length,
+              mode: (mode === "cross_down" ? "cross_down" : "cross_up") as MaAlertMode,
+            }
+          : { mode }),
         nearMinPct, nearMaxPct, cooldownMin, frequency,
-        ...filterRequest(filters),
         note: note.trim() || null,
         enabled: armed,
-      });
+      };
+      if (match) {
+        await api.updateMaAlert(match.id, { ...body, ...filterRequestForEdit(filters) });
+      } else {
+        await api.createMaAlert({ ...body, ...filterRequest(filters) });
+      }
       onSaved(
         // The condition belongs in the confirmation for both families: "Alert
         // set — BTCUSDT 1h EMA 21" does not say what was armed, and an

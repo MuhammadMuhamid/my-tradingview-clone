@@ -7,7 +7,8 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
-  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+  AlertFiltersField, emptyFilters, filterRequest, filterRequestForEdit,
+  type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
 import {
   api,
@@ -137,18 +138,33 @@ export function LevelAlertModal({
       // One alert per timeframe. The notification names the timeframe it fired
       // on, which is only meaningful if each timeframe is its own alert.
       for (const timeframe of timeframes) {
-        await api.createMaAlert({
+        const body = {
           symbol, timeframe, conditionKind: kind, mode,
           nearMinPct, nearMaxPct, frequency, cooldownMin,
           ...(kind === "sr_zone"
             ? { srSide }
             : { pivotType, levelName, anchor }),
-          // Only the enabled gates are sent; an omitted one means "no gate",
-          // which is what every alert created before this feature has.
-          ...filterRequest(filters),
           note: note.trim() || null,
           enabled: armed,
-        });
+        };
+        /*
+         * An existing alert on this timeframe is EDITED, not upserted.
+         *
+         * Gates are part of what identifies an alert, so an upsert whose gates
+         * the user just changed would arm a second alert on the same level and
+         * leave the first behind still carrying the old gates. `matches` is
+         * found by the condition alone, which is the row being edited.
+         */
+        const existingHere = matches.find((a) => a.timeframe === timeframe);
+        if (existingHere) {
+          await api.updateMaAlert(existingHere.id, {
+            ...body, ...filterRequestForEdit(filters),
+          });
+        } else {
+          // An omitted gate list means "no gate", which is what every alert
+          // created before this feature has.
+          await api.createMaAlert({ ...body, ...filterRequest(filters) });
+        }
       }
       onSaved(
         `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${displayTicker(symbol)} · ` +

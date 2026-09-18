@@ -7,7 +7,8 @@ import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
-  AlertFiltersField, emptyFilters, filterRequest, type AlertFilterState,
+  AlertFiltersField, emptyFilters, filterRequest, filterRequestForEdit,
+  type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
 import {
   api, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
@@ -205,7 +206,7 @@ export function IndicatorAlertModal({
     setErr(null);
     try {
       for (const timeframe of timeframes) {
-        await api.createMaAlert({
+        const body = {
           symbol, timeframe, conditionKind: kind,
           mode: armedMode,
           frequency, cooldownMin,
@@ -229,10 +230,23 @@ export function IndicatorAlertModal({
                   : kind === "adx"
                     ? { adxDiLength, adxSmoothing, adxLevel }
                     : { stPeriod, stMultiplier, stAtrMethod }),
-          ...filterRequest(filters),
           note: note.trim() || null,
           enabled: armed,
-        });
+        };
+        /*
+         * An existing alert on this timeframe is EDITED, not upserted. Gates
+         * are part of what identifies an alert, so an upsert whose gates just
+         * changed would arm a second alert and leave the first behind still
+         * carrying the old ones.
+         */
+        const existingHere = matches.find((a) => a.timeframe === timeframe);
+        if (existingHere) {
+          await api.updateMaAlert(existingHere.id, {
+            ...body, ...filterRequestForEdit(filters),
+          });
+        } else {
+          await api.createMaAlert({ ...body, ...filterRequest(filters) });
+        }
       }
       onSaved(
         `${timeframes.length} alert${timeframes.length === 1 ? "" : "s"} armed on ${displayTicker(symbol)} · ` +

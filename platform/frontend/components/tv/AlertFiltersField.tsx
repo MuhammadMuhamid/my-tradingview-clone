@@ -2,8 +2,9 @@
 import { useEffect, useState } from "react";
 import { FIELD, PlusGlyph } from "@/components/ui";
 import {
-  FILTER_DEFAULTS,
-  type FilterSide, type MaAlert, type MaType, type StAtrMethod,
+  FILTER_DEFAULTS, FILTER_KINDS, FILTER_TIMEFRAMES, MAX_ALERT_FILTERS, defaultGate,
+  type AlertGate, type FilterKind, type FilterSide, type FilterTimeframe,
+  type MaAlert, type MaType, type MacdTarget, type StAtrMethod,
 } from "@/lib/api";
 
 /**
@@ -15,130 +16,260 @@ import {
  * gated on something it is not. It also means a gate added on the server
  * appears in every dialog at once instead of in whichever ones were remembered.
  *
- * Every gate is off by default. An alert that quietly requires a trend the user
- * did not ask for is worse than one that fires too often: the first looks
+ * ── Why this is a list ────────────────────────────────────────────────────
+ *
+ * It used to be three checkboxes — one RSI, one moving average, one Supertrend,
+ * all on the alert's own timeframe. That shape cannot express two gates of the
+ * same kind, so "the 1h RSI above its EMA 14 and the 4h RSI above its EMA 21"
+ * had nowhere to go. Gates are now rows the user adds, up to
+ * `MAX_ALERT_FILTERS`, each free to name its own timeframe.
+ *
+ * Every alert starts with NO gates. An alert that quietly requires a trend the
+ * user did not ask for is worse than one that fires too often: the first looks
  * broken, the second looks noisy, and only the second is obvious.
  */
-export interface AlertFilterState {
-  rsi: boolean;
-  rsiLength: number;
-  rsiLevel: number;
-  rsiSide: FilterSide;
-  ma: boolean;
-  maType: MaType;
-  maLength: number;
-  maSide: FilterSide;
-  st: boolean;
-  stPeriod: number;
-  stMultiplier: number;
-  stAtrMethod: StAtrMethod;
-  stSide: FilterSide;
-}
+export type AlertFilterState = AlertGate[];
 
-export const emptyFilters = (): AlertFilterState => ({
-  rsi: false,
-  rsiLength: FILTER_DEFAULTS.rsi.length,
-  rsiLevel: FILTER_DEFAULTS.rsi.level,
-  rsiSide: FILTER_DEFAULTS.rsi.side,
-  ma: false,
-  maType: FILTER_DEFAULTS.ma.type,
-  maLength: FILTER_DEFAULTS.ma.length,
-  maSide: FILTER_DEFAULTS.ma.side,
-  st: false,
-  stPeriod: FILTER_DEFAULTS.supertrend.period,
-  stMultiplier: FILTER_DEFAULTS.supertrend.multiplier,
-  stAtrMethod: FILTER_DEFAULTS.supertrend.atrMethod,
-  stSide: FILTER_DEFAULTS.supertrend.side,
-});
+export const emptyFilters = (): AlertFilterState => [];
+
+/** How each kind names itself in the picker. */
+const KIND_LABEL: Record<FilterKind, string> = {
+  rsi: "RSI vs level",
+  rsi_ma: "RSI vs its own MA",
+  ma: "Price vs moving average",
+  supertrend: "Price vs Supertrend",
+  macd: "MACD",
+};
 
 /**
  * The gates a persisted alert already carries.
  *
- * A gate counts as configured only when its whole rule is present, matching the
- * server's own reconstruction: a length with no side is not half a gate, it is
- * no gate, and showing it as enabled would misreport what the alert does.
+ * Prefers the list. Falls back to the legacy fields for a row written before
+ * it, where a gate counts as configured only when its whole rule is present —
+ * matching the server's own reconstruction, because a length with no side is
+ * not half a gate, it is no gate, and showing it as enabled would misreport
+ * what the alert does.
  */
 export function filtersFromAlert(a: MaAlert): AlertFilterState {
-  const f = emptyFilters();
+  if (a.filters && a.filters.length > 0) return a.filters.map((g) => ({ ...g }));
+
+  const gates: AlertGate[] = [];
   if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
-    f.rsi = true;
-    f.rsiLength = a.filterRsiLength;
-    f.rsiLevel = a.filterRsiLevel ?? f.rsiLevel;
-    f.rsiSide = a.filterRsiSide as FilterSide;
+    gates.push({
+      kind: "rsi",
+      length: a.filterRsiLength,
+      level: a.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
+      side: a.filterRsiSide as FilterSide,
+    });
   }
   if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
-    f.ma = true;
-    f.maType = a.filterMaType;
-    f.maLength = a.filterMaLength;
-    f.maSide = a.filterMaSide as FilterSide;
+    gates.push({
+      kind: "ma",
+      type: a.filterMaType,
+      length: a.filterMaLength,
+      side: a.filterMaSide as FilterSide,
+    });
   }
   if (a.filterStPeriod !== null && a.filterStSide !== null) {
-    f.st = true;
-    f.stPeriod = a.filterStPeriod;
-    f.stMultiplier = a.filterStMultiplier ?? f.stMultiplier;
-    f.stAtrMethod = (a.filterStAtrMethod as StAtrMethod | null) ?? f.stAtrMethod;
-    f.stSide = a.filterStSide as FilterSide;
+    gates.push({
+      kind: "supertrend",
+      period: a.filterStPeriod,
+      multiplier: a.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier,
+      atrMethod: (a.filterStAtrMethod as StAtrMethod | null)
+        ?? FILTER_DEFAULTS.supertrend.atrMethod,
+      side: a.filterStSide as FilterSide,
+    });
   }
-  return f;
+  return gates;
 }
 
 /**
- * The request fields for the enabled gates only.
+ * The request field for the gates, at CREATION.
  *
- * A gate the user switched off is OMITTED at creation — an absent key means
- * "no gate", which is what every alert armed before gates existed has. On an
- * edit the caller must send the explicit `false` instead, which is what tells
- * the server to remove a gate the row still carries; `filterRequestForEdit`
- * exists for exactly that difference.
+ * An empty list is omitted rather than sent: an absent key means "no gate",
+ * which is exactly what every alert armed before gates existed has, and
+ * keeping the payload identical to the pre-gate one means a create request is
+ * not quietly reshaped by a feature the user did not use.
  */
-export function filterRequest(f: AlertFilterState): Record<string, unknown> {
-  return {
-    ...(f.rsi
-      ? {
-          filterRsi: true,
-          filterRsiLength: f.rsiLength,
-          filterRsiLevel: f.rsiLevel,
-          filterRsiSide: f.rsiSide,
-        }
-      : {}),
-    ...(f.ma
-      ? {
-          filterMa: true,
-          filterMaType: f.maType,
-          filterMaLength: f.maLength,
-          filterMaSide: f.maSide,
-        }
-      : {}),
-    ...(f.st
-      ? {
-          filterSt: true,
-          filterStPeriod: f.stPeriod,
-          filterStMultiplier: f.stMultiplier,
-          filterStAtrMethod: f.stAtrMethod,
-          filterStSide: f.stSide,
-        }
-      : {}),
-  };
+export function filterRequest(gates: AlertFilterState): Record<string, unknown> {
+  return gates.length > 0 ? { filters: gates } : {};
 }
 
 /**
- * The same fields for a PATCH, with the off switches spelled out.
+ * The same field for a PATCH, where the empty list is spelled out.
  *
  * The edit path merges the request over the row's own values, so an omitted
- * gate keeps whatever the row already had. Removing one therefore needs an
- * explicit `false` — omitting it would silently leave the gate in place while
- * the dialog showed it unchecked.
+ * list keeps whatever gates the row already had. Removing the last one
+ * therefore needs an explicit `[]` — omitting it would silently leave the
+ * gates in place while the dialog showed none.
+ *
+ * The server REPLACES the list rather than merging it, because "add this to
+ * whatever each alert already has" cannot be shown honestly for a selection
+ * whose alerts carry different gates.
  */
-export function filterRequestForEdit(f: AlertFilterState): Record<string, unknown> {
-  return {
-    filterRsi: f.rsi,
-    filterMa: f.ma,
-    filterSt: f.st,
-    ...filterRequest(f),
-  };
+export function filterRequestForEdit(gates: AlertFilterState): Record<string, unknown> {
+  return { filters: gates };
 }
 
 const BOX = FIELD;
+
+/** A gate row's timeframe picker. Empty value means the alert's own. */
+function TimeframeSelect({
+  gate, onChange,
+}: {
+  gate: AlertGate;
+  onChange: (tf: FilterTimeframe | undefined) => void;
+}) {
+  return (
+    <select
+      value={gate.timeframe ?? ""}
+      aria-label="Gate timeframe"
+      onChange={(e) => onChange((e.target.value || undefined) as FilterTimeframe | undefined)}
+      className={`${BOX} w-[92px]`}
+    >
+      <option value="">same TF</option>
+      {FILTER_TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+    </select>
+  );
+}
+
+function SideSelect({
+  value, onChange, label, words,
+}: {
+  value: FilterSide;
+  onChange: (side: FilterSide) => void;
+  label: string;
+  words?: readonly [string, string];
+}) {
+  const [above, below] = words ?? ["is above", "is below"];
+  return (
+    <select
+      value={value} aria-label={label}
+      onChange={(e) => onChange(e.target.value as FilterSide)}
+      className={`${BOX} w-[150px]`}
+    >
+      <option value="above">{above}</option>
+      <option value="below">{below}</option>
+    </select>
+  );
+}
+
+const Num = ({
+  value, onChange, label, width = 70, min = "1", max = "1000", step,
+}: {
+  value: number; onChange: (n: number) => void; label: string;
+  width?: number; min?: string; max?: string; step?: string;
+}) => (
+  <input
+    type="number" min={min} max={max} step={step} value={value} aria-label={label}
+    onChange={(e) => onChange(step ? parseFloat(e.target.value || "0") : parseInt(e.target.value || "0", 10))}
+    className={`${BOX}`} style={{ width }}
+  />
+);
+
+/** The fields a single gate needs, after its kind and timeframe. */
+function GateFields({
+  gate, onChange,
+}: {
+  gate: AlertGate;
+  onChange: (next: AlertGate) => void;
+}) {
+  switch (gate.kind) {
+    case "rsi":
+      return (
+        <>
+          <span className="text-sm text-ink-muted">RSI</span>
+          <Num value={gate.length} label="Gate RSI length"
+            onChange={(length) => onChange({ ...gate, length })} />
+          <SideSelect value={gate.side} label="Gate RSI side"
+            onChange={(side) => onChange({ ...gate, side })} />
+          <Num value={gate.level} label="Gate RSI level" min="1" max="99" step="0.1"
+            onChange={(level) => onChange({ ...gate, level })} />
+        </>
+      );
+    case "rsi_ma":
+      return (
+        <>
+          <span className="text-sm text-ink-muted">RSI</span>
+          <Num value={gate.length} label="Gate RSI length"
+            onChange={(length) => onChange({ ...gate, length })} />
+          <SideSelect value={gate.side} label="Gate RSI-MA side"
+            words={["is above its", "is below its"]}
+            onChange={(side) => onChange({ ...gate, side })} />
+          <select value={gate.maType} aria-label="Gate RSI MA type"
+            onChange={(e) => onChange({ ...gate, maType: e.target.value as MaType })}
+            className={`${BOX} w-[76px]`}>
+            <option value="ema">EMA</option>
+            <option value="sma">SMA</option>
+          </select>
+          <Num value={gate.maLength} label="Gate RSI MA length"
+            onChange={(maLength) => onChange({ ...gate, maLength })} />
+        </>
+      );
+    case "ma":
+      return (
+        <>
+          <span className="text-sm text-ink-muted">Price</span>
+          <SideSelect value={gate.side} label="Gate MA side"
+            onChange={(side) => onChange({ ...gate, side })} />
+          <select value={gate.type} aria-label="Gate MA type"
+            onChange={(e) => onChange({ ...gate, type: e.target.value as MaType })}
+            className={`${BOX} w-[76px]`}>
+            <option value="ema">EMA</option>
+            <option value="sma">SMA</option>
+          </select>
+          <Num value={gate.length} label="Gate MA length" width={80}
+            onChange={(length) => onChange({ ...gate, length })} />
+        </>
+      );
+    case "supertrend":
+      return (
+        <>
+          <span className="text-sm text-ink-muted">Price</span>
+          <SideSelect value={gate.side} label="Gate Supertrend side"
+            onChange={(side) => onChange({ ...gate, side })} />
+          <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
+          <Num value={gate.period} label="Gate Supertrend ATR period" width={62}
+            onChange={(period) => onChange({ ...gate, period })} />
+          <Num value={gate.multiplier} label="Gate Supertrend multiplier" width={62}
+            min="0.1" max="100" step="0.1"
+            onChange={(multiplier) => onChange({ ...gate, multiplier })} />
+        </>
+      );
+    case "macd":
+      return (
+        <>
+          <span className="text-sm text-ink-muted">MACD</span>
+          <Num value={gate.fastLength} label="Gate MACD fast length" width={58}
+            onChange={(fastLength) => onChange({ ...gate, fastLength })} />
+          <Num value={gate.slowLength} label="Gate MACD slow length" width={58}
+            onChange={(slowLength) => onChange({ ...gate, slowLength })} />
+          <Num value={gate.signalLength} label="Gate MACD signal length" width={58}
+            onChange={(signalLength) => onChange({ ...gate, signalLength })} />
+          <select value={gate.target} aria-label="Gate MACD target"
+            onChange={(e) => onChange({ ...gate, target: e.target.value as MacdTarget })}
+            className={`${BOX} w-[92px]`}>
+            <option value="signal">vs signal</option>
+            <option value="zero">vs zero</option>
+          </select>
+          {/*
+            * Against the SIGNAL the sides are named for the mood they describe,
+            * because "MACD is above signal line" is the same rule wearing a
+            * name nobody recognises. Against ZERO they stay above/below: there
+            * the mood words would be wrong, since the centreline says which way
+            * the trend leans rather than whether momentum turned.
+            */}
+          <SideSelect
+            value={gate.side} label="Gate MACD side"
+            words={gate.target === "signal"
+              ? ["is bullish (above signal)", "is bearish (below signal)"]
+              : ["is above zero", "is below zero"]}
+            onChange={(side) => onChange({ ...gate, side })}
+          />
+        </>
+      );
+  }
+}
 
 export function AlertFiltersField({
   value, onChange,
@@ -146,18 +277,36 @@ export function AlertFiltersField({
   value: AlertFilterState;
   onChange: (next: AlertFilterState) => void;
 }) {
-  const set = (patch: Partial<AlertFilterState>): void => onChange({ ...value, ...patch });
-  const any = value.rsi || value.ma || value.st;
+  const any = value.length > 0;
+  const full = value.length >= MAX_ALERT_FILTERS;
+
   /*
    * The gates are optional and off by default, so they open only when asked
-   * for. Every dialog used to show all three gate rows (and the Supertrend
-   * method, period and multiplier behind a tick) at once, which doubled the
-   * control count of a price alert that needs a price and nothing else. A
+   * for. Every dialog used to show all three gate rows at once, which doubled
+   * the control count of a price alert that needs a price and nothing else. A
    * dialog editing an alert that already carries a gate opens expanded, so
    * nothing an alert does is ever hidden from the person editing it.
    */
   const [expanded, setExpanded] = useState(any);
   useEffect(() => { if (any) setExpanded(true); }, [any]);
+
+  const replace = (i: number, gate: AlertGate): void =>
+    onChange(value.map((g, n) => (n === i ? gate : g)));
+  const remove = (i: number): void => onChange(value.filter((_, n) => n !== i));
+  const add = (): void => onChange([...value, defaultGate("rsi")]);
+
+  /**
+   * Changing a gate's KIND starts it from that kind's defaults rather than
+   * carrying the old fields across. The two share almost no fields, and a
+   * half-carried rule would look configured while meaning something the user
+   * never chose. Only the timeframe survives, because that is the one choice
+   * the kinds genuinely share.
+   */
+  const changeKind = (i: number, kind: FilterKind): void => {
+    const timeframe = value[i]?.timeframe;
+    const fresh = defaultGate(kind);
+    replace(i, timeframe ? { ...fresh, timeframe } : fresh);
+  };
 
   if (!expanded) {
     return (
@@ -168,7 +317,8 @@ export function AlertFiltersField({
         className="flex items-center gap-1.5 text-left text-sm text-ink-muted hover:text-ink"
       >
         <PlusGlyph />
-        Add a condition (optional) — only fire when RSI, a moving average or Supertrend agrees
+        Add a condition (optional) — only fire when RSI, a moving average,
+        Supertrend or MACD agrees
       </button>
     );
   }
@@ -189,92 +339,56 @@ export function AlertFiltersField({
         )}
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-ink">
-        <input type="checkbox" checked={value.rsi}
-          onChange={(e) => set({ rsi: e.target.checked })} className="accent-accent" />
-        RSI filter
-      </label>
-      {value.rsi && (
-        <div className="flex items-center gap-2 pl-6">
-          <span className="text-sm text-ink-muted">RSI</span>
-          <input type="number" min="1" max="1000" value={value.rsiLength} aria-label="Filter RSI length"
-            onChange={(e) => set({ rsiLength: parseInt(e.target.value || "0", 10) })}
-            className={`${BOX} w-[70px]`} />
-          <select value={value.rsiSide} aria-label="Filter RSI side"
-            onChange={(e) => set({ rsiSide: e.target.value as FilterSide })}
-            className={`${BOX} w-[90px]`}>
-            <option value="above">is above</option>
-            <option value="below">is below</option>
+      {value.map((gate, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <select
+            value={gate.kind} aria-label={`Gate ${i + 1} kind`}
+            onChange={(e) => changeKind(i, e.target.value as FilterKind)}
+            className={`${BOX} w-[172px]`}
+          >
+            {FILTER_KINDS.map((k) => (
+              <option key={k} value={k}>{KIND_LABEL[k]}</option>
+            ))}
           </select>
-          <input type="number" min="1" max="99" value={value.rsiLevel} aria-label="Filter RSI level"
-            onChange={(e) => set({ rsiLevel: parseFloat(e.target.value || "0") })}
-            className={`${BOX} w-[70px]`} />
+          <TimeframeSelect
+            gate={gate}
+            onChange={(timeframe) => {
+              const next = { ...gate };
+              if (timeframe) next.timeframe = timeframe;
+              else delete next.timeframe;
+              replace(i, next);
+            }}
+          />
+          <GateFields gate={gate} onChange={(next) => replace(i, next)} />
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            aria-label={`Remove gate ${i + 1}`}
+            className="ml-auto rounded px-1.5 text-ink-faint hover:text-ink"
+          >
+            ×
+          </button>
         </div>
-      )}
+      ))}
 
-      <label className="flex items-center gap-2 text-sm text-ink">
-        <input type="checkbox" checked={value.ma}
-          onChange={(e) => set({ ma: e.target.checked })} className="accent-accent" />
-        Moving-average filter
-      </label>
-      {value.ma && (
-        <div className="flex items-center gap-2 pl-6">
-          <span className="text-sm text-ink-muted">Price</span>
-          <select value={value.maSide} aria-label="Filter MA side"
-            onChange={(e) => set({ maSide: e.target.value as FilterSide })}
-            className={`${BOX} w-[90px]`}>
-            <option value="above">is above</option>
-            <option value="below">is below</option>
-          </select>
-          <select value={value.maType} aria-label="Filter MA type"
-            onChange={(e) => set({ maType: e.target.value as MaType })}
-            className={`${BOX} w-[80px]`}>
-            <option value="ema">EMA</option>
-            <option value="sma">SMA</option>
-          </select>
-          <input type="number" min="1" max="1000" value={value.maLength} aria-label="Filter MA length"
-            onChange={(e) => set({ maLength: parseInt(e.target.value || "0", 10) })}
-            className={`${BOX} w-[80px]`} />
-        </div>
-      )}
-
-      <label className="flex items-center gap-2 text-sm text-ink">
-        <input type="checkbox" checked={value.st}
-          onChange={(e) => set({ st: e.target.checked })} className="accent-accent" />
-        Supertrend filter
-      </label>
-      {value.st && (
-        <>
-          <div className="flex items-center gap-2 pl-6">
-            <span className="text-sm text-ink-muted">Price</span>
-            <select value={value.stSide} aria-label="Filter Supertrend side"
-              onChange={(e) => set({ stSide: e.target.value as FilterSide })}
-              className={`${BOX} w-[100px]`}>
-              <option value="above">is above</option>
-              <option value="below">is below</option>
-            </select>
-            <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
-            <input type="number" min="1" max="1000" value={value.stPeriod} aria-label="Filter Supertrend ATR period"
-              onChange={(e) => set({ stPeriod: parseInt(e.target.value || "0", 10) })}
-              className={`${BOX} w-[64px]`} />
-            <input type="number" min="0.1" max="100" step="0.1" value={value.stMultiplier}
-              aria-label="Filter Supertrend multiplier"
-              onChange={(e) => set({ stMultiplier: parseFloat(e.target.value || "0") })}
-              className={`${BOX} w-[64px]`} />
-          </div>
-          <p className="pl-6 text-xs text-ink-faint">
-            ATR period · multiplier. Above the Supertrend is its uptrend, below
-            is its downtrend — the same green and red the study paints.
-          </p>
-        </>
-      )}
+      <button
+        type="button"
+        onClick={add}
+        disabled={full}
+        className="flex items-center gap-1.5 text-left text-sm text-ink-muted hover:text-ink disabled:cursor-not-allowed disabled:text-ink-faint"
+      >
+        <PlusGlyph />
+        {full ? `At the limit of ${MAX_ALERT_FILTERS} conditions` : "Add condition"}
+      </button>
 
       {any && (
         <p className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-ink-muted">
-          Measured on the alert&apos;s own timeframe, on the same bar. While a
-          filter is not met the alert stays silent — it does not queue up and
-          fire later. A filter whose indicator has not warmed up yet counts as
-          not met.
+          A condition set to <span className="text-ink">same TF</span> is measured
+          on the alert&apos;s own timeframe, on the same bar; one naming a
+          timeframe is measured there. While a condition is not met the alert
+          stays silent — it does not queue up and fire later. A condition whose
+          indicator has not warmed up, or whose timeframe cannot be read, counts
+          as not met.
         </p>
       )}
     </>

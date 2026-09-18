@@ -28,6 +28,7 @@ import {
   type ConditionKind, type MaAlertRow,
 } from "../types/maAlerts";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
+import { parseStoredFilters } from "./alertConditions";
 import type { AlertColumns } from "./alertRequest";
 
 /**
@@ -51,6 +52,10 @@ import type { AlertColumns } from "./alertRequest";
  * merge, so an unlisted field is a field that quietly reverts.
  */
 const GATE_FIELDS = [
+  // The list form. Sending it REPLACES the whole list; sending [] removes
+  // every gate. There is no merge: "add this to whatever each alert already
+  // has" cannot be shown honestly when the alerts carry different gates.
+  "filters",
   "filterRsi", "filterRsiLength", "filterRsiLevel", "filterRsiSide",
   "filterMa", "filterMaType", "filterMaLength", "filterMaSide",
   "filterSt", "filterStPeriod", "filterStMultiplier", "filterStAtrMethod", "filterStSide",
@@ -143,6 +148,17 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
  */
 export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
   const gates: Record<string, unknown> = {};
+
+  // A row carrying the list form is described BY the list, and the legacy
+  // flags are not emitted alongside it. Emitting both would hand `readFilters`
+  // two descriptions of the same gates, and it reads the list first — so the
+  // flags would be dead weight that could only ever disagree.
+  const stored = parseStoredFilters(row.filters);
+  if (stored) {
+    gates.filters = stored;
+    return withGates(row, gates);
+  }
+
   if (row.filterRsiLength !== null && row.filterRsiSide !== null) {
     gates.filterRsi = true;
     gates.filterRsiLength = row.filterRsiLength;
@@ -166,6 +182,13 @@ export function alertRequestFromRow(row: MaAlertRow): Record<string, unknown> {
     gates.filterStSide = row.filterStSide;
   }
 
+  return withGates(row, gates);
+}
+
+/** The family's own fields, with whichever gate description was built. */
+function withGates(
+  row: MaAlertRow, gates: Record<string, unknown>
+): Record<string, unknown> {
   switch (row.conditionKind) {
     case "candlestick_pattern":
       return { patternId: row.patternId, ...gates };
@@ -254,6 +277,15 @@ export function mergeConditionRequest(
   // sent just `filterRsiLevel` on an ungated alert would have it silently
   // dropped by `readFilters`; without the second, a gate could never be taken
   // off, because the merged body always still carries the row's own values.
+  // The list replaces outright, and takes the legacy description with it: a
+  // merged body carrying both would let the row's old single gates survive an
+  // edit that removed them.
+  if (body.filters !== undefined) {
+    merged.filters = body.filters;
+    for (const key of GATE_FIELDS) if (key !== "filters") delete merged[key];
+    return merged;
+  }
+
   for (const [flag, keys] of [
     ["filterRsi", ["filterRsiLength", "filterRsiLevel", "filterRsiSide"]],
     ["filterMa", ["filterMaType", "filterMaLength", "filterMaSide"]],

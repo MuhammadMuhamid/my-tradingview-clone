@@ -17,7 +17,21 @@ import {
   type AlertFilters,
 } from "../src/alerts/alertConditions";
 import { readCondition } from "../src/alerts/alertRequest";
-import { MAX_ALERT_FILTERS } from "../src/types/maAlerts";
+import { mergeConditionRequest } from "../src/alerts/alertEdit";
+import { MAX_ALERT_FILTERS, type MaAlertRow } from "../src/types/maAlerts";
+
+/** A minimal sr_zone row; the gate columns are set per test. */
+const BASE_ROW = {
+  id: "00000000-0000-4000-8000-000000000000",
+  symbol: "BTCUSDT", timeframe: "1h", conditionKind: "sr_zone",
+  srSide: "support", srPivotLength: 5, srInvalidation: "close",
+  mode: "near_above", nearMinPct: 0.2, nearMaxPct: 0.5,
+  filters: null,
+  filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
+  filterMaType: null, filterMaLength: null, filterMaSide: null,
+  filterStPeriod: null, filterStMultiplier: null,
+  filterStAtrMethod: null, filterStSide: null,
+};
 
 const bar = { high: 101, low: 99, close: 100 };
 
@@ -236,4 +250,61 @@ test("the legacy flat fields still create the gates they always did", () => {
     { kind: "rsi", length: 50, level: 50, side: "above" },
     { kind: "ma", type: "ema", length: 200, side: "above" },
   ]);
+});
+
+// ── editing the list ──────────────────────────────────────────────────────
+
+test("sending the list REPLACES the gates, and takes the legacy ones with it", () => {
+  // A row whose gates live in the legacy columns, edited with a list. If the
+  // old single-gate description survived the merge, the alert would keep gates
+  // the dialog no longer shows.
+  const row = {
+    ...BASE_ROW,
+    filterRsiLength: 21, filterRsiLevel: 55, filterRsiSide: "above",
+    filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
+  } as unknown as MaAlertRow;
+
+  const merged = mergeConditionRequest(row, {
+    filters: [
+      { kind: "macd", timeframe: "4h", fastLength: 12, slowLength: 26, signalLength: 9, target: "signal", side: "above" },
+    ],
+  })!;
+  assert.ok(merged, "the edit was accepted");
+  assert.deepEqual(
+    (merged.filters as unknown[]).length, 1,
+    "the list is exactly what was sent"
+  );
+  for (const key of [
+    "filterRsi", "filterRsiLength", "filterRsiLevel", "filterRsiSide",
+    "filterMa", "filterMaType", "filterMaLength", "filterMaSide",
+  ]) {
+    assert.equal(merged[key], undefined, `${key} survived a list edit`);
+  }
+});
+
+test("an empty list removes every gate", () => {
+  const row = {
+    ...BASE_ROW,
+    filterRsiLength: 21, filterRsiLevel: 55, filterRsiSide: "above",
+  } as unknown as MaAlertRow;
+
+  const merged = mergeConditionRequest(row, { filters: [] })!;
+  const read = readCondition("sr_zone", merged);
+  assert.ok("condition" in read, JSON.stringify(read));
+  assert.equal(
+    read.condition.filters, undefined,
+    "an alert edited to no gates must come back ungated"
+  );
+});
+
+test("a row already on the list form keeps it across an unrelated edit", () => {
+  const gates = [
+    { kind: "rsi_ma", timeframe: "1h", length: 50, maType: "ema", maLength: 14, side: "above" },
+  ];
+  const row = { ...BASE_ROW, filters: gates } as unknown as MaAlertRow;
+  const merged = mergeConditionRequest(row, { nearMaxPct: 0.9 })!;
+  assert.deepEqual(
+    merged.filters, gates,
+    "editing something else must not drop the gates"
+  );
 });

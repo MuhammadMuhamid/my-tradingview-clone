@@ -6,7 +6,7 @@ import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
-  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest,
+  AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest, filterRequestForEdit,
   type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
 import {
@@ -185,13 +185,25 @@ export function PriceAlertModal({
     setBusy(true);
     setErr(null);
     try {
-      const row = await api.createMaAlert({
-        symbol, timeframe, conditionKind: "price",
+      /*
+       * Editing goes through PATCH, not the upsert.
+       *
+       * The gates are part of what identifies an alert — two alerts differing
+       * only in their gates are two alerts, deliberately. So an upsert whose
+       * gates the user just changed no longer matches the row it came from and
+       * would arm a SECOND alert beside it, leaving the original in place with
+       * the old gates. `match` is found by the condition alone, which is
+       * exactly the row the dialog is editing.
+       */
+      const body = {
+        symbol, timeframe, conditionKind: "price" as const,
         targetPrice: target, priceDirection: direction, frequency, cooldownMin,
-        ...filterRequest(filters),
         note: note.trim() || null,
         enabled: armed,
-      });
+      };
+      const row = match
+        ? await api.updateMaAlert(match.id, { ...body, ...filterRequestForEdit(filters) })
+        : await api.createMaAlert({ ...body, ...filterRequest(filters) });
       onSaved(`${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} · ${describeAlert(row)}`);
       onClose();
     } catch (e) {

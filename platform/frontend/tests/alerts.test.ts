@@ -14,6 +14,7 @@ import type { AlertFrequency, ConditionKind, MaAlert } from "../lib/api";
 const base: MaAlert = {
   id: "a1", symbol: "BTCUSDT", timeframe: "1h",
   conditionKind: "ma",
+  filters: null,
   maType: "ema", maLength: 200, mode: "cross_up",
   ma2Type: null, ma2Length: null,
   targetPrice: null, priceDirection: null,
@@ -76,7 +77,8 @@ test("an MA alert reads as it always did", () => {
 
 test("a price alert names its level and direction", () => {
   const a = alert({
-    conditionKind: "price", maType: null, maLength: null, mode: null,
+    conditionKind: "price",
+    filters: null, maType: null, maLength: null, mode: null,
     targetPrice: 64000, priceDirection: "either",
   });
   assert.equal(describeAlert(a), "price reaches 64,000.00");
@@ -87,7 +89,8 @@ test("a price alert names its level and direction", () => {
 
 test("an MA-versus-MA alert names both lines, in order", () => {
   const a = alert({
-    conditionKind: "ma_vs_ma", maType: "ema", maLength: 50,
+    conditionKind: "ma_vs_ma",
+    filters: null, maType: "ema", maLength: 50,
     ma2Type: "sma", ma2Length: 200, mode: "cross_up",
   });
   assert.equal(describeAlert(a), "EMA 50 crosses above SMA 200");
@@ -144,7 +147,8 @@ test("a level alert is not labelled as a moving average", () => {
 
 test("an oscillator alert never describes itself as a price move", () => {
   const rsiLevel = alert({
-    conditionKind: "rsi", maType: null, maLength: null, mode: "cross_up",
+    conditionKind: "rsi",
+    filters: null, maType: null, maLength: null, mode: "cross_up",
     rsiLength: 50, rsiLevel: 50, indicatorTarget: "level",
   });
   assert.equal(describeAlert(rsiLevel), "RSI 50 crosses above 50");
@@ -153,7 +157,8 @@ test("an oscillator alert never describes itself as a price move", () => {
   assert.doesNotMatch(describeAlert(rsiLevel), /price/i);
 
   const rsiSma = alert({
-    conditionKind: "rsi", maType: null, maLength: null, mode: "cross_down",
+    conditionKind: "rsi",
+    filters: null, maType: null, maLength: null, mode: "cross_down",
     rsiLength: 50, rsiMaLength: 14, indicatorTarget: "sma",
   });
   assert.equal(describeAlert(rsiSma), "RSI 50 crosses below its SMA 14");
@@ -161,14 +166,16 @@ test("an oscillator alert never describes itself as a price move", () => {
 
 test("MACD rows name what is crossed, and hide default lengths only", () => {
   const signal = alert({
-    conditionKind: "macd", maType: null, maLength: null, mode: "cross_up",
+    conditionKind: "macd",
+    filters: null, maType: null, maLength: null, mode: "cross_up",
     macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal",
   });
   assert.equal(describeAlert(signal), "MACD crosses above the signal line");
   assert.equal(alertLineLabel(signal), "MACD");
 
   const zero = alert({
-    conditionKind: "macd", maType: null, maLength: null, mode: "cross_down",
+    conditionKind: "macd",
+    filters: null, maType: null, maLength: null, mode: "cross_down",
     macdFast: 8, macdSlow: 21, macdSignal: 5, indicatorTarget: "zero",
   });
   assert.equal(describeAlert(zero), "MACD 8/21/5 crosses below zero");
@@ -181,7 +188,8 @@ test("oscillator rows are not labelled as a moving average", () => {
   for (const a of [
     alert({ conditionKind: "rsi", maType: null, maLength: null, rsiLength: 50 }),
     alert({
-      conditionKind: "macd", maType: null, maLength: null,
+      conditionKind: "macd",
+      filters: null, maType: null, maLength: null,
       macdFast: 12, macdSlow: 26, macdSignal: 9,
     }),
   ]) {
@@ -207,7 +215,8 @@ test("each oscillator gets its own swatch, not a moving average's hue", () => {
 
 test("a gated level alert reads as a precondition, not a second trigger", () => {
   const a = alert({
-    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    conditionKind: "sr_zone",
+    filters: null, srSide: "support", mode: "near_above",
     maType: null, maLength: null,
     filterRsiLength: 50, filterRsiLevel: 50, filterRsiSide: "above",
     filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
@@ -224,7 +233,8 @@ test("a gated level alert reads as a precondition, not a second trigger", () => 
 
 test("an ungated level alert is worded exactly as before", () => {
   const a = alert({
-    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    conditionKind: "sr_zone",
+    filters: null, srSide: "support", mode: "near_above",
     maType: null, maLength: null,
   });
   assert.equal(describeAlert(a), "price 0.2–0.5% above the 1h support");
@@ -233,14 +243,16 @@ test("an ungated level alert is worded exactly as before", () => {
 
 test("one gate on its own is described on its own", () => {
   const rsiOnly = alert({
-    conditionKind: "pivot_level", pivotType: "Fibonacci", pivotLevelName: "S1",
+    conditionKind: "pivot_level",
+    filters: null, pivotType: "Fibonacci", pivotLevelName: "S1",
     pivotAnchor: "1d", mode: "near_above", maType: null, maLength: null,
     filterRsiLength: 50, filterRsiLevel: 50, filterRsiSide: "above",
   });
   assert.match(describeAlert(rsiOnly), /Fibonacci S1 \(1d\) — only while RSI 50 is above 50$/);
 
   const maOnly = alert({
-    conditionKind: "sr_zone", srSide: "support", mode: "near_above",
+    conditionKind: "sr_zone",
+    filters: null, srSide: "support", mode: "near_above",
     maType: null, maLength: null,
     filterMaType: "ema", filterMaLength: 200, filterMaSide: "above",
   });
@@ -263,23 +275,27 @@ const FAMILY_ROWS: Record<ConditionKind, Partial<MaAlert>> = {
   price: { conditionKind: "price", targetPrice: 64_000, priceDirection: "cross_up" },
   ma: { conditionKind: "ma", maType: "ema", maLength: 200, mode: "cross_up" },
   ma_vs_ma: {
-    conditionKind: "ma_vs_ma", maType: "ema", maLength: 50,
+    conditionKind: "ma_vs_ma",
+    filters: null, maType: "ema", maLength: 50,
     ma2Type: "sma", ma2Length: 200, mode: "cross_up",
   },
   sr_zone: { conditionKind: "sr_zone", srSide: "support", mode: "near_above" },
   pivot_level: {
-    conditionKind: "pivot_level", pivotType: "Fibonacci",
+    conditionKind: "pivot_level",
+    filters: null, pivotType: "Fibonacci",
     pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
   },
   rsi: { conditionKind: "rsi", rsiLength: 14, rsiLevel: 70, indicatorTarget: "level", mode: "cross_up" },
   macd: { conditionKind: "macd", macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
   supertrend: { conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },
   bollinger: {
-    conditionKind: "bollinger", bbLength: 20, bbMult: 2, bbBand: "upper",
+    conditionKind: "bollinger",
+    filters: null, bbLength: 20, bbMult: 2, bbBand: "upper",
     bbMaType: "sma", mode: "touch",
   },
   stochastic: {
-    conditionKind: "stochastic", stochKLength: 14, stochKSmooth: 1,
+    conditionKind: "stochastic",
+    filters: null, stochKLength: 14, stochKSmooth: 1,
     stochDSmooth: 3, stochLevel: 20, indicatorTarget: "signal", mode: "cross_down",
   },
   adx: { conditionKind: "adx", adxDiLength: 14, adxSmoothing: 14, adxLevel: 25, mode: "cross_up" },

@@ -8,6 +8,7 @@ import {
 
 const base: MaAlert = {
   id: "base", symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
+  filters: null,
   maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
   targetPrice: 100, priceDirection: "either",
   srSide: null, srPivotLength: null, srInvalidation: null,
@@ -35,7 +36,8 @@ const fixtures = [
   alert("ema", { conditionKind: "ma", maType: "ema", maLength: 200, mode: "touch" }),
   alert("sma", { conditionKind: "ma", maType: "sma", maLength: 50, mode: "touch" }),
   alert("cross", {
-    conditionKind: "ma_vs_ma", maType: "ema", maLength: 50,
+    conditionKind: "ma_vs_ma",
+    filters: null, maType: "ema", maLength: 50,
     ma2Type: "sma", ma2Length: 200, mode: "cross_up",
   }),
   alert("sr", { conditionKind: "sr_zone", srSide: "support", mode: "touch" }),
@@ -43,7 +45,8 @@ const fixtures = [
   alert("rsi", { conditionKind: "rsi", rsiLength: 14, mode: "cross_up" }),
   alert("macd", { conditionKind: "macd", macdFast: 12, macdSlow: 26, mode: "cross_up" }),
   alert("supertrend", {
-    conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3,
+    conditionKind: "supertrend",
+    filters: null, stPeriod: 10, stMultiplier: 3,
     stAtrMethod: "rma", mode: "cross_up",
   }),
   alert("bollinger", { conditionKind: "bollinger", mode: "touch" }),

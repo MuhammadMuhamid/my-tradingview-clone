@@ -26,6 +26,7 @@ const ROOT = path.join(__dirname, "..");
 
 const BASE: MaAlert = {
   id: "a1", symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
+  filters: null,
   maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
   targetPrice: 100, priceDirection: "either",
   srSide: null, srPivotLength: null, srInvalidation: null,
