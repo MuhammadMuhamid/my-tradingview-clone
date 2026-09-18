@@ -293,6 +293,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const [priceTick, setPriceTick] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
+    /*
+     * The PREVIOUS instrument's tick is worse than none.
+     *
+     * This effect only ever assigned, so between a symbol switch and the
+     * catalog answering, the pane held the tick of the instrument it had just
+     * left. Range sizes its bars `tick * rangeTicks`, so SOL's executions were
+     * bucketed with BTC's tick whenever the tape arrived before the catalog —
+     * BTC's axis and BTC's readouts over SOLUSDT. Everywhere else a stale tick
+     * only costs axis precision, which is why it went unseen.
+     *
+     * Null is the honest intermediate state and every consumer already handles
+     * it: Range, Kagi and Point & Figure draw nothing and say why.
+     */
+    setPriceTick(null);
     void api.listSymbols().then((rows) => {
       if (cancelled) return;
       setPriceTick(resolvePriceTick(rows, pane.symbol));

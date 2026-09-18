@@ -58,7 +58,7 @@ import {
   canonicalOpenTime, isRenkoBrick, isPointFigureColumn, transformAll, transformStep,
   type TransformCursor, type TransformKind, type TransformParams,
 } from "@/lib/chartTransforms";
-import { rangeBarsAsOhlc, footprintBarsAsOhlc, footprintCoveredTimes, type AggregateTrade } from "@/lib/tradeChartTransforms";
+import { rangeBarsAsOhlc, rangeBarSize, footprintBarsAsOhlc, footprintCoveredTimes, type AggregateTrade } from "@/lib/tradeChartTransforms";
 
 /*
  * The body a footprint cell is read OVER.
@@ -371,6 +371,35 @@ export type SeriesHead = { current: number | null };
 export function setMainSeriesData(
   api: MainSeriesApi, type: ChartType, rows: MainSeriesDatum[], head?: SeriesHead,
 ): void {
+  /*
+   * ── The assertion the production bundle does not make ────────────────────
+   *
+   * `lightweight-charts` requires data ascending and unique by time, and its
+   * DEVELOPMENT build says so — "data must be asc ordered by time". The
+   * production build carries no such assertion. Given two rows at one time
+   * point it accepts them, indexes all but one of them to 0, and the series'
+   * plot list is then no longer sorted by index: its binary search returns
+   * null for rows that are physically present, and `SeriesBarColorer` hands
+   * that null to `ensureNotNull` on the next paint. That is `Value is null`,
+   * thrown from an animation frame, which is why it repeats rather than
+   * settling.
+   *
+   * Range produced exactly that and was repaired at the source. This is the
+   * one seam every writer passes through, so the invariant is stated here too
+   * — in development, where a violation is a defect to fix, and never as a
+   * silent repair, because a chart quietly dropping bars is the failure this
+   * whole file exists to avoid.
+   */
+  if (process.env.NODE_ENV !== "production") {
+    for (let i = 1; i < rows.length; i += 1) {
+      if ((rows[i]!.time as number) <= (rows[i - 1]!.time as number)) {
+        throw new Error(
+          `${type}: main series data must ascend strictly by time — row ${i} `
+          + `(${String(rows[i]!.time)}) does not follow row ${i - 1} (${String(rows[i - 1]!.time)})`,
+        );
+      }
+    }
+  }
   const data = rows as unknown;
   const kind = renderKind(type);
   if (kind === "histogram" && type === "columns") applyColumnBase(api, rows);
@@ -967,7 +996,7 @@ export function CandleChart({
    * set — switching to it holds the viewport, which is what makes it readable
    * as the same chart smoothed.
    */
-  const drawnTransformRef = useRef<ReturnType<typeof chartTransform>>(null);
+  const drawnTypeRef = useRef<ChartType | null>(null);
   /**
    * Chart-only transform state. `headRef` is the fold over every closed bar;
    * `displayRef` is what is currently drawn, so the next update can be planned
@@ -2298,7 +2327,10 @@ export function CandleChart({
       // data therefore means an empty price series, never an OHLC estimate.
       const source = marketTrades ?? [];
       const tradeDisplay = kind === "range"
-        ? (tick ? rangeBarsAsOhlc(source, tick * settings.rangeTicks, tick) : [])
+        ? (tick ? rangeBarsAsOhlc(source, rangeBarSize(
+            tick, settings.rangeTicks, settings.rangeAuto,
+            candles[candles.length - 1]?.close ?? null,
+          ), tick) : [])
         : (tick ? footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick) : []);
       transformHeadRef.current = null;
       /*
@@ -2399,10 +2431,21 @@ export function CandleChart({
     // `mainKindRef` is the type the SERIES was built from, which is how the
     // rest of this effect reads it — the effect re-runs on `chartReady`, which
     // the series-creating effect bumps.
-    const drawnTransform = chartTransform(mainKindRef.current);
-    const timeBaseChanged = drawnTransform !== drawnTransformRef.current
-      && (isSyntheticTimeBase(drawnTransform) || isSyntheticTimeBase(drawnTransformRef.current));
-    drawnTransformRef.current = drawnTransform;
+    /*
+     * The refit is keyed on the TYPE's time base, not on its transform.
+     *
+     * Both `candles` and `range` have `transform === null`, so this compared
+     * null with null across a total time-base swap and concluded nothing had
+     * changed: no `fitContent` fired, and the viewport that framed nine months
+     * of hourly candles was kept over a handful of trade-driven bars spanning
+     * half an hour. That is the two-or-three-bars-wide window, and why ⌥R —
+     * which fits unconditionally — was the only way back.
+     */
+    const drawnType = mainKindRef.current;
+    const timeBaseChanged = drawnType !== drawnTypeRef.current
+      && (isSyntheticTimeBase(drawnType)
+        || (drawnTypeRef.current !== null && isSyntheticTimeBase(drawnTypeRef.current)));
+    drawnTypeRef.current = drawnType;
     if (datasetKeyRef.current !== datasetKey || timeBaseChanged) {
       datasetKeyRef.current = datasetKey;
       chartRef.current?.timeScale().fitContent();
@@ -2416,7 +2459,7 @@ export function CandleChart({
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
   }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
-    marketTrades, priceTick, interval, settings.rangeTicks, transformSettings,
+    marketTrades, priceTick, interval, settings.rangeTicks, settings.rangeAuto, transformSettings,
     volumeBarColor, settings.colorBarsBasedOnPreviousClose, settings.upColor, settings.downColor,
     chartType]);
 

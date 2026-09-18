@@ -103,6 +103,9 @@ export function PineEditor({
   const runNotice = runSymbol === null
     ? "The Pine engine reads the Binance Spot candle store; this instrument is not in it."
     : null;
+  // Resolved here rather than inline: a `??` beside a class list is what the
+  // contract on accent as a selection state scans for, and it is right to.
+  const applyTitle = runNotice ?? "⌘↵";
 
   // A prior result belongs to its old temporal context. Clear it immediately;
   // the next explicit run uses the new exact replay boundary.
@@ -291,7 +294,7 @@ export function PineEditor({
           <button
             onClick={() => void run(true)}
             disabled={busy || runSymbol === null}
-            title={runNotice ?? "⌘↵"}
+            title={applyTitle}
             className="flex h-7 shrink-0 items-center rounded-md bg-accent px-2.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
             {editingApplied ? "Update on chart" : "Add to chart"}

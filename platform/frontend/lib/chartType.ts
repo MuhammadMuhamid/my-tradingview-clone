@@ -70,7 +70,27 @@ export interface ChartTypeSpec {
   renderKind: ChartRenderKind;
   /** The transform applied before drawing, or null for a canonical drawing. */
   transform: TransformKind | null;
+  /*
+   * Whether this type's bars sit at CANONICAL bar times.
+   *
+   * This was derived from `transform === null`, and that proxy held for every
+   * type that existed when it was written. Range broke it: Range applies no
+   * candle transform — it is built from the execution tape — so it declared
+   * `transform: null` and was classified canonical by omission. It is not.
+   * Its bars complete on a price crossing and carry ordering keys, so every
+   * time-anchored layer was drawn over them at times they do not line up with,
+   * the MA overlay took the price scale with it, and no refit fired when the
+   * chart switched into or out of it. None of that was decided; it fell out of
+   * a field that was never about time.
+   *
+   * So it is stated per type, and `tests/chartType.test.ts` requires every
+   * type to state it. A type added later cannot inherit the wrong answer.
+   */
+  timeBase: ChartTimeBase;
 }
+
+/** Whether a type draws at canonical bar times or at keys of its own. */
+export type ChartTimeBase = "canonical" | "synthetic";
 
 /*
  * THE MENU'S ORDER, AND WHY `range` IS LAST.
@@ -92,12 +112,12 @@ export interface ChartTypeSpec {
 export const CHART_TYPES: readonly ChartTypeSpec[] = [
   {
     value: "bars", label: "Bars", group: "presentation",
-    renderKind: "bars", transform: null,
+    renderKind: "bars", transform: null, timeBase: "canonical",
     hint: "Open, high, low and close as an OHLC bar",
   },
   {
     value: "candles", label: "Candles", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Open, high, low and close as a filled body with wicks",
   },
   {
@@ -109,37 +129,37 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
      * belongs on this shelf — nothing about the prices changes.
      */
     value: "hollowCandles", label: "Hollow candles", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Candles with an unfilled body where the bar closed up",
   },
   {
     value: "volumeCandles", label: "Volume candles", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Candles shaded by each bar's traded volume",
   },
   {
     value: "line", label: "Line", group: "presentation",
-    renderKind: "line", transform: null,
+    renderKind: "line", transform: null, timeBase: "canonical",
     hint: "Closing price only",
   },
   {
     value: "lineWithMarkers", label: "Line with markers", group: "presentation",
-    renderKind: "line", transform: null,
+    renderKind: "line", transform: null, timeBase: "canonical",
     hint: "Closing price with a marker at every bar",
   },
   {
     value: "stepLine", label: "Step line", group: "presentation",
-    renderKind: "line", transform: null,
+    renderKind: "line", transform: null, timeBase: "canonical",
     hint: "Closing price as a step — each close held until the next one",
   },
   {
     value: "area", label: "Area", group: "presentation",
-    renderKind: "area", transform: null,
+    renderKind: "area", transform: null, timeBase: "canonical",
     hint: "Closing price, filled to the baseline",
   },
   {
     value: "hlcArea", label: "HLC area", group: "presentation",
-    renderKind: "line", transform: null,
+    renderKind: "line", transform: null, timeBase: "canonical",
     hint: "High-to-low range filled with the closing price traced through it",
   },
   {
@@ -151,21 +171,21 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
      * second, invisible input the user has to set.
      */
     value: "baseline", label: "Baseline", group: "presentation",
-    renderKind: "baseline", transform: null,
+    renderKind: "baseline", transform: null, timeBase: "canonical",
     hint: "Filled above and below the first close in view",
   },
   {
     value: "columns", label: "Columns", group: "presentation",
-    renderKind: "histogram", transform: null,
+    renderKind: "histogram", transform: null, timeBase: "canonical",
     hint: "Closing price as vertical columns",
   },
   {
     value: "highLow", label: "High-low", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "The traded high-to-low range without an OHLC body",
   },
   {
-    value: "footprint", label: "Volume footprint", group: "presentation", renderKind: "candles", transform: null,
+    value: "footprint", label: "Volume footprint", group: "presentation", renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Trade-driven bars with bid/ask volume by price level",
   },
   {
@@ -180,22 +200,22 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
      * lost it; what went is a second name for the row.
      */
     value: "tpo", label: "Time price opportunity", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Session profile counting time brackets at each traded price",
   },
   {
     value: "sessionVolumeProfile", label: "Session volume profile", group: "presentation",
-    renderKind: "candles", transform: null,
+    renderKind: "candles", transform: null, timeBase: "canonical",
     hint: "Candles with a price-volume profile for the current UTC session",
   },
   {
     value: "heikinAshi", label: "Heikin Ashi", group: "transform",
-    renderKind: "candles", transform: "heikinAshi",
+    renderKind: "candles", transform: "heikinAshi", timeBase: "canonical",
     hint: "Averaged bars — display only, not traded prices",
   },
   {
     value: "renko", label: "Renko", group: "transform",
-    renderKind: "candles", transform: "renko",
+    renderKind: "candles", transform: "renko", timeBase: "synthetic",
     hint: `Bricks of one ATR(${DEFAULT_RENKO_ATR_PERIOD}) — display only, no time axis`,
   },
   {
@@ -205,21 +225,21 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
     // close at the breaking close. Rendering that as `line` threw the block
     // away and drew a polyline through the closes, while the disclosure chip
     // underneath still said "3 lines". Same for Point & figure below.
-    renderKind: "candles", transform: "lineBreak",
+    renderKind: "candles", transform: "lineBreak", timeBase: "synthetic",
     hint: `${DEFAULT_LINE_BREAK_LINES}-line close-break transform — display only`,
   },
   {
     value: "kagi", label: "Kagi", group: "transform",
-    renderKind: "line", transform: "kagi",
+    renderKind: "line", transform: "kagi", timeBase: "synthetic",
     hint: "Close-driven Kagi line with a fixed percentage reversal",
   },
   {
     value: "pointAndFigure", label: "Point & figure", group: "transform",
-    renderKind: "candles", transform: "pointAndFigure",
+    renderKind: "candles", transform: "pointAndFigure", timeBase: "synthetic",
     hint: `Price columns using ${DEFAULT_PNF_BOX_PERCENT}% boxes and ${DEFAULT_PNF_REVERSAL_BOXES}-box reversals`,
   },
   {
-    value: "range", label: "Range", group: "presentation", renderKind: "candles", transform: null,
+    value: "range", label: "Range", group: "presentation", renderKind: "candles", transform: null, timeBase: "synthetic",
     hint: "Trade-driven bars completed after the configured price range",
   },
 ];
@@ -270,9 +290,13 @@ export function isHighLow(type: ChartType): boolean { return type === "highLow";
  * right for the candles is not right for them. Heikin Ashi is the exception —
  * one smoothed bar per canonical bar, same times — which is why switching to
  * it holds the viewport and switching to the other four refits.
+ *
+ * It takes a TYPE now, not a transform. Range applies no transform and has a
+ * time base of its own, so the transform could not answer this question; the
+ * spec does.
  */
-export function isSyntheticTimeBase(transform: TransformKind | null): boolean {
-  return transform !== null && transform !== "heikinAshi";
+export function isSyntheticTimeBase(type: ChartType): boolean {
+  return spec(type).timeBase === "synthetic";
 }
 
 export function chartTransform(type: ChartType): TransformKind | null {
@@ -497,8 +521,7 @@ export function legendSource(type: ChartType): LegendSource {
  * rather than to draw it wrong, and to say so.
  */
 export function timeAnchoredVisualsTruthful(type: ChartType): boolean {
-  const transform = chartTransform(type);
-  return transform === null || transform === "heikinAshi";
+  return spec(type).timeBase === "canonical";
 }
 
 /** Shown wherever a sparse transform has suppressed a time-anchored layer. */

@@ -392,6 +392,19 @@ export interface ChartSettings {
    */
   rangeTicks: number;
 
+  /*
+   * Whether the range size is chosen FROM PRICE rather than read from above.
+   *
+   * A tick count is the right unit for a trader who sets one, and the wrong
+   * default across four orders of magnitude of instrument price: twenty ticks
+   * is $0.20 on a $76,000 instrument — 0.00026% — and the same twenty is a
+   * sensible bar on a $3 one. So the control stays absolute and the DEFAULT is
+   * relative, which is the argument Renko already makes for sizing from the
+   * latest bar. Editing the field settles it: an explicit number is a
+   * decision, and a decision is kept.
+   */
+  rangeAuto: boolean;
+
   /**
    * The four display transforms' own parameters.
    *
@@ -550,6 +563,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   showEvents: true,
 
   rangeTicks: 20,
+  rangeAuto: true,
 
   renkoAtrPeriod: 14,
   lineBreakLines: 3,
@@ -822,6 +836,9 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
 
     rangeTicks: typeof value.rangeTicks === "number" && Number.isFinite(value.rangeTicks)
       && value.rangeTicks >= 1 ? Math.min(10000, Math.round(value.rangeTicks)) : 20,
+    // Absent means automatic: the stored 20 is the old default, and the old
+    // default is the thing being replaced.
+    rangeAuto: bool(value.rangeAuto, true),
 
     renkoAtrPeriod: Math.round(num(value.renkoAtrPeriod, 14, 2, 200)),
     lineBreakLines: Math.round(num(value.lineBreakLines, 3, 2, 10)),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { footprintBars, rangeBars, tradesThroughHorizon } from "../lib/tradeChartTransforms";
+import { footprintBars, rangeBarSize, rangeBars, tradesThroughHorizon } from "../lib/tradeChartTransforms";
 import { resolvePriceTick } from "../lib/priceTick";
 
 test("footprint preserves bid/ask levels, totals, delta and deduplicates executions", () => {
@@ -113,4 +113,69 @@ test("range quantizes floating-point-hostile ticks and repeated equal executions
   ], 0.1, 0.1);
   assert.deepEqual(bars.map((bar) => [Number(bar.open.toFixed(1)), Number(bar.close.toFixed(1))]), [[0.3, 0.4], [0.4, 0.5]]);
   assert.ok(bars.every((bar) => bar.high - bar.low <= 0.1 + 1e-9));
+});
+
+test("F-1 — range bars ascend strictly, and keep their real market time", () => {
+  /*
+   * Range was the one bar producer here with no monotonic guard: it emitted
+   * the raw execution timestamp, so one trade crossing three boundaries
+   * emitted three bars carrying that one timestamp. The PRODUCTION
+   * `lightweight-charts` bundle does not assert ascending order — only the
+   * development build does — so `setData` accepted the duplicates, indexed all
+   * but one to 0, and every subsequent bar-colour lookup failed
+   * `ensureNotNull(findBar(...))`. That is the `Value is null` thrown 36 times
+   * on Range and zero times on any other chart type.
+   *
+   * Renko, Kagi, Point & Figure and Line break all space their bars and keep
+   * the honest time beside the key. Range does both now.
+   */
+  const bars = rangeBars([
+    { id: 1, timestamp: 1_700_000_000_123, price: 100.00, quantity: 1, aggressor: "buy" },
+    { id: 2, timestamp: 1_700_000_001_456, price: 101.00, quantity: 1, aggressor: "buy" },
+    { id: 3, timestamp: 1_700_000_002_789, price: 100.50, quantity: 1, aggressor: "sell" },
+  ], 0.20, 0.01);
+
+  assert.ok(bars.length > 3, "one execution crossing several ranges must complete several bars");
+  for (let i = 1; i < bars.length; i += 1) {
+    assert.ok(bars[i]!.openTime > bars[i - 1]!.openTime,
+      `bar ${i} does not follow bar ${i - 1}: ${bars[i]!.openTime} <= ${bars[i - 1]!.openTime}`);
+  }
+  // The series key is `openTime / 1000` and the renderer's time points are
+  // integers, so a whole second is the spacing — the same reason Renko spaces
+  // its bricks by 1000ms rather than by 1.
+  for (const bar of bars) {
+    assert.ok(Number.isInteger(bar.openTime / 1000),
+      `a fractional time point reaches the series: ${bar.openTime}`);
+  }
+  // The ordering key may be invented. The market time may not.
+  assert.deepEqual(
+    [...new Set(bars.map((b) => b.sourceOpenTime))].sort((a, b) => a - b),
+    [1_700_000_000_123, 1_700_000_001_456, 1_700_000_002_789],
+    "every bar must carry the timestamp of the execution that completed it",
+  );
+  for (const bar of bars) {
+    assert.ok(bar.sourceOpenTime <= bar.openTime + 1_000 * bars.length,
+      "the ordering key must stay in the neighbourhood of the real time");
+  }
+});
+
+test("F-1 — the default range size follows the instrument's price", () => {
+  /*
+   * Twenty ticks is $0.20 on a $76,000 instrument — 0.00026% of price — and a
+   * sensible bar on a $3 one. A fixed tick count cannot be right for both, so
+   * the control stays absolute and the default is relative.
+   */
+  const btc = rangeBarSize(0.01, 20, true, 76_000);
+  const doge = rangeBarSize(0.00001, 20, true, 0.24);
+  assert.ok(btc > 20, `an automatic BTC bar must not be twenty ticks: ${btc}`);
+  assert.ok(Math.abs(btc / 76_000 - 0.0005) < 1e-6, `five basis points of price: ${btc}`);
+  assert.ok(Math.abs(doge / 0.24 - 0.0005) < 1e-4, `five basis points of price: ${doge}`);
+
+  // An explicit number is a decision, and a decision is kept.
+  assert.equal(rangeBarSize(0.01, 20, false, 76_000), 0.2);
+  // And it degrades to the absolute size rather than to nothing.
+  assert.equal(rangeBarSize(0.01, 20, true, null), 0.2);
+  assert.equal(rangeBarSize(0.01, 20, true, 0), 0.2);
+  assert.equal(rangeBarSize(0, 20, true, 76_000), 0, "no tick size means no bar size");
+  assert.ok(rangeBarSize(0.01, 20, true, 0.005) >= 0.01, "never below one tick");
 });

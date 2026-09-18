@@ -1,7 +1,21 @@
 /** Trade-driven chart primitives. They require ordered public executions; OHLC
  * candles alone are deliberately insufficient and never used as a substitute. */
 export interface AggregateTrade { id?: number; timestamp: number; price: number; quantity: number; aggressor: "buy" | "sell" }
-export interface RangeBar { openTime: number; open: number; high: number; low: number; close: number; volume: number; sourceTrades: number }
+/**
+ * `openTime` ORDERS a range bar; `sourceOpenTime` says when it happened.
+ *
+ * A range bar completes on a price crossing, not on a clock, and one execution
+ * can complete several at the same instant. The renderer needs a strictly
+ * increasing key — lightweight-charts indexes rows by time point, and rows
+ * sharing one are silently mis-indexed by the production build — while the
+ * crosshair, the legend and Replay need the real market time. Renko, Kagi,
+ * Point & Figure and Line break already carry both for exactly this reason.
+ */
+export interface RangeBar {
+  openTime: number; sourceOpenTime: number;
+  open: number; high: number; low: number; close: number;
+  volume: number; sourceTrades: number;
+}
 export interface FootprintLevel { price: number; buyVolume: number; sellVolume: number; totalVolume: number; delta: number }
 export interface FootprintBar { openTime: number; closeTime: number; levels: FootprintLevel[]; totalVolume: number; delta: number }
 
@@ -9,6 +23,23 @@ export interface FootprintBar { openTime: number; closeTime: number; levels: Foo
 export function tradesThroughHorizon(trades: readonly AggregateTrade[], horizonMs: number | null): AggregateTrade[] {
   if (horizonMs == null || !Number.isFinite(horizonMs)) return [...trades];
   return trades.filter((trade) => trade.timestamp <= horizonMs);
+}
+
+/**
+ * The price move one range bar represents.
+ *
+ * `ticks` is what the user set, when they set one. `auto` sizes from the
+ * instrument instead: five basis points of the last traded price, rounded to a
+ * whole number of ticks and never below one. Five is chosen to sit near the
+ * reference's own default on a major pair while staying meaningful on a
+ * sub-dollar one, which a fixed tick count cannot do for both.
+ */
+export function rangeBarSize(
+  tickSize: number, ticks: number, auto: boolean, lastPrice: number | null
+): number {
+  if (!(tickSize > 0)) return 0;
+  if (!auto || lastPrice === null || !(lastPrice > 0)) return tickSize * Math.max(1, ticks);
+  return tickSize * Math.max(1, Math.round((lastPrice * 0.0005) / tickSize));
 }
 
 /** Convert truthful trade bars to the common renderer's OHLC shape. */
@@ -32,6 +63,31 @@ export function footprintBarsAsOhlc(trades: readonly AggregateTrade[], intervalM
 export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, tickSize = 0.01): RangeBar[] {
   if (!(rangeSize > 0) || !(tickSize > 0)) return [];
   const out: RangeBar[] = []; let current: RangeBar | null = null;
+  /*
+   * Range was the one bar producer in this repository with no monotonic guard.
+   *
+   * It emitted the raw execution timestamp, and a single trade crossing three
+   * boundaries emitted three bars carrying that one timestamp. The production
+   * `lightweight-charts` bundle does not assert ascending order — only the
+   * development build does — so `setData` accepted the duplicates, indexed all
+   * but one of them to 0, and every subsequent bar-colour lookup failed
+   * `ensureNotNull(findBar(...))`. That is the `Value is null` seen 36 times on
+   * Range and on no other chart type: the other four transforms all space their
+   * bars by at least a millisecond, and the bucketed types cannot collide.
+   *
+   * The spacing is a whole second, floored to the second, because the series
+   * key is `openTime / 1000` and the renderer's time points are integers — the
+   * same reason Renko spaces its bricks by 1000ms rather than by 1. An
+   * execution's millisecond precision would otherwise arrive as a fractional
+   * time point. The honest time is kept beside it and is what the crosshair,
+   * the legend and Replay read through `canonicalOpenTime`.
+   */
+  let lastEmitted = Number.NEGATIVE_INFINITY;
+  const emit = (bar: Omit<RangeBar, "openTime" | "sourceOpenTime"> & { sourceOpenTime: number }): void => {
+    const openTime = Math.max(Math.floor(bar.sourceOpenTime / 1000) * 1000, lastEmitted + 1000);
+    lastEmitted = openTime;
+    out.push({ ...bar, openTime });
+  };
   // An exact completion leaves a real boundary behind. The next execution
   // must form from that boundary, rather than seeding a new bar at its own
   // price and silently dropping the intervening move.
@@ -51,11 +107,11 @@ export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, 
     if (!current) {
       if (lastBoundaryU === null) {
         const p = price(target);
-        current = { openTime: trade.timestamp, open: p, high: p, low: p, close: p, volume: trade.quantity, sourceTrades: 1 };
+        current = { openTime: trade.timestamp, sourceOpenTime: trade.timestamp, open: p, high: p, low: p, close: p, volume: trade.quantity, sourceTrades: 1 };
         continue;
       }
       const boundary = price(lastBoundaryU);
-      current = { openTime: trade.timestamp, open: boundary, high: boundary, low: boundary, close: boundary, volume: 0, sourceTrades: 0 };
+      current = { openTime: trade.timestamp, sourceOpenTime: trade.timestamp, open: boundary, high: boundary, low: boundary, close: boundary, volume: 0, sourceTrades: 0 };
     }
     const openU = unit(current.open);
     const dir = target >= openU ? 1 : -1;
@@ -76,8 +132,8 @@ export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, 
     while (remaining >= ticks) {
       const to = from + dir * ticks;
       const segmentOpen = price(from), segmentClose = price(to);
-      out.push({
-        openTime: first ? current.openTime : trade.timestamp,
+      emit({
+        sourceOpenTime: first ? current.sourceOpenTime : trade.timestamp,
         open: segmentOpen,
         high: Math.max(segmentOpen, segmentClose),
         low: Math.min(segmentOpen, segmentClose),
@@ -95,10 +151,10 @@ export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, 
     }
     else {
       const p = price(target), boundary = price(from);
-      current = { openTime: trade.timestamp, open: boundary, high: Math.max(boundary, p), low: Math.min(boundary, p), close: p, volume: trade.quantity, sourceTrades: 1 };
+      current = { openTime: trade.timestamp, sourceOpenTime: trade.timestamp, open: boundary, high: Math.max(boundary, p), low: Math.min(boundary, p), close: p, volume: trade.quantity, sourceTrades: 1 };
     }
   }
-  if (current) out.push(current);
+  if (current) emit(current);
   return out;
 }
 

@@ -473,9 +473,18 @@ export function ChartSettingsModal(props: {
                 <>
                   {!typeSectionOpen && <Section>{chartTypeLabel(chartType)}</Section>}
                   <FieldRow label="Range size">
+                    {/*
+                      Typing a number is the decision. The field shows what is
+                      actually being used either way, so "automatic" is never a
+                      blank the reader has to interpret; what changes is whether
+                      the size follows the instrument's price or stays put.
+                    */}
                     <NumberField value={settings.rangeTicks} min={1} max={10000} unit="ticks"
-                      onChange={(v) => set("rangeTicks", v)} label="Range size in ticks" />
+                      onChange={(v) => { set("rangeTicks", v); set("rangeAuto", false); }}
+                      label="Range size in ticks" />
                   </FieldRow>
+                  <CheckRow label="Size from price" checked={settings.rangeAuto}
+                    onChange={(v) => set("rangeAuto", v)} />
                 </>
               )}
 

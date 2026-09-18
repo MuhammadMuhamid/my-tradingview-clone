@@ -19,6 +19,7 @@ import path from "node:path";
 import {
   CHART_TYPES, chartTransform, chartTypeLabel, chartTypeOrDefault, DEFAULT_RENKO_ATR_PERIOD,
   drawsOhlc, isChartType, isSyntheticChartType, isSyntheticTimeBase, mainSeriesDatum, renderKind, renkoParams,
+  timeAnchoredVisualsTruthful,
   syntheticDisclosure, SYNTHETIC_DISCLOSURE_HINT, transformParams, transformParamSummary,
   type ChartType,
 } from "../lib/chartType";
@@ -474,23 +475,36 @@ test("A CHANGE OF TIME BASE REFITS; A CHANGE OF PRESENTATION DOES NOT", () => {
    * stays on the viewport-preserving side — which is what makes it read as the
    * same chart, smoothed.
    */
-  assert.equal(isSyntheticTimeBase(null), false);
+  /*
+   * It asks the TYPE, not the transform. Range applies no candle transform —
+   * it is built from the execution tape — so it answered `transform: null` and
+   * was classified canonical by omission, which is the whole of F-1: overlays
+   * drawn at times its bars do not hold, the MA taking the price scale, and no
+   * refit on the way in or out.
+   */
+  assert.equal(isSyntheticTimeBase("candles"), false);
   assert.equal(isSyntheticTimeBase("heikinAshi"), false);
-  for (const t of ["renko", "lineBreak", "kagi", "pointAndFigure"] as const) {
+  assert.equal(isSyntheticTimeBase("footprint"), false,
+    "footprint's series holds the canonical candles, so its time base is theirs");
+  for (const t of ["renko", "lineBreak", "kagi", "pointAndFigure", "range"] as const) {
     assert.equal(isSyntheticTimeBase(t), true, `${t} has a time base of its own`);
   }
 
-  // Every transform is accounted for above, so a new one cannot join silently.
-  const transforms = new Set(CHART_TYPES.flatMap((t) => {
-    const k = chartTransform(t.value);
-    return k === null ? [] : [k];
-  }));
-  assert.deepEqual([...transforms].sort(),
-    ["heikinAshi", "kagi", "lineBreak", "pointAndFigure", "renko"]);
+  // Every type states it, so a type added later cannot inherit a wrong answer.
+  const synthetic = CHART_TYPES.filter((t) => isSyntheticTimeBase(t.value)).map((t) => t.value);
+  assert.deepEqual([...synthetic].sort(),
+    ["kagi", "lineBreak", "pointAndFigure", "range", "renko"]);
+
+  // A synthetic time base and a truthful time-anchored layer are the same
+  // question asked twice; they may never disagree.
+  for (const t of CHART_TYPES) {
+    assert.equal(timeAnchoredVisualsTruthful(t.value), !isSyntheticTimeBase(t.value),
+      `${t.value} cannot both hide its time-anchored layers and keep them`);
+  }
 
   // And the chart actually acts on it, rather than only exporting the rule.
   const chart = read("components/CandleChart.tsx");
-  assert.match(chart, /isSyntheticTimeBase\(drawnTransform\)/,
+  assert.match(chart, /isSyntheticTimeBase\(drawnType\)/,
     "the time-base change must reach the refit");
   assert.match(chart, /timeBaseChanged/);
 });
