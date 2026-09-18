@@ -4,6 +4,8 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText,
 } from "@/lib/barCountdown";
+import { PointFigurePrimitive } from "@/lib/pointFigurePrimitive";
+import type { PointFigureColumn } from "@/lib/chartTransforms";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, ColorType, LineStyle, LineType, PriceScaleMode,
@@ -569,11 +571,28 @@ function addMainSeries(
      */
     const hollow = type === "hollowCandles";
     const highLow = type === "highLow";
+    /*
+     * Point & figure keeps the series and shows none of it.
+     *
+     * The X and O glyphs are drawn by `PointFigurePrimitive`; the series is
+     * still what the price scale fits, what the crosshair reads and what the
+     * legend and the last-price label come from. Drawing a body underneath the
+     * marks would be a second, contradictory rendering of the same column.
+     */
+    const invisible = type === "pointAndFigure";
+    const clear = "rgba(0,0,0,0)";
+    if (invisible) {
+      return chart.addCandlestickSeries({
+        upColor: clear, downColor: clear,
+        borderUpColor: clear, borderDownColor: clear,
+        wickUpColor: clear, wickDownColor: clear,
+      });
+    }
     return chart.addCandlestickSeries({
-      upColor: highLow ? "rgba(0,0,0,0)" : hollow ? "rgba(0,0,0,0)" : CHART_UP,
-      downColor: highLow ? "rgba(0,0,0,0)" : CHART_DOWN,
-      borderUpColor: highLow ? "rgba(0,0,0,0)" : CHART_UP,
-      borderDownColor: highLow ? "rgba(0,0,0,0)" : CHART_DOWN,
+      upColor: highLow ? clear : hollow ? clear : CHART_UP,
+      downColor: highLow ? clear : CHART_DOWN,
+      borderUpColor: highLow ? clear : CHART_UP,
+      borderDownColor: highLow ? clear : CHART_DOWN,
       wickUpColor: highLow ? CHART_ACCENT : CHART_UP,
       wickDownColor: highLow ? CHART_ACCENT : CHART_DOWN,
     });
@@ -2312,7 +2331,16 @@ export function CandleChart({
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || renderKind(chartType) !== "candles") return;
-    if (chartType === "hollowCandles" || chartType === "highLow") return;
+    /*
+     * Three presentations own their own body colour and must not be repainted
+     * from the candle settings. Hollow and high-low were already here; Point &
+     * figure joins them because its bodies are TRANSPARENT ON PURPOSE — the
+     * column is drawn as X and O glyphs by `PointFigurePrimitive`, and a body
+     * underneath them is a second, contradictory rendering of the same column.
+     * Without this the settings effect painted them straight back in.
+     */
+    if (chartType === "hollowCandles" || chartType === "highLow"
+      || chartType === "pointAndFigure") return;
     const clear = "rgba(0,0,0,0)";
     try {
       (series as ISeriesApi<"Candlestick">).applyOptions({
@@ -3647,6 +3675,51 @@ export function CandleChart({
    * to fall behind, and no second label to disagree about a colour or a width.
    * See `lib/barCountdown` for why one plate and not two labels.
    */
+  /*
+   * ── Point & figure draws X and O, not bodies ─────────────────────────────
+   *
+   * The columns' arithmetic has always been right — direction, box size and
+   * box count are all on each column — and the chart fed it into a candlestick
+   * series, which drew solid rectangles with nothing delimiting a box.
+   * Counting boxes is the whole act of reading a P&F chart, so a column drawn
+   * as one body withholds the only thing the chart is for.
+   *
+   * The series stays and turns transparent below: it keeps the price scale,
+   * the crosshair, the legend and the last-price label reading from real data,
+   * and leaves this primitive with nothing to own but the painting.
+   */
+  const pnfRef = useRef<PointFigurePrimitive | null>(null);
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || chartType !== "pointAndFigure") return;
+    const primitive = new PointFigurePrimitive();
+    pnfRef.current = primitive;
+    try { series.attachPrimitive(primitive); }
+    catch { pnfRef.current = null; return; }
+    return () => {
+      pnfRef.current = null;
+      try { series.detachPrimitive(primitive); }
+      catch { /* the series went away first; the primitive went with it */ }
+    };
+  }, [chartReady, chartType]);
+
+  useEffect(() => {
+    const primitive = pnfRef.current;
+    if (!primitive) return;
+    /*
+     * Filtered, not cast. `displayRef` holds whatever the current transform
+     * emitted, and a cast would quietly hand this a Renko brick the day the
+     * two effects disagree about which transform is live. A column without a
+     * box count is not a column, and is not drawn.
+     */
+    const columns = displayRef.current.filter(
+      (bar): bar is PointFigureColumn =>
+        typeof (bar as PointFigureColumn).boxes === "number"
+        && typeof (bar as PointFigureColumn).boxSize === "number",
+    );
+    primitive.update(columns, CHART_UP, CHART_DOWN);
+  }, [chartReady, chartType, candles, transformSettings]);
+
   const countdownRef = useRef<BarCountdownPrimitive | null>(null);
   useEffect(() => {
     const series = seriesRef.current;

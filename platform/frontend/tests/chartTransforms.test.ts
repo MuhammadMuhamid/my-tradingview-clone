@@ -548,8 +548,27 @@ test("THE TRANSFORMS ARE A LEAF: nothing outside the chart can reach them", () =
   const importers = files.filter((f) =>
     /from\s+["'](@\/lib\/|\.\.?\/)chartTransforms["']/.test(fs.readFileSync(f, "utf8")));
   const relative = importers.map((f) => path.relative(ROOT, f)).sort();
-  assert.deepEqual(relative, ["components/CandleChart.tsx", "lib/chartType.ts"],
-    "a synthetic transform became reachable from somewhere that is not the chart");
+  assert.deepEqual(relative, [
+    "components/CandleChart.tsx",
+    "lib/chartType.ts",
+    "lib/pointFigurePrimitive.ts",
+  ], "a synthetic transform became reachable from somewhere that is not the chart");
+
+  /*
+   * The third importer is the chart's own renderer, split into a file because
+   * a glyph per BOX is not a shape any library series can express. It is
+   * allowed here on one condition, asserted rather than assumed: it imports a
+   * TYPE and nothing else. The property this rule protects is that no synthetic
+   * price can be GENERATED outside the chart — a shape description cannot
+   * generate one, and `import type` is erased before anything runs.
+   */
+  const primitive = fs.readFileSync(path.join(ROOT, "lib/pointFigurePrimitive.ts"), "utf8");
+  const fromTransforms = primitive
+    .split("\n")
+    .filter((line) => /from\s+["'](@\/lib\/|\.\.?\/)chartTransforms["']/.test(line));
+  assert.equal(fromTransforms.length, 1, "one import line, or this check is reading the wrong thing");
+  assert.match(fromTransforms[0]!, /^import type /,
+    "the renderer may describe a column's shape, never call a transform");
 });
 
 test("THE TRANSFORM MODULE DEPENDS ON NOTHING", () => {
