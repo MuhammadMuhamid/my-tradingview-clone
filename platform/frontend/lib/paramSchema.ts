@@ -125,6 +125,22 @@ export const PARAM_GROUPS: Group[] = [
  */
 export const SCHEMAS: Record<string, Group[]> = {
   ma_rr_v9: PARAM_GROUPS,
+  /*
+   * ── These defaults are the ENGINE's, and a test proves it ────────────────
+   *
+   * Thirteen of this strategy's thirty-four inputs carried `ma_rr_v9`'s
+   * literals — `rrRatio` 2 against the engine's 3.75, `minSlDistAtr` 0.25
+   * against 3, `rrBufAtr` 0.1 against 1, both take-profit levels, the trailing
+   * distance. The form was built by copying the table beside it, which is
+   * invisible once the wiring resolves the right SCHEMA: the labels were
+   * right, the numbers were another strategy's.
+   *
+   * That made a `/research` run of this strategy silently different from a
+   * stress run of it, which sends no params and gets these engine values —
+   * while the stress page tells the reader its numbers are directly comparable
+   * with any other run on this install. It also reached a live deployment
+   * through the alert dialog, which is the only UI that can deploy `mtf_lean`.
+   */
   mtf_lean: [
     { title: "MTF gates", fields: [
       { key: "htfClosed", label: "Use confirmed HTF bars", type: "bool", default: true },
@@ -140,31 +156,31 @@ export const SCHEMAS: Record<string, Group[]> = {
     ]},
     { title: "Structure and trigger", fields: [
       { key: "useS1", label: "S1 liquidity sweep", type: "bool", default: true },
-      { key: "s1_len", label: "S1 length", type: "int", default: 3, min: 1 },
-      { key: "s1_maxAge", label: "S1 maximum age", type: "int", default: 20, min: 1 },
+      { key: "s1_len", label: "S1 length", type: "int", default: 2, min: 1 },
+      { key: "s1_maxAge", label: "S1 maximum age", type: "int", default: 30, min: 1 },
       { key: "useS4", label: "S4 SuperTrend", type: "bool", default: true },
       { key: "s4_mult", label: "S4 multiplier", type: "float", default: 3, min: 0.1, step: 0.1 },
-      { key: "useS5", label: "S5 pivot SuperTrend", type: "bool", default: false },
+      { key: "useS5", label: "S5 pivot SuperTrend", type: "bool", default: true},
       { key: "useS6", label: "S6 sell-side liquidity", type: "bool", default: true },
       { key: "s6_len", label: "S6 length", type: "int", default: 3, min: 1 },
-      { key: "s6_prox", label: "S6 proximity × ATR", type: "float", default: 20, min: 0, step: 0.5 },
+      { key: "s6_prox", label: "S6 proximity × ATR", type: "float", default: 4, min: 0, step: 0.5 },
       { key: "useTrigger", label: "Require primary trigger", type: "bool", default: false },
     ]},
     { title: "Risk and partial exits", fields: [
-      { key: "atrLenRisk", label: "Risk ATR length", type: "int", default: 7, min: 1 },
+      { key: "atrLenRisk", label: "Risk ATR length", type: "int", default: 6, min: 1 },
       { key: "rrSwingLb", label: "Swing-low lookback", type: "int", default: 10, min: 2 },
-      { key: "rrBufAtr", label: "Stop buffer × ATR", type: "float", default: 0.1, min: 0, step: 0.05 },
-      { key: "minSlDistAtr", label: "Minimum stop distance × ATR", type: "float", default: 0.25, min: 0.05, step: 0.05 },
-      { key: "rrRatio", label: "Runner reward:risk", type: "float", default: 2, min: 0.25, step: 0.25 },
+      { key: "rrBufAtr", label: "Stop buffer × ATR", type: "float", default: 1, min: 0, step: 0.05 },
+      { key: "minSlDistAtr", label: "Minimum stop distance × ATR", type: "float", default: 3, min: 0.05, step: 0.05 },
+      { key: "rrRatio", label: "Runner reward:risk", type: "float", default: 3.75, min: 0.25, step: 0.25 },
       { key: "rrUsePartialTp", label: "TP1 / TP2 partial exits", type: "bool", default: false },
-      { key: "rrTp1Pct", label: "TP1 price move %", type: "float", default: 2, min: 0.1, step: 0.1, showIf: "rrUsePartialTp" },
+      { key: "rrTp1Pct", label: "TP1 price move %", type: "float", default: 6, min: 0.1, step: 0.1, showIf: "rrUsePartialTp" },
       { key: "rrTp1Size", label: "TP1 % of original position", type: "float", default: 40, min: 1, max: 99, step: 1, showIf: "rrUsePartialTp" },
-      { key: "rrTp2Pct", label: "TP2 price move %", type: "float", default: 4, min: 0.1, step: 0.1, showIf: "rrUsePartialTp" },
+      { key: "rrTp2Pct", label: "TP2 price move %", type: "float", default: 8, min: 0.1, step: 0.1, showIf: "rrUsePartialTp" },
       { key: "rrTp2Size", label: "TP2 % of original position", type: "float", default: 30, min: 1, max: 99, step: 1, showIf: "rrUsePartialTp" },
-      { key: "rrUseBE", label: "Break-even stop", type: "bool", default: true },
-      { key: "rrBeAfterR", label: "Break-even after +R", type: "float", default: 0.75, min: 0, step: 0.25 },
+      { key: "rrUseBE", label: "Break-even stop", type: "bool", default: false},
+      { key: "rrBeAfterR", label: "Break-even after +R", type: "float", default: 1, min: 0, step: 0.25 },
       { key: "rrUseTrailSl", label: "Trailing stop", type: "bool", default: false },
-      { key: "rrTrailPct", label: "Trail distance %", type: "float", default: 3, min: 0.1, step: 0.1, showIf: "rrUseTrailSl" },
+      { key: "rrTrailPct", label: "Trail distance %", type: "float", default: 2, min: 0.1, step: 0.1, showIf: "rrUseTrailSl" },
     ]},
   ],
   srtrend_v10: [
