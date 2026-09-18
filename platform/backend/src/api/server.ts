@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health";
 import { symbolRoutes } from "./routes/symbols";
 import { strategyRoutes } from "./routes/strategies";
 import { backtestRoutes } from "./routes/backtests";
+import { stressRoutes } from "./routes/stress";
 import { dataRoutes } from "./routes/data";
 import { deploymentRoutes } from "./routes/deployments";
 import { optimizerRoutes } from "./routes/optimizer";
@@ -149,6 +150,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(symbolRoutes());
   app.register(strategyRoutes);
   app.register(backtestRoutes);
+  app.register(stressRoutes);
   app.register(dataRoutes);
   app.register(deploymentRoutes(getRunner));
   app.register(optimizerRoutes);
