@@ -553,13 +553,64 @@ exposure gate across every Platform Spot BUY path (manual, automated live,
 Paper, live test-signal), the Screener column and filter, the chart/manual-trade
 status and blocked-BUY reason, and the signed Platform → Bot Shariah context.
 
-**Still explicitly deferred:** the Bot-side handling of the signed `shariah`
-block (a paired release; Bot is untouched here), the same block on the vendored
-webhook contract, Backtester consumption, the actual Research integration
-(Research is untouched), AI evidence research / web scraping / monitoring,
-scholar engines, numeric halal/confidence scores, autonomous or automatic
-classification of any kind, a general historical ticker/project identity
-resolver, and Strategy Discovery.
+**Added 2026-09-18** (see `AUTONOMOUS_PRODUCTION_CLOSURE_STATE.md`):
+
+- **The registry can be populated from inside the product.**
+  `POST /api/shariah/universe/sync` described itself as the registry's only
+  production entry point and had no caller anywhere — so a fresh install had an
+  empty registry, every symbol resolved to REVIEW, and turning Shariah Mode on
+  was a total BUY stop with nothing in the product able to lift it. It is a
+  control on the console now. What makes that safe is that discovery is not
+  classification: the route creates newly seen assets UNSCREENED and has no path
+  that writes ELIGIBLE or EXCLUDED, so running it can only widen what needs
+  reviewing and never what may be bought.
+- **Two ungated BUY channels closed.** `spotExecution.ts` (nine venues) and
+  `traditionalExecution.ts` could create exposure with no gate call at all, on
+  either side of the Platform→Bot boundary. The test asserting universal gate
+  coverage inspected two route files by name; it now DISCOVERS every route that
+  can emit an order, so a channel added later joins the set automatically.
+- **Scope, checked before asset.** `assertShariahScopeAllowed` refuses new
+  exposure, while enforcing, in an asset class this policy version does not rule
+  on. Derivatives were previously cleared by the SPOT base asset's verdict — so a
+  short on an ELIGIBLE asset passed, which asserts a conclusion about leverage
+  and shorting that `TS_SHARIAH_V1` never made. The refusal says the policy is
+  SILENT, not that the instrument is impermissible, and names the two honest ways
+  out. SELL is never gated, on any scope, in any mode.
+- **An audit trail for the mode.** `shariah_mode_changes` (append-only) records
+  both modes, the operator from the signed session, whether the Bot floor
+  actually moved, and the policy version. `app_settings` held this switch as one
+  mutable row with a single `updated_at`.
+- **Provenance source.** `shariah_publications.source` distinguishes a decision
+  typed by the operator from one imported from a validated review pack. Rows
+  published before the column existed are NULL and stay NULL.
+- **Advisory time-based re-review.** `shariah/freshness.ts` +
+  `shariah_review_policy`. A settled decision older than the interval is
+  SURFACED — counted on the console, moved to the front of the next review pack —
+  and is never demoted. Demoting aged decisions would withdraw verdicts in bulk
+  and stop trading on an installation whose operator did nothing, at a moment
+  they did not choose, through the gate, where the effect is invisible until an
+  order is refused. A test asserts that nothing about freshness reaches
+  `gate.ts` or `policy.ts`: age must never refuse a BUY. Age is measured from
+  `reviewedAt` — when the research was done — because measuring from publication
+  would let a backlog launder its own staleness.
+
+**No longer deferred** (these were listed as deferred and have since shipped):
+Bot-side handling of the signed `shariah` block, and Backtester consumption.
+The Bot declares the block on all four execution channels as of
+`trading-scene-bot` `aad82d9`; three of them parsed strict schemas that omitted
+it and would have answered 400 to every order.
+
+**Still explicitly deferred:** the block on the vendored webhook contract, the
+actual Research integration (Research is untouched), AI evidence research / web
+scraping / monitoring, scholar engines, numeric halal/confidence scores,
+autonomous or automatic classification of any kind, a general historical
+ticker/project identity resolver, and Strategy Discovery.
+
+**Deliberately not built:** an automated-research provider that emits a
+classification. The no-model-API, no-crawler property is load-bearing here, and
+the policy states that AI statements are not evidence. The honest shape, if it
+is ever wanted, is a provider that FETCHES AND ARCHIVES source pages for a human
+to read — never one that proposes a verdict.
 
 ## Known V1 identity limit
 
