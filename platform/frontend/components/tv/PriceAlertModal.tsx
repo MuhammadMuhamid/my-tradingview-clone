@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, Dropdown, FIELD } from "@/components/ui";
@@ -128,11 +128,28 @@ export function PriceAlertModal({
    * carried into the next, unrelated alert the user created. The comment was
    * exactly the kind of stated invariant a later reader trusts instead of
    * re-checking the list, which is how it stayed wrong.
+   *
+   * ── A tick is not a reopen ────────────────────────────────────────────────
+   *
+   * That list was right and its TRIGGER was not. `lastPrice` sat in the
+   * dependency array, and `lastPrice` is the live quote, so "seed the dialog
+   * when it opens" ran several times a second on a dialog somebody was filling
+   * in. Typing a level and pausing three seconds put the market price back in
+   * the field with the caret still in it; adding a gate showed the row for
+   * about 1.4 seconds before `setFilters(emptyFilters())` took it away. The
+   * dialog could only ever arm the alert it had already pre-filled.
+   *
+   * So the reset is keyed on the OPENING — the false -> true edge — and not on
+   * the props it happens to read while seeding.
    */
+  const openedRef = useRef(false);
+  const levelSeededRef = useRef(false);
+
   useEffect(() => {
-    if (!open) return;
-    const seed = initialPrice ?? lastPrice;
-    setPrice(seed === null ? "" : String(Number(seed.toPrecision(8))));
+    if (!open) { openedRef.current = false; levelSeededRef.current = false; return; }
+    if (openedRef.current) return;
+    openedRef.current = true;
+    setPrice("");
     setTimeframe(chartTimeframe);
     setFilters(emptyFilters());
     setNote("");
@@ -140,7 +157,21 @@ export function PriceAlertModal({
     setArmed(true);
     setCooldownMin(DEFAULT_COOLDOWN_MIN);
     setErr(null);
-  }, [open, initialPrice, lastPrice, chartTimeframe]);
+  }, [open, chartTimeframe]);
+
+  /*
+   * The level is seeded from the FIRST quote this opening sees, and never
+   * again. Separate from the reset above because the dialog can open before
+   * any quote has arrived — an empty field that never fills would be its own
+   * defect — but once a number is in the field it belongs to the reader.
+   */
+  useEffect(() => {
+    if (!open || levelSeededRef.current) return;
+    const seed = initialPrice ?? lastPrice;
+    if (seed === null) return;
+    levelSeededRef.current = true;
+    setPrice(String(Number(seed.toPrecision(8))));
+  }, [open, initialPrice, lastPrice]);
 
   const target = Number(price);
   const valid = Number.isFinite(target) && target > 0;
