@@ -263,7 +263,14 @@ test("the browser is never trusted to have applied the rule", () => {
 
 async function manualApp(gateDeps: ShariahGateDeps) {
   const app = Fastify({ logger: false });
-  await app.register(manualTradingRoutes, { shariah: gateDeps });
+  await app.register(manualTradingRoutes, {
+    shariah: gateDeps,
+    // The halt is checked BEFORE permissibility — a platform that has stopped
+    // trading has nothing to say about whether an asset is eligible. These
+    // tests are about the Shariah rule, so they state the platform is running
+    // rather than leaving the route to ask a database they do not have.
+    riskLimits: async () => ({ tradingHalted: false, haltedReason: null }),
+  });
   return app;
 }
 

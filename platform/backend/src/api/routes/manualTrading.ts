@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { config } from "../../config";
+import * as liveSafety from "../../repositories/liveSafety";
 import { ManualBotError, manualBotRequest } from "../../manualTrading/client";
 import {
   ShariahExposureBlockedError, assertShariahExposureAllowed,
@@ -52,17 +53,60 @@ function gatedSide(command: Record<string, unknown>): SpotSide {
   return normalizeSpotSide(command.side) ?? "BUY";
 }
 
+/**
+ * Refuse NEW exposure while the operator halt is on.
+ *
+ * ── Why this was missing, and why it matters ──────────────────────────────
+ *
+ * `evaluateRisk` blocks a halted order, and the only thing that calls it is
+ * `liveRunner`. So the halt stopped the automated deployments and nothing
+ * else, while `/api/ops/status` reported `mode: "HALTED"` for the whole
+ * platform. An operator who pressed halt was told the market would not be
+ * touched, and the manual ticket could still open a position.
+ *
+ * ── Why only BUY ──────────────────────────────────────────────────────────
+ *
+ * `SELL is never gated, here as everywhere. An operator must always be able to
+ * get out of a position` — `shariah/gate.ts` states the rule and this follows
+ * it. Halting is the moment an operator most needs to close by hand, and this
+ * codebase has twice shipped a safety fix that trapped the exit it was meant
+ * to protect. Cancel and stop-loss/take-profit edits stay open for the same
+ * reason: they can only reduce or bound exposure, never create it.
+ *
+ * The apparent disagreement with `evaluateRisk` — which blocks exits too — is
+ * the intended division. Halting stops the AUTOMATION from acting in both
+ * directions; the operator then manages what is open by hand, which is the
+ * only reason to halt rather than simply stop the runner.
+ */
+async function assertNotHalted(
+  command: Record<string, unknown>,
+  readLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>
+): Promise<void> {
+  if (gatedSide(command) !== "BUY") return;
+  const limits = await readLimits();
+  if (!limits.tradingHalted) return;
+  throw new ManualBotError(
+    limits.haltedReason
+      ? `trading is halted: ${limits.haltedReason}. Closing an open position is still allowed.`
+      : "trading is halted. Closing an open position is still allowed.",
+    409
+  );
+}
+
 export async function manualTradingRoutes(
   app: FastifyInstance,
   dependencies: {
     shariah?: ShariahGateDeps;
     executionTarget?: (instrument: string) => ExecutionTarget;
     botRequest?: typeof manualBotRequest;
+    /** Injected so the halt refusal is provable without a database. */
+    riskLimits?: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>;
   } = {}
 ): Promise<void> {
   const shariahDeps = dependencies.shariah ?? {};
   const resolveExecutionTarget = dependencies.executionTarget ?? defaultExecutionTarget;
   const sendBotRequest = dependencies.botRequest ?? manualBotRequest;
+  const readRiskLimits = dependencies.riskLimits ?? liveSafety.getRiskLimits;
 
   /**
    * Advisory account context for the ticket: free and locked for the two assets
@@ -122,6 +166,11 @@ export async function manualTradingRoutes(
 
     const target = resolveExecutionTarget(String(command.symbol ?? ""));
     assertExecutionSupported(target, command);
+
+    // Before the Bot is contacted, and before the Shariah gate, because a
+    // halted platform has nothing to say about permissibility — it has said it
+    // is not trading.
+    await assertNotHalted(command, readRiskLimits);
 
     const context = await assertShariahExposureAllowed(
       { symbol: String(command.symbol ?? ""), side: gatedSide(command) },
