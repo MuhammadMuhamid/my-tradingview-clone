@@ -19,7 +19,8 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { chooseInDropdown } from "./harness/chart";
 import {
   assertAbsent, closeBrowser, render, resetBrowser, server, settle,
 } from "./harness/env";
@@ -76,9 +77,14 @@ test("a dialog armed off a derived chart names the resolution it will actually e
   assert.match(text, /15m/, "the notice does not name the substituted resolution");
 
   // The control is right there, and offers only what the runner can evaluate.
-  const field = screen.getByLabelText("Alert timeframe") as HTMLSelectElement;
-  assert.equal(field.value, "15m", "the dialog is not on the interval its own notice named");
-  assert.ok(![...field.options].some((o) => o.value === "45m"),
+  const field = screen.getByRole("button", { name: "Alert timeframe" });
+  assert.match(field.textContent ?? "", /15m/,
+    "the dialog is not on the interval its own notice named");
+  fireEvent.click(field);
+  await settle();
+  const offered = within(screen.getByRole("listbox", { name: "Alert timeframe" }))
+    .getAllByRole("option").map((o) => o.textContent ?? "");
+  assert.ok(!offered.some((t) => t.startsWith("45m")),
     "a timeframe the runner cannot evaluate must not be offered");
 });
 
@@ -300,7 +306,10 @@ test("the frequency explains what it evaluates, and warns when it stops waiting 
 test("each condition explains what it evaluates, and offers only conditions that exist", async () => {
   await openDialog();
 
-  const condition = screen.getByLabelText("Alert condition") as HTMLSelectElement;
+  fireEvent.click(screen.getByRole("button", { name: "Alert condition" }));
+  await settle();
+  const conditions = within(screen.getByRole("listbox", { name: "Alert condition" }))
+    .getAllByRole("option");
   /*
    * Three options because `PriceDirection` has three values. The rewrite
    * offered five — "Crossing", "Greater than" and "Less than" alongside the
@@ -308,19 +317,25 @@ test("each condition explains what it evaluates, and offers only conditions that
    * who chose "Greater than" was armed on a condition that fires on a wick
    * from below as well.
    */
-  assert.deepEqual([...condition.options].map((o) => o.value),
-    ["either", "cross_up", "cross_down"],
+  assert.deepEqual(
+    conditions.map((o) => o.textContent),
+    [
+      "Price reaches the level, from either side",
+      "Price crosses up through the level",
+      "Price crosses down through the level",
+    ],
     "the dialog offers a condition the runner cannot evaluate");
+  // Close it again; the explanations below are read with the menu shut.
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await settle();
 
   assert.match(body(), /a wick is enough/, "the reach condition is not explained");
 
-  fireEvent.change(condition, { target: { value: "cross_up" } });
-  await settle();
+  await chooseInDropdown("Alert condition", "Price crosses up through the level");
   assert.match(body(), /closes above the level after closing below it/,
     "the cross-up condition is not explained");
 
-  fireEvent.change(condition, { target: { value: "cross_down" } });
-  await settle();
+  await chooseInDropdown("Alert condition", "Price crosses down through the level");
   assert.match(body(), /closes below the level after closing above it/,
     "the cross-down condition is not explained");
 });
@@ -329,8 +344,7 @@ test("a cross armed on the side price is already on says so, in visible copy", a
   // Price is 100 and the level is 90: a cross UP through 90 cannot happen
   // until price first travels back below it.
   await openDialog({ lastPrice: 100, initialPrice: 90 });
-  fireEvent.change(screen.getByLabelText("Alert condition"), { target: { value: "cross_up" } });
-  await settle();
+  await chooseInDropdown("Alert condition", "Price crosses up through the level");
 
   const warned = [...document.querySelectorAll("p")].some(
     (p) => /Price is already above this level/.test(p.textContent ?? "")
@@ -378,9 +392,8 @@ test("the restored dialog still creates the alert it describes", async () => {
   const level = screen.getByLabelText("Alert price level") as HTMLInputElement;
   assert.equal(level.value, "123.5", "the clicked level was not prefilled");
 
-  fireEvent.change(screen.getByLabelText("Alert condition"), { target: { value: "cross_up" } });
-  fireEvent.change(screen.getByLabelText("Alert timeframe"), { target: { value: "1h" } });
-  await settle();
+  await chooseInDropdown("Alert condition", "Price crosses up through the level");
+  await chooseInDropdown("Alert timeframe", "1h");
 
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   await settle();

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
-import { Button, FIELD } from "@/components/ui";
+import { Button, Dropdown, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
 import {
@@ -256,12 +256,25 @@ export function PriceAlertModal({
         */}
         <Row label="Condition">
           <div className="grid gap-1.5">
-            <select value={direction} onChange={(e) => setDirection(e.target.value as PriceDirection)}
-              aria-label="Alert condition" className={box}>
-              {(Object.keys(DIRECTION_LABELS) as PriceDirection[]).map((d) => (
-                <option key={d} value={d}>{DIRECTION_LABELS[d]}</option>
+            {/*
+              The shared Dropdown, not a native select.
+              
+              The contract forbids a native `<select>` inside a dialog (§3), and
+              the reason is visible the moment one is opened beside the others:
+              the OS draws its own chevron and its own popup, at its own row
+              height, in its own font. This dialog reverted to two of them while
+              a truth repair was being made to it; the repair stays, the control
+              goes back.
+            */}
+            <Dropdown
+              value={direction}
+              label="Alert condition"
+              width={180}
+              onChange={(v) => setDirection(v as PriceDirection)}
+              options={(Object.keys(DIRECTION_LABELS) as PriceDirection[]).map((d) => (
+                { value: d, label: DIRECTION_LABELS[d] }
               ))}
-            </select>
+            />
             <div className="flex items-center gap-1.5">
               <input type="number" step="any" min="0" value={price} autoFocus onChange={(e) => setPrice(e.target.value)}
                 aria-label="Alert price level" className={box} />
@@ -298,12 +311,16 @@ export function PriceAlertModal({
 
         <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">
-          <select value={timeframe} onChange={(e) => setTimeframe(e.target.value as Interval)}
-            aria-label="Alert timeframe" className={box}>
-            {ALERT_INTERVAL_VALUES.map((tf) => (
-              <option key={tf} value={tf}>{tf}{resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}</option>
-            ))}
-          </select>
+          <Dropdown
+            value={timeframe}
+            label="Alert timeframe"
+            width={180}
+            onChange={(v) => setTimeframe(v as Interval)}
+            options={ALERT_INTERVAL_VALUES.map((tf) => ({
+              value: tf,
+              label: `${tf}${resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}`,
+            }))}
+          />
         </Row>
 
         {/*

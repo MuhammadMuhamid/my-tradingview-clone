@@ -315,12 +315,19 @@ test("A DERIVED CHART DOES NOT PRETEND ITS ALERTS ARE ON ITS OWN RESOLUTION", as
   assert.match(text, /This alert is set to/);
   assert.match(text, /15m/);
 
-  const field = screen.getByLabelText("Alert timeframe") as HTMLSelectElement;
-  assert.equal(field.value, "15m",
+  // The control is a button-and-listbox, not a native select, so the current
+  // value is its accessible name and the choices are its options.
+  const field = screen.getByRole("button", { name: "Alert timeframe" });
+  assert.match(field.textContent ?? "", /15m/,
     "the dialog opens on the interval the notice named, and the control is right there");
-  assert.ok(![...field.options].some((o) => o.value === "45m"),
+
+  fireEvent.click(field);
+  await settle();
+  const offered = within(screen.getByRole("listbox", { name: "Alert timeframe" }))
+    .getAllByRole("option").map((o) => o.textContent ?? "");
+  assert.ok(!offered.some((t) => t.startsWith("45m")),
     "an alert timeframe the runner cannot evaluate must not be offered");
-  assert.ok(![...field.options].some((o) => o.value === "1s"),
+  assert.ok(!offered.some((t) => t.startsWith("1s")),
     "nor one it cannot honour once per bar close");
 });
 
@@ -329,7 +336,9 @@ test("a native chart says nothing, because there is nothing to say", async () =>
   fireEvent.click(chart.container.querySelector<HTMLElement>('[data-toolbar-control="alert"]')!);
   await settle();
   assert.equal(document.querySelector('[data-resolution-notice="true"]') === null, true);
-  assert.equal((screen.getByLabelText("Alert timeframe") as HTMLSelectElement).value, "15m");
+  assert.match(
+    screen.getByRole("button", { name: "Alert timeframe" }).textContent ?? "", /15m/
+  );
 });
 
 test("history, live and the chart's own labels all name the resolution the pane is on", async () => {

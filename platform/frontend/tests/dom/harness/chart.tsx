@@ -258,3 +258,22 @@ export async function pressAll(keys: string[]): Promise<void> {
     await press(key);
   }
 }
+
+/**
+ * Choose a value in one of the product's dropdowns.
+ *
+ * By its accessible NAME and its option's visible text, because that is all a
+ * user has: the `Dropdown` primitive is a button and a listbox, not a native
+ * `<select>`, so `fireEvent.change` has nothing to change.
+ *
+ * Shared rather than copied because the migration away from native selects is
+ * ongoing — every dialog that converts needs this, and a per-file copy is how
+ * three of them end up subtly different.
+ */
+export async function chooseInDropdown(name: string, option: string | RegExp): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name }));
+  await settle();
+  const list = screen.getByRole("listbox", { name });
+  fireEvent.click(within(list).getByRole("option", { name: option }));
+  await settle();
+}

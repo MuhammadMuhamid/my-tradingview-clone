@@ -19,7 +19,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { closeBrowser, compactSeries, render, resetBrowser, server, settle } from "./harness/env";
-import { mountChart, type MountedChart } from "./harness/chart";
+import { chooseInDropdown, mountChart, type MountedChart } from "./harness/chart";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 
 beforeEach(() => {
@@ -38,21 +38,6 @@ async function openSettings(chart: MountedChart, tab: string): Promise<HTMLEleme
   fireEvent.click(screen.getByRole("tab", { name: tab }));
   await settle();
   return screen.getByRole("dialog", { name: "Chart settings" });
-}
-
-/**
- * Choose a value in one of the dialog's dropdowns.
- *
- * By its accessible NAME and its option's visible text, because that is all a
- * user has: R6 replaced every native `<select>` with a button and a listbox,
- * so `fireEvent.change` has nothing to change.
- */
-async function chooseInDropdown(name: string, option: string): Promise<void> {
-  fireEvent.click(screen.getByRole("button", { name }));
-  await settle();
-  const list = screen.getByRole("listbox", { name });
-  fireEvent.click(within(list).getByRole("option", { name: option }));
-  await settle();
 }
 
 /** Tick or untick a dialog checkbox by its label. */
