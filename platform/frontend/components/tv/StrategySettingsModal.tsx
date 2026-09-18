@@ -120,7 +120,7 @@ export function StrategySettingsModal({
 
       {tab === "inputs" ? (
         groups ? (
-          <ParamForm value={draft} onChange={setDraft} />
+          <ParamForm strategyKey={strategyKey} value={draft} onChange={setDraft} />
         ) : (
           <div className="space-y-2">
             <p className="text-xs text-ink-faint">

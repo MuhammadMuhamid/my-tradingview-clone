@@ -4,7 +4,7 @@ import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components
 import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
 import { shortReason } from "@/lib/errorCopy";
-import { defaultParams } from "@/lib/paramSchema";
+import { defaultParamsFor } from "@/lib/paramSchema";
 import type { Interval, Strategy, StrategyParams, SymbolInfo } from "@/lib/types";
 import { displaySymbol } from "@/lib/instrument";
 import { researchAssumptions } from "@/lib/workstation";
@@ -39,7 +39,7 @@ export function BacktestForm({
   const [start, setStart] = useState(isoDaysAgo(30));
   const [end, setEnd] = useState(isoDaysAgo(0));
   const [capital, setCapital] = useState(1000);
-  const [params, setParams] = useState<StrategyParams>(defaultParams());
+  const [params, setParams] = useState<StrategyParams>(defaultParamsFor("ma_rr_v9"));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -70,7 +70,21 @@ export function BacktestForm({
       <div className="space-y-4 p-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Strategy">
-            <Select value={strategyKey} onChange={(e) => setStrategyKey(e.target.value)}>
+            {/*
+              Re-seed the draft when the strategy changes. Carrying the previous
+              strategy's values across looks harmless — the form redraws — but
+              the keys the two schemas SHARE keep the old strategy's numbers,
+              which is how `mtf_lean` ran with `ma_rr_v9`'s risk/reward.
+              `app/chart/page.tsx` already switches this way.
+            */}
+            <Select
+              value={strategyKey}
+              onChange={(e) => {
+                const next = e.target.value;
+                setStrategyKey(next);
+                setParams(defaultParamsFor(next));
+              }}
+            >
               {strategies.length === 0
                 ? <option value={strategyKey}>Loading…</option>
                 : strategies.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
@@ -109,7 +123,7 @@ export function BacktestForm({
             Strategy parameters — defaults apply unless changed
           </summary>
           <div className="border-t border-border/70 p-3">
-            <ParamForm value={params} onChange={setParams} />
+            <ParamForm strategyKey={strategyKey} value={params} onChange={setParams} />
           </div>
         </details>
 

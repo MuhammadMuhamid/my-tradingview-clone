@@ -1,24 +1,50 @@
 "use client";
 import { useState } from "react";
-import { PARAM_GROUPS, Field } from "@/lib/paramSchema";
+import { groupsFor, Field } from "@/lib/paramSchema";
 import type { StrategyParams } from "@/lib/types";
 
-/** Renders the grouped ma_rr_v9 param form; controlled via value/onChange. */
+/**
+ * The grouped parameter form for ONE strategy.
+ *
+ * It used to render `PARAM_GROUPS` — `ma_rr_v9`'s schema — whatever strategy it
+ * was given, which the original docstring said outright ("the grouped ma_rr_v9
+ * param form") because at the time there was only one. When a second and third
+ * strategy arrived, the form did not follow.
+ *
+ * That is worse than showing the wrong labels. The caller seeds its draft from
+ * the same wrong schema, so picking `mtf_lean` and touching nothing sent 49
+ * `ma_rr_v9` keys, ELEVEN of which are real `mtf_lean` inputs carrying
+ * `ma_rr_v9`'s values — `rrRatio` 3.75 -> 2, both take-profits, the trailing
+ * stop, the minimum stop distance. The heading said "defaults apply unless
+ * changed" while eleven defaults had already changed, and a stress run (which
+ * sends no params, so it gets the engine's real defaults) was quietly not
+ * comparable with a Quick backtest of the same strategy over the same window.
+ *
+ * `groupsFor` has been the right answer since the second strategy was
+ * registered; `StrategySettingsModal` already called it to decide whether to
+ * show this form at all, then rendered a form that ignored the answer.
+ */
 export function ParamForm({
-  value, onChange,
+  strategyKey, value, onChange,
 }: {
+  /** Which strategy's schema to render. */
+  strategyKey: string;
   value: StrategyParams;
   onChange: (next: StrategyParams) => void;
 }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({ General: true, "MA trend (MTF)": true, "R:R — swing-low stop + ratio TP": true });
+  const groups = groupsFor(strategyKey) ?? [];
+  // The first two groups open, whatever they are called. The previous literal
+  // titles were `ma_rr_v9`'s, so every other strategy opened fully collapsed.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const isOpenFor = (title: string, index: number): boolean => open[title] ?? index < 2;
 
   const set = (key: string, v: number | string | boolean) => onChange({ ...value, [key]: v });
   const visible = (f: Field) => !f.showIf || value[f.showIf] === true;
 
   return (
     <div className="space-y-2">
-      {PARAM_GROUPS.map((g) => {
-        const isOpen = open[g.title] ?? false;
+      {groups.map((g, index) => {
+        const isOpen = isOpenFor(g.title, index);
         return (
           <div key={g.title} className="rounded-md border border-border bg-surface">
             <button

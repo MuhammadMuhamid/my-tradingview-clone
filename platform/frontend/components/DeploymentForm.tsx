@@ -4,7 +4,10 @@ import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components
 import { ParamForm } from "@/components/ParamForm";
 import { api } from "@/lib/api";
 import { shortReason } from "@/lib/errorCopy";
-import { defaultParams } from "@/lib/paramSchema";
+import { defaultParamsFor } from "@/lib/paramSchema";
+
+/** The only strategy this form can deploy. */
+const DEPLOYED_STRATEGY = "ma_rr_v9";
 import { deliversLiveOrders } from "@/lib/types";
 import type { DeliveryMode, Interval, StrategyParams, SymbolInfo } from "@/lib/types";
 
@@ -23,7 +26,12 @@ export function DeploymentForm({
   const [secret, setSecret] = useState("");
   const [botUuid, setBotUuid] = useState("");
   const [buyQuoteQty, setBuyQuoteQty] = useState(800);
-  const [params, setParams] = useState<StrategyParams>(defaultParams());
+  /*
+   * This form deploys `ma_rr_v9` and nothing else — the key is hard-coded in
+   * the request below — so naming it here rather than relying on the param
+   * form's old built-in default keeps the two from drifting apart silently.
+   */
+  const [params, setParams] = useState<StrategyParams>(defaultParamsFor(DEPLOYED_STRATEGY));
   const [showParams, setShowParams] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -33,7 +41,7 @@ export function DeploymentForm({
     setErr(null);
     try {
       await api.createDeployment({
-        strategyKey: "ma_rr_v9",
+        strategyKey: DEPLOYED_STRATEGY,
         symbol, timeframe, params, delivery,
         webhookUrl: deliversLiveOrders(delivery) ? webhookUrl || undefined : undefined,
         secret: deliversLiveOrders(delivery) ? secret || undefined : undefined,
@@ -97,7 +105,7 @@ export function DeploymentForm({
           <button onClick={() => setShowParams((s) => !s)} className="text-xs font-medium uppercase tracking-wide text-ink-faint hover:text-ink">
             {showParams ? "− Hide" : "+ Configure"} strategy parameters
           </button>
-          {showParams && <div className="mt-2"><ParamForm value={params} onChange={setParams} /></div>}
+          {showParams && <div className="mt-2"><ParamForm strategyKey={DEPLOYED_STRATEGY} value={params} onChange={setParams} /></div>}
         </div>
 
         {/* REV-UX-01: the cause is the tooltip; the sentence is the reader's. */}

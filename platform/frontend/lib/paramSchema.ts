@@ -110,13 +110,12 @@ export const PARAM_GROUPS: Group[] = [
   },
 ];
 
-export const ALL_FIELDS: Field[] = PARAM_GROUPS.flatMap((g) => g.fields);
-
-export function defaultParams(): Record<string, number | string | boolean> {
-  const out: Record<string, number | string | boolean> = {};
-  for (const f of ALL_FIELDS) out[f.key] = f.default;
-  return out;
-}
+/*
+ * There is deliberately no strategy-blind `defaultParams()` here any more.
+ * It returned `ma_rr_v9`'s defaults whoever asked, and three callers asked on
+ * behalf of other strategies — which is how a `mtf_lean` run inherited
+ * `ma_rr_v9`'s risk/reward. Use `defaultParamsFor(strategyKey)`.
+ */
 
 /**
  * Multi-strategy schema registry. Every strategy module ported into the
