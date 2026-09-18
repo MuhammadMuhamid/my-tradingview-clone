@@ -58,7 +58,21 @@ import {
   canonicalOpenTime, isRenkoBrick, isPointFigureColumn, transformAll, transformStep,
   type TransformCursor, type TransformKind, type TransformParams,
 } from "@/lib/chartTransforms";
-import { rangeBarsAsOhlc, footprintBarsAsOhlc, type AggregateTrade } from "@/lib/tradeChartTransforms";
+import { rangeBarsAsOhlc, footprintBarsAsOhlc, footprintCoveredTimes, type AggregateTrade } from "@/lib/tradeChartTransforms";
+
+/*
+ * The body a footprint cell is read OVER.
+ *
+ * A cell is the direction colour at 0.62 alpha, so a solid candle underneath
+ * muddies the pair of numerals the whole presentation exists to show. A
+ * neutral ghost keeps the bar's geometry — and its wick, which reaches past
+ * the traded levels — without competing with the cells. Neutral rather than a
+ * theme token on purpose: it must not read as a direction on either theme.
+ */
+const FOOTPRINT_GHOST = "rgba(128,128,128,0.32)";
+
+/** Said once, in full, where a reader can reach it from the chip. */
+const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
   DEFAULT_PRICE_SCALE, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
@@ -1176,6 +1190,31 @@ export function CandleChart({
   }, [chartType, priceTick, marketTrades, marketTradesError]);
 
   /*
+   * ── What a footprint chart owes the reader about its own coverage ────────
+   *
+   * The cells come from the public execution tape, which reaches back only as
+   * far as the provider will page: about two hours of BTC at the 50,000-row
+   * ceiling, and the window is requested as the last thirty minutes. Older
+   * bars are drawn as ordinary exchange OHLC — truthfully, and never with an
+   * inferred cell — but a reader cannot tell a bar with no order flow from a
+   * bar whose order flow is simply out of reach unless the pane says which.
+   *
+   * So it says which, in bars rather than in prose about windows, because the
+   * bar count is what the reader is looking at. It is not routed through
+   * `syntheticDisclosure`: nothing here is a synthetic PRICE, and that chip
+   * means something else.
+   */
+  const footprintCoverage = useMemo((): { withTape: number; total: number } | null => {
+    if (chartType !== "footprint" || chartUnavailable) return null;
+    if (!(priceTick !== null && priceTick !== undefined && priceTick > 0)) return null;
+    if (candles.length === 0) return null;
+    const covered = footprintCoveredTimes(marketTrades ?? [], Math.max(60_000, resolutionMs(interval)));
+    if (covered.size === 0) return null;
+    const withTape = candles.reduce((n, c) => covered.has(c.openTime) ? n + 1 : n, 0);
+    return withTape >= candles.length ? null : { withTape, total: candles.length };
+  }, [chartType, chartUnavailable, priceTick, candles, marketTrades, interval]);
+
+  /*
    * ── R6 T-1 / A-1: three things that were one switch ──────────────────────
    *
    * `showTrading` gated the position and order LINES, the execution ARROWS and
@@ -2263,26 +2302,48 @@ export function CandleChart({
         : (tick ? footprintBarsAsOhlc(source, Math.max(60_000, resolutionMs(interval)), tick) : []);
       transformHeadRef.current = null;
       /*
-       * Both presentations keep their bars here, footprint included.
+       * ── Footprint draws EVERY bar; only the cells are tape-bound ──────────
        *
-       * Footprint used to store `[]`, because the bars it hands the SERIES are
-       * a transparent anchor and storing them looked like storing nothing. But
-       * `legendSource("footprint")` is `"tradeBar"`, and the tradeBar legend
-       * reads exactly this array — so the OHLC status line was permanently
-       * blank on a footprint chart even when the footprint itself rendered
-       * perfectly. The two things this array feeds are the legend and the
-       * series, and only the series wanted the transparent version.
+       * This branch used to hand the series a transparent anchor built from
+       * the tape alone, and store that same array for the legend. The tape is
+       * a recent window — measured on this provider, 50,000 executions is
+       * about two hours of BTC and the page walks FORWARD from the window
+       * start, so deep backfill is not available at any limit. On a 1D chart
+       * that anchor is one or two bars. Every other bar was therefore absent
+       * from the series, not merely invisible: no body, no wick, nothing. The
+       * price scale, shared with the MA overlay, then fitted the MA, and a
+       * reader who chose Footprint saw an empty pane with two decorated bars.
+       *
+       * It was recorded once as an honest limitation. It was not honest: the
+       * chart said nothing, and a chart that draws nothing while claiming a
+       * presentation is the one outcome the disclosure work exists to prevent.
+       *
+       * So the series now holds the canonical candles — the exchange's own
+       * OHLCV, already under the volume histogram on this very pane — and the
+       * cells stay strictly tape-derived. Nothing is synthesised: no cell, no
+       * delta, no bid/ask split is ever inferred from a candle. The bars the
+       * tape does cover are drawn as a ghost body so the cells read over them
+       * rather than fighting a solid candle at 0.62 alpha, and the pane says
+       * how many bars those are.
+       *
+       * The legend follows the series: it reads the canonical candle, so
+       * `legendSource("footprint")` is `"canonical"` and this array is the
+       * range bars' alone.
        */
-      displayRef.current = tradeDisplay;
-      // Footprint keeps a transparent OHLC anchor solely so lightweight-charts
-      // supplies a usable price scale; all visible information is painted by
-      // FootprintLayer at its individual bid/ask levels.
-      const footprintAnchor = kind === "footprint" ? tradeDisplay.map((bar) => ({
-        ...mainSeriesDatum(kind, bar), color: "rgba(0,0,0,0)",
-        wickColor: "rgba(0,0,0,0)", borderColor: "rgba(0,0,0,0)",
-      })) : [];
-      setMainSeriesData(series, kind, kind === "range"
-        ? tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)) : footprintAnchor, mainHeadRef);
+      displayRef.current = kind === "range" ? tradeDisplay : [];
+      if (kind === "footprint") {
+        const covered = tick
+          ? footprintCoveredTimes(source, Math.max(60_000, resolutionMs(interval)))
+          : new Set<number>();
+        setMainSeriesData(series, kind, candles.map((c) => covered.has(c.openTime)
+          ? {
+              ...mainSeriesDatum(kind, c), color: FOOTPRINT_GHOST,
+              wickColor: FOOTPRINT_GHOST, borderColor: FOOTPRINT_GHOST,
+            }
+          : candleDatum(c)), mainHeadRef);
+      } else {
+        setMainSeriesData(series, kind, tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)), mainHeadRef);
+      }
       mainSeriesDirtyRef.current = false;
     } else if (transform === null) {
       transformHeadRef.current = null;
@@ -2904,15 +2965,27 @@ export function CandleChart({
       const transform = chartTransform(kind);
       const maxVolume = list.reduce((max, candle) => Number.isFinite(candle.volume)
         ? Math.max(max, candle.volume) : max, 0);
-      if (transform === null && kind !== "range" && kind !== "footprint") {
+      /*
+       * Footprint joins the live path now that its series holds canonical
+       * candles: the forming bar is an ordinary candle like any other, and it
+       * always has tape — it is the bar the stream is filling — so it takes
+       * the ghost body the replace path gives its covered bars. Range stays
+       * out: its bars are built from executions, not from this tick.
+       */
+      if (transform === null && kind !== "range") {
         const liveOhlc = {
           openTime: tick.openTime, open: tick.open, high: tick.high,
           low: tick.low, close: tick.close,
         };
         const liveDatum = (c: Candle) => kind === "columns"
           ? { time: c.openTime / 1000, value: c.close }
-          : mainSeriesDatum(kind, c, barColorRef.current.get(c.openTime / 1000)
-            ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
+          : kind === "footprint"
+            ? {
+                ...mainSeriesDatum(kind, c), color: FOOTPRINT_GHOST,
+                wickColor: FOOTPRINT_GHOST, borderColor: FOOTPRINT_GHOST,
+              }
+            : mainSeriesDatum(kind, c, barColorRef.current.get(c.openTime / 1000)
+              ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
         /*
          * The repaint is not optional here either.
          *
@@ -3852,6 +3925,17 @@ export function CandleChart({
       {chartUnavailable && (
         <div role="status" className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn">
           {chartUnavailable}
+        </div>
+      )}
+      {footprintCoverage && (
+        <div
+          role="status"
+          data-footprint-coverage={footprintCoverage.withTape}
+          title={FOOTPRINT_COVERAGE_HINT}
+          className="rounded-sm border border-border/70 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-ink-muted"
+        >
+          Footprint cells on {footprintCoverage.withTape} of {footprintCoverage.total} bars
+          <span className="sr-only"> — {FOOTPRINT_COVERAGE_HINT}</span>
         </div>
       )}
       {/*

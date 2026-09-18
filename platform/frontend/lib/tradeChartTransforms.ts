@@ -102,6 +102,29 @@ export function rangeBars(trades: readonly AggregateTrade[], rangeSize: number, 
   return out;
 }
 
+/**
+ * The bar times the tape actually covers — the cheap half of `footprintBars`.
+ *
+ * A footprint chart draws exchange OHLC for every bar and real bid/ask cells
+ * only where the tape reaches, so two places need to know which bars those
+ * are: the series, to hand the covered bars a ghost body the cells can be read
+ * over, and the pane, to say how many of them there are. Neither needs the
+ * per-level aggregation, and running `footprintBars` twice more over 50,000
+ * executions to learn a set of timestamps is the kind of cost that is easy to
+ * add and hard to find. Same bucketing rule, same admission filter, one pass.
+ */
+export function footprintCoveredTimes(
+  trades: readonly AggregateTrade[], intervalMs: number
+): Set<number> {
+  const out = new Set<number>();
+  if (!(intervalMs > 0)) return out;
+  for (const trade of trades) {
+    if (!(trade.quantity > 0) || !Number.isFinite(trade.price)) continue;
+    out.add(Math.floor(trade.timestamp / intervalMs) * intervalMs);
+  }
+  return out;
+}
+
 export function footprintBars(trades: readonly AggregateTrade[], intervalMs: number, tickSize = 0.01): FootprintBar[] {
   if (!(intervalMs > 0)) return [];
   const grouped = new Map<number, Map<number, FootprintLevel>>();

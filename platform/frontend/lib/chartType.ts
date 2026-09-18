@@ -462,7 +462,18 @@ export type LegendSource = "canonical" | "tradeBar" | "heikinAshi" | "renkoBrick
 
 export function legendSource(type: ChartType): LegendSource {
   const transform = chartTransform(type);
-  if (type === "range" || type === "footprint") return "tradeBar";
+  /*
+   * Footprint is NOT a tradeBar legend, though it once was.
+   *
+   * Its series holds the canonical candles — the exchange's own OHLC for every
+   * bar, with the tape supplying cells on top rather than bars underneath — so
+   * the legend must read the same thing the user is pointing at. The tradeBar
+   * shape it used to read came from `footprintBarsAsOhlc`, whose `open` is the
+   * lowest traded LEVEL and whose `close` is a volume-weighted mean, printed
+   * under the labels O/H/L/C. `open` equalled `low` on every bar, which is the
+   * tell. Range keeps it: a range bar genuinely is the bar being drawn.
+   */
+  if (type === "range") return "tradeBar";
   if (transform === "heikinAshi") return "heikinAshi";
   if (transform === "renko") return "renkoBrick";
   if (transform === "pointAndFigure") return "pointFigureColumn";
