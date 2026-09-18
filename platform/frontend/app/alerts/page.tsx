@@ -12,6 +12,7 @@ import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
   FREQUENCY_LABELS, isAlertActive,
 } from "@/lib/alerts";
+import { BulkEditAlertsModal } from "@/components/tv/BulkEditAlertsModal";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import {
   ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, alertTimeframeOptions, buildBulkRequest,
@@ -54,6 +55,7 @@ export default function AlertsPage() {
    * deliberate step that makes that the whole list.
    */
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkEditing, setBulkEditing] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -356,6 +358,13 @@ export default function AlertsPage() {
                 {busy === "bulk-pause" ? "Pausing…" : `Pause${selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}`}
               </Button>
               <Button
+                onClick={() => setBulkEditing(true)}
+                disabled={busy !== null || selectedAlerts.length === 0}
+                label={`Edit ${selectedAlerts.length} selected alerts`}
+              >
+                Edit{selectedAlerts.length ? ` ${selectedAlerts.length}` : ""}
+              </Button>
+              <Button
                 variant="ghost"
                 className="text-down hover:bg-down/10"
                 onClick={() => void bulkAct("delete")}
@@ -567,6 +576,20 @@ export default function AlertsPage() {
           void refresh();
         }}
         onDeleted={(_deleted, message) => { setToast(message); void refresh(); }}
+      />
+
+      <BulkEditAlertsModal
+        alerts={selectedAlerts}
+        open={bulkEditing}
+        onClose={() => setBulkEditing(false)}
+        onSaved={(message) => {
+          // The selection is cleared on success for the same reason the bulk
+          // actions clear it: the rows it named may no longer match the filters
+          // they were picked under, and a stale selection acts on the wrong set.
+          setSelected(new Set());
+          setToast(message);
+          void refresh();
+        }}
       />
 
       {toast && (

@@ -1679,6 +1679,17 @@ export const api = {
   updateMaAlert: (id: string, body: MaAlertUpdate) =>
     req<MaAlert>(`/api/ma-alerts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMaAlert: (id: string) => req<void>(`/api/ma-alerts/${id}`, { method: "DELETE" }),
+  /**
+   * Apply one patch to many alerts.
+   *
+   * Every selected alert is PLANNED server-side before any is written, so a
+   * refusal leaves all of them untouched — the caller never has to work out
+   * which half landed. `filters` replaces each alert's gates outright.
+   */
+  bulkEditMaAlerts: (ids: string[], patch: MaAlertUpdate) =>
+    req<{ updated: MaAlert[]; missingIds: string[] }>("/api/ma-alerts/bulk-edit", {
+      method: "POST", body: JSON.stringify({ ids, patch }),
+    }),
   bulkMaAlerts: (action: BulkAlertAction, ids: string[]) =>
     req<BulkAlertResult>("/api/ma-alerts/bulk", {
       method: "POST", body: JSON.stringify({ action, ids }),
