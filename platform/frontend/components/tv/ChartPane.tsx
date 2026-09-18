@@ -1054,6 +1054,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <CandleChart
             symbol={pane.symbol}
             interval={pane.interval}
+            /* So the chart knows its shorter array is a Replay horizon. */
+            replayAnchorTime={replay?.horizonCloseTime ?? null}
             /*
               The pane's identity and its own controls, handed to the chart as a
               slot rather than drawn beside it.

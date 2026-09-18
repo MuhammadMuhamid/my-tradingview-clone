@@ -797,6 +797,7 @@ export function CandleChart({
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
   onOpenObjectTree,
+  replayAnchorTime = null,
   canIndicatorAction,
   hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
@@ -936,6 +937,18 @@ export function CandleChart({
   onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
   /** The legend menu's `Object tree` row, resolved as the chart menu resolves it. */
   onOpenObjectTree?: () => void;
+  /**
+   * The close time of the bar Replay is stopped on, or null outside Replay.
+   *
+   * The chart is handed a SHORTER candle array during Replay and nothing else,
+   * so it had no way to know the array had been truncated on purpose. It kept
+   * whatever window it was already on, which is how stepping 72 bars forward
+   * moved the clock and the legend three days while the plot, the volume, both
+   * study panes and the time axis stayed identical — the bar being replayed was
+   * simply off the right-hand edge, and the visible window ended four days
+   * BEFORE the replay point.
+   */
+  replayAnchorTime?: number | null;
   /**
    * Whether a price-pane overlay is a study the action above can move.
    *
@@ -1727,6 +1740,41 @@ export function CandleChart({
       }
     } catch { /* the range is not loaded; the view stays where it is */ }
   }, [goTo]);
+
+  /*
+   * Keep the replayed bar on screen.
+   *
+   * Deliberately a SCROLL and not a fit, for the same reason `goTo` above is:
+   * Replay should not re-zoom a window the reader chose. Entering Replay moves
+   * the window so the horizon bar sits at the right edge; stepping moves it
+   * only when the new bar would otherwise fall off that edge, which is what
+   * makes a step look like one bar being appended rather than the chart
+   * jumping. Panning back to look at earlier history is left alone until the
+   * horizon catches up with the edge again.
+   */
+  const replayAnchorRef = useRef<number | null>(null);
+  useEffect(() => {
+    const previous = replayAnchorRef.current;
+    replayAnchorRef.current = replayAnchorTime;
+    if (replayAnchorTime === null) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    try {
+      const scale = chart.timeScale();
+      const current = scale.getVisibleRange();
+      const anchor = Math.floor(replayAnchorTime / 1000);
+      if (!current) { scale.fitContent(); return; }
+      const span = Number(current.to) - Number(current.from);
+      const entering = previous === null;
+      if (!entering && anchor <= Number(current.to)) return;
+      if (span > 0) {
+        scale.setVisibleRange({
+          from: (anchor - span) as UTCTimestamp,
+          to: anchor as UTCTimestamp,
+        });
+      }
+    } catch { /* the range is not loaded; the view stays where it is */ }
+  }, [replayAnchorTime]);
 
   const onChartContextMenuRef = useRef(onChartContextMenu);
   onChartContextMenuRef.current = onChartContextMenu;
