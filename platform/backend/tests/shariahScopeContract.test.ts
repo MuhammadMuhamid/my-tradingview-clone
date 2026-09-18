@@ -105,6 +105,18 @@ test("X5 never gates SELL, because a SELL may be the only way out", async () => 
   const app = Fastify();
   await app.register(async (child) => traditionalExecutionRoutes(child, {
     shariah: enforcing,
+    /*
+     * A fixed clock, inside an open FX session.
+     *
+     * The route asks `oandaFxSessionOpen(now())` before it reaches the Shariah
+     * gate, and this test did not inject `now`, so it used the real one: it
+     * passed on a weekday and returned 422 "provider/exchange session is
+     * closed" every Friday evening through Sunday. A safety test that only
+     * holds five days a week is a safety test that will one day be believed on
+     * the wrong day. Wednesday 15:00 UTC is inside both the FX and the Globex
+     * session by any reading of the rules in `market/traditionalMarkets`.
+     */
+    now: () => Date.UTC(2026, 8, 16, 15, 0, 0),
     botRequest: async () => { throw new Error("the Bot must never be contacted for a refused order"); },
     claimIntent: async () => { throw new Error("a refused order must not claim an intent"); },
     resolveIntent: async () => {},
