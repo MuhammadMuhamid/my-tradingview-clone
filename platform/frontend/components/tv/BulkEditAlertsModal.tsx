@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, Checkbox, Select, FIELD } from "@/components/ui";
+import { Button, Checkbox, Dropdown, FIELD } from "@/components/ui";
 import {
   AlertFiltersField, emptyFilters, filterRequestForEdit, type AlertFilterState,
 } from "@/components/tv/AlertFiltersField";
@@ -118,15 +118,14 @@ export function BulkEditAlertsModal({
           <Checkbox checked={useFrequency} onChange={setUseFrequency} label="How often it may notify" />
           {useFrequency && (
             <div className="pl-6">
-              <Select
+              <Dropdown
                 value={frequency}
-                onChange={(e) => setFrequency(e.target.value as AlertFrequency)}
-                aria-label="Bulk frequency"
-              >
-                {(Object.keys(FREQUENCY_LABELS) as AlertFrequency[]).map((f) => (
-                  <option key={f} value={f}>{FREQUENCY_LABELS[f]}</option>
-                ))}
-              </Select>
+                label="Bulk frequency"
+                width={180}
+                options={(Object.keys(FREQUENCY_LABELS) as AlertFrequency[])
+                  .map((f) => ({ value: f, label: FREQUENCY_LABELS[f] }))}
+                onChange={(next) => setFrequency(next as AlertFrequency)}
+              />
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { FIELD, PlusGlyph } from "@/components/ui";
+import { Dropdown, FIELD, PlusGlyph } from "@/components/ui";
 import {
   FILTER_DEFAULTS, FILTER_KINDS, FILTER_TIMEFRAMES, MAX_ALERT_FILTERS, defaultGate,
   type AlertGate, type FilterKind, type FilterSide, type FilterTimeframe,
@@ -113,23 +113,39 @@ export function filterRequestForEdit(gates: AlertFilterState): Record<string, un
 
 const BOX = FIELD;
 
+/**
+ * Every control in a gate row is named for the row it belongs to.
+ *
+ * Two gates of the same kind are the whole reason this is a list, so "Gate RSI
+ * side" was a name two controls in one dialog could share. That is an
+ * accessible-name collision on its own, and once these are `Dropdown`s it is
+ * also a popover-registry collision — `Dropdown` keys its exclusivity on the
+ * accessible name unless told otherwise, so opening the second gate's side
+ * picker would close the first's by appearing to BE it.
+ */
+const gateName = (index: number, control: string): string => `Gate ${index + 1} ${control}`;
+
+const SAME_TIMEFRAME = "";
+
 /** A gate row's timeframe picker. Empty value means the alert's own. */
 function TimeframeSelect({
-  gate, onChange,
+  gate, index, onChange,
 }: {
   gate: AlertGate;
+  index: number;
   onChange: (tf: FilterTimeframe | undefined) => void;
 }) {
   return (
-    <select
-      value={gate.timeframe ?? ""}
-      aria-label="Gate timeframe"
-      onChange={(e) => onChange((e.target.value || undefined) as FilterTimeframe | undefined)}
-      className={`${BOX} w-[92px]`}
-    >
-      <option value="">same TF</option>
-      {FILTER_TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
-    </select>
+    <Dropdown
+      value={gate.timeframe ?? SAME_TIMEFRAME}
+      label={gateName(index, "timeframe")}
+      width={92}
+      options={[
+        { value: SAME_TIMEFRAME, label: "same TF" },
+        ...FILTER_TIMEFRAMES.map((tf) => ({ value: tf, label: tf })),
+      ]}
+      onChange={(next) => onChange((next || undefined) as FilterTimeframe | undefined)}
+    />
   );
 }
 
@@ -143,14 +159,16 @@ function SideSelect({
 }) {
   const [above, below] = words ?? ["is above", "is below"];
   return (
-    <select
-      value={value} aria-label={label}
-      onChange={(e) => onChange(e.target.value as FilterSide)}
-      className={`${BOX} w-[150px]`}
-    >
-      <option value="above">{above}</option>
-      <option value="below">{below}</option>
-    </select>
+    <Dropdown
+      value={value}
+      label={label}
+      width={150}
+      options={[
+        { value: "above", label: above },
+        { value: "below", label: below },
+      ]}
+      onChange={(next) => onChange(next as FilterSide)}
+    />
   );
 }
 
@@ -167,23 +185,31 @@ const Num = ({
   />
 );
 
+/** The two moving-average shapes a gate can measure against. */
+const MA_TYPE_OPTIONS = [
+  { value: "ema", label: "EMA" },
+  { value: "sma", label: "SMA" },
+] as const;
+
 /** The fields a single gate needs, after its kind and timeframe. */
 function GateFields({
-  gate, onChange,
+  gate, index, onChange,
 }: {
   gate: AlertGate;
+  index: number;
   onChange: (next: AlertGate) => void;
 }) {
+  const name = (control: string): string => gateName(index, control);
   switch (gate.kind) {
     case "rsi":
       return (
         <>
           <span className="text-sm text-ink-muted">RSI</span>
-          <Num value={gate.length} label="Gate RSI length"
+          <Num value={gate.length} label={name("RSI length")}
             onChange={(length) => onChange({ ...gate, length })} />
-          <SideSelect value={gate.side} label="Gate RSI side"
+          <SideSelect value={gate.side} label={name("RSI side")}
             onChange={(side) => onChange({ ...gate, side })} />
-          <Num value={gate.level} label="Gate RSI level" min="1" max="99" step="0.1"
+          <Num value={gate.level} label={name("RSI level")} min="1" max="99" step="0.1"
             onChange={(level) => onChange({ ...gate, level })} />
         </>
       );
@@ -191,18 +217,17 @@ function GateFields({
       return (
         <>
           <span className="text-sm text-ink-muted">RSI</span>
-          <Num value={gate.length} label="Gate RSI length"
+          <Num value={gate.length} label={name("RSI length")}
             onChange={(length) => onChange({ ...gate, length })} />
-          <SideSelect value={gate.side} label="Gate RSI-MA side"
+          <SideSelect value={gate.side} label={name("RSI-MA side")}
             words={["is above its", "is below its"]}
             onChange={(side) => onChange({ ...gate, side })} />
-          <select value={gate.maType} aria-label="Gate RSI MA type"
-            onChange={(e) => onChange({ ...gate, maType: e.target.value as MaType })}
-            className={`${BOX} w-[76px]`}>
-            <option value="ema">EMA</option>
-            <option value="sma">SMA</option>
-          </select>
-          <Num value={gate.maLength} label="Gate RSI MA length"
+          <Dropdown
+            value={gate.maType} label={name("RSI MA type")} width={76}
+            options={MA_TYPE_OPTIONS}
+            onChange={(next) => onChange({ ...gate, maType: next as MaType })}
+          />
+          <Num value={gate.maLength} label={name("RSI MA length")}
             onChange={(maLength) => onChange({ ...gate, maLength })} />
         </>
       );
@@ -210,15 +235,14 @@ function GateFields({
       return (
         <>
           <span className="text-sm text-ink-muted">Price</span>
-          <SideSelect value={gate.side} label="Gate MA side"
+          <SideSelect value={gate.side} label={name("MA side")}
             onChange={(side) => onChange({ ...gate, side })} />
-          <select value={gate.type} aria-label="Gate MA type"
-            onChange={(e) => onChange({ ...gate, type: e.target.value as MaType })}
-            className={`${BOX} w-[76px]`}>
-            <option value="ema">EMA</option>
-            <option value="sma">SMA</option>
-          </select>
-          <Num value={gate.length} label="Gate MA length" width={80}
+          <Dropdown
+            value={gate.type} label={name("MA type")} width={76}
+            options={MA_TYPE_OPTIONS}
+            onChange={(next) => onChange({ ...gate, type: next as MaType })}
+          />
+          <Num value={gate.length} label={name("MA length")} width={80}
             onChange={(length) => onChange({ ...gate, length })} />
         </>
       );
@@ -226,12 +250,12 @@ function GateFields({
       return (
         <>
           <span className="text-sm text-ink-muted">Price</span>
-          <SideSelect value={gate.side} label="Gate Supertrend side"
+          <SideSelect value={gate.side} label={name("Supertrend side")}
             onChange={(side) => onChange({ ...gate, side })} />
           <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
-          <Num value={gate.period} label="Gate Supertrend ATR period" width={62}
+          <Num value={gate.period} label={name("Supertrend ATR period")} width={62}
             onChange={(period) => onChange({ ...gate, period })} />
-          <Num value={gate.multiplier} label="Gate Supertrend multiplier" width={62}
+          <Num value={gate.multiplier} label={name("Supertrend multiplier")} width={62}
             min="0.1" max="100" step="0.1"
             onChange={(multiplier) => onChange({ ...gate, multiplier })} />
         </>
@@ -240,18 +264,20 @@ function GateFields({
       return (
         <>
           <span className="text-sm text-ink-muted">MACD</span>
-          <Num value={gate.fastLength} label="Gate MACD fast length" width={58}
+          <Num value={gate.fastLength} label={name("MACD fast length")} width={58}
             onChange={(fastLength) => onChange({ ...gate, fastLength })} />
-          <Num value={gate.slowLength} label="Gate MACD slow length" width={58}
+          <Num value={gate.slowLength} label={name("MACD slow length")} width={58}
             onChange={(slowLength) => onChange({ ...gate, slowLength })} />
-          <Num value={gate.signalLength} label="Gate MACD signal length" width={58}
+          <Num value={gate.signalLength} label={name("MACD signal length")} width={58}
             onChange={(signalLength) => onChange({ ...gate, signalLength })} />
-          <select value={gate.target} aria-label="Gate MACD target"
-            onChange={(e) => onChange({ ...gate, target: e.target.value as MacdTarget })}
-            className={`${BOX} w-[92px]`}>
-            <option value="signal">vs signal</option>
-            <option value="zero">vs zero</option>
-          </select>
+          <Dropdown
+            value={gate.target} label={name("MACD target")} width={92}
+            options={[
+              { value: "signal", label: "vs signal" },
+              { value: "zero", label: "vs zero" },
+            ]}
+            onChange={(next) => onChange({ ...gate, target: next as MacdTarget })}
+          />
           {/*
             * Against the SIGNAL the sides are named for the mood they describe,
             * because "MACD is above signal line" is the same rule wearing a
@@ -260,7 +286,7 @@ function GateFields({
             * the trend leans rather than whether momentum turned.
             */}
           <SideSelect
-            value={gate.side} label="Gate MACD side"
+            value={gate.side} label={name("MACD side")}
             words={gate.target === "signal"
               ? ["is bullish (above signal)", "is bearish (below signal)"]
               : ["is above zero", "is below zero"]}
@@ -341,17 +367,16 @@ export function AlertFiltersField({
 
       {value.map((gate, i) => (
         <div key={i} className="flex flex-wrap items-center gap-2">
-          <select
-            value={gate.kind} aria-label={`Gate ${i + 1} kind`}
-            onChange={(e) => changeKind(i, e.target.value as FilterKind)}
-            className={`${BOX} w-[172px]`}
-          >
-            {FILTER_KINDS.map((k) => (
-              <option key={k} value={k}>{KIND_LABEL[k]}</option>
-            ))}
-          </select>
+          <Dropdown
+            value={gate.kind}
+            label={gateName(i, "kind")}
+            width={172}
+            options={FILTER_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+            onChange={(next) => changeKind(i, next as FilterKind)}
+          />
           <TimeframeSelect
             gate={gate}
+            index={i}
             onChange={(timeframe) => {
               const next = { ...gate };
               if (timeframe) next.timeframe = timeframe;
@@ -359,7 +384,7 @@ export function AlertFiltersField({
               replace(i, next);
             }}
           />
-          <GateFields gate={gate} onChange={(next) => replace(i, next)} />
+          <GateFields gate={gate} index={i} onChange={(next) => replace(i, next)} />
           <button
             type="button"
             onClick={() => remove(i)}

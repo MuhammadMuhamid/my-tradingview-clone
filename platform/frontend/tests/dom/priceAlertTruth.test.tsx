@@ -131,18 +131,12 @@ test("the moving-average dialog creates a genuine MA-vs-MA crossover", async () 
   );
   await settle();
 
-  fireEvent.change(screen.getByLabelText("Alert condition family"), {
-    target: { value: "ma_vs_ma" },
-  });
-  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
-    target: { value: "sma" },
-  });
+  await chooseInDropdown("Alert condition family", "Moving average crossover");
+  await chooseInDropdown("Second moving-average type", "SMA");
   fireEvent.change(screen.getByLabelText("Second moving-average length"), {
     target: { value: "100" },
   });
-  fireEvent.change(screen.getByLabelText("Moving-average crossing direction"), {
-    target: { value: "cross_down" },
-  });
+  await chooseInDropdown("Moving-average crossing direction", /crosses below/);
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   await settle();
 
@@ -175,12 +169,8 @@ test("the crossover dialog says the two LINES cross, never that price does", asy
       existing={[]} onSaved={(message) => saved.push(message)} />,
   );
   await settle();
-  fireEvent.change(screen.getByLabelText("Alert condition family"), {
-    target: { value: "ma_vs_ma" },
-  });
-  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
-    target: { value: "sma" },
-  });
+  await chooseInDropdown("Alert condition family", "Moving average crossover");
+  await chooseInDropdown("Second moving-average type", "SMA");
   fireEvent.change(screen.getByLabelText("Second moving-average length"), {
     target: { value: "100" },
   });
@@ -188,11 +178,17 @@ test("the crossover dialog says the two LINES cross, never that price does", asy
 
   // `ma_vs_ma` evaluates one average against another. The price wording the
   // `ma` family uses would describe an alert this dialog does not create.
-  const direction = screen.getByLabelText("Moving-average crossing direction");
+  // The options live in the listbox now, so the menu has to be open to read
+  // what this dialog is willing to offer.
+  fireEvent.click(screen.getByRole("button", { name: "Moving-average crossing direction" }));
+  await settle();
+  const direction = screen.getByRole("listbox", { name: "Moving-average crossing direction" });
   assert.match(direction.textContent ?? "", /EMA 21 crosses above the SMA 100/);
   assert.match(direction.textContent ?? "", /EMA 21 crosses below the SMA 100/);
   assert.ok(!/Price crosses (above|below) the line/.test(direction.textContent ?? ""),
     "the crossover dropdown offered the price-versus-MA wording");
+  fireEvent.keyDown(document, { key: "Escape" });
+  await settle();
   assertAbsent(screen.queryByText(/Fires when a candle closes above the line/),
     "the crossover help described the close as the thing that crosses");
   assert.ok(screen.getByText(/the EMA 21 finishes above the SMA 100/));
@@ -210,9 +206,7 @@ test("the price-versus-MA confirmation still names the condition it armed", asyn
       existing={[]} onSaved={(message) => saved.push(message)} />,
   );
   await settle();
-  fireEvent.change(screen.getByLabelText("Price versus moving-average condition"), {
-    target: { value: "cross_up" },
-  });
+  await chooseInDropdown("Price versus moving-average condition", "Price crosses above the line");
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   await settle();
   assert.deepEqual(saved,
@@ -226,9 +220,7 @@ test("a crossover that cannot happen is refused before it is armed", async () =>
       existing={[]} onSaved={() => undefined} />,
   );
   await settle();
-  fireEvent.change(screen.getByLabelText("Alert condition family"), {
-    target: { value: "ma_vs_ma" },
-  });
+  await chooseInDropdown("Alert condition family", "Moving average crossover");
 
   // Emptying the number field reads back as 0, and the backend's range check
   // is only `Number.isInteger` — so this would arm an alert that never fires.
@@ -240,9 +232,7 @@ test("a crossover that cannot happen is refused before it is armed", async () =>
   assert.ok(screen.getByText(/length between 1 and 1000/));
 
   // A line cannot cross itself.
-  fireEvent.change(screen.getByLabelText("Second moving-average type"), {
-    target: { value: "ema" },
-  });
+  await chooseInDropdown("Second moving-average type", "EMA");
   fireEvent.change(screen.getByLabelText("Second moving-average length"), {
     target: { value: "21" },
   });

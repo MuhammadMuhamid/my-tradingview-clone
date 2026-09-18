@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
-import { Button, FIELD } from "@/components/ui";
+import { Button, Dropdown, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
@@ -258,27 +258,40 @@ export function MaAlertModal({
     >
       <div className="space-y-3">
         <Row label="Condition">
-          <select value={family} onChange={(e) => {
-            const next = e.target.value as "ma" | "ma_vs_ma";
-            setFamily(next);
-            setMode(next === "ma_vs_ma" ? "cross_up" : "touch");
-          }} className={box} aria-label="Alert condition family">
-            <option value="ma">Price versus moving average</option>
-            <option value="ma_vs_ma">Moving average crossover</option>
-          </select>
+          {/*
+            A native select element renders the OS's own popup — a different
+            font, row height and selection colour — which the UI contract
+            forbids inside a dialog. These four were the last of them here.
+          */}
+          <Dropdown
+            value={family}
+            label="Alert condition family"
+            width={180}
+            options={[
+              { value: "ma", label: "Price versus moving average" },
+              { value: "ma_vs_ma", label: "Moving average crossover" },
+            ]}
+            onChange={(v) => {
+              const next = v as "ma" | "ma_vs_ma";
+              setFamily(next);
+              setMode(next === "ma_vs_ma" ? "cross_up" : "touch");
+            }}
+          />
         </Row>
         <Row label={family === "ma_vs_ma" ? "Cross" : "Condition"}>
-          <select value={mode} onChange={(e) => setMode(e.target.value as MaAlertMode)} className={box}
-            aria-label={family === "ma_vs_ma" ? "Moving-average crossing direction" : "Price versus moving-average condition"}>
-            {(family === "ma_vs_ma"
+          <Dropdown
+            value={mode}
+            label={family === "ma_vs_ma" ? "Moving-average crossing direction" : "Price versus moving-average condition"}
+            width={180}
+            options={(family === "ma_vs_ma"
               ? (CROSS_MODES as readonly MaAlertMode[])
               : (Object.keys(MODE_LABELS) as MaAlertMode[])
-            ).map((m) => (
-              <option key={m} value={m}>
-                {family === "ma_vs_ma" ? crossLabel(m, label, slowLabel) : MODE_LABELS[m]}
-              </option>
-            ))}
-          </select>
+            ).map((m) => ({
+              value: m,
+              label: family === "ma_vs_ma" ? crossLabel(m, label, slowLabel) : MODE_LABELS[m],
+            }))}
+            onChange={(v) => setMode(v as MaAlertMode)}
+          />
         </Row>
         <p className="pl-[122px] text-xs text-ink-faint">
           {family === "ma_vs_ma" && isCrossMode(mode)
@@ -289,9 +302,16 @@ export function MaAlertModal({
         {family === "ma_vs_ma" && (
           <Row label="Slow MA">
             <div className="flex items-center gap-2">
-              <select value={ma2Type} onChange={(e) => setMa2Type(e.target.value as MaType)} className={`${box} w-[92px]`} aria-label="Second moving-average type">
-                <option value="ema">EMA</option><option value="sma">SMA</option>
-              </select>
+              <Dropdown
+                value={ma2Type}
+                label="Second moving-average type"
+                width={92}
+                options={[
+                  { value: "ema", label: "EMA" },
+                  { value: "sma", label: "SMA" },
+                ]}
+                onChange={(v) => setMa2Type(v as MaType)}
+              />
               <input type="number" min={1} max={1000} value={ma2Length}
                 onChange={(e) => setMa2Length(parseInt(e.target.value || "0", 10))}
                 className={box} aria-label="Second moving-average length" />
@@ -301,13 +321,16 @@ export function MaAlertModal({
 
         <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">
-          <select value={timeframe} onChange={(e) => setTimeframe(e.target.value as Interval)} className={box}>
-            {ALERT_INTERVAL_VALUES.map((tf) => (
-              <option key={tf} value={tf}>
-                {tf}{resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}
-              </option>
-            ))}
-          </select>
+          <Dropdown
+            value={timeframe}
+            label="Alert timeframe"
+            width={180}
+            options={ALERT_INTERVAL_VALUES.map((tf) => ({
+              value: tf,
+              label: `${tf}${resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}`,
+            }))}
+            onChange={(v) => setTimeframe(v as Interval)}
+          />
         </Row>
 
         {isNear && (
