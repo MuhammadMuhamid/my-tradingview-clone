@@ -140,3 +140,31 @@ test("the pane hands the dialog a ticker, not the canonical id it holds", async 
   // it is protecting against rather than only how.
   assert.ok(CANONICAL_ID.startsWith("instrument:v1:"));
 });
+
+test("a comparison RESTORED from a saved workspace is still named by ticker", async () => {
+  /*
+   * The test above passes `symbol: "SOLUSDT"` — already in display form —
+   * because a comparison chosen through this dialog is stored that way. A
+   * comparison restored from a saved pane is not: it carries the canonical id,
+   * and nothing converted it at the point of display, so the dialog's heading
+   * read "Comparing with instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot".
+   *
+   * Seen on the running build, not deduced. The existing assertion could not
+   * catch it: it never supplied an id to leak.
+   */
+  const current: PaneCompare = {
+    symbol: "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot", mode: "percent", length: 60,
+  };
+  const view = render(
+    <CompareSettings open current={current} baseTicker="SOLUSDT"
+      onClose={() => {}} onApply={() => {}} />
+  );
+  await settle();
+  const dialog = view.baseElement.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]')
+    ?? view.baseElement;
+  const said = (dialog.textContent ?? "").replace(/\s+/g, " ");
+
+  assert.ok(!said.includes("instrument:v1"),
+    "a canonical instrument id reached the dialog's own heading");
+  assert.match(said, /Comparing with ETHUSDT/);
+});

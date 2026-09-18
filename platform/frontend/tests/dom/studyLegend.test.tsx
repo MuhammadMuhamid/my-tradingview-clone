@@ -58,8 +58,17 @@ test("R3b-19 — the hover cluster is the reference's, at a 28px pitch with no g
   assert.ok(cluster, "the cluster is gone");
   assert.doesNotMatch(cluster.className, /\bgap-/,
     "a gap on top of a 28px button is a 30px pitch");
+  /*
+   * 28x22 with an 18px glyph, re-measured against live Premium on 2026-09-18.
+   * The earlier 28x24/16 was recorded here and in the component as "measured",
+   * and was not: the pitch was right, the cell was 2px too tall and the glyph a
+   * ninth too small, which is why this cluster read lighter than the
+   * reference's at the same zoom.
+   */
   for (const button of view.container.querySelectorAll("button")) {
-    assert.match(button.className, /h-6 w-7/, "28×24, the reference's legend-action size");
+    assert.match(button.className, /h-\[22px\] w-7/, "28×22, the reference's legend-action size");
+    const glyph = button.querySelector("svg");
+    assert.equal(glyph?.getAttribute("width"), "18", "an 18px glyph, as the reference draws it");
   }
 });
 
@@ -133,13 +142,29 @@ test("R3b-19 — `⋯` opens the product's own menu, and every row in it acts", 
   assert.ok(menu, "the More button opened nothing");
   const rows = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
   assert.deepEqual(rows.map((r) => (r.textContent ?? "").trim()),
-    ["Settings…", "Hide", "Remove Relative Strength Index"]);
+    ["Settings…", "Hide", "Object tree", "Remove"]);
+
+  /*
+   * `Remove`, not `Remove Relative Strength Index`. The drawing menu three
+   * functions away already says `Remove` with a bin, so the long form made this
+   * menu the odd one out in its own product as well as against the reference —
+   * and the study's name is already the menu's heading.
+   */
+
+  /* Every row carries the icon its gutter reserves. The gutter was reserved
+     and left empty, which is the most "unfinished" thing a menu can do. */
+  for (const row of rows) {
+    assert.ok(row.querySelector("svg"), `${row.textContent} reserves an icon slot and draws nothing`);
+  }
+
   /*
    * Not one row is disabled, and that is the point: the reference's indicator
    * menu carries `Move to`, `Pin to scale`, `Visual order`, `Copy` and
    * `Add alert on …` as well, and none of them is written here as a greyed
    * row, because a legend cannot reach a resolver for them yet. A menu of
-   * mostly-dead rows teaches nothing — see `lib/menuPayloads`.
+   * mostly-dead rows teaches nothing — see `lib/menuPayloads`. `Object tree`
+   * joined because it is the one of them this product CAN hand somewhere: the
+   * chart menu's own row already resolves to the objects panel.
    */
   for (const row of rows) {
     assert.notEqual(row.getAttribute("aria-disabled"), "true", `${row.textContent} cannot act`);

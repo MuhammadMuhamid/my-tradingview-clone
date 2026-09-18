@@ -139,7 +139,18 @@ export function CompareSettings({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={`Comparing with ${current?.symbol ?? ""}`.trim()}>
+    /*
+      `displayTicker`, not the stored symbol.
+
+      A comparison chosen through this dialog is stored already-displayed (see
+      `onSelect` above), so this read looked safe. A comparison restored from a
+      saved workspace is not: it carries the canonical id, and the dialog's own
+      heading rendered "Comparing with instrument:v1:BINANCE:spot:ETH:USDT:
+      USDT:spot" — the exact leak this file's header comment says the contract
+      forbids, on the most prominent line of the surface. Converting at the
+      point of DISPLAY holds for both paths.
+    */
+    <Modal open={open} onClose={onClose} title={`Comparing with ${displayTicker(current?.symbol ?? "")}`.trim()}>
       <div className="flex flex-col gap-3">
         <div role="group" aria-label="Which comparison" className="flex flex-col gap-1">
           {MODES.map((m) => (

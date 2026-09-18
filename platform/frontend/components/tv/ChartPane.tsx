@@ -1057,6 +1057,18 @@ function ChartPaneImpl(props: ChartPaneProps) {
             /* So the chart knows its shorter array is a Replay horizon. */
             replayAnchorTime={replay?.horizonCloseTime ?? null}
             /*
+              And so it can frame itself when a comparison lands or leaves.
+              Named by identity and by arrival: a comparison whose second
+              instrument has not come back yet must not be framed, because
+              framing a pane that holds two points is what collapsed the window
+              in the first place.
+            */
+            compareFitKey={
+              compare && !compareSeries.loading && compareSeries.closes.length > 0
+                ? `${compare.symbol}:${compare.mode}`
+                : null
+            }
+            /*
               The pane's identity and its own controls, handed to the chart as a
               slot rather than drawn beside it.
 

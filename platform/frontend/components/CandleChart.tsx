@@ -798,6 +798,7 @@ export function CandleChart({
   onIndicatorPaneAction,
   onOpenObjectTree,
   replayAnchorTime = null,
+  compareFitKey = null,
   canIndicatorAction,
   hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
@@ -949,6 +950,22 @@ export function CandleChart({
    * BEFORE the replay point.
    */
   replayAnchorTime?: number | null;
+  /**
+   * The comparison currently drawn, once its data has landed — or null.
+   *
+   * A comparison adds a PANE, and adding a pane while the second instrument is
+   * still arriving left the shared time scale on a two-or-three-bar window: the
+   * main plot showed three candles on a price range the instrument never
+   * traded in, and every study legend read the crosshair outside its own data
+   * and printed nothing. The data was never wrong — pressing reset restored it
+   * whole — so this is a frame, not a repair.
+   *
+   * Keyed on identity AND arrival so it fires once when the comparison is
+   * ready, and once more when it is taken away, which is the other half of the
+   * same defect: removing a comparison used to leave the collapsed window
+   * behind with no way back except changing the interval.
+   */
+  compareFitKey?: string | null;
   /**
    * Whether a price-pane overlay is a study the action above can move.
    *
@@ -1775,6 +1792,25 @@ export function CandleChart({
       }
     } catch { /* the range is not loaded; the view stays where it is */ }
   }, [replayAnchorTime]);
+
+  /*
+   * Frame the chart when a comparison arrives or leaves.
+   *
+   * `undefined` on the ref means "first render": a pane restored from a saved
+   * workspace already carries the comparison and its range, and re-framing it
+   * would throw that range away — the same reasoning the `goTo` handler gives
+   * for seeding its own ref from the prop.
+   */
+  const compareFitRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const key = compareFitKey ?? null;
+    if (compareFitRef.current === undefined) { compareFitRef.current = key; return; }
+    if (compareFitRef.current === key) return;
+    compareFitRef.current = key;
+    try { chartRef.current?.timeScale().fitContent(); } catch { /* data is landing */ }
+    shortcutRangeRef.current = null;
+    setActiveRange(null);
+  }, [compareFitKey]);
 
   const onChartContextMenuRef = useRef(onChartContextMenu);
   onChartContextMenuRef.current = onChartContextMenu;
