@@ -6,7 +6,7 @@ import { api, type PineInputDef, type PineRunResult, type PineScript } from "@/l
 import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
 import { fmtNum, fmtPct, signClass } from "@/lib/format";
 import { Separator } from "@/components/ui";
-import { displayTicker } from "@/lib/instrument";
+import { displayTicker, legacyBinanceSpotTicker } from "@/lib/instrument";
 
 /** What the editor hands the chart when you press "Add to chart". */
 export interface PineChartPayload {
@@ -53,6 +53,16 @@ export function PineEditor({
   const [params, setParams] = useState<Record<string, number | string | boolean>>({});
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /*
+   * A RUN that never produced a result is not a compile outcome.
+   *
+   * The console header reads `errors` — which the debounced compile fills —
+   * so a failed run used to leave it saying "no errors" beside a raw backend
+   * string parked in `status`. Both halves were untrue at once. A run fault
+   * is therefore its own state, worded as product copy, and it is what the
+   * header reports while it is set.
+   */
+  const [runFault, setRunFault] = useState<string | null>(null);
   const [showConsole, setShowConsole] = useState(true);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -79,9 +89,24 @@ export function PineEditor({
   const errorLines = useMemo(() => new Set(errors.map((e) => e.line)), [errors]);
   const lines = useMemo(() => source.split("\n"), [source]);
 
+  /*
+   * `/api/pine/run` is a TICKER contract; the pane holds a CANONICAL id.
+   *
+   * The editor used to hand the canonical id straight through, and the
+   * backend answered 400 `invalid symbol` for every ordinary run — the same
+   * seam already closed for pattern overlays and Positions & Orders. The
+   * reduction belongs here, at the boundary, so internal identity stays
+   * canonical; it answers null for an instrument this engine cannot address,
+   * and then the run is refused with a reason instead of a 400.
+   */
+  const runSymbol = useMemo(() => legacyBinanceSpotTicker(symbol), [symbol]);
+  const runNotice = runSymbol === null
+    ? "The Pine engine reads the Binance Spot candle store; this instrument is not in it."
+    : null;
+
   // A prior result belongs to its old temporal context. Clear it immediately;
   // the next explicit run uses the new exact replay boundary.
-  useEffect(() => { setResult(null); setStatus(null); }, [symbol, timeframe, startTime, endTime]);
+  useEffect(() => { setResult(null); setStatus(null); setRunFault(null); }, [symbol, timeframe, startTime, endTime]);
 
   // Compile (no data fetch) as you type, so the console tracks the source.
   useEffect(() => {
@@ -104,11 +129,13 @@ export function PineEditor({
   }, [source]);
 
   const run = useCallback(async (apply: boolean) => {
+    if (runSymbol === null) return;
     setBusy(true);
     setStatus(null);
+    setRunFault(null);
     try {
       const r = await api.runPine({
-        source, symbol, timeframe,
+        source, symbol: runSymbol, timeframe,
         startTime: new Date(startTime).toISOString(),
         endTime: new Date(endTime).toISOString(),
         params,
@@ -126,13 +153,19 @@ export function PineEditor({
       } else {
         setStatus(`Compiled OK — ${r.times?.length ?? 0} bars`);
       }
-    } catch (e) {
-      setStatus((e as Error).message);
+    } catch {
+      /*
+       * Whatever the transport said, the user is told what happened to THEIR
+       * action in product words. A provider or fixture string is never the
+       * page copy, and a run that produced nothing is never reported as a
+       * clean compile.
+       */
+      setRunFault("The script could not be run against this symbol and interval. Nothing was added to the chart.");
       setShowConsole(true);
     } finally {
       setBusy(false);
     }
-  }, [source, symbol, timeframe, startTime, endTime, params, onApplyToChart, name, editingApplied]);
+  }, [source, runSymbol, timeframe, startTime, endTime, params, onApplyToChart, name, editingApplied]);
 
   const save = async () => {
     const clean = name.trim();
@@ -251,13 +284,14 @@ export function PineEditor({
             Delete
           </button>
           <Separator />
-          <button onClick={() => void run(false)} disabled={busy} className={`${btn} disabled:opacity-40`}>
+          <button onClick={() => void run(false)} disabled={busy || runSymbol === null}
+            title={runNotice ?? undefined} className={`${btn} disabled:opacity-40`}>
             {busy ? "Running…" : "Compile"}
           </button>
           <button
             onClick={() => void run(true)}
-            disabled={busy}
-            title="⌘↵"
+            disabled={busy || runSymbol === null}
+            title={runNotice ?? "⌘↵"}
             className="flex h-7 shrink-0 items-center rounded-md bg-accent px-2.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
             {editingApplied ? "Update on chart" : "Add to chart"}
@@ -335,16 +369,20 @@ export function PineEditor({
                 stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span>Console</span>
-            {errors.length > 0
-              ? <span className="rounded bg-down/20 px-1.5 text-down">{errors.length}</span>
-              : result?.meta.warnings?.length
-                ? <span className="rounded bg-warn/20 px-1.5 text-warn">{result.meta.warnings.length} warning(s)</span>
-                : <span className="text-up">no errors</span>}
+            {runFault
+              ? <span className="rounded bg-down/20 px-1.5 text-down">run failed</span>
+              : errors.length > 0
+                ? <span className="rounded bg-down/20 px-1.5 text-down">{errors.length}</span>
+                : result?.meta.warnings?.length
+                  ? <span className="rounded bg-warn/20 px-1.5 text-warn">{result.meta.warnings.length} warning(s)</span>
+                  : <span className="text-up">no errors</span>}
             {status && <span className="ml-auto text-ink-faint">{status}</span>}
           </button>
           {showConsole && (
             <div className="max-h-[110px] overflow-y-auto px-3 pb-2 font-mono text-[11px]">
-              {errors.length === 0 && (
+              {runFault && <div className="text-down">{runFault}</div>}
+              {runNotice && <div className="text-warn">{runNotice}</div>}
+              {!runFault && errors.length === 0 && (
                 <div className="text-ink-faint">
                   Script compiled. Unsupported visual constructs are listed
                   explicitly below and are never replaced with a fake series.
