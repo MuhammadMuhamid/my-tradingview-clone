@@ -135,6 +135,17 @@ export default function ScannerPage() {
       partial: rows.filter((row) => row.state === "partial" || row.state === "no_data").length,
       unresolved: rows.filter((row) => row.state === "unresolved").length,
       stale: rows.filter((row) => Object.values(row.series ?? {}).some((series) => series.stale)).length,
+      /*
+       * Whether ANY row actually resolved against the exchange.
+       *
+       * `snapshot.market.spot` is hard-returned true by the scanner service and
+       * is therefore a statement about the request, not about the answer — so
+       * "API provenance verified" printed unchanged while every one of 36 rows
+       * had failed to resolve. A provenance claim that survives total failure
+       * is not a provenance claim.
+       */
+      resolvedAny: rows.some((row) => row.state !== "unresolved"),
+      total: rows.length,
     };
   }, [snapshot]);
   /**
@@ -228,10 +239,14 @@ export default function ScannerPage() {
               unavailable" banner insisting it was still loading.
             */}
             <p className="mt-0.5 text-[11px] text-ink-muted">
-              {spotCategory ? "Exact Spot instruments" : "Separate market semantics"} · {spotCategory && snapshot?.market.spot
-                ? "API provenance verified"
-                : spotCategory ? (error ? "market identity unknown" : "market identity loading")
-                  : "no compatible compute snapshot installed"}
+              {spotCategory ? "Exact Spot instruments" : "Separate market semantics"} · {!spotCategory
+                ? "no compatible compute snapshot installed"
+                : error ? "market identity unknown"
+                  : !snapshot ? "market identity loading"
+                    : state.total > 0 && !state.resolvedAny
+                      ? "no instrument resolved against the exchange"
+                      : snapshot.market.spot ? "API provenance verified"
+                        : "market identity unknown"}
             </p>
           </div>
 

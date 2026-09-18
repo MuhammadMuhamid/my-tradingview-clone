@@ -224,8 +224,19 @@ export function assessForEvaluation(
   };
 }
 
-/** The worst state across several feeds — what a single badge should show. */
+/**
+ * The worst state across several feeds — what a single badge should show.
+ *
+ * NO feeds is `unknown`, not `live`. The reducer seeded with `"live"`, so zero
+ * observations answered "live" — which is precisely what `FEED_STATES` above
+ * forbids in as many words ("Not yet assessed. Never render this as live"), and
+ * the one answer that cannot be right, because nothing was measured. The
+ * Operations page guards against an empty row set before rendering, so the
+ * wrong value reached `/api/ops/status` rather than a screen; a JSON field is
+ * still read by something.
+ */
 export function worstFeedState(states: FeedState[]): FeedState {
+  if (states.length === 0) return "unknown";
   const severity: Record<FeedState, number> = {
     live: 0, delayed: 2, reconnecting: 3, gap: 4, error: 5, unknown: 1,
   };

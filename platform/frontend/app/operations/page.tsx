@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OpsStatus, type UnresolvedIntents } from "@/lib/api";
 import { api as scannerApi } from "@/lib/scanner/api";
+import { shortReason } from "@/lib/errorCopy";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
@@ -139,6 +140,8 @@ function LimitRow(
 export default function OperationsPage() {
   const [status, setStatus] = useState<OpsStatus | null>(null);
   const [intents, setIntents] = useState<UnresolvedIntents | null>(null);
+  /** Why the intent read failed, when it did. Null is 'not failed', not 'none'. */
+  const [intentsError, setIntentsError] = useState<string | null>(null);
   const [error, setError] = useState("");
   /*
    * An ACTION that failed, kept apart from the status read.
@@ -159,7 +162,16 @@ export default function OperationsPage() {
     api.opsStatus()
       .then((s) => { setStatus(s); setError(""); })
       .catch((e: Error) => setError(e.message));
-    api.opsUnresolvedIntents().then(setIntents).catch(() => setIntents(null));
+    /*
+     * A failed read is not "none". This swallowed the failure to null, and the
+     * card below rendered "None. Every order this system started has a recorded
+     * outcome." — the strongest positive assertion in the product, on the one
+     * card that exists for reconciling after a crash, for a question that was
+     * never answered.
+     */
+    api.opsUnresolvedIntents()
+      .then((v) => { setIntents(v); setIntentsError(null); })
+      .catch((e: Error) => { setIntents(null); setIntentsError(e.message); });
     scannerApi.health()
       .then((value) => setScanner({ value }))
       .catch((e: Error) => setScanner({ error: e.message }));
@@ -576,7 +588,19 @@ export default function OperationsPage() {
             title={<><Owner of="platform" />Unresolved order intents</>}
             right={<span className="text-xs text-ink-faint">{intents?.count ?? 0}</span>}
           />
-          {!intents || intents.count === 0 ? (
+          {intentsError ? (
+            <div role="alert" className="px-4 py-6 text-center text-sm text-down">
+              The unresolved-intent list could not be read, so this is not a statement that
+              there are none.
+              <span className="mt-1 block text-xs text-ink-faint" title={intentsError}>
+                {shortReason(intentsError)}
+              </span>
+            </div>
+          ) : !intents ? (
+            <div role="status" className="px-4 py-6 text-center text-sm text-ink-faint">
+              Reading unresolved order intents…
+            </div>
+          ) : intents.count === 0 ? (
             <Empty>None. Every order this system started has a recorded outcome.</Empty>
           ) : (
             <div className="space-y-2 px-4 pb-4 text-sm">

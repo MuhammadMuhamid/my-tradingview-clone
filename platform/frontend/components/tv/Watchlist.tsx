@@ -393,6 +393,21 @@ export function Watchlist({
   const [menuOpen, setMenuOpen] = useExclusivePopover("watchlist-lists");
   const [viewOpen, setViewOpen] = useExclusivePopover("watchlist-view");
   const [lists, setLists] = useState<NamedWatchlist[] | null>(null);
+  /*
+   * "The read failed" and "there are none" are different answers, and this
+   * component turned the first into the second.
+   *
+   * The catch below did `setLists([])`. The first-run seed then saw an empty
+   * list and POSTed the whole tracked catalog, which the repository applies as
+   * `ON CONFLICT (name) DO UPDATE SET symbols = EXCLUDED.symbols` — so ONE
+   * transient failure to read silently overwrote a curated watchlist with the
+   * catalogue, with no prompt and no undo. The user's own content, destroyed
+   * by a network blip.
+   *
+   * This flag is what keeps the seed out of that path: seeding is a first-run
+   * act, and a failed read is not a first run.
+   */
+  const [readFailed, setReadFailed] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const nameButtonRef = useRef<HTMLButtonElement>(null);
   const viewButtonRef = useRef<HTMLButtonElement>(null);
@@ -444,7 +459,10 @@ export function Watchlist({
         setActiveId(pick?.id ?? null);
       } catch (e) {
         setErr(describeAction(e, "load the watchlist"));
-        setLists([]);
+        // Deliberately NOT `setLists([])`: see `readFailed`. Nothing is known
+        // about the user's lists, and claiming they have none is what caused
+        // the seed to overwrite them.
+        setReadFailed(true);
       }
     })();
   }, []); // once on mount; the server is the source of truth afterwards
@@ -466,7 +484,10 @@ export function Watchlist({
    */
   const seededDefault = useRef(false);
   useEffect(() => {
-    if (lists === null || lists.length > 0 || symbols.length === 0 || seededDefault.current) return;
+    // `readFailed` is the guard that matters here: seeding is a FIRST-RUN act,
+    // and a failed read is not a first run.
+    if (readFailed || lists === null || lists.length > 0
+      || symbols.length === 0 || seededDefault.current) return;
     seededDefault.current = true;
     void (async () => {
       try {
@@ -478,7 +499,7 @@ export function Watchlist({
         setErr(describeAction(e, "create the list"));
       }
     })();
-  }, [lists, symbols]);
+  }, [lists, symbols, readFailed]);
 
   useEffect(() => {
     if (activeId) remember(ACTIVE_KEY, activeId);
@@ -1298,7 +1319,16 @@ export function Watchlist({
             telling them their list was empty and pointing at a field that is
             closed by default.
           */}
-          {lists === null && (
+          {lists === null && readFailed && (
+            <div role="alert" className="px-4 py-6">
+              <p className="text-xs font-medium text-down">Your watchlists could not be read.</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+                This is not a statement that you have none — nothing was read, so nothing is
+                known. They are on the server and are untouched; reopen the panel to try again.
+              </p>
+            </div>
+          )}
+          {lists === null && !readFailed && (
             <div aria-hidden="true" className="pt-1">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex h-[30px] items-center pl-[10px] pr-2">

@@ -115,9 +115,31 @@ async function* klinePages(
       `&startTime=${cursor}&endTime=${endMs}&limit=${pageLimit}`;
     const rows = (await getJson(url)) as RawKline[];
     if (rows.length === 0) return;
+    /*
+     * ── A bar that has not closed is not a bar ────────────────────────────
+     *
+     * Binance returns the CURRENT, still-forming kline whenever the requested
+     * window reaches the present, and nothing here dropped it: it went into
+     * `candles` through `upsertCandles` looking exactly like a completed bar.
+     * Its "close" is whatever the price happened to be at the moment of the
+     * request, and everything downstream — backtests, studies, alert
+     * evaluation — read it as a settled close.
+     *
+     * It self-heals on the next backfill, because the upsert is a DO UPDATE on
+     * (symbol, interval, open_time). That is what made it survive: the store is
+     * eventually right, and only wrong in the window where the newest bar is
+     * the one most things are looking at.
+     *
+     * Every stored result carries `dataCompleteness:
+     * "incomplete_live_bars_not_persisted"`. That claim is now true of this
+     * path too. `closeTime` is the last millisecond of the bar, so a bar is
+     * settled once the clock is strictly past it.
+     */
+    const now = Date.now();
     const page: Candle[] = [];
     for (const r of rows) {
       if (r[0] < startMs || r[0] > endMs) continue;
+      if (r[6] >= now) continue;
       page.push({
         symbol: ticker,
         interval,

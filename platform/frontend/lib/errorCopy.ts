@@ -119,3 +119,41 @@ export function describeAction(cause: unknown, action: string): FailureCopy {
 export function said(headline: string): FailureCopy {
   return { headline, detail: "" };
 }
+
+
+/**
+ * Why a screener row could not be resolved, in the reader's words.
+ *
+ * The Screener rendered the provider's own failure as the row body. On this
+ * install that meant every one of 36 rows read as an HTTP status, a vendor URL
+ * and a clause of Binance's terms of service — the whole table was one error
+ * message repeated 36 times. The UI contract has a rule for exactly this
+ * ("provider/fixture error strings are never primary page copy") and this was
+ * the surface still breaking it.
+ *
+ * The note is never discarded: it is the tooltip, verbatim, because a failure
+ * that is summarised and then thrown away cannot be reported to anyone. What
+ * changes is which of the two the reader meets first.
+ *
+ * The geo-restriction case gets its own sentence because it is not a fault the
+ * operator can retry their way out of — it is a property of where the request
+ * came from, and saying "try again shortly" would send them round a loop.
+ */
+export function unresolvedSymbolReason(note: string | null | undefined): string {
+  const raw = String(note ?? "");
+  if (!raw) return "This symbol could not be resolved against the exchange.";
+  if (/\b451\b|restricted location|eligibility/i.test(raw)) {
+    return "The exchange refuses requests from this location, so its instrument directory "
+      + "could not be read. This is not a fault with the symbol.";
+  }
+  if (/unreachable|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|timeout|fetch failed|network/i.test(raw)) {
+    return "The exchange directory could not be reached, so this symbol could not be resolved.";
+  }
+  if (/\b(404|not found|unknown symbol|invalid symbol)\b/i.test(raw)) {
+    return "The exchange does not list this symbol.";
+  }
+  if (/\b(401|403|unauthor|forbidden)\b/i.test(raw)) {
+    return "The exchange refused the directory request, so this symbol could not be resolved.";
+  }
+  return "This symbol could not be resolved against the exchange.";
+}

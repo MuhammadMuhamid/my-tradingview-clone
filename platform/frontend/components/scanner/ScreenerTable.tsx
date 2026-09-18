@@ -1,5 +1,6 @@
 "use client";
 
+import { unresolvedSymbolReason } from "@/lib/errorCopy";
 import {
   flexRender,
   getCoreRowModel,
@@ -239,8 +240,14 @@ export function ScreenerTable({
               return (
                 <tr key={data.symbol} className="text-ink-muted">
                   <td className="sticky-col">{data.symbol}</td>
+                  {/*
+                    The note is the tooltip, verbatim — a failure that is
+                    summarised and then thrown away cannot be reported to
+                    anyone. What changed is which of the two the reader meets
+                    first; this cell was the provider's own words, 36 rows over.
+                  */}
                   <td colSpan={colCount - 1} className="italic" title={data.note ?? ""}>
-                    unresolved — {data.note}
+                    unresolved — {unresolvedSymbolReason(data.note)}
                     {onRemoveSymbol && (
                       <button disabled={busy} onClick={() => onRemoveSymbol(data.symbol)}
                         className="ml-3 rounded border border-border px-2 text-down disabled:opacity-50">

@@ -188,8 +188,24 @@ test("a placeholder stops claiming that an answer is coming", () => {
   assert.match(shariah, /Bot floor: could not be read/);
 
   const scanner = read("app/screener/page.tsx");
-  assert.match(scanner, /error \? "market identity unknown" : "market identity loading"/);
+  // A failure says unknown; only an unanswered request says loading. The shape
+  // changed when the provenance claim was made conditional (below), so this
+  // asserts the two branches rather than one literal ternary.
+  assert.match(scanner, /error \? "market identity unknown"/);
+  assert.match(scanner, /!snapshot \? "market identity loading"/);
   assert.match(scanner, /error \? "No snapshot loaded" : "Loading cached snapshot…"/);
+
+  /*
+   * And the provenance claim itself.
+   *
+   * `snapshot.market.spot` is hard-returned true by the scanner service, so it
+   * describes the REQUEST rather than the answer — "API provenance verified"
+   * printed unchanged on this install while every one of 36 rows had failed to
+   * resolve. A provenance claim that survives total failure is not one.
+   */
+  assert.match(scanner, /resolvedAny/,
+    "the provenance line must consult whether anything actually resolved");
+  assert.match(scanner, /no instrument resolved against the exchange/);
 
   const optimizers = read("app/optimizers/page.tsx");
   assert.match(optimizers, /treesError \? "Optimizer trees unavailable" : "Loading trees…"/);

@@ -713,6 +713,31 @@ async function failureText(res: Response): Promise<string> {
   return msg;
 }
 
+/**
+ * An expired session is recoverable, and used to be a dead end.
+ *
+ * The proxy gates on the cookie's PRESENCE, so a cookie that no longer
+ * verifies lands the user inside the application with every request failing
+ * 401. Each panel then rendered its own "you may need to sign in again", the
+ * Sign-out button hid itself because `/api/auth/me` answers `username: null`,
+ * and nothing anywhere offered a way back — escaping meant knowing to type
+ * `/login` by hand.
+ *
+ * So the one place every request already passes through sends them there,
+ * carrying where they were so the trip is invisible. Guarded three ways: it
+ * never fires during SSR, never fires on the sign-in exchange itself (a wrong
+ * password is a 401 the form has to be able to show), and never fires when the
+ * user is already on `/login`, which would be a redirect loop.
+ */
+function redirectToSignIn(path: string): void {
+  if (typeof window === "undefined") return;
+  if (path.startsWith("/api/auth/")) return;
+  const here = window.location.pathname;
+  if (here === "/login") return;
+  const next = encodeURIComponent(here + window.location.search);
+  window.location.href = `/login?next=${next}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -721,6 +746,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
+    if (res.status === 401) redirectToSignIn(path);
     throw new ApiError(res.status, await failureText(res));
   }
   if (res.status === 204) return undefined as T;

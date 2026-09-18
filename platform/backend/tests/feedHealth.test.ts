@@ -194,7 +194,16 @@ test("a single badge shows the worst state across the feeds", () => {
   assert.equal(worstFeedState(["delayed", "reconnecting"]), "reconnecting");
   assert.equal(worstFeedState(["reconnecting", "gap"]), "gap");
   assert.equal(worstFeedState(["gap", "error"]), "error");
-  assert.equal(worstFeedState([]), "live");
+  /*
+   * This asserted `"live"` and was pinning the defect.
+   *
+   * `FEED_STATES` says of `unknown`: "Not yet assessed. Never render this as
+   * live." Zero observations is exactly not-yet-assessed, and `live` is the one
+   * answer that cannot be right about a measurement nobody took. The reducer
+   * was seeded with `"live"`, so the empty case fell out of the seed rather
+   * than out of any decision — and this line then froze it.
+   */
+  assert.equal(worstFeedState([]), "unknown");
 });
 
 test("the websocket silence timeout is longer than a plausible quiet period", () => {
@@ -203,4 +212,26 @@ test("the websocket silence timeout is longer than a plausible quiet period", ()
   // waiting for the latter.
   assert.ok(WS_SILENCE_TIMEOUT_MS >= 30_000, "must not flap on a brief lull");
   assert.ok(WS_SILENCE_TIMEOUT_MS <= 180_000, "must fire before a ping interval elapses twice");
+});
+
+test("no observations is UNKNOWN, never live", () => {
+  /*
+   * The reducer was seeded with `"live"`, so zero feeds answered `live` — the
+   * one answer that cannot be right, because nothing was measured. `FEED_STATES`
+   * forbids it in as many words: "Not yet assessed. Never render this as live."
+   *
+   * The Operations page happens to guard on an empty row set before rendering,
+   * so the wrong value reached `/api/ops/status` rather than a screen. A JSON
+   * field is still read by something.
+   */
+  assert.equal(worstFeedState([]), "unknown");
+
+  // And the ordering it was written for is unchanged: unknown outranks live,
+  // and anything genuinely wrong outranks unknown.
+  assert.equal(worstFeedState(["live"]), "live");
+  assert.equal(worstFeedState(["live", "unknown"]), "unknown");
+  assert.equal(worstFeedState(["unknown", "delayed"]), "delayed");
+  assert.equal(worstFeedState(["delayed", "gap"]), "gap");
+  assert.equal(worstFeedState(["gap", "error"]), "error");
+  assert.equal(worstFeedState(["live", "live", "live"]), "live");
 });

@@ -81,6 +81,65 @@ export function tradingStateFreshness(
   return unavailable ? "stale" : "current";
 }
 
+/**
+ * ── What the badge is allowed to assert ───────────────────────────────────
+ *
+ * This read `const paper = state.dryRun` and rendered PAPER or LIVE on that
+ * one boolean. But when manual trading is disabled the Platform answers the
+ * state route ITSELF, with a hard-coded `dryRun: true` and a comment saying
+ * "no Bot is contacted" — so the chip asserted "the execution bot is in
+ * dry-run: orders are simulated" about a bot nothing had spoken to. The value
+ * it happened to assert was the safe one. What was wrong is that its source of
+ * truth was a constant the Platform wrote for itself, and the component had no
+ * way at all to tell "the bot says dry-run" from "there is no bot".
+ *
+ * `enabled` and `mixed` were both on the wire and read nowhere. They are the
+ * missing distinctions: `enabled` separates a report from a placeholder, and
+ * `mixed` is the case where the accounts do not agree with each other and a
+ * single global chip is a lie whichever way it points.
+ */
+export type ExecutionMode = "disconnected" | "paper" | "live" | "mixed";
+
+export interface ExecutionModeBadge {
+  mode: ExecutionMode;
+  label: string;
+  title: string;
+}
+
+export function executionMode(state: ManualTradingState): ExecutionModeBadge {
+  if (!state.enabled) {
+    return {
+      mode: "disconnected",
+      label: "NOT CONNECTED",
+      title: "Manual trading is switched off on this Platform, so no execution bot was "
+        + "contacted. Nothing here is a report about a bot's mode — and nothing can reach "
+        + "an exchange.",
+    };
+  }
+  if (state.mixed) {
+    return {
+      mode: "mixed",
+      label: "MIXED",
+      title: "The execution bot reports accounts that do not agree: at least one is live "
+        + "and at least one is not. There is no single answer for this installation, so "
+        + "check the account each order will use before placing it.",
+    };
+  }
+  if (state.dryRun) {
+    return {
+      mode: "paper",
+      label: "PAPER",
+      title: "The execution bot reports dry-run: orders are simulated and nothing reaches "
+        + "the exchange.",
+    };
+  }
+  return {
+    mode: "live",
+    label: "LIVE",
+    title: "The execution bot reports live: orders are real Spot orders on the exchange.",
+  };
+}
+
 /** A wall-clock time as HH:MM:SS in the viewer's zone — the "read at" stamp. */
 export function clockLabel(ms: number): string {
   const d = new Date(ms);
@@ -122,7 +181,16 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
   const open = openOrders(state.orders)
     .sort((a, b) => Number(b.symbol === symbol) - Number(a.symbol === symbol));
   const history = recentHistory(state.orders);
-  const paper = state.dryRun;
+  const execution = executionMode(state);
+  /*
+   * "No open position on any account" is a claim ABOUT accounts, and with no
+   * bot contacted there are none to have made it about — the sentence turned a
+   * question nobody asked into a negative answer. Hoisted out of the JSX so the
+   * table below stays close to the container that lets it scroll.
+   */
+  const noPositions = execution.mode === "disconnected"
+    ? "No execution bot is connected, so there are no accounts to report positions for."
+    : "No open position on any account.";
   const readLabel = readAt === null ? null : clockLabel(readAt);
   const pnlTone = (value: number): string => stale ? "text-ink-muted" : value >= 0 ? "text-up" : "text-down";
 
@@ -142,16 +210,19 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
           </button>
         ))}
         <span
-          // accent-is-meaning: the paper-trading badge — data that is
-          // categorically ours, named as legitimate accent by the contract.
+          data-execution-mode={execution.mode}
+          // accent-is-meaning: PAPER is categorically ours. LIVE and MIXED are
+          // warnings. NOT CONNECTED is neither — it is the ABSENCE of a report,
+          // and dressing absence in either colour is how this chip came to
+          // assert something nothing had told it.
           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-            paper ? "bg-accent/15 text-accent" : "border border-warn/40 bg-warn/15 text-warn"
+            execution.mode === "paper" ? "bg-accent/15 text-accent"
+              : execution.mode === "disconnected" ? "border border-border bg-surface-2 text-ink-muted"
+                : "border border-warn/40 bg-warn/15 text-warn"
           }`}
-          title={paper
-            ? "The execution bot is in dry-run: orders are simulated, nothing reaches the exchange."
-            : "The execution bot is live: orders are real Spot orders on Binance."}
+          title={execution.title}
         >
-          {paper ? "PAPER" : "LIVE"}
+          {execution.label}
         </span>
         {readLabel && !stale && (
           <span className="text-[10px] text-ink-faint" title="When positions and orders were last read from the execution bot">
@@ -175,9 +246,7 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
         {tab === "positions" ? (
           positions.length === 0 ? (
-            <p className="px-3 py-6 text-center text-xs text-ink-faint">
-              No open position on any account.
-            </p>
+            <p className="px-3 py-6 text-center text-xs text-ink-faint">{noPositions}</p>
           ) : (
             <table className="w-full min-w-[640px] text-[11px] tabular">
               <thead className="sticky top-0 bg-surface text-ink-faint">
