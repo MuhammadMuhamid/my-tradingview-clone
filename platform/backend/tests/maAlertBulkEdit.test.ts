@@ -22,7 +22,6 @@ const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 
 const ROW = (over: Partial<MaAlertRow> & { id: string }): MaAlertRow => ({
-  id: over.id,
   symbol: "BTCUSDT", canonicalInstrumentId: null, providerId: null, priceBasis: null,
   timeframe: "1h", conditionKind: "ma",
   maType: "ema", maLength: 200, mode: "cross_up", ma2Type: null, ma2Length: null,

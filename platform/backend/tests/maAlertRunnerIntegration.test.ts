@@ -65,6 +65,7 @@ function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
     bbLength: null, bbMult: null, bbBand: null, bbMaType: null,
     stochKLength: null, stochKSmooth: null, stochDSmooth: null, stochLevel: null,
     adxDiLength: null, adxSmoothing: null, adxLevel: null,
+    filters: null,
     filterRsiLength: null, filterRsiLevel: null, filterRsiSide: null,
     filterMaType: null, filterMaLength: null, filterMaSide: null,
     filterStPeriod: null, filterStMultiplier: null,
