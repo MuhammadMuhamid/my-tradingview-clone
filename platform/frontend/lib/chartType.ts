@@ -30,6 +30,7 @@
  * because its price-crossing inputs are not present in the supported candle
  * contract. Line Break and Kagi are close-driven transforms.
  */
+import { CHART_DOWN, CHART_UP } from "./chartTheme";
 import {
   DEFAULT_KAGI_REVERSAL_PERCENT, DEFAULT_LINE_BREAK_LINES, DEFAULT_RENKO_ATR_PERIOD,
   DEFAULT_PNF_BOX_PERCENT, DEFAULT_PNF_REVERSAL_BOXES,
@@ -435,6 +436,16 @@ export function saveChartType(type: ChartType): void {
  * colour a continuous line, and tinting line segments per bar would be an
  * invention rather than a rendering of what the script asked for.
  */
+/**
+ * Kagi's two tones.
+ *
+ * The reference draws yang teal and yin red — the same two directions the rest
+ * of the product already speaks in, so they are the chart's own up/down tokens
+ * rather than a third pair invented here.
+ */
+const KAGI_YANG = CHART_UP;
+const KAGI_YIN = CHART_DOWN;
+
 export interface MainSeriesDatum {
   time: number;
   open?: number;
@@ -460,7 +471,22 @@ export function mainSeriesDatum(
 ): MainSeriesDatum {
   const time = bar.openTime / 1000;
   const kind = renderKind(type);
-  if (kind !== "candles" && kind !== "bars") return { time, value: bar.close };
+  if (kind !== "candles" && kind !== "bars") {
+    /*
+     * Kagi carries its tone per point. `yang` is the line above the previous
+     * shoulder and `yin` the line below the previous waist — the distinction
+     * the chart exists to draw, and the one the picker's own icon has always
+     * promised by changing width at the shoulder. A line series takes a colour
+     * per point, so the two tones live on one series rather than two.
+     */
+    if (type === "kagi" && bar.kagiTone) {
+      return {
+        time, value: bar.close,
+        color: bar.kagiTone === "yang" ? KAGI_YANG : KAGI_YIN,
+      };
+    }
+    return { time, value: bar.close };
+  }
   const ohlc = type === "highLow"
     ? {
         time, open: (bar.high + bar.low) / 2,

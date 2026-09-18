@@ -621,9 +621,20 @@ function addMainSeries(
   }
   return chart.addLineSeries({
     color: CHART_ACCENT, lineWidth: 2, priceLineVisible: false,
-    // A step holds each close until the next one, which is what a close IS —
-    // the price at one instant, not a path between two of them.
-    lineType: type === "stepLine" ? LineType.WithSteps : LineType.Simple,
+    /*
+     * A step holds each close until the next one, which is what a close IS —
+     * the price at one instant, not a path between two of them.
+     *
+     * Kagi takes the same step for a different reason, and needs it more: a
+     * Kagi line is vertical price legs joined by horizontal shoulders, and
+     * ours drew straight diagonals between the reversal points. That is not a
+     * stylistic difference — a Kagi without right angles is a line chart of
+     * turning points, and the right angles are the notation. The reversal
+     * arithmetic in `foldKagi` was correct the whole time; only the path
+     * between the points was wrong.
+     */
+    lineType: type === "stepLine" || type === "kagi"
+      ? LineType.WithSteps : LineType.Simple,
   });
 }
 

@@ -17,7 +17,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  createRenkoState, createTransformCursor, DEFAULT_RENKO_ATR_PERIOD, foldRenko,
+  createKagiState, createRenkoState, createTransformCursor, DEFAULT_RENKO_ATR_PERIOD,
+  foldKagi, foldRenko,
   heikinAshiBar, heikinAshiBars, kagiBars, lineBreakBars,
   pointFigureColumns, renkoBricks, renkoSize, transformAll, transformStep,
   type OhlcBar,
@@ -681,4 +682,50 @@ test("A POINT & FIGURE REVERSAL RUNS TO THE BOX IT REACHED", () => {
     `a 58-point reversal is more than the 3-box minimum; got ${last.boxes} boxes`);
   assert.ok(last.low <= 102,
     `the column runs down to the box price reached, not ${last.low}`);
+});
+
+test("a Kagi leg is yin until it clears the previous shoulder, and yang until it breaks the waist", () => {
+  /*
+   * The distinction the chart exists to draw. A Kagi that changes colour
+   * whenever the line changes DIRECTION is a line chart with two colours: the
+   * tone is about the previous shoulder and waist, not about the current leg.
+   *
+   * The sequence below rises, reverses, then rises again to a point BELOW the
+   * first peak — a rally that has not earned yang — and then above it.
+   */
+  const oneBar = (t: number, close: number): OhlcBar =>
+    ({ openTime: t, open: close, high: close, low: close, close });
+
+  let state = createKagiState();
+  const tones: (string | undefined)[] = [];
+  // 1% reversal on a ~100 instrument is ~1.00.
+  for (const [t, close] of [
+    [1, 100], [2, 110], [3, 100], [4, 108], [5, 120],
+  ] as const) {
+    const out = foldKagi(state, oneBar(t, close), 1, false, 0.01);
+    state = out.state;
+    for (const e of out.emitted) tones.push(e.kagiTone);
+  }
+
+  assert.deepEqual(tones, ["yin", "yin", "yin", "yin", "yang"],
+    "the 108 rally is below the 110 shoulder and must stay yin; 120 clears it");
+});
+
+test("every emitted Kagi segment carries a tone, so no segment is drawn undecided", () => {
+  const oneBar = (t: number, close: number): OhlcBar =>
+    ({ openTime: t, open: close, high: close, low: close, close });
+  let state = createKagiState();
+  const emitted: OhlcBar[] = [];
+  let price = 100;
+  for (let t = 1; t <= 40; t += 1) {
+    price += t % 3 === 0 ? -4 : 3;
+    const out = foldKagi(state, oneBar(t, price), 1, false, 0.01);
+    state = out.state;
+    emitted.push(...out.emitted);
+  }
+  assert.ok(emitted.length > 5, "the fixture produced no reversals to judge");
+  for (const e of emitted) {
+    assert.ok(e.kagiTone === "yang" || e.kagiTone === "yin",
+      `a segment at ${e.openTime} has no tone`);
+  }
 });

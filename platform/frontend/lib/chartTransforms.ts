@@ -47,6 +47,16 @@ export interface OhlcBar {
   close: number;
   /** Canonical source timestamp for sparse price-driven displays. */
   sourceOpenTime?: number;
+  /**
+   * Kagi only: which side of the previous shoulder this segment is on.
+   *
+   * `yang` is the thick/up line above the last shoulder, `yin` the thin/down
+   * line below the last waist. It is not simply "this leg went up" — a rising
+   * leg that has not yet passed the previous shoulder is still yin, and that
+   * distinction IS the chart: it is the whole reason to draw a Kagi rather
+   * than a line.
+   */
+  kagiTone?: "yang" | "yin";
 }
 
 /** Wilder ATR period for Renko V1. */
@@ -470,10 +480,19 @@ export interface KagiState {
   lastTime: number;
   /** Extreme close reached by the current directional leg. */
   extreme: number | null;
+  /** The high the last completed UP leg turned at — the shoulder to beat. */
+  shoulder: number | null;
+  /** The low the last completed DOWN leg turned at — the waist to break. */
+  waist: number | null;
+  /** The tone in force, carried until a shoulder or a waist is passed. */
+  tone: "yang" | "yin";
 }
 
 export function createKagiState(): KagiState {
-  return { current: null, direction: 0, reversal: 0, lastTime: 0, extreme: null };
+  return {
+    current: null, direction: 0, reversal: 0, lastTime: 0, extreme: null,
+    shoulder: null, waist: null, tone: "yin",
+  };
 }
 
 /**
@@ -493,9 +512,16 @@ export function foldKagi(
   };
   if (state.current === null) {
     const reversal = roundedReversal(bar.close);
-    const first = { ...bar, sourceOpenTime: bar.openTime };
+    const first: OhlcBar = { ...bar, sourceOpenTime: bar.openTime, kagiTone: "yin" };
     return {
-      state: { current: bar.close, direction: 0, reversal, lastTime: bar.openTime, extreme: bar.close },
+      state: {
+        current: bar.close, direction: 0, reversal, lastTime: bar.openTime,
+        extreme: bar.close,
+        // Nothing has turned yet, so there is no shoulder to beat and no waist
+        // to break. The line starts yin — the conservative reading — and earns
+        // yang by passing a shoulder that exists.
+        shoulder: null, waist: null, tone: "yin",
+      },
       emitted: [first],
     };
   }
@@ -521,6 +547,24 @@ export function foldKagi(
     // reversal; small counter-moves do not create a new point.
     return { state, emitted: [] };
   }
+  /*
+   * ── Yang and yin ────────────────────────────────────────────────────────
+   *
+   * A reversal COMPLETES the leg that was running, and the price it turned at
+   * becomes the level the next move has to beat: an up leg leaves a shoulder,
+   * a down leg leaves a waist. The tone then flips only when one of those is
+   * passed — not when the line merely changes direction. A rising leg that has
+   * not yet cleared the previous shoulder is still yin, and that is exactly
+   * the information a Kagi carries and a line chart does not.
+   */
+  const turned = direction !== state.direction && state.direction !== 0;
+  const shoulder = turned && state.direction === 1 ? extreme : state.shoulder;
+  const waist = turned && state.direction === -1 ? extreme : state.waist;
+
+  let tone = state.tone;
+  if (shoulder !== null && bar.close > shoulder) tone = "yang";
+  else if (waist !== null && bar.close < waist) tone = "yin";
+
   const next: OhlcBar = {
     openTime: Math.max(bar.openTime, state.lastTime + 1),
     open: current,
@@ -528,12 +572,16 @@ export function foldKagi(
     high: Math.max(current, bar.close),
     low: Math.min(current, bar.close),
     sourceOpenTime: bar.openTime,
+    kagiTone: tone,
   };
   const nextExtreme = direction === 1
     ? Math.max(direction === state.direction ? extreme : current, bar.close)
     : Math.min(direction === state.direction ? extreme : current, bar.close);
   return {
-    state: { current: bar.close, direction, reversal, lastTime: next.openTime, extreme: nextExtreme },
+    state: {
+      current: bar.close, direction, reversal, lastTime: next.openTime,
+      extreme: nextExtreme, shoulder, waist, tone,
+    },
     emitted: [next],
   };
 }
