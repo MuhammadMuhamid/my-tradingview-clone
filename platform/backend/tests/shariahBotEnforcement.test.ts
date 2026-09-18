@@ -202,10 +202,22 @@ async function modeApp(over: {
   botReports?: "off" | "enforce" | "unreachable";
   /** What the bot CLAIMS it applied, when that differs from what was asked. */
   botApplies?: "off" | "enforce";
+  /** Audit rows this harness saw, for the tests that care that one was written. */
+  audit?: {
+    fromMode: string; toMode: string; botFloorPushed: boolean;
+    changedBy: string; policyVersion: string;
+  }[];
 } = {}) {
   let stored: "off" | "enforce" = over.stored ?? "off";
   const app = Fastify();
   await app.register(shariahRoutes, {
+    /*
+     * Faked for the same reason `mode.set` is: these tests prove the
+     * arm-then-store ORDER without a database, and a real audit write would
+     * put one back — it outlived the test and surfaced as an uncaught
+     * "terminating connection due to administrator command".
+     */
+    recordModeChange: async (input) => { over.audit?.push(input); },
     mode: {
       get: async () => stored,
       set: async (mode: "off" | "enforce") => {
@@ -546,4 +558,65 @@ test("the mode route cannot store enforce without having pushed it", () => {
   const store = body.indexOf("writeMode(mode)");
   assert.ok(push > -1 && store > -1);
   assert.ok(push < store, "the bot must be armed before the mode is stored");
+});
+
+test("every mode change is recorded: both modes, and whether the Bot floor moved", async () => {
+  /*
+   * `app_settings` held this switch as one mutable key/value row with a single
+   * `updated_at`, so for the control that decides whether an installation
+   * enforces anything at all, "someone turned it off at some point" was the
+   * only recoverable fact. Every publication in this system is append-only and
+   * attributed; the switch deciding whether publications are enforced was not.
+   */
+  const audit: {
+    fromMode: string; toMode: string; botFloorPushed: boolean;
+    changedBy: string; policyVersion: string;
+  }[] = [];
+  const { app } = await modeApp({ stored: "off", audit });
+  try {
+    const on = await app.inject({ method: "PUT", url: "/api/shariah/mode", payload: { mode: "enforce" } });
+    assert.equal(on.statusCode, 200, on.body);
+    assert.equal(audit.length, 1);
+    assert.deepEqual(
+      { fromMode: audit[0]!.fromMode, toMode: audit[0]!.toMode, botFloorPushed: audit[0]!.botFloorPushed },
+      { fromMode: "off", toMode: "enforce", botFloorPushed: true },
+    );
+    // WHO changed it, and under which policy: the two facts `app_settings`
+    // could never answer. The operator comes from the signed session, never
+    // from the request body — the same rule `published_by` follows.
+    assert.ok(audit[0]!.changedBy.length > 0, "an unattributed mode change is not an audit trail");
+    assert.equal(audit[0]!.policyVersion, SHARIAH_POLICY_VERSION);
+
+    const off = await app.inject({ method: "PUT", url: "/api/shariah/mode", payload: { mode: "off" } });
+    assert.equal(off.statusCode, 200, off.body);
+    assert.equal(audit.length, 2);
+    assert.deepEqual(
+      { fromMode: audit[1]!.fromMode, toMode: audit[1]!.toMode, botFloorPushed: audit[1]!.botFloorPushed },
+      { fromMode: "enforce", toMode: "off", botFloorPushed: true },
+    );
+
+    // A no-op write is not a change, and logging it would bury the real ones.
+    const again = await app.inject({ method: "PUT", url: "/api/shariah/mode", payload: { mode: "off" } });
+    assert.equal(again.statusCode, 200);
+    assert.equal(audit.length, 2, "re-storing the same mode is not a mode change");
+  } finally { await app.close(); }
+});
+
+test("a refused arming leaves no audit row, because nothing changed", async () => {
+  // The Bot refused, so the mode was never stored. Recording an attempt as a
+  // change would make the log claim an installation was enforcing when it
+  // never was — worse than having no log.
+  const audit: {
+    fromMode: string; toMode: string; botFloorPushed: boolean;
+    changedBy: string; policyVersion: string;
+  }[] = [];
+  const { app } = await modeApp({
+    stored: "off", audit,
+    push: async () => { throw new Error("bot refused"); },
+  });
+  try {
+    const response = await app.inject({ method: "PUT", url: "/api/shariah/mode", payload: { mode: "enforce" } });
+    assert.notEqual(response.statusCode, 200);
+    assert.deepEqual(audit, []);
+  } finally { await app.close(); }
 });

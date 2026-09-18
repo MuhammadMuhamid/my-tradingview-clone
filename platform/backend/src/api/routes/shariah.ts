@@ -87,6 +87,15 @@ export async function shariahRoutes(
     botEnforcement?: BotEnforcementDeps;
     /** The stored mode, injectable so the arm-then-store ORDER can be tested. */
     mode?: { get?: () => Promise<ShariahMode>; set?: (mode: ShariahMode) => Promise<ShariahMode> };
+    /**
+     * The audit write, injectable for the same reason the mode is.
+     *
+     * The arm-then-store tests fake `mode.set` precisely so they can prove the
+     * ORDER without a database, and an audit row that went straight to the pool
+     * would put one back — which is exactly what happened: the write outlived
+     * the test and surfaced as an uncaught "terminating connection".
+     */
+    recordModeChange?: typeof shariah.recordShariahModeChange;
     /** Binance SPOT metadata, injectable so the sync is provable without a network call. */
     exchangeSymbols?: () => Promise<readonly BinanceSpotSymbolMeta[]>;
   } = {}
@@ -97,6 +106,7 @@ export async function shariahRoutes(
   const botEnforcementDeps = dependencies.botEnforcement ?? {};
   const readMode = dependencies.mode?.get ?? getShariahMode;
   const writeMode = dependencies.mode?.set ?? setShariahMode;
+  const recordModeChange = dependencies.recordModeChange ?? shariah.recordShariahModeChange;
 
   /** The whole registry, including delisted assets (`binanceAvailable: false`). */
   app.get("/api/shariah/universe", async () => {
@@ -485,7 +495,7 @@ export async function shariahRoutes(
     const audit = async (pushed: boolean): Promise<void> => {
       if (previousMode === mode) return;
       try {
-        await shariah.recordShariahModeChange({
+        await recordModeChange({
           fromMode: previousMode, toMode: mode,
           changedBy: operator ?? "unknown-operator",
           botFloorPushed: pushed, policyVersion: TS_SHARIAH_V1,
