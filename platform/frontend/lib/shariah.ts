@@ -380,6 +380,25 @@ export interface PublishRequest {
 
 export const shariahApi = {
   universe: () => req<ShariahUniverse>("/api/shariah/universe"),
+
+  /*
+   * Discover which Binance Spot USDT base assets this install tracks.
+   *
+   * `POST /api/shariah/universe/sync` describes itself as "the registry's only
+   * production entry point" and had NO caller — no button, no client method,
+   * no script. So a fresh install had an empty registry, every symbol resolved
+   * to REVIEW, and turning Shariah Mode on was a total BUY stop with no action
+   * inside the product that could lift it. The whole feature was unreachable
+   * without curl.
+   *
+   * Discovery is not classification: the route creates every newly seen asset
+   * UNSCREENED, which reads as REVIEW, and has no path that writes ELIGIBLE or
+   * EXCLUDED. Running it can never widen what may be bought.
+   */
+  syncUniverse: () => req<{
+    policyVersion: string; qualifying: number;
+    created: number; reactivated: number; deactivated: number;
+  }>("/api/shariah/universe/sync", { method: "POST" }),
   asset: (assetId: string) => req<ShariahAssetDetail>(`/api/shariah/assets/${assetId}`),
   addEvidence: (assetId: string, body: Omit<ShariahEvidence, "id" | "assetId" | "createdAt">) =>
     req<ShariahEvidence>(`/api/shariah/assets/${assetId}/evidence`, {

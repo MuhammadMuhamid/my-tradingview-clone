@@ -7,6 +7,9 @@ import { providerRegistry } from "../../market/providers";
 import type { ProviderRegistry } from "../../market/registry";
 import { cmeGlobexSessionOpen, oandaFxSessionOpen } from "../../market/traditionalMarkets";
 import * as liveSafety from "../../repositories/liveSafety";
+import {
+  assertShariahScopeAllowed, ShariahExposureBlockedError, type ShariahGateDeps,
+} from "../../shariah/gate";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
@@ -30,8 +33,14 @@ const decimal = (body: Record<string, unknown>, key: string, optional = false) =
 };
 const hash = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
 async function send<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | void> {
-  try { return await action(); } catch (error) {
-    if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message }); throw error;
+  try { return await action(); }
+  catch (error) {
+    // A Shariah refusal is an answer carrying the mode and policy that produced it.
+    if (error instanceof ShariahExposureBlockedError) {
+      return reply.code(error.status).send({ error: error.message, shariah: error.context });
+    }
+    if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
+    throw error;
   }
 }
 async function resolve(registry: ProviderRegistry, id: string): Promise<CanonicalInstrument | null> {
@@ -48,11 +57,14 @@ async function resolve(registry: ProviderRegistry, id: string): Promise<Canonica
 export async function traditionalExecutionRoutes(app: FastifyInstance, dependencies: {
   registry?: ProviderRegistry; now?: () => number; botRequest?: (input: ManualBotRequestInput) => Promise<unknown>;
   claimIntent?: typeof liveSafety.claimIntent; resolveIntent?: typeof liveSafety.resolveIntent;
+  /** Mode reader, so the scope refusal is provable without a database. */
+  shariah?: ShariahGateDeps;
 } = {}): Promise<void> {
   const registry = dependencies.registry ?? providerRegistry; const now = dependencies.now ?? Date.now;
   const botRequest = dependencies.botRequest ?? traditionalBotRequest;
   const claimIntent = dependencies.claimIntent ?? liveSafety.claimIntent;
   const resolveIntent = dependencies.resolveIntent ?? liveSafety.resolveIntent;
+  const shariahDeps: ShariahGateDeps = dependencies.shariah ?? {};
   app.get("/api/traditional-execution/v1/state", async (_req, reply) => send(reply, async () =>
     config.traditionalPaperExecutionEnabled ? botRequest({ method: "GET", path: "/api/traditional-execution/v1/state" })
       : { enabled: false, environments: ["OANDA_PRACTICE", "IBKR_PAPER"], externalHandshake: "UNVERIFIED_DISABLED",
@@ -95,12 +107,21 @@ export async function traditionalExecutionRoutes(app: FastifyInstance, dependenc
       contract: instrument.futures ? { root: instrument.futures.root, contractCode: instrument.futures.contractCode,
         expiry: instrument.futures.expiry, multiplier: instrument.futures.multiplier, tickSize: instrument.futures.tickSize,
         tickValue: instrument.futures.tickValue } : undefined };
+    /*
+     * X5 routes FX and futures orders and called no gate at all. TS_SHARIAH_V1
+     * makes no finding about either asset class, so while enforcing a new
+     * position is refused here rather than passed through unexamined — which is
+     * what was happening. Reducing is never blocked. Gated before the intent is
+     * claimed, so a refused order consumes no dedupe identity.
+     */
+    const shariah = await assertShariahScopeAllowed(
+      { scope: "traditional", side }, shariahDeps);
     const claim = await claimIntent({ deploymentId, dedupeKey, action: side === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) return reply.code(409).send({ error: "this Platform X5 intent was already attempted; no retry was sent" });
     const platformIntent = { id: `x5_platform_intent_${claim.intent.id}`, dedupeKey,
       createdAt: new Date(claim.intent.createdAt).toISOString(), payloadHash: hash(command) };
     const result = await botRequest({ method: "POST", path: "/api/traditional-execution/v1/orders",
-      requestId: platformIntent.id, body: { platformIntent, ...command } });
+      requestId: platformIntent.id, body: { platformIntent, ...command, shariah } });
     await resolveIntent(claim.intent.id, "delivered", "Bot accepted durable X5 paper/practice intent; no automatic retry is permitted");
     return { ...(result as object), platformIntentId: platformIntent.id, dedupeKey };
   }));

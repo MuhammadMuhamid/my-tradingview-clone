@@ -21,7 +21,8 @@ import { manualTradingRoutes } from "../src/api/routes/manualTrading";
 import { signManualCommand } from "../src/manualTrading/client";
 import { CLASSIFICATIONS, effectiveShariahStatus, type Classification } from "../src/shariah/policy";
 import {
-  baseAssetOfSymbol, decideSpotExposure, evaluateShariahGate, normalizeSpotSide,
+  assertShariahScopeAllowed, baseAssetOfSymbol, decideSpotExposure, evaluateShariahGate,
+  normalizeSpotSide, policyCoversScope, ShariahExposureBlockedError,
   type ShariahGateDeps,
 } from "../src/shariah/gate";
 import { coerceShariahMode, DEFAULT_SHARIAH_MODE, type ShariahMode } from "../src/shariah/mode";
@@ -175,6 +176,69 @@ test("every Platform path that can create Spot exposure calls the gate first", (
   assert.ok(testSignalGate > 0, "the live test-signal route does not call the Shariah gate");
   assert.ok(testSignalGate < deployments.indexOf("await deliver(built.url"),
     "the test-signal route delivers before gating");
+});
+
+test("EVERY route file that can emit an order reaches the gate — enumerated, not named", () => {
+  /*
+   * The test above wears a universal name and inspects two files. That is how
+   * X3A (nine spot venues) and X5 (FX and futures) shipped able to open a
+   * position with no Shariah call anywhere in them, on either side of the
+   * Platform/Bot boundary, while `gate.ts` stated in its own header that every
+   * such path called it.
+   *
+   * So the set is DISCOVERED. Any route file that mentions an order side has to
+   * reach one of the two gate entry points — the asset gate for spot, the scope
+   * gate for an asset class this policy version does not rule on — and a route
+   * file added later joins the set without anyone remembering to add it here.
+   */
+  const routes = path.join(SRC, "api", "routes");
+  const GATE_ENTRY = /assertShariahExposureAllowed|assertShariahScopeAllowed|evaluateShariahGate/;
+  const ungated: string[] = [];
+  for (const file of fs.readdirSync(routes).filter((f) => f.endsWith(".ts"))) {
+    const source = fs.readFileSync(path.join(routes, file), "utf8");
+    // Routes that WRITE an order name a side and reach a Bot or a delivery.
+    const emitsOrder = /["']BUY["']/.test(source)
+      && /botRequest|sendBotRequest|deliver\(/.test(source);
+    if (!emitsOrder) continue;
+    if (!GATE_ENTRY.test(source)) ungated.push(file);
+  }
+  assert.deepEqual(ungated, [],
+    "these route files can emit an order and never reach the Shariah gate");
+});
+
+test("a scope the policy does not rule on is refused, not cleared by a spot verdict", async () => {
+  /*
+   * The derivatives route gated a perpetual on the SPOT base asset's status, so
+   * a short on an ELIGIBLE asset passed — the product asserting a conclusion
+   * about leverage and shorting that TS_SHARIAH_V1 never reached. `policy.ts`
+   * fixes the premise as spot crypto and the methodology document says "Spot
+   * only. There are no futures, margin or short semantics."
+   */
+  const enforcing = { readMode: async () => "enforce" as const };
+  for (const scope of ["derivative", "equity", "traditional"] as const) {
+    assert.equal(policyCoversScope(scope), false, `${scope} is outside this policy version`);
+    await assert.rejects(
+      () => assertShariahScopeAllowed({ scope, side: "BUY" }, enforcing),
+      (error: unknown) => error instanceof ShariahExposureBlockedError
+        && /makes\s*no finding about/.test((error as Error).message),
+      `opening ${scope} exposure while enforcing must be refused`,
+    );
+    // SELL is never gated, here as everywhere.
+    const exit = await assertShariahScopeAllowed({ scope, side: "SELL" }, enforcing);
+    assert.equal(exit.mode, "enforce");
+  }
+  // Spot is the one scope this policy DOES rule on; the asset gate handles it.
+  assert.equal(policyCoversScope("spot"), true);
+  const spot = await assertShariahScopeAllowed({ scope: "spot", side: "BUY" }, enforcing);
+  assert.equal(spot.mode, "enforce");
+
+  // And with the mode off nothing is refused at all.
+  const off = { readMode: async () => "off" as const };
+  for (const scope of ["derivative", "equity", "traditional"] as const) {
+    const context = await assertShariahScopeAllowed({ scope, side: "BUY" }, off);
+    assert.equal(context.mode, "off");
+    assert.equal(context.policyVersion, null);
+  }
 });
 
 test("the browser is never trusted to have applied the rule", () => {

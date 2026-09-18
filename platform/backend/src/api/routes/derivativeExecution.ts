@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { config } from "../../config";
 import { canonicalJson, derivativeBotRequest, ManualBotError, type ManualBotRequestInput } from "../../manualTrading/client";
 import * as liveSafety from "../../repositories/liveSafety";
-import { evaluateShariahGate } from "../../shariah/gate";
+import { assertShariahScopeAllowed, ShariahExposureBlockedError,
+  type ShariahGateDeps } from "../../shariah/gate";
 
 const VENUES = ["binance", "bybit", "okx", "kucoin", "gateio", "kraken", "hyperliquid", "coinbase"] as const;
 const ENVIRONMENTS = ["paper", "testnet", "demo"] as const;
@@ -44,7 +45,15 @@ function derivativePayloadHash(body: Record<string, unknown>): string {
 
 async function send<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | void> {
   try { return await action(); }
-  catch (error) { if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message }); throw error; }
+  catch (error) {
+    // A refusal from the Shariah scope check is an ANSWER, with the mode and
+    // policy version that produced it, not an unhandled failure.
+    if (error instanceof ShariahExposureBlockedError) {
+      return reply.code(error.status).send({ error: error.message, shariah: error.context });
+    }
+    if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
+    throw error;
+  }
 }
 
 function parseCommand(body: Record<string, unknown>): Record<string, unknown> {
@@ -98,12 +107,13 @@ export async function derivativeExecutionRoutes(app: FastifyInstance, dependenci
   botRequest?: (input: ManualBotRequestInput) => Promise<unknown>;
   claimIntent?: typeof liveSafety.claimIntent;
   resolveIntent?: typeof liveSafety.resolveIntent;
-  evaluateShariah?: typeof evaluateShariahGate;
+  /** Mode reader, so the scope refusal is provable without a database. */
+  shariah?: ShariahGateDeps;
 } = {}): Promise<void> {
   const botRequest = dependencies.botRequest ?? derivativeBotRequest;
   const claimIntent = dependencies.claimIntent ?? liveSafety.claimIntent;
   const resolveIntent = dependencies.resolveIntent ?? liveSafety.resolveIntent;
-  const shariahGate = dependencies.evaluateShariah ?? evaluateShariahGate;
+  const shariahDeps: ShariahGateDeps = dependencies.shariah ?? {};
   app.get("/api/derivative-execution/v1/state", async (_req, reply) => send(reply, async () => {
     if (!config.derivativeExecutionEnabled) return { enabled: false, mode: "PAPER_TESTNET_ONLY",
       productionActivationAvailable: false, warning: "Derivatives execution is disabled" };
@@ -114,12 +124,19 @@ export async function derivativeExecutionRoutes(app: FastifyInstance, dependenci
     const body = record(req.body); const deploymentId = text(body, "deploymentId"); const dedupeKey = text(body, "dedupeKey");
     if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{16,160}$/.test(dedupeKey)) throw new ManualBotError("durable deployment/dedupe identity is invalid", 400);
     const barTime = Number(body.barTime); if (!Number.isSafeInteger(barTime) || barTime <= 0) throw new ManualBotError("barTime must be a positive integer", 400);
-    const parsed = parseCommand(body); const instrument = parsed.instrument as Record<string, string>;
+    const parsed = parseCommand(body);
     const reducing = parsed.reduceOnly === true || parsed.closePosition === true;
-    const shariah = await shariahGate({ symbol: `${instrument.baseCurrency}${instrument.quoteCurrency}`,
-      side: reducing ? "SELL" : "BUY" });
-    if (!shariah.allowed) throw new ManualBotError(shariah.reason ?? "blocked by Shariah Mode", 403);
-    const command: Record<string, unknown> = { ...parsed, shariah: shariah.context };
+    /*
+     * This asked the SPOT registry about the base asset and opened a derivative
+     * position on its answer — so a short on an ELIGIBLE asset passed. That is
+     * a permissibility conclusion about leverage and shorting which
+     * TS_SHARIAH_V1 never made; the policy's own premise is spot crypto. The
+     * scope is checked instead, and outside spot a new position is refused
+     * while enforcing. Reducing or closing is never blocked.
+     */
+    const context = await assertShariahScopeAllowed(
+      { scope: "derivative", side: reducing ? "SELL" : "BUY" }, shariahDeps);
+    const command: Record<string, unknown> = { ...parsed, shariah: context };
     const actionSide = command.actionSide as "BUY" | "SELL";
     const claim = await claimIntent({ deploymentId, dedupeKey, action: actionSide === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) {

@@ -286,6 +286,37 @@ export default function ShariahPage() {
     }
   };
 
+  /**
+   * Discover which assets this install actually tracks.
+   *
+   * `POST /api/shariah/universe/sync` called itself the registry's only
+   * production entry point and had no caller anywhere — no button, no client
+   * method, no script. A fresh install therefore had an EMPTY registry, every
+   * symbol resolved to REVIEW, and turning Shariah Mode on was a total BUY stop
+   * with nothing inside the product able to lift it.
+   *
+   * Discovery is not classification, which is what makes this safe to put
+   * behind a button: the route creates newly seen assets UNSCREENED (it reads
+   * as REVIEW) and has no path that writes ELIGIBLE or EXCLUDED. Running it can
+   * only ever widen what needs reviewing, never what may be bought.
+   */
+  const syncUniverse = async () => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const r = await shariahApi.syncUniverse();
+      setNotice(
+        `Universe synced against ${r.qualifying} qualifying Binance Spot USDT base asset(s): `
+        + `${r.created} newly discovered, ${r.reactivated} relisted, ${r.deactivated} no longer `
+        + "tracked. Newly discovered assets are UNSCREENED, which counts as REVIEW — nothing "
+        + "here has been classified, and nothing new can be bought until you publish a decision.");
+      await loadUniverse();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /*
    * Two altitudes on one route. STATUS is the everyday question — is
    * enforcement on, what does the Bot floor say, how many assets are in each
@@ -340,6 +371,10 @@ export default function ShariahPage() {
           <Button onClick={toggleMode} disabled={busy || mode === null}>
             {mode === "enforce" ? "Turn off" : "Turn on"}
           </Button>
+          <Button onClick={syncUniverse} disabled={busy}
+            title="Ask Binance which USDT spot base assets this install tracks, and add any it has not seen. Discovery only — nothing is classified and nothing becomes buyable.">
+            Sync universe
+          </Button>
           {screeningView && (
             <Button variant="primary" onClick={createSnapshot} disabled={busy}>
               Create universe snapshot
@@ -391,6 +426,13 @@ export default function ShariahPage() {
             <Empty>{loaded
               ? "The screening universe could not be read, so this is not a statement that it is empty."
               : "Loading the screening universe…"}</Empty>
+          )}
+          {universe && universe.counts.active === 0 && (
+            <div className="border-b border-border bg-warn/10 px-4 py-2 text-[11px] leading-5 text-warn">
+              This registry is empty, so every symbol reads as REVIEW and turning enforcement on
+              would refuse every BUY. <span className="font-medium">Sync universe</span> discovers the
+              assets this install tracks; it classifies nothing.
+            </div>
           )}
           <p className="px-4 py-2 text-[11px] leading-5 text-ink-faint">
             With enforcement on, only ELIGIBLE assets can be bought; REVIEW, UNSCREENED and STALE are refused.

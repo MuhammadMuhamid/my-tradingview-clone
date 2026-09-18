@@ -176,6 +176,75 @@ export async function evaluateShariahGate(
 }
 
 /**
+ * ── What TS_SHARIAH_V1 actually rules on, and what it does not ────────────
+ *
+ * The policy's own premise is spot crypto. `policy.ts` says so, the methodology
+ * document says "Spot only. There are no futures, margin or short semantics",
+ * and the type above says the same: two sides, no leverage, no short.
+ *
+ * The derivatives route nevertheless gated a perpetual on the SPOT base
+ * asset's verdict and stamped the signed block with it — so opening a short on
+ * an ELIGIBLE asset passed. That is the product asserting a permissibility
+ * conclusion about leverage and shorting that this policy version never made,
+ * and it is the one failure mode worse than refusing: a wrong answer delivered
+ * with the full apparatus of a right one.
+ *
+ * So the scope is checked before the asset is. Outside spot, and with
+ * enforcement on, a new position is REFUSED — not because the instrument is
+ * impermissible, which nothing here knows, but because nothing here knows. The
+ * refusal says exactly that, and names the two honest ways out: trade it with
+ * Shariah Mode off, or wait for a policy version that covers it.
+ *
+ * SELL is never gated, here as everywhere. An operator must always be able to
+ * get out of a position, whatever the scope and whatever the mode.
+ */
+export type ExposureScope = "spot" | "derivative" | "equity" | "traditional";
+
+const SCOPE_DESCRIPTION: Record<Exclude<ExposureScope, "spot">, string> = {
+  derivative: "derivatives, leverage or short exposure",
+  equity: "equities",
+  traditional: "foreign exchange or traditional futures",
+};
+
+/** True only for the asset class this policy version has a finding about. */
+export function policyCoversScope(scope: ExposureScope): boolean {
+  return scope === "spot";
+}
+
+/**
+ * Refuse new exposure in an asset class the policy does not rule on.
+ *
+ * Returns the context to sign onto the outbound request — carrying the mode
+ * and, when enforcing, the policy version — so a Bot receiving the request can
+ * see which policy was in force even for a scope that policy does not cover.
+ */
+export async function assertShariahScopeAllowed(
+  intent: { scope: ExposureScope; side: SpotSide },
+  deps: ShariahGateDeps = {}
+): Promise<ShariahRequestContext> {
+  const mode = await (deps.readMode ?? getShariahMode)();
+  const context: ShariahRequestContext = {
+    mode,
+    policyVersion: mode === "enforce" ? TS_SHARIAH_V1 : null,
+    assetId: null,
+    baseAsset: null,
+    effectiveStatus: "REVIEW",
+    publicationId: null,
+  };
+  if (intent.side === "SELL") return context;
+  if (policyCoversScope(intent.scope)) return context;
+  if (mode !== "enforce") return context;
+  throw new ShariahExposureBlockedError(
+    `Shariah Mode is on. ${TS_SHARIAH_V1} screens Binance Spot crypto assets and makes `
+    + `no finding about ${SCOPE_DESCRIPTION[intent.scope as Exclude<ExposureScope, "spot">]}, `
+    + "so this order is refused rather than cleared by a spot asset's verdict. Closing or "
+    + "reducing an existing position is never blocked. To open one, either turn Shariah "
+    + "Mode off or wait for a policy version that covers this asset class.",
+    context,
+  );
+}
+
+/**
  * The call every new-exposure path makes. Throws `ShariahExposureBlockedError`
  * with an operator-readable reason when refused; returns the context to sign
  * onto the outbound request when allowed.

@@ -9,7 +9,8 @@ import type { ProviderRegistry } from "../../market/registry";
 import { providerRegistry } from "../../market/providers";
 import { equityCalendarDate, equitySessionPhase } from "../../market/usEquities";
 import * as liveSafety from "../../repositories/liveSafety";
-import { evaluateShariahGate } from "../../shariah/gate";
+import { assertShariahScopeAllowed, ShariahExposureBlockedError,
+  type ShariahGateDeps } from "../../shariah/gate";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
@@ -50,6 +51,11 @@ function payloadHash(command: Record<string, unknown>): string {
 async function send<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | void> {
   try { return await action(); }
   catch (error) {
+    // A refusal from the Shariah scope check is an ANSWER, with the mode and
+    // policy version that produced it, not an unhandled failure.
+    if (error instanceof ShariahExposureBlockedError) {
+      return reply.code(error.status).send({ error: error.message, shariah: error.context });
+    }
     if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
     if (error instanceof UnsupportedExecutionError) return reply.code(error.status).send({ error: error.message });
     throw error;
@@ -92,7 +98,8 @@ export async function equityExecutionRoutes(app: FastifyInstance, dependencies: 
   now?: () => number;
   claimIntent?: typeof liveSafety.claimIntent;
   resolveIntent?: typeof liveSafety.resolveIntent;
-  evaluateShariah?: typeof evaluateShariahGate;
+  /** Mode reader, so the scope refusal is provable without a database. */
+  shariah?: ShariahGateDeps;
 } = {}): Promise<void> {
   const botRequest = dependencies.botRequest ?? equityBotRequest;
   const providers = dependencies.registry ?? providerRegistry;
@@ -100,7 +107,7 @@ export async function equityExecutionRoutes(app: FastifyInstance, dependencies: 
   const now = dependencies.now ?? Date.now;
   const claimIntent = dependencies.claimIntent ?? liveSafety.claimIntent;
   const resolveIntent = dependencies.resolveIntent ?? liveSafety.resolveIntent;
-  const shariahGate = dependencies.evaluateShariah ?? evaluateShariahGate;
+  const shariahDeps: ShariahGateDeps = dependencies.shariah ?? {};
 
   app.get("/api/equity-execution/v1/state", async (_req, reply) => send(reply, async () => {
     if (!config.equityPaperExecutionEnabled) return { enabled: false, mode: "ALPACA_PAPER_ONLY",
@@ -153,9 +160,16 @@ export async function equityExecutionRoutes(app: FastifyInstance, dependencies: 
     });
 
     const opening = positionEffect === "OPEN_LONG" || positionEffect === "OPEN_SHORT";
-    const shariah = await shariahGate({ symbol: instrument.identity.baseAsset, side: opening ? "BUY" : "SELL" });
-    if (!shariah.allowed) throw new ManualBotError(shariah.reason ?? "blocked by Shariah Mode", 403);
-    const command: Record<string, unknown> = { environment: "paper", canonicalInstrumentId,
+    /*
+     * An equity ticker has no Binance-Spot-USDT identity, so the asset gate
+     * resolved every one of them to REVIEW and refused it — fail-closed and
+     * correct in outcome, but the refusal read as though the registry had
+     * looked the equity up and had doubts. It had not; TS_SHARIAH_V1 makes no
+     * finding about equities at all. The scope check says that instead.
+     */
+    const shariah = await assertShariahScopeAllowed(
+      { scope: "equity", side: opening ? "BUY" : "SELL" }, shariahDeps);
+    const command: Record<string, unknown> = { shariah, environment: "paper", canonicalInstrumentId,
       providerSymbol: instrument.listing.providerSymbol,
       instrumentType: instrument.identity.instrumentType === "stock" ? "STOCK" : "ETF",
       primaryVenue: instrument.equity.primaryListing.venueId, side, positionEffect, quantity,

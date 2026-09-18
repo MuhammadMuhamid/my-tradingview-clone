@@ -12,6 +12,14 @@ const command = { deploymentId: "00000000-0000-4000-8000-000000000010",
   canonicalInstrumentId: "instrument:v1:crypto:spot:binance:BTC-USDT", venueSymbol: "BTCUSDT",
   side: "BUY", orderType: "MARKET", quoteQuantity: "100", paperReferencePrice: "50000" };
 
+/*
+ * X3A creates Spot exposure and now calls the gate, so every fixture supplies
+ * its readers. Off by default: these tests are about the intent lifecycle, and
+ * a gate that refused would hide the thing they are checking. The gate's own
+ * behaviour on this route is asserted separately below.
+ */
+const shariahOff = { readMode: async () => "off" as const, lookupBaseAsset: async () => null };
+
 const pendingIntent = { id: 41, deploymentId: command.deploymentId, alertId: null,
   dedupeKey: command.dedupeKey, action: "buy" as const, barTime: command.barTime, exitLeg: null,
   state: "pending" as const, resolvedAt: null, detail: null, emitterId: null,
@@ -22,6 +30,7 @@ test("X3A Platform persists a durable intent before authenticated Bot delivery",
   const events: string[] = []; let sentBody: Record<string, unknown> | null = null;
   const app = Fastify();
   await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: shariahOff,
     claimIntent: async (input) => { events.push("claim"); assert.equal(input.dedupeKey, command.dedupeKey);
       return { claimed: true, intent: pendingIntent }; },
     botRequest: async (input) => { events.push("bot"); sentBody = input.body as Record<string, unknown>;
@@ -48,6 +57,7 @@ test("X3A unresolved replay never contacts Bot and production is not a valid env
   const old = config.spotExecutionEnabled; config.spotExecutionEnabled = true; let calls = 0;
   const app = Fastify();
   await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: shariahOff,
     claimIntent: async () => ({ claimed: false as const, existing: pendingIntent }),
     botRequest: async () => { calls++; return {}; }, resolveIntent: async () => {},
   }));
@@ -63,6 +73,7 @@ test("X3A unresolved replay never contacts Bot and production is not a valid env
 test("X3A disabled state is unmistakably non-production without contacting Bot", async () => {
   const old = config.spotExecutionEnabled; config.spotExecutionEnabled = false; let calls = 0;
   const app = Fastify(); await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: shariahOff,
     botRequest: async () => { calls++; return {}; },
   }));
   try { const response = await app.inject({ method: "GET", url: "/api/spot-execution/v1/state" });
@@ -76,6 +87,7 @@ test("X3A cancellation stays on the authenticated Bot boundary with durable corr
   const old = config.spotExecutionEnabled; config.spotExecutionEnabled = true;
   const app = Fastify(); let sent: { method?: string; path?: string; requestId?: string } | null = null;
   await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: shariahOff,
     botRequest: async (input) => { sent = input; return { status: "canceled" }; },
   }));
   try {
@@ -88,5 +100,75 @@ test("X3A cancellation stays on the authenticated Bot boundary with durable corr
     const malformed = await app.inject({ method: "POST", url: "/api/spot-execution/v1/orders/not-an-id/cancel",
       payload: { requestId } });
     assert.equal(malformed.statusCode, 400);
+  } finally { config.spotExecutionEnabled = old; await app.close(); }
+});
+
+test("X3A asks the Shariah gate before it claims an intent, and refuses when told to", async () => {
+  /*
+   * X3A routes Spot orders at nine venues and called no gate at all — while
+   * `gate.ts` claimed in its own header that "every Platform path capable of
+   * producing a Spot BUY" called it, and the test asserting that inspected two
+   * other route files by name. The universal claim gets a universal check in
+   * `shariahGate.test.ts`; this pins the behaviour on this route.
+   */
+  const old = config.spotExecutionEnabled; config.spotExecutionEnabled = true;
+  let asked: { symbol: string; side: string } | null = null;
+  let claimed = false;
+  const app = Fastify();
+  await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: {
+      readMode: async () => "enforce" as const,
+      lookupBaseAsset: async (baseAsset) => {
+        asked = { symbol: baseAsset, side: "BUY" };
+        // Present in the registry and NOT eligible: the refusal the gate exists for.
+        return { assetId: "7", baseAsset, effectiveStatus: "EXCLUDED" as const, currentPublicationId: null };
+      },
+    },
+    claimIntent: async () => { claimed = true; return { claimed: true, intent: pendingIntent }; },
+    botRequest: async () => { throw new Error("the Bot must never be contacted for a refused order"); },
+    resolveIntent: async () => {},
+  }));
+  try {
+    const response = await app.inject({
+      method: "POST", url: "/api/spot-execution/v1/orders",
+      payload: { ...command, canonicalInstrumentId: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot" },
+    });
+    assert.equal(response.statusCode, 403, response.body);
+    const body = JSON.parse(response.body) as { error: string; shariah: { effectiveStatus: string; mode: string } };
+    assert.match(body.error, /Shariah/);
+    assert.equal(body.shariah.mode, "enforce");
+    assert.equal(body.shariah.effectiveStatus, "EXCLUDED");
+    // The asset, not the venue: a classification is about BTC whether the order
+    // goes to Binance or to Kraken.
+    assert.deepEqual(asked, { symbol: "BTC", side: "BUY" });
+    // And the refusal must not burn the caller's dedupe identity.
+    assert.equal(claimed, false, "a refused order claimed a durable intent it never used");
+  } finally { config.spotExecutionEnabled = old; await app.close(); }
+});
+
+test("X3A never blocks a SELL, whatever the classification", async () => {
+  // Getting OUT is never gated — not by classification, not by mode. An
+  // operator holding an asset re-screened EXCLUDED must be able to exit it.
+  const old = config.spotExecutionEnabled; config.spotExecutionEnabled = true;
+  let reached = false;
+  const app = Fastify();
+  await app.register(async (child) => spotExecutionRoutes(child, {
+    shariah: {
+      readMode: async () => "enforce" as const,
+      lookupBaseAsset: async (baseAsset) => ({
+        assetId: "7", baseAsset, effectiveStatus: "EXCLUDED" as const, currentPublicationId: null }),
+    },
+    claimIntent: async () => ({ claimed: true, intent: { ...pendingIntent, action: "sell" as const } }),
+    botRequest: async () => { reached = true; return { status: "filled" }; },
+    resolveIntent: async () => {},
+  }));
+  try {
+    const response = await app.inject({
+      method: "POST", url: "/api/spot-execution/v1/orders",
+      payload: { ...command, side: "SELL", dedupeKey: `${command.dedupeKey}:sell`,
+        canonicalInstrumentId: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot" },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.ok(reached, "a SELL was blocked; an operator must always be able to exit");
   } finally { config.spotExecutionEnabled = old; await app.close(); }
 });

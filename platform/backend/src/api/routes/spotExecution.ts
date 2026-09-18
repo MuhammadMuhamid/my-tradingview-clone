@@ -4,6 +4,10 @@ import { config } from "../../config";
 import { ManualBotError, spotBotRequest, canonicalJson,
   type ManualBotRequestInput } from "../../manualTrading/client";
 import * as liveSafety from "../../repositories/liveSafety";
+import {
+  assertShariahExposureAllowed, ShariahExposureBlockedError, type ShariahGateDeps,
+} from "../../shariah/gate";
+import { normalizeCanonicalInstrumentId } from "../../market/model";
 
 const VENUES = ["binance", "coinbase", "bybit", "okx", "kraken", "kucoin", "gateio", "robinhood", "hyperliquid"] as const;
 const ENVIRONMENTS = ["paper", "testnet", "demo"] as const;
@@ -31,15 +35,46 @@ function payloadHash(body: Record<string, unknown>): string {
     limitPrice: body.limitPrice ?? null, paperReferencePrice: body.paperReferencePrice ?? null })).digest("hex");
 }
 async function send<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | void> {
-  try { return await action(); } catch (error) { if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message }); throw error; }
+  try { return await action(); } catch (error) {
+    // A Shariah refusal is an answer carrying the mode and policy that produced it.
+    if (error instanceof ShariahExposureBlockedError) {
+      return reply.code(error.status).send({ error: error.message, shariah: error.context });
+    }
+    if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
+    throw error;
+  }
+}
+
+/**
+ * The registry key for a canonical spot instrument, or null.
+ *
+ * X3A routes spot orders at nine venues, and a Shariah classification is about
+ * the ASSET rather than the venue it is bought at: BTC is BTC whether the order
+ * goes to Binance or to Kraken. The registry is keyed on the Binance Spot USDT
+ * base-asset set, so the base is lifted out of the canonical id and asked about
+ * in the form the registry holds. A non-spot id, or one whose base cannot be
+ * read, yields null — which the gate resolves to REVIEW and refuses while
+ * enforcing, never to an exemption.
+ */
+function registrySymbolFor(canonicalInstrumentId: string): string | null {
+  const canonical = normalizeCanonicalInstrumentId(canonicalInstrumentId);
+  if (!canonical) return null;
+  const parts = canonical.split(":");
+  // instrument:v1:<venue>:<type>:<base>:<quote>:<settlement>:<series>
+  if (parts.length !== 8 || parts[3] !== "spot") return null;
+  const base = parts[4];
+  return base && base.length > 0 ? `${base}USDT` : null;
 }
 
 export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
   botRequest?: (input: ManualBotRequestInput) => Promise<unknown>;
   claimIntent?: typeof liveSafety.claimIntent;
   resolveIntent?: typeof liveSafety.resolveIntent;
+  /** Registry and mode readers, so the gate is provable without a database. */
+  shariah?: ShariahGateDeps;
 } = {}): Promise<void> {
   const botRequest = dependencies.botRequest ?? spotBotRequest;
+  const shariahDeps: ShariahGateDeps = dependencies.shariah ?? {};
   const claimIntent = dependencies.claimIntent ?? liveSafety.claimIntent;
   const resolveIntent = dependencies.resolveIntent ?? liveSafety.resolveIntent;
   app.get("/api/spot-execution/v1/state", async (_req, reply) => send(reply, async () => {
@@ -70,13 +105,26 @@ export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
           || !(TIME_IN_FORCE as readonly string[]).includes(command.timeInForce))) {
       throw new ManualBotError("unsupported time in force", 422);
     }
+    /*
+     * X3A creates Spot exposure at nine venues and called no gate at all — the
+     * one claim `gate.ts` makes about itself ("every Platform path capable of
+     * producing a Spot BUY calls this") was not true of this file, and the test
+     * asserting it inspected two other routes by name. It is gated before the
+     * intent is claimed, so a refused order consumes no dedupe identity.
+     */
+    const shariah = await assertShariahExposureAllowed(
+      { symbol: registrySymbolFor(command.canonicalInstrumentId) ?? command.venueSymbol,
+        side: command.side },
+      shariahDeps,
+    );
     const claim = await claimIntent({ deploymentId, dedupeKey, action: command.side === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) {
       if (claim.existing.state === "delivered" || claim.existing.state === "duplicate") return { status: "duplicate", platformIntentId: String(claim.existing.id), dedupeKey };
       return reply.code(409).send({ error: "this Platform order intent was already attempted; outcome is unresolved and no retry was sent", platformIntentId: String(claim.existing.id) });
     }
     const intent = { id: `x3a_platform_intent_${claim.intent.id}`, dedupeKey, createdAt: new Date(claim.intent.createdAt).toISOString(), payloadHash: payloadHash(command) };
-    const result = await botRequest({ method: "POST", path: "/api/spot-execution/v1/orders", body: { platformIntent: intent, ...command }, requestId: intent.id });
+    const result = await botRequest({ method: "POST", path: "/api/spot-execution/v1/orders",
+      body: { platformIntent: intent, ...command, shariah }, requestId: intent.id });
     await resolveIntent(claim.intent.id, "delivered", "Bot accepted durable X3A intent; provider lifecycle is reconciled by Bot");
     return { ...(result as object), platformIntentId: intent.id, dedupeKey };
   }));
