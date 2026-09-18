@@ -36,6 +36,8 @@
  * The bound is derived from the emitter here rather than restated, so the two
  * cannot drift apart again.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dedupeKey, type ExitLeg } from "../src/contract/webhookContract";
@@ -84,13 +86,14 @@ test("the bound still refuses an identity too short to be durable", () => {
   }
 });
 
-test("all four order routes carry the same dedupe bound", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const dir = fileURLToPath(new URL("../src/api/routes/", import.meta.url));
+test("all four order routes carry the same dedupe bound", () => {
+  // `__dirname`, not `import.meta.url`: these tests compile under a CommonJS
+  // `tsconfig.tests.json`, where the meta-property is a type error even though
+  // tsx runs it happily. `costModel.test.ts` resolves its paths the same way.
+  const dir = path.join(__dirname, "..", "src", "api", "routes");
 
   for (const file of ROUTE_FILES) {
-    const source = await readFile(dir + file, "utf8");
+    const source = fs.readFileSync(path.join(dir, file), "utf8");
     assert.match(source, /\{15,160\}/,
       `${file} must admit the canonical 15-character entry key`);
     assert.doesNotMatch(source, /\[A-Za-z0-9:_-\]\{16,160\}/,

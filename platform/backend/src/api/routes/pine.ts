@@ -19,6 +19,9 @@ import { toBars, type Bars } from "../../engine/mtf";
 import { PineInterpreter } from "../../pine/interpreter";
 import { PineBusyError, runPineInWorker } from "../../pine/runInWorker";
 import type { BrokerOptions } from "../../engine/broker";
+import {
+  DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
+} from "./backtests";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import { parseResolution } from "../../data/resolution";
 import { ensureResolvedCoverage, readResolvedCandles } from "../../data/resolvedCandles";
@@ -247,9 +250,9 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: `no tick size available for ${symbol}` });
       }
       brokerOptions = {
-        initialCapital: body.initialCapital ?? 1000,
-        commissionPct: body.commissionPct ?? 0.1,
-        slippageTicks: body.slippageTicks ?? 0,
+        initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+        commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
+        slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
         tickSize,
         qtyCash: body.qtyCash ?? 930,
         qtyPctEquity: body.qtyPctEquity ?? 0,

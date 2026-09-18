@@ -12,6 +12,9 @@ import { query, closePool } from "../src/db/pool";
 import * as strategyRepo from "../src/repositories/strategies";
 import { executeBacktest } from "../src/engine/backtester";
 import { finishBacktest, getBacktest, failBacktest } from "../src/repositories/backtests";
+import {
+  DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
+} from "../src/api/routes/backtests";
 import type { BacktestRow } from "../src/types/backtest";
 
 async function main(): Promise<void> {
@@ -32,7 +35,9 @@ async function main(): Promise<void> {
       strategy.id, spec.symbol, spec.timeframe,
       new Date(spec.startTime), new Date(spec.endTime),
       JSON.stringify(spec.params ?? {}),
-      spec.initialCapital ?? 1000, spec.commissionPct ?? 0.05, spec.slippageTicks ?? 0,
+      spec.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+      spec.commissionPct ?? DEFAULT_COMMISSION_PCT,
+      spec.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
     ]
   );
   const id = rows[0]!.id;

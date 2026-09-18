@@ -51,6 +51,17 @@ export interface WindowSplit {
 export type WindowName = "inSample" | "outOfSample" | "holdout";
 
 /**
+ * A fifth of the range, when the caller does not say.
+ *
+ * Named rather than typed twice because the number is REPORTED as well as
+ * applied: `executeBacktest` puts `holdoutFraction` on the result for the
+ * research page to print. That copy used to be its own `?? 0.2`, so moving
+ * this default would have left the page stating a split that did not happen.
+ * One constant, so the applied figure and the printed figure cannot disagree.
+ */
+export const DEFAULT_HOLDOUT_FRACTION = 0.2;
+
+/**
  * Divide a range into in-sample, out-of-sample and a frozen holdout.
  *
  * The holdout is taken from the END of the range, because that is the only
@@ -58,7 +69,7 @@ export type WindowName = "inSample" | "outOfSample" | "holdout";
  * Carving it from the middle would leave later data that selection had already
  * seen, which is the defect rather than the fix.
  *
- * `holdoutFraction` defaults to 0.2 — a fifth of the range. The figure is a
+ * `holdoutFraction` defaults to `DEFAULT_HOLDOUT_FRACTION`. The figure is a
  * research-policy decision, not an engineering one (`M8`), and it is a
  * parameter for that reason.
  */
@@ -70,7 +81,7 @@ export function splitWindows(
   if (!(endMs > startMs)) {
     throw new Error(`invalid range: ${startMs}..${endMs}`);
   }
-  const fraction = opts.holdoutFraction ?? 0.2;
+  const fraction = opts.holdoutFraction ?? DEFAULT_HOLDOUT_FRACTION;
   if (!(fraction > 0 && fraction < 1)) {
     throw new Error(`holdoutFraction must be strictly between 0 and 1, got ${fraction}`);
   }

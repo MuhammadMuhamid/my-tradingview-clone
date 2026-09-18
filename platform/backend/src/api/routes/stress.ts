@@ -30,6 +30,9 @@ import {
   STRESS_EPISTEMIC_NOTE, type StressMethod, type StressWindowConfig,
 } from "../../engine/stress";
 import { isInterval, type Interval } from "../../types/market";
+import {
+  DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
+} from "./backtests";
 import { canonicalInstrumentId } from "../../market/model";
 import type { StrategyParams } from "../../types/strategy";
 
@@ -255,9 +258,9 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       strategyId: strategy.id,
       configId: body.configId ?? null,
       symbol, timeframe, params,
-      initialCapital: body.initialCapital ?? 1000,
-      commissionPct: body.commissionPct ?? 0.1,
-      slippageTicks: body.slippageTicks ?? 2,
+      initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+      commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
+      slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
       benchmarkSymbol: benchmark.symbol,
       benchmarkInterval: interval,
       discovery: stressProvenance({ ...benchmark, interval }, candles, config),
@@ -273,9 +276,9 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
         startTime: window.startMs,
         endTime: window.endMs,
         params,
-        initialCapital: body.initialCapital ?? 1000,
-        commissionPct: body.commissionPct ?? 0.1,
-        slippageTicks: body.slippageTicks ?? 2,
+        initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+        commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
+        slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
       });
       windows.push({ ...window, backtestId: run.id });
     }

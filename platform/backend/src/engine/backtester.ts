@@ -12,7 +12,7 @@ import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
 import { computeMetrics, computeSegmentMetrics, downsampleEquity, toTradeRecords } from "./metrics";
-import { splitWindows, type WindowSplit } from "./holdout";
+import { DEFAULT_HOLDOUT_FRACTION, splitWindows, type WindowSplit } from "./holdout";
 import { ACTIVE_CORRECTIONS, assertCorrectedEngine, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
@@ -430,6 +430,6 @@ function computeSegments(
     // bar, and a half-open window would score that bar in nothing at all while
     // it still counts toward the headline metrics.
     holdout: score(split.holdout, true),
-    holdoutFraction: fraction ?? 0.2,
+    holdoutFraction: fraction ?? DEFAULT_HOLDOUT_FRACTION,
   };
 }
