@@ -524,6 +524,28 @@ export class MaAlertRunner {
       return { value, reference };
     };
 
+    /**
+     * RSI against a moving average OF THE RSI, in the type the gate named.
+     *
+     * Separate from `rsiFor` because that one's "sma" target is fixed to a
+     * simple average — it mirrors the RSI alert family, whose only MA target
+     * is an SMA. A gate may name an EMA, and measuring it as an SMA would make
+     * the rule a different rule while still looking right.
+     */
+    const rsiMaFor = (
+      length: number, maType: MaType, maLength: number
+    ): { value: number; reference: number } | undefined => {
+      const series = rsiSeries(length);
+      const value = series[series.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      // Smoothed from the RSI series INCLUDING its leading NaNs, so it appears
+      // at the bar the indicator would show it and not earlier.
+      const line = maType === "sma" ? sma(series, maLength) : ema(series, maLength);
+      const reference = line[line.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
     /** MACD line against its signal, or against zero. */
     const macdCache = new Map<string, ReturnType<typeof macd>>();
     const macdFor = (
@@ -636,6 +658,7 @@ export class MaAlertRunner {
       srZone: srFor,
       pivotLevel: pivotFor,
       rsi: rsiFor,
+      rsiMa: rsiMaFor,
       macd: macdFor,
       supertrend: stFor,
       bollinger: bbFor,
@@ -644,12 +667,25 @@ export class MaAlertRunner {
     };
     const now = replayNow ?? this.dependencies.now();
 
+    // Read every condition once, before the loop: the gate feeds are fetched
+    // per DISTINCT timeframe across ALL of these alerts, so they have to be
+    // known up front to be shared rather than fetched per alert.
+    const conditions = new Map<string, AlertCondition | null>(
+      relevant.map((a) => [a.id, conditionFromRow(a)])
+    );
+    const gateFeeds = await this.gateFeeds(
+      symbol, interval, [...conditions.values()], sampleBar.openTime
+    );
+    const sampleWithGates: FeedSample =
+      Object.keys(gateFeeds).length > 0 ? { ...sample, gateFeeds } : sample;
+
     for (const alert of relevant) {
       const canonical = alert.conditionKind === "candlestick_pattern"
         ? canonicalPatterns.get(patternProfileKey(alert)) : undefined;
       if (alert.conditionKind === "candlestick_pattern" && !canonical) continue;
-      const evaluationSample = canonical ? { ...sample, patterns: canonical } : sample;
-      const condition = conditionFromRow(alert);
+      const evaluationSample = canonical
+        ? { ...sampleWithGates, patterns: canonical } : sampleWithGates;
+      const condition = conditions.get(alert.id) ?? null;
       if (!condition) {
         this.log.warn({ alertId: alert.id, kind: alert.conditionKind }, "alert row is not evaluable");
         continue;
@@ -691,6 +727,155 @@ export class MaAlertRunner {
    * Bars for the MA computation. The websocket bar is appended explicitly
    * because the DB copy of the just-closed candle may not have landed yet.
    */
+  /**
+   * A feed carrying only what a GATE can read, for one other timeframe.
+   *
+   * Gates use five resolvers and no more: the moving average, RSI, RSI against
+   * its own MA, MACD and Supertrend. The support/resistance, pivot, Bollinger,
+   * stochastic, ADX and pattern resolvers are deliberately absent — no gate
+   * kind reads them, and building them would scan the history for answers
+   * nobody asks for.
+   */
+  private gateFeed(symbol: string, interval: Interval, bars: Candle[]): FeedSample | undefined {
+    const last = bars[bars.length - 1];
+    if (!last) return undefined;
+
+    const closes = bars.map((b) => b.close);
+    const highs = bars.map((b) => b.high);
+    const lows = bars.map((b) => b.low);
+
+    const maCache = new Map<string, number[]>();
+    const seriesFor = (type: MaType, length: number): number | undefined => {
+      const k = `${type}${length}`;
+      let a = maCache.get(k);
+      if (!a) { a = type === "sma" ? sma(closes, length) : ema(closes, length); maCache.set(k, a); }
+      const v = a[a.length - 1];
+      return v === undefined || !Number.isFinite(v) ? undefined : v;
+    };
+
+    const rsiCache = new Map<number, number[]>();
+    const rsiSeries = (length: number): number[] => {
+      let a = rsiCache.get(length);
+      if (!a) { a = rsi(closes, length); rsiCache.set(length, a); }
+      return a;
+    };
+
+    const rsiFor = (
+      length: number, target: RsiTarget, level: number, maLength: number
+    ): { value: number; reference: number } | undefined => {
+      const series = rsiSeries(length);
+      const value = series[series.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      if (target === "level") return { value, reference: level };
+      const line = sma(series, maLength);
+      const reference = line[line.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
+    const rsiMaFor = (
+      length: number, maType: MaType, maLength: number
+    ): { value: number; reference: number } | undefined => {
+      const series = rsiSeries(length);
+      const value = series[series.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      const line = maType === "sma" ? sma(series, maLength) : ema(series, maLength);
+      const reference = line[line.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
+    const macdCache = new Map<string, ReturnType<typeof macd>>();
+    const macdFor = (
+      fast: number, slow: number, signal: number, target: MacdTarget
+    ): { value: number; reference: number } | undefined => {
+      const k = `${fast}|${slow}|${signal}`;
+      let m = macdCache.get(k);
+      if (!m) { m = macd(closes, fast, slow, signal); macdCache.set(k, m); }
+      const value = m.macd[m.macd.length - 1];
+      if (value === undefined || !Number.isFinite(value)) return undefined;
+      if (target === "zero") return { value, reference: 0 };
+      const reference = m.signal[m.signal.length - 1];
+      if (reference === undefined || !Number.isFinite(reference)) return undefined;
+      return { value, reference };
+    };
+
+    const stCache = new Map<string, ReturnType<typeof supertrend>>();
+    const stFor = (
+      period: number, multiplier: number, atrMethod: StAtrMethod
+    ): { trend: number; line: number } | undefined => {
+      const k = `${period}|${multiplier}|${atrMethod}`;
+      let t = stCache.get(k);
+      if (!t) {
+        t = supertrend(highs, lows, closes, period, multiplier, atrMethod === "rma");
+        stCache.set(k, t);
+      }
+      const trend = t.trend[t.trend.length - 1];
+      const line = t.line[t.line.length - 1];
+      if (trend === undefined || !Number.isFinite(trend)) return undefined;
+      return { trend, line: line ?? NaN };
+    };
+
+    return {
+      symbol, timeframe: interval,
+      barTime: last.openTime,
+      // A gate asks "is this true NOW", so a still-forming higher-timeframe bar
+      // is the right bar to read. It is never used to decide a cross.
+      isClosedBar: false,
+      high: last.high, low: last.low, close: last.close,
+      series: seriesFor,
+      rsi: rsiFor,
+      rsiMa: rsiMaFor,
+      macd: macdFor,
+      supertrend: stFor,
+    };
+  }
+
+  /**
+   * One feed per DISTINCT timeframe any of these alerts gates on.
+   *
+   * Fetched once and shared across every alert on the symbol, so ten gates
+   * spread over two timeframes cost the two fetches that two gates would. The
+   * alert's own timeframe is never fetched here — a gate that does not name one
+   * reads the sample the caller already built.
+   *
+   * Bounded by `uptoMs`, the open time of the bar being evaluated, so a replay
+   * cannot read a candle from after the moment it is replaying. A timeframe
+   * that fails to load is simply absent, and `filtersPass` treats a gate with
+   * no reading as SHUT rather than open.
+   */
+  private async gateFeeds(
+    symbol: string, own: Interval, conditions: readonly (AlertCondition | null)[], uptoMs: number
+  ): Promise<Record<string, FeedSample | undefined>> {
+    const wanted = new Set<Interval>();
+    for (const condition of conditions) {
+      for (const gate of condition?.filters ?? []) {
+        if (gate.timeframe && gate.timeframe !== own) wanted.add(gate.timeframe as Interval);
+      }
+    }
+    if (wanted.size === 0) return {};
+
+    const feeds: Record<string, FeedSample | undefined> = {};
+    await Promise.all([...wanted].map(async (interval) => {
+      try {
+        const span = INTERVAL_MS[interval] * HISTORY_BARS;
+        await ensureCandles(symbol, interval, uptoMs - span, uptoMs);
+        const bars = await candleRepo.getCandles(symbol, interval, {
+          to: uptoMs, limit: HISTORY_BARS,
+        });
+        feeds[interval] = this.gateFeed(symbol, interval, bars);
+      } catch (err) {
+        // Left absent on purpose: a gate the runner cannot measure must shut
+        // the alert, not wave it through.
+        this.log.warn(
+          { symbol, interval, err: (err as Error).message },
+          "gate timeframe unavailable; gates on it are shut"
+        );
+      }
+    }));
+    return feeds;
+  }
+
   private async loadHistory(symbol: string, interval: Interval, closed: Candle): Promise<Candle[]> {
     const span = INTERVAL_MS[interval] * HISTORY_BARS;
     const endMs = closed.openTime + INTERVAL_MS[interval];
