@@ -181,7 +181,94 @@ export interface Backtest {
   error: string | null;
   metrics: BacktestMetrics | null;
   equityCurve: EquityPoint[] | null;
+  /** Fraction frozen as the final holdout; null took the engine default. */
+  holdoutFraction: number | null;
+  /** The run's three windows, or the reason it cannot honestly have three. */
+  segments: BacktestSegments | null;
+  /** What actually ran, as against what was requested. */
+  executionTruth: ExecutionTruth | null;
   createdAt: string;
+}
+
+/** One of the three windows a run divides into. */
+export interface SegmentWindow { startMs: number; endMs: number }
+
+/**
+ * A run's development / validation / frozen-holdout scores.
+ *
+ * `available: false` is a real answer, not a missing field: a run that sizes
+ * each entry as a percentage of equity compounds, so a later window's outcomes
+ * depend on how the earlier one performed and scoring the windows separately
+ * would produce numbers with no meaning. The reason says what to change.
+ */
+export type BacktestSegments =
+  | {
+      available: true;
+      split: { inSample: SegmentWindow; outOfSample: SegmentWindow; holdout: SegmentWindow };
+      inSample: BacktestMetrics;
+      outOfSample: BacktestMetrics;
+      holdout: BacktestMetrics;
+      holdoutFraction: number;
+    }
+  | { available: false; reason: string };
+
+export interface ExecutionTruth {
+  requested: SegmentWindow;
+  /** The window the simulated bars actually spanned, which may be narrower. */
+  covered: SegmentWindow | null;
+  barsProcessed: number;
+  sizing: { mode: "fixed_cash" | "percent_of_equity"; value: number };
+  fillTiming: "next_bar_open" | "signal_bar_close";
+}
+
+/** One adverse period, and the benchmark statistics that selected it. */
+export interface StressWindow {
+  rank: number;
+  startMs: number;
+  endMs: number;
+  bars: number;
+  benchmarkReturnPct: number;
+  benchmarkDrawdownPct: number;
+  benchmarkVolatilityPct: number;
+  selectedBy: { metric: StressMethod; value: number };
+  label?: string;
+}
+
+export type StressMethod =
+  | "worst_return" | "deepest_drawdown" | "highest_volatility" | "manual";
+
+export interface StressDiscovery {
+  schemaVersion: "stress-discovery.v1";
+  benchmark: {
+    symbol: string; canonicalInstrument: string | null; interval: Interval;
+    providerId: string; feedId: string;
+  };
+  searched: { startMs: number; endMs: number; bars: number };
+  config: {
+    method: StressMethod; lengthBars: number; topN: number;
+    minSeparationBars: number;
+    manualWindows?: { startMs: number; endMs: number; label?: string }[];
+  };
+  epistemicNote: string;
+}
+
+export interface StressRun {
+  id: string;
+  symbol: string;
+  timeframe: Interval;
+  benchmarkSymbol: string;
+  benchmarkInterval: Interval;
+  discovery: StressDiscovery;
+  windows: (StressWindow & { backtestId: string })[];
+  status: "running" | "done" | "error";
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface StressRunDetail extends StressRun {
+  results: { window: StressWindow & { backtestId: string }; backtest: Backtest | null }[];
+  epistemicNote: string;
 }
 
 export interface Trade {

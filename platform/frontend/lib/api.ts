@@ -1,7 +1,21 @@
 import type {
   Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
   Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
+  StressDiscovery, StressMethod, StressRun, StressRunDetail, StressWindow,
 } from "./types";
+
+/** The benchmark-only half of a stress request, shared by both stress calls. */
+export interface StressDiscoveryRequest {
+  benchmarkSymbol: string;
+  benchmarkInterval: Interval;
+  startTime: string;
+  endTime: string;
+  method: StressMethod;
+  lengthBars: number;
+  topN: number;
+  minSeparationBars?: number;
+  manualWindows?: { startMs: number; endMs: number; label?: string }[];
+}
 import type { Resolution } from "./resolution";
 import type { TradingOverlayResponse } from "./tradingOverlays";
 import { canonicalCandleSemantics } from "./instrument";
@@ -1440,7 +1454,27 @@ export const api = {
     strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
     startTime: string; endTime: string; params?: StrategyParams;
     initialCapital?: number; commissionPct?: number; slippageTicks?: number;
+    holdoutFraction?: number;
   }) => req<Backtest>("/api/backtests", { method: "POST", body: JSON.stringify(body) }),
+
+  /*
+   * Stress-regime analysis.
+   *
+   * Discovery is its own call on purpose: a user can ask "when was BTC at its
+   * worst?" without naming a strategy, and that independence is what makes the
+   * subsequent analysis mean anything. The run route discovers the same
+   * windows and queues one ordinary backtest per window.
+   */
+  stressWindows: (body: StressDiscoveryRequest) =>
+    req<{ windows: StressWindow[]; discovery: StressDiscovery; epistemicNote: string }>(
+      "/api/stress/windows", { method: "POST", body: JSON.stringify(body) }),
+  createStressRun: (body: StressDiscoveryRequest & {
+    strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
+    params?: StrategyParams; initialCapital?: number;
+    commissionPct?: number; slippageTicks?: number;
+  }) => req<StressRun>("/api/stress/runs", { method: "POST", body: JSON.stringify(body) }),
+  listStressRuns: () => req<StressRun[]>("/api/stress/runs"),
+  getStressRun: (id: string) => req<StressRunDetail>(`/api/stress/runs/${id}`),
 
   // chart layouts (server-persisted workspaces)
   listLayouts: () => req<ServerLayout[]>("/api/layouts"),

@@ -61,6 +61,7 @@ export const SECTION_TABS: Readonly<Record<string, readonly NavLink[]>> = {
   ],
   "/research": [
     { href: "/research", label: "Quick backtest" },
+    { href: "/stress", label: "Stress analysis" },
     { href: "/optimizers", label: "Optimizer results" },
   ],
 };
