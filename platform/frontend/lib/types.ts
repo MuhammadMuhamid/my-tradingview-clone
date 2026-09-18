@@ -187,6 +187,14 @@ export interface Backtest {
   segments: BacktestSegments | null;
   /** What actually ran, as against what was requested. */
   executionTruth: ExecutionTruth | null;
+  /**
+   * Set when this run answers one window of a stress analysis.
+   *
+   * A stress window is chosen with hindsight, so its result must never be shown
+   * with the frozen-holdout split an ordinary run carries — they are opposite
+   * kinds of evidence.
+   */
+  stressRunId: string | null;
   createdAt: string;
 }
 
@@ -265,6 +273,10 @@ export interface StressRun {
   id: string;
   symbol: string;
   timeframe: Interval;
+  /** The saved configuration this ran, when it ran one. */
+  configId: string | null;
+  /** The parameters it ran. Empty means the strategy's own defaults. */
+  params: Record<string, number | string | boolean>;
   benchmarkSymbol: string;
   benchmarkInterval: Interval;
   discovery: StressDiscovery;

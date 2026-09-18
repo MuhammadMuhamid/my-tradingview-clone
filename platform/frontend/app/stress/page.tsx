@@ -78,12 +78,21 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
              */
             const truth = backtest?.executionTruth ?? null;
             const covered = truth?.covered ?? null;
+            /*
+             * Both ends. The sibling check in `RunWindows` guarded only the
+             * start and was corrected; this one, written in the same commit,
+             * was not. The END matters more here — a stress window running past
+             * the traded symbol's stored candles shows "0 trades" in silence,
+             * which reads as the strategy surviving it.
+             */
+            const DAY = 86_400_000;
             const short = covered !== null
-              && covered.startMs > window.startMs + 86_400_000;
+              && (covered.startMs > window.startMs + DAY || covered.endMs < window.endMs - DAY);
             const note = truth?.noEntryReason
               ? "This configuration could not have taken a trade in any window."
               : short
-                ? `Only ${new Date(covered.startMs).toISOString().slice(0, 10)} onward had data.`
+                ? `Data covers only ${new Date(covered.startMs).toISOString().slice(0, 10)}`
+                  + ` to ${new Date(covered.endMs).toISOString().slice(0, 10)} of this window.`
                 : null;
             return (
               <tr key={window.backtestId} className="border-b border-border/50">
@@ -144,8 +153,11 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
           configuration would make every number on the table mean something it
           does not.
         */}
-        This run used the strategy&rsquo;s default parameters — this page has no
-        parameter editor yet, so it is not your saved configuration.{" "}
+        {Object.keys(detail.params ?? {}).length === 0 && detail.configId === null
+          ? <>This run used the strategy&rsquo;s default parameters — this page has no
+            parameter editor yet, so it is not your saved configuration.{" "}</>
+          : <>This run used {detail.configId === null
+            ? "the parameters it was given" : "a saved configuration"}.{" "}</>}
         Each window ran as an ordinary backtest — same engine, same costs, same warm-up,
         same no-lookahead rules — so these numbers are directly comparable with any other
         run on this install. The benchmark columns describe {detail.benchmarkSymbol} on the{" "}

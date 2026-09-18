@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, CardHeader, Notice } from "@/components/ui";
 import type { BacktestMetrics, BacktestSegments, ExecutionTruth, SegmentWindow } from "@/lib/types";
 import { fmtNum, fmtPct, signClass, UTC_DATE_NOTE } from "@/lib/format";
@@ -63,11 +64,83 @@ function SegmentRow({ name, note, window, m }: {
  * maximised over — which is how an apparently validated configuration can be a
  * selection artefact.
  */
-export function RunWindows({ segments, execution, initialCapital }: {
+export function RunWindows({ segments, execution, initialCapital, stressRunId = null }: {
   segments: BacktestSegments | null;
   execution: ExecutionTruth | null;
   initialCapital: number;
+  /** Set when this run answers one window of a stress analysis. */
+  stressRunId?: string | null;
 }) {
+  /*
+   * ── A stress window has no holdout, and must not be shown one ────────────
+   *
+   * `engine/stress.ts` opens by forbidding exactly this: "The product must
+   * never present a stress score beside a holdout score as though the two were
+   * the same kind of number." A stress window is selected BECAUSE of what
+   * happened in it; a holdout is frozen and never selected on.
+   *
+   * A stress window nevertheless executes as an ordinary backtest — that is
+   * deliberate, so its numbers are comparable — so this panel would happily
+   * carve its last fifth off and label it "Holdout (frozen) — report it, never
+   * select on it" over four days of a hand-picked crash. The split is
+   * suppressed and the run says what it is instead.
+   */
+  if (stressRunId !== null) {
+    return (
+      <Card>
+        <CardHeader title="Windows and execution" />
+        <div className="px-4 py-4 text-sm text-ink-muted">
+          <span className="font-medium text-ink">This run is one window of a stress analysis.</span>{" "}
+          Its dates were chosen by searching history for the benchmark&rsquo;s worst stretches, so
+          they are selected with hindsight — there is no development, out-of-sample or holdout
+          split to make of them, and showing one would invite exactly the reading the analysis
+          cannot support.{" "}
+          <Link href="/stress" className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+            Open the stress run
+          </Link>{" "}
+          to see it beside the other windows and the benchmark it was chosen from.
+        </div>
+        {execution && (
+          <div className="grid gap-x-6 gap-y-2 border-t border-border px-4 py-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <div className="text-xs text-ink-muted">Window covered</div>
+              <div className="text-ink tabular" title={UTC_DATE_NOTE}>
+                {execution.covered ? windowLabel(execution.covered) : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Bars simulated</div>
+              <div className="text-ink tabular">{execution.barsProcessed.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Position size</div>
+              <div className="text-ink tabular">
+                {execution.sizing.mode === "fixed_cash"
+                  ? `${fmtNum(execution.sizing.value, 0)} cash per entry`
+                  : `${fmtNum(execution.sizing.value, 0)}% of equity (compounds)`}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Entry fills</div>
+              <div className="text-ink">
+                {execution.fillTiming === "next_bar_open"
+                  ? "at the next bar's open" : "at the signal bar's close"}
+              </div>
+            </div>
+          </div>
+        )}
+        {execution?.noEntryReason && (
+          <div className="px-4 pb-4">
+            <Notice tone="warn">
+              <span className="font-medium">This run could not have taken a trade.</span>{" "}
+              {execution.noEntryReason}
+            </Notice>
+          </div>
+        )}
+      </Card>
+    );
+  }
+
   if (!segments && !execution) {
     return (
       <Card>

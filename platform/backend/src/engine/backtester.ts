@@ -416,15 +416,20 @@ function computeSegments(
   } catch (error) {
     return { available: false, reason: (error as Error).message };
   }
-  const score = (w: { startMs: number; endMs: number }): BacktestMetrics => computeSegmentMetrics(
-    closed, equityCurve, initialCapital, w.startMs, w.endMs, { qtyPctEquity },
+  const score = (
+    w: { startMs: number; endMs: number }, inclusiveEnd = false,
+  ): BacktestMetrics => computeSegmentMetrics(
+    closed, equityCurve, initialCapital, w.startMs, w.endMs, { qtyPctEquity, inclusiveEnd },
   );
   return {
     available: true,
     split,
     inSample: score(split.inSample),
     outOfSample: score(split.outOfSample),
-    holdout: score(split.holdout),
+    // The LAST window closes at its end: `holdout.endMs` is the final simulated
+    // bar, and a half-open window would score that bar in nothing at all while
+    // it still counts toward the headline metrics.
+    holdout: score(split.holdout, true),
     holdoutFraction: fraction ?? 0.2,
   };
 }

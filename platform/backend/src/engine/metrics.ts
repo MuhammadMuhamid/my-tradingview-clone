@@ -98,6 +98,17 @@ export function computeSegmentMetrics(
   fromMs: number,
   toMs: number,
   opts: {
+    /**
+     * Include `toMs` itself.
+     *
+     * The windows are half-open so that a bar on a boundary belongs to exactly
+     * one of them — right for the two internal edges, and wrong for the last.
+     * `splitWindows` sets `holdout.endMs` to the final simulated bar's time, so
+     * that bar's equity point, and any trade exiting on it, were scored in NO
+     * window while still counting toward the headline metrics. The final
+     * window closes at its end.
+     */
+    inclusiveEnd?: boolean;
     corrections?: CorrectionSet;
     /**
      * The `qty_pct_equity` the run used. Required for `assertSegmentValidity`
@@ -109,6 +120,7 @@ export function computeSegmentMetrics(
   } = {}
 ): BacktestMetrics {
   const corrections = opts.corrections ?? ACTIVE_CORRECTIONS;
+  const within = (t: number): boolean => opts.inclusiveEnd === true ? t <= toMs : t < toMs;
 
   /*
    * BE-06, first half: assert the validity precondition instead of documenting
@@ -141,10 +153,10 @@ export function computeSegmentMetrics(
         // segment. Falling back to the entry time would put it in the earlier
         // window on the strength of a decision that has not been made yet.
         const exit = t.exitTime;
-        return exit !== null && exit !== undefined && exit >= fromMs && exit < toMs;
+        return exit !== null && exit !== undefined && exit >= fromMs && within(exit);
       })
-    : closed.filter((t) => t.entryTime >= fromMs && t.entryTime < toMs);
-  const pts = equityCurve.filter((p) => p.t >= fromMs && p.t < toMs);
+    : closed.filter((t) => t.entryTime >= fromMs && within(t.entryTime));
+  const pts = equityCurve.filter((p) => p.t >= fromMs && within(p.t));
   const base = pts.length > 0 ? pts[0]!.equity : initialCapital;
   let peak = initialCapital;
   const seg: EquityPoint[] = [];

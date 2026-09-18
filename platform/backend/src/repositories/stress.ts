@@ -159,3 +159,20 @@ export async function settleStressRun(run: StressRunRow): Promise<StressRunRow> 
   );
   return rows[0] ? toRow(rows[0]) : run;
 }
+
+/**
+ * Record which backtests answered which windows, once they all exist.
+ *
+ * The coordinator is created before its children so each child can carry its
+ * id; this closes the loop. Two statements rather than one because a child
+ * needs the coordinator's id and the coordinator needs the children's.
+ */
+export async function attachStressWindows(
+  id: string, windows: StressRunWindow[],
+): Promise<StressRunRow> {
+  const { rows } = await query<DbStressRun>(
+    "UPDATE stress_runs SET windows = $2 WHERE id = $1 RETURNING *",
+    [id, JSON.stringify(windows)],
+  );
+  return toRow(rows[0]!);
+}

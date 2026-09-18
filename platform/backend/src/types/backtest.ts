@@ -22,6 +22,14 @@ export interface BacktestRequest {
    * because a constant nobody can see is a constant nobody can question.
    */
   holdoutFraction?: number;
+  /**
+   * The stress run this backtest answers one window of.
+   *
+   * A stress window is chosen with hindsight, so its result must never be
+   * shown with the frozen-holdout split that an ordinary run carries — the two
+   * are opposite kinds of evidence and `engine/stress.ts` says so explicitly.
+   */
+  stressRunId?: string;
 }
 
 export interface TradeRecord {
@@ -147,6 +155,8 @@ export interface BacktestRow {
   segments: Record<string, unknown> | null;
   /** Covered window, bars processed, sizing and fill timing as they were. */
   executionTruth: Record<string, unknown> | null;
+  /** Set when this run answers one window of a stress analysis. */
+  stressRunId: string | null;
   /** Read-time label; it never mutates or guesses historical meaning. */
   semanticsStatus: "historical_unversioned" | "engine_only_legacy" | "reproducible";
   startedAt: string | null;

@@ -132,7 +132,7 @@ export default function BacktestDetail() {
           {bt.metrics && <Metrics m={bt.metrics} initialCapital={bt.initialCapital} />}
 
           <RunWindows segments={bt.segments} execution={bt.executionTruth}
-            initialCapital={bt.initialCapital} />
+            initialCapital={bt.initialCapital} stressRunId={bt.stressRunId} />
 
           {ot && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs sm:text-sm">

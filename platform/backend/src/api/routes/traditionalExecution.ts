@@ -115,22 +115,33 @@ export async function traditionalExecutionRoutes(app: FastifyInstance, dependenc
      * claimed, so a refused order consumes no dedupe identity.
      */
     /*
-     * ── X5 has no "reduce", so every order here OPENS exposure ────────────
+     * ── X5 cannot tell opening from closing, and SELL stays ungated ───────
      *
-     * This passed the raw `side` through, and the gate clears every SELL —
-     * which is right where SELL means closing. It does not mean that here:
-     * the very next lines build `positionDirection: side === "BUY" ? "LONG" :
-     * "SHORT"`, and this route has no `reduceOnly`, no `closePosition` and no
-     * `positionEffect`. So a BUY was refused while enforcing and an equally
-     * new SHORT was waved through — the opposite of the intent, and a worse
-     * outcome than either answer applied consistently.
+     * This route has no `reduceOnly`, no `closePosition` and no
+     * `positionEffect`: it builds `positionDirection` from the wire side
+     * alone. So a SELL here is genuinely ambiguous — it may open a short, and
+     * it may be the only way to flatten a long.
      *
-     * Both sides open, so both are gated. Nothing is trapped by this: there is
-     * no closing order on this route to trap. `derivativeExecution.ts` and
-     * `equityExecution.ts` both have a real position-effect and read it.
+     * It was briefly gated on both sides, on the reasoning that every X5 order
+     * opens exposure. That reasoning is wrong at the venue: the Bot submits to
+     * OANDA practice with `positionFill: "DEFAULT"`
+     * (`services/traditionalExecution/adapters.ts`), which on a netted account
+     * reduces the opposing position first — so the offsetting SELL IS how an
+     * X5 long is flattened, whatever this route calls it. Gating it trapped the
+     * operator in the position, which is the one thing `gate.ts` states can
+     * never happen, and the refusal text even promised it could not.
+     *
+     * So the wire side is passed through and SELL is never gated. The known
+     * cost is an asymmetry: while enforcing, a BUY is refused and a genuinely
+     * NEW short is not. That is the lesser wrong. Never trapping someone in a
+     * position outranks refusing every way into one, and this channel is
+     * practice/paper only and off by default.
+     *
+     * The real repair is a `positionEffect` on X5, as `equityExecution.ts` and
+     * `derivativeExecution.ts` both have — it needs the Bot's schema to accept
+     * the field too, so it is recorded for the owner rather than done here.
      */
-    await assertShariahScopeAllowed(
-      { scope: "traditional", side: "BUY" }, shariahDeps);
+    await assertShariahScopeAllowed({ scope: "traditional", side }, shariahDeps);
     const claim = await claimIntent({ deploymentId, dedupeKey, action: side === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) return reply.code(409).send({ error: "this Platform X5 intent was already attempted; no retry was sent" });
     const platformIntent = { id: `x5_platform_intent_${claim.intent.id}`, dedupeKey,

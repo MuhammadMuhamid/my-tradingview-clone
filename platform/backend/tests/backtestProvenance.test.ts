@@ -44,6 +44,9 @@ function dbRow(engineFingerprint: string | null): DbBacktest {
     holdout_fraction: null,
     segments: null,
     execution_truth: null,
+    // NULL is an ordinary backtest. A stress window's run carries its
+    // coordinator's id so the result page can suppress the holdout split.
+    stress_run_id: null,
     symbol: "BTCUSDT",
     timeframe: "15m",
     start_time: now,

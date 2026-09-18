@@ -244,9 +244,29 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const params = { ...baseParams, ...(body.params ?? {}) };
+    /*
+     * The coordinator row is created FIRST, empty, so each child can carry its
+     * id. Without it a stress window's run is indistinguishable from an
+     * ordinary backtest, and the result page rendered its frozen-holdout split
+     * over a slice of a hand-picked crash — the exact conflation the top of
+     * `engine/stress.ts` forbids.
+     */
+    const coordinator = await stressRepo.createStressRun({
+      strategyId: strategy.id,
+      configId: body.configId ?? null,
+      symbol, timeframe, params,
+      initialCapital: body.initialCapital ?? 1000,
+      commissionPct: body.commissionPct ?? 0.1,
+      slippageTicks: body.slippageTicks ?? 2,
+      benchmarkSymbol: benchmark.symbol,
+      benchmarkInterval: interval,
+      discovery: stressProvenance({ ...benchmark, interval }, candles, config),
+      windows: [],
+    });
     const windows: stressRepo.StressRunWindow[] = [];
     for (const window of discovered) {
       const run = await backtests.createBacktest({
+        stressRunId: coordinator.id,
         strategyId: strategy.id,
         configId: body.configId,
         symbol, timeframe,
@@ -259,19 +279,7 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       });
       windows.push({ ...window, backtestId: run.id });
     }
-
-    const created = await stressRepo.createStressRun({
-      strategyId: strategy.id,
-      configId: body.configId ?? null,
-      symbol, timeframe, params,
-      initialCapital: body.initialCapital ?? 1000,
-      commissionPct: body.commissionPct ?? 0.1,
-      slippageTicks: body.slippageTicks ?? 2,
-      benchmarkSymbol: benchmark.symbol,
-      benchmarkInterval: interval,
-      discovery: stressProvenance({ ...benchmark, interval }, candles, config),
-      windows,
-    });
+    const created = await stressRepo.attachStressWindows(coordinator.id, windows);
     return reply.code(201).send(created);
   });
 

@@ -31,6 +31,7 @@ export interface DbBacktest {
   result_provenance: Record<string, unknown> | null;
   segments: Record<string, unknown> | null;
   execution_truth: Record<string, unknown> | null;
+  stress_run_id: string | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date;
@@ -58,6 +59,7 @@ export function toBacktestRow(r: DbBacktest): BacktestRow {
     resultProvenance: r.result_provenance ?? null,
     segments: r.segments ?? null,
     executionTruth: r.execution_truth ?? null,
+    stressRunId: r.stress_run_id ?? null,
     semanticsStatus: r.result_provenance ? "reproducible"
       : r.engine_fingerprint ? "engine_only_legacy" : "historical_unversioned",
     startedAt: r.started_at ? r.started_at.toISOString() : null,
@@ -70,8 +72,9 @@ export async function createBacktest(req: BacktestRequest): Promise<BacktestRow>
   const { rows } = await query<DbBacktest>(
     `INSERT INTO backtests
        (strategy_id, config_id, symbol, timeframe, start_time, end_time,
-        params, initial_capital, commission_pct, slippage_ticks, holdout_fraction)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        params, initial_capital, commission_pct, slippage_ticks, holdout_fraction,
+        stress_run_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING *`,
     [
       req.strategyId,
@@ -85,6 +88,7 @@ export async function createBacktest(req: BacktestRequest): Promise<BacktestRow>
       req.commissionPct,
       req.slippageTicks,
       req.holdoutFraction ?? null,
+      req.stressRunId ?? null,
     ]
   );
   return toBacktestRow(rows[0]!);

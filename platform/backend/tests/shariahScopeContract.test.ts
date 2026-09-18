@@ -81,18 +81,24 @@ test("no route signs a scope result onto an outbound request", () => {
   }
 });
 
-test("X5 gates BOTH sides, because it has no closing order to trap", async () => {
+test("X5 never gates SELL, because a SELL may be the only way out", async () => {
   /*
-   * `traditionalExecution` passed the raw side through, and the gate clears
-   * every SELL — right where SELL means closing. It does not mean that here:
-   * the route builds `positionDirection: side === "BUY" ? "LONG" : "SHORT"` and
-   * has no `reduceOnly`, no `closePosition` and no `positionEffect`, so EVERY
-   * order opens directional exposure. A BUY was refused while enforcing and an
-   * equally new SHORT was waved through.
+   * X5 has no position-effect field, so a SELL here is ambiguous: it may open a
+   * short, and it may be the only way to flatten a long. It was briefly gated
+   * on both sides on the reasoning that every X5 order opens exposure — wrong
+   * at the venue, because the Bot submits to OANDA practice with
+   * `positionFill: "DEFAULT"` (`services/traditionalExecution/adapters.ts`),
+   * which on a netted account reduces the opposing position first. Gating it
+   * trapped the operator, which `gate.ts` says can never happen and whose own
+   * refusal text promised it could not.
+   *
+   * The known cost is an asymmetry — a genuinely new short is not refused —
+   * and that is the lesser wrong. Never trapping someone in a position
+   * outranks refusing every way into one.
    */
   const source = fs.readFileSync(path.join(ROUTES, "traditionalExecution.ts"), "utf8");
-  assert.match(source, /scope: "traditional", side: "BUY"/,
-    "X5 must gate on opening, not on the wire side");
+  assert.doesNotMatch(source, /scope: "traditional", side: "BUY"/,
+    "X5 must pass the wire side through; hard-coding BUY gates the only exit it has");
 
   const old = config.traditionalPaperExecutionEnabled;
   config.traditionalPaperExecutionEnabled = true;
@@ -104,7 +110,9 @@ test("X5 gates BOTH sides, because it has no closing order to trap", async () =>
     resolveIntent: async () => {},
   }));
   try {
-    for (const side of ["BUY", "SELL"] as const) {
+    // BUY is refused: the policy makes no finding about FX or futures.
+    {
+      const side = "BUY" as const;
       const response = await app.inject({
         method: "POST", url: "/api/traditional-execution/v1/orders",
         payload: {
@@ -115,10 +123,44 @@ test("X5 gates BOTH sides, because it has no closing order to trap", async () =>
           side, quantity: "1000", orderType: "MARKET",
         },
       });
-      assert.equal(response.statusCode, 403, `${side}: ${response.body}`);
-      const body = JSON.parse(response.body) as { error: string; shariah?: unknown };
+      assert.equal(response.statusCode, 403, response.body);
+      const body = JSON.parse(response.body) as { error: string };
       assert.match(body.error, /makes\s*no finding about/,
-        `${side} must be refused because the policy is silent, not on a wire-side heuristic`);
+        "a BUY must be refused because the policy is silent about this asset class");
+    }
+    // SELL reaches the gate and is cleared: it may be the only way out.
+    {
+      /*
+       * The mode is never even READ for a SELL — `assertShariahScopeAllowed`
+       * short-circuits on the side before it consults anything. That is
+       * stronger than "cleared": there is no state, no failure and no
+       * misconfiguration that can make an exit refusable.
+       */
+      let modeWasRead = false;
+      const exitApp = Fastify();
+      await exitApp.register(async (child) => traditionalExecutionRoutes(child, {
+        shariah: { readMode: async () => { modeWasRead = true; return "enforce" as const; } },
+        botRequest: async () => ({ status: "FILLED" }),
+        claimIntent: async () => { throw new Error("stop after the gate"); },
+        resolveIntent: async () => {},
+      }));
+      try {
+        const response = await exitApp.inject({
+          method: "POST", url: "/api/traditional-execution/v1/orders",
+          payload: {
+            deploymentId: "00000000-0000-4000-8000-000000000010",
+            dedupeKey: "x5:eurusd:SELL:1788678000000",
+            barTime: 1_788_678_000_000,
+            canonicalInstrumentId: "instrument:v1:OANDA:fx_pair:EUR:USD:USD:cash",
+            side: "SELL", quantity: "1000", orderType: "MARKET",
+          },
+        });
+        assert.notEqual(response.statusCode, 403,
+          `a SELL was refused while enforcing — the operator is trapped: ${response.body}`);
+        assert.doesNotMatch(response.body, /makes\s*no finding about/);
+      } finally { await exitApp.close(); }
+      assert.equal(modeWasRead, false,
+        "an exit consulted the mode; it must short-circuit before anything that could fail");
     }
   } finally { config.traditionalPaperExecutionEnabled = old; await app.close(); }
 });
