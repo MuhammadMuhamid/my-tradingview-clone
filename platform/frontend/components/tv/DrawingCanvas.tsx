@@ -10,7 +10,7 @@ import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
   currentIconGlyph, distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe,
   distToSegment, isCursorMode, newId,
-  type Anchor, type Drawing, type DrawingStyle, type DrawingTool, type Pt,
+  type Anchor, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
 import { cloneDrawing } from "@/lib/drawingHistory";
@@ -1221,7 +1221,7 @@ export function DrawingCanvas({
 
 // ── per-tool geometry ───────────────────────────────────────────────────────
 
-type ToPx = (a: Anchor) => Pt;
+export type ToPx = (a: Anchor) => Pt;
 
 function barsPatternSource(d: Drawing, candles: Candle[], toPx: ToPx): Pt[] {
   const from = Math.min(d.points[0]?.time ?? 0, d.points[1]?.time ?? 0);
@@ -1253,6 +1253,48 @@ const PATTERN_TEMPLATE_TOOLS = new Set<DrawingTool>([
 ]);
 
 /** Extend a→b far past b (used for rays and infinite lines). */
+/**
+ * The face a drawing's own text asks for.
+ *
+ * Monospace throughout, because these labels sit against prices and a
+ * proportional face makes two of them disagree about their own width. Size,
+ * weight and slant come from the Text tab; everything unset keeps the 13px the
+ * branch used to hardcode.
+ */
+function textFont(style: DrawingStyle): string {
+  const bits: string[] = [];
+  if (style.italic === true) bits.push("italic");
+  if (style.bold === true) bits.push("bold");
+  bits.push(`${style.fontSize ?? 13}px`);
+  bits.push("ui-monospace, monospace");
+  return bits.join(" ");
+}
+
+/** The dash array a style asks for: the named style first, the boolean behind it. */
+function dashPattern(style: DrawingStyle): number[] {
+  if (style.lineStyle === "dotted") return [2, 3];
+  if (style.lineStyle === "dashed") return [6, 4];
+  if (style.lineStyle === "solid") return [];
+  return style.dashed ? [6, 4] : [];
+}
+
+/**
+ * The two ends to draw, after `Extend` has been applied.
+ *
+ * `far` already projects one point away from another; this is the same
+ * geometry the `ray` and `extended` TOOLS use, reached from the settings
+ * dialog instead of from a second tool — which is exactly what the reference
+ * does.
+ */
+function extendedEnds(a: Pt, b: Pt, extend: DrawingExtend | undefined, span: number): [Pt, Pt] {
+  switch (extend) {
+    case "right": return [a, far(a, b, span)];
+    case "left": return [far(b, a, span), b];
+    case "both": return [far(b, a, span), far(a, b, span)];
+    default: return [a, b];
+  }
+}
+
 function far(a: Pt, b: Pt, span: number): Pt {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy) || 1;
@@ -1431,7 +1473,15 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx, candles: Candle[] = []): n
   }
 }
 
-function drawOne(
+/**
+ * Exported for `drawingStyleRender.test.ts`.
+ *
+ * Eleven controls in the settings dialog were writing style keys this function
+ * never read — the dialog's own tests asserted its SHAPE, so nothing noticed.
+ * The tests that do notice have to drive this directly with a recording
+ * context, which is why it is reachable from outside.
+ */
+export function drawOne(
   ctx: CanvasRenderingContext2D, d: Drawing, toPx: ToPx,
   w: number, h: number, selected: boolean, hovered: boolean, candles: Candle[] = []
 ): void {
@@ -1446,7 +1496,16 @@ function drawOne(
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
   ctx.lineWidth = d.style.width + (hovered && !selected ? 0.8 : 0);
-  ctx.setLineDash(d.style.dashed ? [6, 4] : []);
+  /*
+   * The three-value vocabulary, not the boolean.
+   *
+   * `lineStyle` is what the settings dialog writes; `dashed` is the older key
+   * kept in step beside it. Reading only the boolean is what made a DOTTED
+   * line draw identically to a dashed one — the control moved, the picture did
+   * not. The boolean is still the fallback, so a drawing saved before
+   * `lineStyle` existed keeps drawing exactly as it did.
+   */
+  ctx.setLineDash(dashPattern(d.style));
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.font = "11px ui-monospace, monospace";
@@ -1575,9 +1634,14 @@ function drawOne(
     case "dot":
       ctx.beginPath(); ctx.arc(a.x, a.y, Math.max(3, d.style.width + 1), 0, Math.PI * 2); ctx.fill();
       break;
-    case "trend": line(a, b); break;
+    case "trend": {
+      const [from, to] = extendedEnds(a, b, d.style.extend, span);
+      line(from, to);
+      break;
+    }
     case "trendAngle": {
-      line(a, b);
+      const [from, to] = extendedEnds(a, b, d.style.extend, span);
+      line(from, to);
       const degrees = Math.atan2(a.y - b.y, b.x - a.x) * 180 / Math.PI;
       label(`${degrees.toFixed(1)}°`, b.x + 5, b.y - 5);
       break;
@@ -1822,8 +1886,17 @@ function drawOne(
       break;
     }
     case "text": case "note": case "priceNote": case "pin": case "comment": case "signpost": case "flagMark": {
-      ctx.fillStyle = color;
-      ctx.font = "13px ui-monospace, monospace";
+      /*
+       * The Text tab, which the dialog has offered and this branch ignored.
+       *
+       * `13px ui-monospace` was hardcoded and `fillStyle` came from the line
+       * colour, so Bold, Italic, size, the text's own colour and both
+       * alignments were controls that changed the stored drawing and nothing
+       * else. The line colour is still the fallback for `textColor`, so a
+       * drawing that never set one looks exactly as it did.
+       */
+      ctx.fillStyle = d.style.textColor || color;
+      ctx.font = textFont(d.style);
       const caption = d.style.text ?? "";
       if (d.tool === "pin") {
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - 8, a.y - 18);
@@ -1860,7 +1933,16 @@ function drawOne(
         break;
       }
       if (d.tool === "flagMark") { line(a, { x: a.x, y: a.y - 24 }); ctx.beginPath(); ctx.moveTo(a.x, a.y - 24); ctx.lineTo(a.x + 22, a.y - 16); ctx.lineTo(a.x, a.y - 8); ctx.closePath(); ctx.fill(); }
-      ctx.fillText(caption, a.x + 4, a.y);
+      // Alignment is set for this draw only and put back, because the context
+      // is shared with every branch below and a leaked `textAlign` would move
+      // labels that never asked to be moved.
+      const hAlign = d.style.textHAlign ?? "left";
+      const vAlign = d.style.textVAlign ?? "bottom";
+      ctx.textAlign = hAlign === "center" ? "center" : hAlign === "right" ? "right" : "left";
+      ctx.textBaseline = vAlign === "top" ? "top" : vAlign === "middle" ? "middle" : "alphabetic";
+      ctx.fillText(caption, hAlign === "left" ? a.x + 4 : a.x, a.y);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
       break;
     }
     /*
@@ -1911,6 +1993,68 @@ function drawOne(
       break;
     }
     default: break;
+  }
+
+  /*
+   * ── The settings the dialog writes and the switch above does not read ────
+   *
+   * Middle point, price labels and the info block are drawn HERE rather than
+   * inside each tool's case: they are the same decoration on any drawing with
+   * two anchors, and repeating them per branch is how three of them ended up
+   * implemented nowhere at all.
+   *
+   * The dialog offers Middle point and the info block when the tool has two
+   * anchors, and Price labels on everything, so the gating matches it exactly.
+   */
+  const anchors = TOOL_POINTS[d.tool] ?? d.points.length;
+  ctx.setLineDash([]);
+
+  if (d.style.priceLabels === true) {
+    // Against the right edge, where `hline` already puts its price, because
+    // this canvas covers the pane and not the axis the reference tags.
+    const seen = new Set<number>();
+    for (let i = 0; i < q.length && i < d.points.length; i++) {
+      const y = Math.round(q[i]!.y);
+      if (seen.has(y)) continue; // a horizontal line would stack two identical tags
+      seen.add(y);
+      label(fmtPrice(d.points[i]!.price), w - 62, q[i]!.y - 3);
+    }
+  }
+
+  if (anchors >= 2 && d.style.middlePoint === true && q.length >= 2) {
+    ctx.beginPath();
+    ctx.arc((a.x + b.x) / 2, (a.y + b.y) / 2, Math.max(3, d.style.width + 1), 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  /*
+   * The info block: bars, change and angle.
+   *
+   * The maths is the `Info line` tool's own — this is the same computation
+   * offered where the reference offers it, rather than a second one that could
+   * disagree with it. `alwaysShowStats` is what decides whether it survives
+   * deselection; without it the block is a selection affordance.
+   */
+  if (
+    anchors >= 2 && d.style.stats === true && q.length >= 2 &&
+    d.points.length >= 2 && (selected || d.style.alwaysShowStats === true)
+  ) {
+    const p0 = d.points[0]!, p1 = d.points[1]!;
+    const change = p1.price - p0.price;
+    const pct = p0.price === 0 ? 0 : (change / p0.price) * 100;
+    const degrees = Math.atan2(a.y - b.y, b.x - a.x) * 180 / Math.PI;
+    const text =
+      `${change >= 0 ? "+" : ""}${fmtPrice(change)} (${pct.toFixed(2)}%) · ` +
+      `${fmtDuration(Math.abs(p1.time - p0.time))} · ${degrees.toFixed(1)}°`;
+
+    ctx.font = "11px ui-monospace, monospace";
+    const tw = ctx.measureText(text).width;
+    const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x);
+    const x = d.style.statsPosition === "left" ? left
+      : d.style.statsPosition === "center" ? (left + right) / 2 - tw / 2
+      : right + 8;
+    label(text, x, Math.min(a.y, b.y) - 8);
   }
 
   // Anchor handles for the selected drawing.
