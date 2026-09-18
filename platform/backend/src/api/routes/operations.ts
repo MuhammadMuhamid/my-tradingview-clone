@@ -146,6 +146,91 @@ export function formatAlertRunnerStatus(
   };
 }
 
+/** The limits an operator may set, or the refusal that stops them. */
+export type RiskLimitPatch =
+  | {
+      patch: {
+        maxTotalExposureQuote?: number | null;
+        maxConcurrentPositions?: number | null;
+        maxDailyLossQuote?: number | null;
+        dailyLossWindowHours?: number;
+      };
+    }
+  | { status: number; error: string };
+
+/**
+ * Read a risk-limit patch, without touching the database.
+ *
+ * Extracted so the accept/reject matrix is testable: these are the platform's
+ * only exposure and concurrency controls, and until this campaign nothing in
+ * the product could set them and no test covered the route that did.
+ *
+ * ── null is OFF, and is not the same as zero ──────────────────────────────
+ *
+ * An omitted key leaves a limit alone; an explicit `null` turns it off. Zero
+ * is a real limit meaning "nothing may open", which is the opposite
+ * instruction, so the two can never be conflated here.
+ *
+ * ── Daily loss is refused rather than stored ──────────────────────────────
+ *
+ * The platform does not see realised fills — the execution bot does — so a
+ * platform-side daily-loss cap would be a number that looks like a limit and
+ * enforces nothing. Any non-null value is a 409 naming the control that does
+ * exist. Clearing an old, misleading value is still allowed.
+ */
+export function readRiskLimitPatch(b: Record<string, unknown>): RiskLimitPatch {
+  const optionalNonNegative = (key: string): number | null | "bad" | undefined => {
+    if (!(key in b)) return undefined;
+    const v = b[key];
+    if (v === null) return null;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "bad";
+    return v;
+  };
+
+  const exposure = optionalNonNegative("maxTotalExposureQuote");
+  if (exposure === "bad") {
+    return {
+      status: 400,
+      error: "maxTotalExposureQuote must be a non-negative number, or null to disable it",
+    };
+  }
+  const positions = optionalNonNegative("maxConcurrentPositions");
+  if (positions === "bad") {
+    return {
+      status: 400,
+      error: "maxConcurrentPositions must be a non-negative number, or null to disable it",
+    };
+  }
+  if (positions !== undefined && positions !== null && !Number.isInteger(positions)) {
+    return { status: 400, error: "maxConcurrentPositions must be a whole number" };
+  }
+
+  const patch: Extract<RiskLimitPatch, { patch: unknown }>["patch"] = {};
+  if (exposure !== undefined) patch.maxTotalExposureQuote = exposure;
+  if (positions !== undefined) patch.maxConcurrentPositions = positions;
+
+  if ("maxDailyLossQuote" in b) {
+    if (b.maxDailyLossQuote !== null) {
+      return {
+        status: 409,
+        error: "platform daily-loss control is disabled because the bot owns realised fills; "
+          + "configure the bot-side daily-loss protection instead",
+      };
+    }
+    patch.maxDailyLossQuote = null;
+  }
+
+  if ("dailyLossWindowHours" in b) {
+    const v = b.dailyLossWindowHours;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 720) {
+      return { status: 400, error: "dailyLossWindowHours must be an integer 1..720" };
+    }
+    patch.dailyLossWindowHours = v;
+  }
+
+  return { patch };
+}
+
 export function operationsRoutes(getRunner: () => LiveRunner) {
   return async function register(app: FastifyInstance): Promise<void> {
     /**
@@ -344,53 +429,9 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
 
     /** Adjust the numeric limits. `null` turns a limit off. */
     app.patch("/api/ops/risk-limits", async (req, reply) => {
-      const b = (req.body ?? {}) as Record<string, unknown>;
-
-      const optionalPositive = (key: string): number | null | undefined => {
-        if (!(key in b)) return undefined;
-        const v = b[key];
-        if (v === null) return null;
-        if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-          throw new Error(`${key} must be a non-negative number, or null to disable it`);
-        }
-        return v;
-      };
-
-      try {
-        const patch = {
-          maxTotalExposureQuote: optionalPositive("maxTotalExposureQuote"),
-          maxConcurrentPositions: optionalPositive("maxConcurrentPositions"),
-          maxDailyLossQuote: undefined as number | null | undefined,
-          dailyLossWindowHours: undefined as number | undefined,
-        };
-        if ("maxDailyLossQuote" in b) {
-          if (b.maxDailyLossQuote !== null) {
-            return reply.code(409).send({
-              error: "platform daily-loss control is disabled because the bot owns realised fills; "
-                + "configure the bot-side daily-loss protection instead",
-            });
-          }
-          // Allow an old, misleading value to be explicitly cleared.
-          patch.maxDailyLossQuote = null;
-        }
-        if ("dailyLossWindowHours" in b) {
-          const v = b.dailyLossWindowHours;
-          if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 720) {
-            return reply.code(400).send({ error: "dailyLossWindowHours must be an integer 1..720" });
-          }
-          patch.dailyLossWindowHours = v;
-        }
-        if (
-          patch.maxConcurrentPositions !== undefined &&
-          patch.maxConcurrentPositions !== null &&
-          !Number.isInteger(patch.maxConcurrentPositions)
-        ) {
-          return reply.code(400).send({ error: "maxConcurrentPositions must be a whole number" });
-        }
-        await liveSafety.updateRiskLimits(patch);
-      } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
-      }
+      const read = readRiskLimitPatch((req.body ?? {}) as Record<string, unknown>);
+      if ("status" in read) return reply.code(read.status).send({ error: read.error });
+      await liveSafety.updateRiskLimits(read.patch);
       return liveSafety.getRiskLimits();
     });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OpsStatus, type UnresolvedIntents } from "@/lib/api";
 import { api as scannerApi } from "@/lib/scanner/api";
-import { shortReason } from "@/lib/errorCopy";
+import { describeAction, said, shortReason, type FailureCopy } from "@/lib/errorCopy";
 import {
   buildOperationsOverview, formatDuration, type HealthTone, type ScannerEvidence,
 } from "@/lib/operationsHealth";
@@ -110,6 +110,133 @@ const when = (iso: string | null): string =>
   iso === null ? "—" : new Date(iso).toLocaleString();
 
 /** A limit and what is currently used against it, as one readable line. */
+/**
+ * The two limits an operator can actually set, and the one they cannot.
+ *
+ * ── Why this exists ───────────────────────────────────────────────────────
+ *
+ * `PATCH /api/ops/risk-limits` and its client have been complete for some
+ * time; nothing called the client. These are the platform's only exposure and
+ * concurrency controls, so "configurable" meant a curl command or a row in the
+ * database. A control that can only be reached that way is not a control the
+ * product has.
+ *
+ * ── Why daily loss is not here ────────────────────────────────────────────
+ *
+ * The platform does not see realised fills — the execution bot does — so a
+ * platform-side daily-loss cap would be a number that looks like a limit and
+ * enforces nothing. The route refuses any non-null value for it with a 409,
+ * and the card above says so in words. Offering the field and letting the
+ * server refuse it would be a worse version of the same lie.
+ *
+ * Empty means OFF, and says so, because "no limit" and "a limit of zero" are
+ * opposite instructions and an empty box must not be read as the second.
+ */
+function RiskLimitEditor(
+  { risk, onSaved }:
+  { risk: OpsStatus["risk"]; onSaved: (next: OpsStatus["risk"]) => void }
+) {
+  const [open, setOpen] = useState(false);
+  const [exposure, setExposure] = useState("");
+  const [positions, setPositions] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<FailureCopy | null>(null);
+
+  // Refill from the live values each time it is opened, so a limit changed
+  // elsewhere is what the operator edits rather than a stale draft.
+  const start = () => {
+    setExposure(risk.maxTotalExposureQuote === null ? "" : String(risk.maxTotalExposureQuote));
+    setPositions(risk.maxConcurrentPositions === null ? "" : String(risk.maxConcurrentPositions));
+    setErr(null);
+    setOpen(true);
+  };
+
+  const save = async () => {
+    const parse = (raw: string, whole: boolean): number | null | "bad" => {
+      const t = raw.trim();
+      if (t === "") return null; // empty is OFF, not zero
+      const n = Number(t);
+      if (!Number.isFinite(n) || n < 0) return "bad";
+      if (whole && !Number.isInteger(n)) return "bad";
+      return n;
+    };
+    const maxTotalExposureQuote = parse(exposure, false);
+    const maxConcurrentPositions = parse(positions, true);
+    if (maxTotalExposureQuote === "bad") {
+      setErr(said("Exposure must be a non-negative number, or empty to turn the limit off."));
+      return;
+    }
+    if (maxConcurrentPositions === "bad") {
+      setErr(said(
+        "Concurrent positions must be a whole non-negative number, or empty to turn the limit off."
+      ));
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const next = await api.opsSetRiskLimits({
+        maxTotalExposureQuote, maxConcurrentPositions,
+      });
+      onSaved(next);
+      setOpen(false);
+    } catch (e) {
+      setErr(describeAction(e, "save the risk limits"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant="ghost" onClick={start}>Edit limits</Button>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded border border-border bg-surface-2/40 p-3">
+      <Field label="Configured exposure cap (USDT)" help="Empty turns the limit off.">
+        <TextInput
+          type="number" min="0" step="any" value={exposure}
+          aria-label="Maximum total exposure in USDT"
+          placeholder="No limit"
+          onChange={(e) => setExposure(e.target.value)}
+          className="w-full"
+        />
+      </Field>
+      <Field label="Concurrent positions cap" help="Empty turns the limit off.">
+        <TextInput
+          type="number" min="0" step="1" value={positions}
+          aria-label="Maximum concurrent positions"
+          placeholder="No limit"
+          onChange={(e) => setPositions(e.target.value)}
+          className="w-full"
+        />
+      </Field>
+      <p className="text-xs text-ink-faint">
+        These bound what deployments may be <em>configured</em> to spend and how
+        many may run at once. Lowering a cap below what is already open does not
+        close anything — it stops the next entry, and never blocks an exit.
+      </p>
+      {/*
+        REV-UX-01: the headline is the prose; the thrown cause stays in the
+        diagnostic channel, available without being quoted at the reader.
+      */}
+      {err && (
+        <p role="alert" className="text-xs text-down" title={err.detail || undefined}>
+          {err.headline}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button variant="primary" onClick={() => void save()} disabled={busy}>
+          {busy ? "Saving…" : "Save limits"}
+        </Button>
+        <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 function LimitRow(
   { label, used, limit, unit }:
   { label: string; used: number; limit: number | null; unit: string }
@@ -446,6 +573,13 @@ export default function OperationsPage() {
               unit=""
             />
             <p className="text-xs text-ink-faint">{risk.summary}</p>
+            <RiskLimitEditor
+              risk={risk}
+              onSaved={(next) => {
+                setStatus((cur) => (cur ? { ...cur, risk: next } : cur));
+                setNotice("Risk limits updated.");
+              }}
+            />
             {/*
               Worded as an ABSENCE. "Platform daily-loss control: disabled" beside
               two live limit bars reads as a third limit that happens to be off;
