@@ -730,6 +730,33 @@ test("CONTRACT — a transient notice never covers the permanent legend", () => 
   assert.match(pane, /<span>Delayed<\/span>/, "two words, with the sentence in the title");
 });
 
+test("CONTRACT — no pane notice is positioned in the legend's own corner", () => {
+  /*
+   * The rule the test above states for the feed badge, enforced for every
+   * other notice on the pane.
+   *
+   * Two of them sat at `left-2 top-2` — the compare disclosure and the
+   * loading-substitution line — which is exactly where the pane legend is
+   * drawn. With a comparison applied the disclosure measured 558x21 across the
+   * mark, the instrument name, the venue, the `vs …` chip and the O and H
+   * values, so the row a reader looks at first was illegible. Both say the
+   * same things now, at the foot of the pane.
+   *
+   * Written as a scan rather than a single regex because the failure was two
+   * elements with the same class string, and a test that checks one of them is
+   * how the second survived.
+   */
+  const pane = read("components/tv/ChartPane.tsx");
+  const inLegendCorner = pane
+    .split("\n")
+    .filter((line) => /className=/.test(line))
+    .filter((line) => /\babsolute\b/.test(line))
+    .filter((line) => /(^|\s)left-2(\s|"|`)/.test(line) && /(^|\s)top-[12](\s|"|`)/.test(line));
+
+  assert.deepEqual(inLegendCorner, [],
+    "a pane notice is positioned over the legend's corner; put it at the foot of the pane");
+});
+
 test("CONTRACT — monospace is for code and machine identifiers, nothing else", () => {
   /*
    * `lib/chartTheme.ts` states the rule for the canvas: monospace earns its

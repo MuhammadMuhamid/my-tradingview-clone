@@ -1007,7 +1007,12 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <div
             role="status"
             aria-live="polite"
-            className="pointer-events-none absolute left-2 top-2 z-10 rounded-sm border border-border bg-surface/90 px-2 text-[11px] leading-[18px] text-ink-muted"
+            /*
+              At the FOOT of the pane, not the top-left corner: that corner is
+              the permanent legend's, and a notice laid over it hides the
+              symbol, the venue and the OHLC the reader came for.
+            */
+            className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-sm border border-border bg-surface/90 px-2 text-[11px] leading-[18px] text-ink-muted"
           >
             Loading {displayTicker(pane.symbol)} {pane.interval}… showing {displayTicker(history.dataset.symbol)} {history.dataset.interval} until it arrives
           </div>
@@ -1025,7 +1030,17 @@ function ChartPaneImpl(props: ChartPaneProps) {
           <div
             role="status"
             aria-live="polite"
-            className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] rounded border border-border bg-surface/90 px-2 py-0.5 text-[10px] text-ink-muted sm:text-[11px]"
+            /*
+              ── and NOT over the legend ──────────────────────────────────────
+              This sat at `left-2 top-2`, which is where the pane legend lives.
+              Measured with a comparison applied: a 558x21 box across the mark,
+              the instrument name, `· 1h · Binance`, the `vs ETHUSDT` chip and
+              the O and H values — the legend row was illegible, which is a
+              steep price for a sentence about one missing bar. It goes at the
+              foot of the pane, where it is still said out loud and covers
+              nothing.
+            */
+            className="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[80%] rounded border border-border bg-surface/90 px-2 py-0.5 text-[10px] text-ink-muted sm:text-[11px]"
           >
             {compared.notice}
           </div>

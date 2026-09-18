@@ -34,6 +34,32 @@ import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
  * of them untouched — which is why the error is shown and the dialog stays
  * open rather than closing on a partial result.
  */
+/**
+ * A ticked setting, with its name where the reader can see it.
+ *
+ * `Checkbox` carries `label` as the ACCESSIBLE name only — an 18px box and
+ * nothing else — and every other dialog in the product pairs it with a visible
+ * span. This one did not, so it rendered four naked boxes: a bare dropdown, a
+ * bare `60` with no unit, a bare text field and a sentence used as a button
+ * label. The same pattern as `ChartSettingsModal` and `DrawingSettingsModal`.
+ */
+function TickedSetting({ checked, onChange, label, children }: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm text-ink">
+        <Checkbox checked={checked} onChange={onChange} label={label} />
+        <span>{label}</span>
+      </label>
+      {checked && <div className="pl-6">{children}</div>}
+    </div>
+  );
+}
+
 export function BulkEditAlertsModal({
   alerts, open, onClose, onSaved,
 }: {
@@ -114,56 +140,39 @@ export function BulkEditAlertsModal({
           )}
         </p>
 
-        <div className="flex flex-col gap-1">
-          <Checkbox checked={useFrequency} onChange={setUseFrequency} label="How often it may notify" />
-          {useFrequency && (
-            <div className="pl-6">
-              <Dropdown
-                value={frequency}
-                label="Bulk frequency"
-                width={180}
-                options={(Object.keys(FREQUENCY_LABELS) as AlertFrequency[])
-                  .map((f) => ({ value: f, label: FREQUENCY_LABELS[f] }))}
-                onChange={(next) => setFrequency(next as AlertFrequency)}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Checkbox checked={useCooldown} onChange={setUseCooldown} label="Cooldown (minutes)" />
-          {useCooldown && (
-            <div className="pl-6">
-              <input
-                type="number" min="0" value={cooldownMin} aria-label="Bulk cooldown minutes"
-                onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
-                className={`${FIELD} w-[110px]`}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Checkbox checked={useNote} onChange={setUseNote} label="Note" />
-          {useNote && (
-            <div className="pl-6">
-              <input
-                type="text" value={note} aria-label="Bulk note"
-                placeholder="Leave empty to clear the note"
-                onChange={(e) => setNote(e.target.value)}
-                className={`${FIELD} w-full`}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Checkbox
-            checked={useGates} onChange={setUseGates}
-            label="Conditions (replaces the conditions on every selected alert)"
+        <TickedSetting checked={useFrequency} onChange={setUseFrequency} label="How often it may notify">
+          <Dropdown
+            value={frequency}
+            label="Bulk frequency"
+            width={180}
+            options={(Object.keys(FREQUENCY_LABELS) as AlertFrequency[])
+              .map((f) => ({ value: f, label: FREQUENCY_LABELS[f] }))}
+            onChange={(next) => setFrequency(next as AlertFrequency)}
           />
-          {useGates && (
-            <div className="flex flex-col gap-2 pl-6">
+        </TickedSetting>
+
+        <TickedSetting checked={useCooldown} onChange={setUseCooldown} label="Cooldown (minutes)">
+          <input
+            type="number" min="0" value={cooldownMin} aria-label="Bulk cooldown minutes"
+            onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))}
+            className={`${FIELD} w-[110px]`}
+          />
+        </TickedSetting>
+
+        <TickedSetting checked={useNote} onChange={setUseNote} label="Note">
+          <input
+            type="text" value={note} aria-label="Bulk note"
+            placeholder="Leave empty to clear the note"
+            onChange={(e) => setNote(e.target.value)}
+            className={`${FIELD} w-full`}
+          />
+        </TickedSetting>
+
+        <TickedSetting
+          checked={useGates} onChange={setUseGates}
+          label="Conditions (replaces the conditions on every selected alert)"
+        >
+            <div className="flex flex-col gap-2">
               <AlertFiltersField value={gates} onChange={setGates} />
               <p className="rounded-md border border-border bg-surface-2/50 px-3 py-2 text-xs text-ink-muted">
                 These conditions REPLACE whatever each selected alert carries
@@ -171,8 +180,7 @@ export function BulkEditAlertsModal({
                 the conditions from every selected alert.
               </p>
             </div>
-          )}
-        </div>
+        </TickedSetting>
 
         {/*
           * The headline is the page copy; the provider's own words stay in the
