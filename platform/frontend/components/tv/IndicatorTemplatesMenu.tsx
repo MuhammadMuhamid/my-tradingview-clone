@@ -230,10 +230,15 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
         <svg width={TOOL_ICON_SIZE} height={TOOL_ICON_SIZE} viewBox="0 0 28 28" fill="none"
           stroke="currentColor" strokeWidth={TOOL_ICON_STROKE}
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3.3" y="3.3" width="9.3" height="9.3" rx="1.2" />
-          <rect x="15.4" y="3.3" width="9.3" height="9.3" rx="1.2" />
-          <rect x="3.3" y="15.4" width="9.3" height="9.3" rx="1.2" />
-          <rect x="15.4" y="15.4" width="9.3" height="9.3" rx="1.2" />
+          {/*
+            21.4 square of ink was 38% larger than the reference's 16, which
+            made this and the Indicators glyph beside it read as a different
+            size family from the rest of the row.
+          */}
+          <rect x="6" y="6" width="7" height="7" rx="0.9" />
+          <rect x="15.1" y="6" width="7" height="7" rx="0.9" />
+          <rect x="6" y="15.1" width="7" height="7" rx="0.9" />
+          <rect x="15.1" y="15.1" width="7" height="7" rx="0.9" />
         </svg>
       </button>
 

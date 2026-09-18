@@ -521,6 +521,18 @@
   border-radius: var(--ts-workstation-radius);
   box-shadow: var(--ts-popover-shadow);
   padding: var(--ts-workstation-popover-padding) 0;
+  /*
+   * A menu is the menu grammar's size wherever it is mounted.
+   *
+   * `ContextMenu` is positioned `fixed` but is NOT portalled, so it stays a DOM
+   * descendant of whatever opened it and inherits that caller's type. The study
+   * legend sets `text-[13px]`, and the `button { font-size: inherit }` rule
+   * below outranks a utility class on the row, so the indicator menu rendered a
+   * point smaller than every other menu in the product — including the chart
+   * menu opened two seconds earlier. Stated here rather than fixed at one call
+   * site, because the next caller inside sized type would inherit it too.
+   */
+  font-size: var(--ts-workstation-font-size);
 }
 :is(.tv-workstation, .ts-app) .tvc-menu-row {
   position: relative;

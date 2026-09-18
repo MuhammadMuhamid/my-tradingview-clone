@@ -72,7 +72,7 @@ export function ObjectsDataPanel({ seriesLabel, studies, drawings, data }: Objec
       {tab === "objects" ? (
         <div role="tabpanel" aria-label="Objects" className="min-h-0 flex-1 overflow-y-auto py-1">
           <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-faint">Main series</p>
-          <div data-object-series className="flex h-8 items-center gap-2 px-3 text-[13px] text-ink">
+          <div data-object-series className="flex h-11 items-center gap-2 px-3 text-[13px] text-ink sm:h-8">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
               <path d="M3 17l5-6 4 3 4-6 5 4" />
             </svg>
@@ -82,7 +82,7 @@ export function ObjectsDataPanel({ seriesLabel, studies, drawings, data }: Objec
           {studies.length > 0 && <>
             <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-faint">Studies</p>
             {studies.map((study) => (
-              <div key={study.id} data-object-study={study.id} className="flex h-8 items-center pl-3 pr-1 text-[13px]">
+              <div key={study.id} data-object-study={study.id} className="flex h-11 items-center pl-3 pr-1 text-[13px] sm:h-8">
                 <span className="min-w-0 flex-1 truncate text-ink">{study.label}</span>
                 <Action label={`${study.visible ? "Hide" : "Show"} ${study.label}`} pressed={!study.visible} onClick={study.onToggleVisible}>
                   <Eye open={study.visible} />
@@ -97,7 +97,7 @@ export function ObjectsDataPanel({ seriesLabel, studies, drawings, data }: Objec
           {drawings.length > 0 && <>
             <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-faint">Drawings</p>
             {drawings.map((drawing) => (
-              <div key={drawing.id} data-object-drawing={drawing.id} className="flex h-8 items-center pl-3 pr-1 text-[13px]">
+              <div key={drawing.id} data-object-drawing={drawing.id} className="flex h-11 items-center pl-3 pr-1 text-[13px] sm:h-8">
                 <span className="min-w-0 flex-1 truncate text-ink">{drawing.label}</span>
                 <Action label={`${drawing.visible ? "Hide" : "Show"} ${drawing.label}`} pressed={!drawing.visible} onClick={drawing.onToggleVisible}>
                   <Eye open={drawing.visible} />

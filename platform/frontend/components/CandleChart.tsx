@@ -89,6 +89,29 @@ const RANGE_AXIS_HINT =
   + "rather than dating them — several bars can complete in the same second, and the axis runs "
   + "ahead of market time when they do. Each bar's real time is on the crosshair.";
 
+/**
+ * The same caveat, for every chart type whose bars are not dated by a clock.
+ *
+ * Renko, Line break, Kagi and Point & figure all declare `timeBase:
+ * "synthetic"` and all print a month/day axis, but only Range said so. A Renko
+ * axis reading `Aug · Oct · Nov · Dec · 2026 · Thu 5` is a date label on a bar
+ * that no date produced, and the reader has no way to know that from the
+ * chart. `isSyntheticTimeBase` already knows which types these are.
+ */
+const SYNTHETIC_AXIS_HINT: Partial<Record<ChartType, string>> = {
+  range: RANGE_AXIS_HINT,
+  renko: "A Renko brick completes on a price move of one box, not on a clock, so the time axis "
+    + "orders the bricks rather than dating them. Each brick's real time is on the crosshair.",
+  lineBreak: "A line-break block completes when price passes the previous blocks, not on a clock, "
+    + "so the time axis orders the blocks rather than dating them. Each block's real time is on "
+    + "the crosshair.",
+  kagi: "A Kagi line turns on a reversal, not on a clock, so the time axis orders the turns "
+    + "rather than dating them. Each turn's real time is on the crosshair.",
+  pointAndFigure: "A Point & figure column completes on a reversal, not on a clock, so the time "
+    + "axis orders the columns rather than dating them. Each column's real time is on the "
+    + "crosshair.",
+};
+
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
@@ -773,6 +796,7 @@ export function CandleChart({
   onCrosshairMove, crosshairTime,
   onVisibleRangeChange, visibleRange, followEdgeTime,
   onIndicatorPaneAction,
+  onOpenObjectTree,
   canIndicatorAction,
   hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
@@ -910,6 +934,8 @@ export function CandleChart({
    * rather than controls that would act on somebody else's list.
    */
   onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
+  /** The legend menu's `Object tree` row, resolved as the chart menu resolves it. */
+  onOpenObjectTree?: () => void;
   /**
    * Whether a price-pane overlay is a study the action above can move.
    *
@@ -1015,6 +1041,20 @@ export function CandleChart({
    * as the same chart smoothed.
    */
   const drawnTypeRef = useRef<ChartType | null>(null);
+  /**
+   * How many Range bars were last drawn, so the first ones can be framed.
+   *
+   * Range bars come only from the execution tape, which is a network read. On
+   * a switch INTO Range the tape has not arrived, so the series is set empty,
+   * the type-change `fitContent` below fits that emptiness, and the viewport
+   * is left on a degenerate price window — measured at $24 across the whole
+   * plot. The bars then land and nothing refits, because neither the dataset
+   * key nor the time base has changed since. The chart stays blank.
+   *
+   * Fitting once on the 0 -> non-empty transition frames them exactly when
+   * they appear, and never again, so it cannot fight a reader who has panned.
+   */
+  const rangeDrawnRef = useRef(0);
   /**
    * Chart-only transform state. `headRef` is the fold over every closed bar;
    * `displayRef` is what is currently drawn, so the next update can be planned
@@ -2408,7 +2448,15 @@ export function CandleChart({
             }
           : candleDatum(c)), mainHeadRef);
       } else {
+        const hadNone = rangeDrawnRef.current === 0;
         setMainSeriesData(series, kind, tradeDisplay.map((bar) => mainSeriesDatum(kind, bar)), mainHeadRef);
+        rangeDrawnRef.current = tradeDisplay.length;
+        if (hadNone && tradeDisplay.length > 0) {
+          // The tape has landed for the first time. Frame it.
+          try { chartRef.current?.timeScale().fitContent(); } catch { /* chart is disposing */ }
+          shortcutRangeRef.current = null;
+          setActiveRange(null);
+        }
       }
       mainSeriesDirtyRef.current = false;
     } else if (transform === null) {
@@ -2476,6 +2524,9 @@ export function CandleChart({
      * which fits unconditionally — was the only way back.
      */
     const drawnType = mainKindRef.current;
+    // Re-arm the Range fit above, so returning to Range frames its tape again
+    // rather than inheriting the count from the last visit.
+    if (drawnType !== drawnTypeRef.current) rangeDrawnRef.current = 0;
     const timeBaseChanged = drawnType !== drawnTypeRef.current
       && (isSyntheticTimeBase(drawnType)
         || (drawnTypeRef.current !== null && isSyntheticTimeBase(drawnTypeRef.current)));
@@ -4005,15 +4056,15 @@ export function CandleChart({
           {chartUnavailable}
         </div>
       )}
-      {chartType === "range" && !chartUnavailable && (
+      {isSyntheticTimeBase(chartType) && !chartUnavailable && (
         <div
           role="status"
           data-range-axis-notice="ordering"
-          title={RANGE_AXIS_HINT}
+          title={SYNTHETIC_AXIS_HINT[chartType] ?? RANGE_AXIS_HINT}
           className="rounded-sm border border-border/70 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-ink-muted"
         >
           Time axis orders bars, not dates them
-          <span className="sr-only"> — {RANGE_AXIS_HINT}</span>
+          <span className="sr-only"> — {SYNTHETIC_AXIS_HINT[chartType] ?? RANGE_AXIS_HINT}</span>
         </div>
       )}
       {footprintCoverage && (
@@ -4069,6 +4120,7 @@ export function CandleChart({
           /* The same key and the same resolver the indicator panes use. */
           onAction={onIndicatorPaneAction
             && ((key, action) => onIndicatorPaneAction(`indicator:${key}`, action))}
+          onOpenObjectTree={onOpenObjectTree}
           canAction={canIndicatorAction}
           hidden={hiddenStudies}
         />
@@ -4281,6 +4333,7 @@ export function CandleChart({
                 onReady={registerIndicatorPane}
                 onRangeChange={indicatorPaneRange}
                 onAction={onIndicatorPaneAction}
+                onOpenObjectTree={onOpenObjectTree}
                 /* R6 SC-3: one answer for every study on this chart. */
                 lastValue={settings.indicatorLastValue}
                 /* R6 SC-5(d): and the axis under the lowest pane is THE axis. */

@@ -2357,6 +2357,8 @@ export default function TvWorkspace() {
         ) : null}
         onIndicatorList={registerIndicatorList}
         onFocusIndicator={focusIndicator}
+        /* The same destination the chart menu's own `Object tree` row uses. */
+        onOpenObjectTree={() => setPanel("objects")}
         onEditNative={setEditingNativeKey}
         compact={isMobile}
       />

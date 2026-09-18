@@ -305,8 +305,15 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
-          <path d="M5 7h18M5 14h18M5 21h12" />
+        {/*
+          A bookmark card with two rules — "a saved list". This was three bare
+          horizontal rules, which is the universal "open a menu" glyph: the
+          wrong metaphor, on the rail's most prominent cell.
+        */}
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor"
+          strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 3.5h18v21.5l-9-5.5-9 5.5z" />
+          <path d="M9.2 9.2h9.6M9.2 13.2h6" />
         </svg>
       </button>
       <button
@@ -317,8 +324,18 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
         aria-pressed={props.panel === "alerts"}
       >
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
-          <circle cx="14" cy="15" r="8" /><path d="M14 11v4l3 2M6 5 3 3M22 5l-3 3" />
+        {/*
+          The two bell strokes used to float above the dial, at different
+          lengths and different angles, so the left one rendered as a 2px
+          orphan stub and the whole glyph read as an unfinished sketch. They
+          are arcs now, leaving the dial tangentially and mirrored about x=14.
+        */}
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor"
+          strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="14" cy="16" r="8" />
+          <path d="M8.4 10.4A4.6 4.6 0 0 0 4.6 6.2" />
+          <path d="M19.6 10.4A4.6 4.6 0 0 1 23.4 6.2" />
+          <path d="M14 11.5V16l3 2" />
         </svg>
       </button>
       <button
@@ -328,8 +345,15 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         aria-label="Object tree and Data window"
         aria-pressed={props.panel === "objects"}
       >
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
-          <path d="M7 6h6v5H7zM15 17h6v5h-6zM7 17h6v5H7zM10 11v3h8v3M10 14v3" />
+        {/*
+          Stacked layers. The org-chart this replaces packed 145 ink pixels into
+          a 16x18 box — the densest glyph on the rail — and resolved to mush at
+          1x. Two overlapping diamonds carry the same idea with far less ink.
+        */}
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor"
+          strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 3.6l9.4 5.2-9.4 5.2-9.4-5.2z" />
+          <path d="M14 13.4l9.4 5.2-9.4 5.2-9.4-5.2z" />
         </svg>
       </button>
       <button

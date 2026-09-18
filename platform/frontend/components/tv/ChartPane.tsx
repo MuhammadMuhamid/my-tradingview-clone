@@ -204,6 +204,8 @@ export interface ChartPaneProps {
   onFocusIndicator: (paneId: string, key: string) => void;
   /** Open a built-in study's own settings dialog, by instance key. */
   onEditNative?: (key: string) => void;
+  /** Open the objects panel — the legend menu's `Object tree` row. */
+  onOpenObjectTree?: () => void;
 
   /** Force the smallest chrome regardless of measured size (phones). */
   compact?: boolean;
@@ -1139,6 +1141,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
              */
             chartSettings={pane.chartSettings ?? userDefaultChartSettings()}
             onIndicatorPaneAction={paneAction}
+            onOpenObjectTree={props.onOpenObjectTree}
             canIndicatorAction={studyActionable}
             hiddenStudies={hiddenStudies}
           />

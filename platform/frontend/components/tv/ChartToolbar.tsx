@@ -300,7 +300,13 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
           R1c-02: same silhouette, redrawn at 1px on the 28-unit grid.
         */}
         <Glyph>
-          <circle cx="12" cy="13" r="7" />
+          {/*
+            The ring is an ARC with a gap where the bolt enters and leaves. It
+            used to be a closed circle with the bolt laid over it, so ring and
+            bolt crossed twice and the centre of the glyph turned to mush — 54%
+            more ink than the reference in the same space.
+          */}
+          <path d="M15.4 6.3A7 7 0 1 0 13.1 19.9" />
           <path d="M17.2 18.2L22.5 23.5" />
           <path d="M14.5 4L9.5 13.5h4.5l-1.5 7 5.5-9.5h-4.5z" />
         </Glyph>
@@ -625,11 +631,18 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
           solid rule, which is the generic "chart" glyph the blind reviewer
           named as a tell.
         */}
+        {/*
+          Scaled into the family's safe margin. The polyline used to terminate
+          at y=0 — the top edge of the 28-unit box — so at stroke width 1 the
+          ink began at y=-0.5 and the glyph was CLIPPED, while also sitting
+          about 5px above the optical baseline of every neighbour on the row.
+          Ink is now 16.2x18 inset at (5.9, 5), which is the reference's.
+        */}
         <Glyph>
-          <path d="M2.5 15.5l6-6 4.5 4 4-5.5 6.5-8" strokeLinejoin="miter" />
-          <rect x="2.5" y="18.5" width="6" height="6" />
-          <rect x="10.5" y="16.5" width="6" height="8" />
-          <rect x="18.5" y="13.5" width="6" height="11" />
+          <path d="M5.9 16.4L10.3 12.0L13.6 14.9L16.6 10.9L21.3 5.0" strokeLinejoin="miter" />
+          <rect x="5.9" y="18.6" width="4.4" height="4.4" />
+          <rect x="11.8" y="17.1" width="4.4" height="5.9" />
+          <rect x="17.7" y="14.9" width="4.4" height="8.1" />
         </Glyph>
         <WideLabel>Indicators</WideLabel>
       </button>
@@ -866,8 +879,13 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Undo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            {/* R1c-02: 13×10 at (12,14) — an arc into an open 5×5 arrowhead. */}
-            <Glyph><path d="M11 9.5L7.5 13 11 16.5" /><path d="M7.5 13h8.5a3 3 0 0 1 0 6h-1" /></Glyph>
+            {/*
+              A long open arc into a clear arrowhead. The radius-3 return this
+              replaces curled the tail back under itself, closing the shape into
+              something that read as a small circle at 1x rather than as a
+              reversal. Ink is 13x11 with the head well clear of the tail.
+            */}
+            <Glyph><path d="M11 9L7 13l4 4" /><path d="M7 13h9a3.5 3.5 0 0 1 0 7h-2" /></Glyph>
           </button>
           <button
             {...ctl("redo")}
@@ -877,8 +895,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
             title="Redo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
-            {/* The same 13×10 box, mirrored about the cell's centre. */}
-            <Glyph><path d="M16 9.5L19.5 13 16 16.5" /><path d="M19.5 13h-8.5a3 3 0 0 0 0 6h1" /></Glyph>
+            {/* The same box, mirrored about the cell's centre. */}
+            <Glyph><path d="M17 9l4 4-4 4" /><path d="M21 13h-9a3.5 3.5 0 0 0 0 7h2" /></Glyph>
           </button>
         </div>
 

@@ -24,9 +24,9 @@ export function toolbarDensityClasses(): {
   cluster: string; clusterInMore: string; separator: string; separatorInMore: string;
 } {
   return {
-    cluster: "hidden md:flex",
-    clusterInMore: "flex md:hidden",
-    separator: "hidden md:inline-block",
-    separatorInMore: "md:hidden",
+    cluster: "hidden xl:flex",
+    clusterInMore: "flex xl:hidden",
+    separator: "hidden xl:inline-block",
+    separatorInMore: "xl:hidden",
   };
 }

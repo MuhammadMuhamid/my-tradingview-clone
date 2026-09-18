@@ -1117,12 +1117,12 @@ export function DrawingCanvas({
           {FILLABLE_TOOLS.has(sel.tool) && (
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
             title="Fill"
             aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
             aria-pressed={Boolean(sel.style.filled)}
           >
-            <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden="true">
               <rect x="1.5" y="1.5" width="9" height="9" rx="1"
                 fill={sel.style.filled ? "currentColor" : "none"}
                 stroke="currentColor" strokeWidth="1.2" />
@@ -1153,14 +1153,14 @@ export function DrawingCanvas({
                 });
               }
             }}
-            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
             title="Settings"
             aria-label="Settings for this drawing"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="1.9" aria-hidden="true">
-              <path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3L16.3 7.7M7.7 16.3L6.3 17.7" />
-              <circle cx="12" cy="12" r="3.2" />
+              <path d="M18.06 10.26L20.96 10.42L20.96 13.58L18.06 13.74L17.51 15.05L19.45 17.22L17.22 19.45L15.05 17.51L13.74 18.06L13.58 20.96L10.42 20.96L10.26 18.06L8.95 17.51L6.78 19.45L4.55 17.22L6.49 15.05L5.94 13.74L3.04 13.58L3.04 10.42L5.94 10.26L6.49 8.95L4.55 6.78L6.78 4.55L8.95 6.49L10.26 5.94L10.42 3.04L13.58 3.04L13.74 5.94L15.05 6.49L17.22 4.55L19.45 6.78L17.51 8.95Z" />
+              <circle cx="12" cy="12" r="2.9" />
             </svg>
           </button>
           <button
@@ -1169,11 +1169,11 @@ export function DrawingCanvas({
               onChange([...drawings, copy]);
               setSelected(copy.id);
             }}
-            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
             title="Clone (⌘D)"
             aria-label="Clone this drawing"
           >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+            <svg width="16" height="16" viewBox="0 0 12 12" fill="none" stroke="currentColor"
               strokeWidth="1.2" aria-hidden="true">
               <rect x="1.5" y="1.5" width="6.5" height="6.5" rx="1" />
               <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
@@ -1181,12 +1181,12 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className="tvc-control flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
             title={sel.locked ? "Unlock" : "Lock"}
             aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
             aria-pressed={Boolean(sel.locked)}
           >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+            <svg width="16" height="16" viewBox="0 0 12 12" fill="none" stroke="currentColor"
               strokeWidth="1.2" aria-hidden="true">
               <rect x="2" y="5.4" width="8" height="5.1" rx="1" />
               {/* An open shackle leans clear of the body, so locked and unlocked
@@ -1197,22 +1197,69 @@ export function DrawingCanvas({
           <button type="button" onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, hidden: !d.hidden } : d)))}
             className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
             title={sel.hidden ? "Show" : "Hide"} aria-label={sel.hidden ? "Show this drawing" : "Hide this drawing"}>
-            <span aria-hidden="true">{sel.hidden ? "◉" : "◌"}</span>
+            {/*
+              Drawn, not typed. `◉`/`◌` were text characters taking the font's
+              metrics rather than the icon grammar's, and neither reads as an
+              eye. These are the legend's own eye and eye-slash paths, so the
+              same idea looks the same in both places.
+            */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+              <circle cx="12" cy="12" r="2.6" />
+              {sel.hidden && <path d="M4 20L20 4" />}
+            </svg>
           </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
             disabled={locked || sel.locked}
-            className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
             title={locked || sel.locked ? "Unlock this drawing to delete it" : "Delete (Del)"}
             aria-label="Delete this drawing"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-              <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.4" />
+            {/*
+              A bin, at the same 16px as its neighbours. A 10px cross was both
+              the smallest thing on the bar and the wrong metaphor — a cross
+              closes something, it does not delete it.
+            */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 6h16M9 6V4h6v2M6.5 6l1 14h9l1-14" />
             </svg>
           </button>
-          <button type="button" onClick={() => onOpenSettings?.(sel.id)}
+          {/*
+            `More` opens the drawing's MENU. It used to call `onOpenSettings`,
+            which is exactly what the gear four controls to its left does — two
+            controls, one behaviour, and no route to the menu at all from a
+            selected drawing. That menu already exists and is good: right-
+            clicking the same drawing gives Add alert / Visual order / Clone /
+            Copy / Lock / Hide / Remove / Settings, with icons and shortcuts.
+            This points at it, anchored to the button as every other menu is.
+
+            The glyph is drawn rather than typed. `⋯` was a text character, so
+            it took the font's own metrics instead of the icon grammar's —
+            contract §3: "Icons are drawn, never typed."
+          */}
+          <button
+            type="button"
+            onClick={(event) => {
+              const handler = onContextMenuRef.current;
+              if (!handler) { onOpenSettings?.(sel.id); return; }
+              const box = event.currentTarget.getBoundingClientRect();
+              handler({
+                x: Math.round(box.left), y: Math.round(box.bottom + 4),
+                drawingId: sel.id, price: null, region: "plot",
+              });
+            }}
             className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
-            title="More drawing actions" aria-label="More drawing actions">⋯</button>
+            title="More drawing actions" aria-label="More drawing actions"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+            </svg>
+          </button>
         </div>
       )}
     </>

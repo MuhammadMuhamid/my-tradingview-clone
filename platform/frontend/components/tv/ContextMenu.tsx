@@ -80,7 +80,9 @@ const GLYPH_PATHS: Record<MenuGlyph, React.ReactNode> = {
   paste: <><rect x="3.5" y="3" width="9" height="11" rx="1" /><path d="M6 3V2h4v1" /></>,
   note: <><path d="M3 3h10v7l-3 3H3z" /><path d="M13 10h-3v3" /></>,
   watchlist: <><path d="M2.5 4h11M2.5 8h7M2.5 12h7" /><path d="M12.5 9.5v5M10 12h5" /></>,
-  gear: <><circle cx="8" cy="8" r="2.4" /><path d="M8 1.6v1.8M8 12.6v1.8M1.6 8h1.8M12.6 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3" /></>,
+  // A gear is a toothed RING around a hub. A small hub with eight long
+  // radial rays — which this was — is a sun, and read as "brightness".
+  gear: <><path d="M12.04 6.84L14.01 6.94L14.01 9.06L12.04 9.16L11.67 10.04L13.00 11.50L11.50 13.00L10.04 11.67L9.16 12.04L9.06 14.01L6.94 14.01L6.84 12.04L5.96 11.67L4.50 13.00L3.00 11.50L4.33 10.04L3.96 9.16L1.99 9.06L1.99 6.94L3.96 6.84L4.33 5.96L3.00 4.50L4.50 3.00L5.96 4.33L6.84 3.96L6.94 1.99L9.06 1.99L9.16 3.96L10.04 4.33L11.50 3.00L13.00 4.50L11.67 5.96Z" /><circle cx="8" cy="8" r="1.95" /></>,
   clone: <><rect x="5.5" y="5.5" width="8" height="8" rx="1" /><rect x="2.5" y="2.5" width="8" height="8" rx="1" /></>,
   lock: <><rect x="3.5" y="7" width="9" height="6.5" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></>,
   eye: <><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" /></>,

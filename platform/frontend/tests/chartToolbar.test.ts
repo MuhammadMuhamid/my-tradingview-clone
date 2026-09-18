@@ -305,17 +305,29 @@ test("the interval trigger is a caret, not a word", () => {
  * full-width row now, above the rails, the chart and the panel, so nothing
  * narrows it and the one decision left is Tailwind's `md`.
  */
-test("the toolbar's one collapse decision is the phone breakpoint, and the CSS carries the same number", () => {
-  assert.equal(TOOLBAR_CLUSTER_WIDTH, 768, "Tailwind's md, which is what the class literal says");
+test("the toolbar collapses while the row still fits, and the CSS carries the same number", () => {
+  /*
+   * 1280, not 768.
+   *
+   * The primary row's intrinsic width is 1232px and it is `flex-nowrap` on a
+   * page that does not scroll horizontally, so a breakpoint below that does
+   * not produce a denser bar — it produces a bar whose right-hand end is off
+   * the screen with no way to reach it. The control that fell off first was
+   * More, which is the route to Correlation, the object tree, the data window
+   * and Maximize pane, so those went with it.
+   */
+  assert.equal(TOOLBAR_CLUSTER_WIDTH, 1280, "Tailwind's xl, which is what the class literal says");
+  assert.ok(TOOLBAR_CLUSTER_WIDTH > 1232,
+    "the breakpoint must sit above the row's intrinsic width, or the row overflows instead of collapsing");
   assert.equal(TOOLBAR_ACCOUNT_CELL_WIDTH, 52, "the rail's width: the account cell sits above the rail");
-  for (const viewport of [320, 640, 767, 768, 1024, 1280, 1440, 1920]) {
-    assert.deepEqual(toolbarDensity(viewport), { clusterOnPrimaryRow: viewport >= 768 });
+  for (const viewport of [320, 640, 767, 768, 1024, 1279, 1280, 1440, 1920]) {
+    assert.deepEqual(toolbarDensity(viewport), { clusterOnPrimaryRow: viewport >= 1280 });
   }
   const classes = toolbarDensityClasses();
-  assert.equal(classes.cluster, "hidden md:flex");
-  assert.equal(classes.clusterInMore, "flex md:hidden");
-  assert.equal(classes.separator, "hidden md:inline-block");
-  assert.equal(classes.separatorInMore, "md:hidden");
+  assert.equal(classes.cluster, "hidden xl:flex");
+  assert.equal(classes.clusterInMore, "flex xl:hidden");
+  assert.equal(classes.separator, "hidden xl:inline-block");
+  assert.equal(classes.separatorInMore, "xl:hidden");
   // No shifted breakpoint survives anywhere in the density module.
   assert.doesNotMatch(read(DENSITY), /min-\[\d+px\]/, "a shifted breakpoint is the boxed toolbar coming back");
   // And the page no longer tells the bar about the ticket or the panel,

@@ -18,7 +18,7 @@ import { legendStudyMenu, type LegendStudyMenuId } from "@/lib/menuPayloads";
  */
 export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
-  title, onAction, canAction, hidden = [],
+  title, onAction, onOpenObjectTree, canAction, hidden = [],
   showTitles = true, showInputs = true, showValues = true,
   background = true, backgroundOpacity = 60,
 }: {
@@ -56,6 +56,15 @@ export function IndicatorLegend({
    * lists — no second lookup, and no second definition of what a study is.
    */
   onAction?: (instanceId: string, action: "hide" | "settings" | "remove") => void;
+  /**
+   * Open the objects panel, for the menu's `Object tree` row.
+   *
+   * Separate from `onAction` because it is not an action ON a study — it is the
+   * same destination the chart menu's own `Object tree` row resolves to, and
+   * routing it through the per-study verb would have meant inventing a fourth
+   * verb that acts on the pane instead.
+   */
+  onOpenObjectTree?: () => void;
   /**
    * Whether this instance is a study that `onAction` can actually move.
    *
@@ -276,8 +285,8 @@ export function IndicatorLegend({
                     </StudyButton>
                     <StudyButton label={`${group.title} settings`}
                       onClick={() => onAction(group.id, "settings")}>
-                      <circle cx="12" cy="12" r="3" />
-                      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                      <path d="M18.06 10.26L20.96 10.42L20.96 13.58L18.06 13.74L17.51 15.05L19.45 17.22L17.22 19.45L15.05 17.51L13.74 18.06L13.58 20.96L10.42 20.96L10.26 18.06L8.95 17.51L6.78 19.45L4.55 17.22L6.49 15.05L5.94 13.74L3.04 13.58L3.04 10.42L5.94 10.26L6.49 8.95L4.55 6.78L6.78 4.55L8.95 6.49L10.26 5.94L10.42 3.04L13.58 3.04L13.74 5.94L15.05 6.49L17.22 4.55L19.45 6.78L17.51 8.95Z" />
+                      <circle cx="12" cy="12" r="2.9" />
                     </StudyButton>
                     <StudyButton label={`Remove ${group.title}`}
                       onClick={() => onAction(group.id, "remove")}>
@@ -298,11 +307,22 @@ export function IndicatorLegend({
                     */}
                     <StudyButton
                       label={`More for ${group.title}`}
-                      onClick={(event) => setMoreMenu({
-                        id: group.id,
-                        title: group.title,
-                        at: { x: event.clientX, y: event.clientY },
-                      })}
+                      /*
+                        Anchored to the button box, not the pointer. Opening at
+                        `clientX/clientY` moved the menu by up to 23x18px
+                        depending on where inside the same 28x22 glyph the click
+                        landed; the reference opens at a constant offset from
+                        the control. `ContextMenu` still flips it upward when it
+                        will not fit below.
+                      */
+                      onClick={(event) => {
+                        const box = event.currentTarget.getBoundingClientRect();
+                        setMoreMenu({
+                          id: group.id,
+                          title: group.title,
+                          at: { x: Math.round(box.left), y: Math.round(box.bottom + 4) },
+                        });
+                      }}
                     >
                       <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
                       <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
@@ -446,13 +466,18 @@ export function IndicatorLegend({
         label={moreMenu?.title ?? ""}
         entries={moreMenu ? legendStudyMenu({ title: moreMenu.title }) : []}
         onSelect={(id) => {
-          if (!moreMenu || !onAction) return;
-          const action: Record<LegendStudyMenuId, "hide" | "settings" | "remove"> = {
+          if (!moreMenu) return;
+          if (id === "study-legend:object-tree") { onOpenObjectTree?.(); return; }
+          if (!onAction) return;
+          const action: Record<
+            Exclude<LegendStudyMenuId, "study-legend:object-tree">,
+            "hide" | "settings" | "remove"
+          > = {
             "study-legend:settings": "settings",
             "study-legend:toggle-visible": "hide",
             "study-legend:remove": "remove",
           };
-          const verb = action[id as LegendStudyMenuId];
+          const verb = action[id as Exclude<LegendStudyMenuId, "study-legend:object-tree">];
           if (verb) onAction(moreMenu.id, verb);
         }}
         onClose={() => setMoreMenu(null)}
@@ -483,17 +508,19 @@ function StudyButton(
       title={label}
       onClick={(event) => { event.stopPropagation(); onClick(event); }}
       /*
-        28×24 with a 16px glyph — the reference's legend-action size, measured.
-        The 18×18 button with a 12px glyph it replaces was a sixth smaller than
-        anything else a pointer aims at in this product.
+        28×22 with an 18px glyph. The pitch (28) was right; the cell was 2px too
+        tall and the glyph a ninth too small, which is why this cluster read
+        lighter than the reference's at the same zoom. Re-measured live on
+        2026-09-18 — the earlier comment claimed 28×24/16 as "measured", and it
+        was not.
 
         Hover is a hairline, not a fill: this sits on the candles, and a filled
         square there is the "bordered mini-toolbar" the owner vetoed.
       */
-      className="flex h-6 w-7 items-center justify-center rounded-sm border border-transparent
+      className="flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent
         text-ink-faint transition-colors hover:border-border hover:text-ink"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}
       </svg>

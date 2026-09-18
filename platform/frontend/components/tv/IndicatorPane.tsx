@@ -144,6 +144,7 @@ export type PaneAction = "hide" | "settings" | "remove";
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
   onAction,
+  onOpenObjectTree,
   collapsed = false, onToggleCollapsed,
   maximized = false, canMaximize = false, onToggleMaximized,
   canMoveUp = false, canMoveDown = false, onMove,
@@ -194,6 +195,8 @@ export function IndicatorPane({
    * split-view panes want.
    */
   onAction?: (paneId: string, action: PaneAction) => void;
+  /** The legend menu's `Object tree` row. */
+  onOpenObjectTree?: () => void;
   /**
    * Show only the header, keeping the pane in the stack.
    *
@@ -840,6 +843,7 @@ export function IndicatorPane({
           background={legendBackground}
           backgroundOpacity={legendBackgroundOpacity}
           onAction={onAction && ((_instanceId, action) => onAction(id, action))}
+          onOpenObjectTree={onOpenObjectTree}
           canAction={onAction ? () => true : undefined}
         />
       </div>

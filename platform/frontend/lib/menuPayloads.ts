@@ -426,20 +426,33 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
  * `ChartPane.paneAction`.
  */
 export const LEGEND_STUDY_MENU_IDS = [
-  "study-legend:settings", "study-legend:toggle-visible", "study-legend:remove",
+  "study-legend:settings", "study-legend:toggle-visible",
+  "study-legend:object-tree", "study-legend:remove",
 ] as const;
 export type LegendStudyMenuId = (typeof LEGEND_STUDY_MENU_IDS)[number];
 
-export function legendStudyMenu(ctx: { title: string }): MenuEntry[] {
+export function legendStudyMenu(_ctx: { title: string }): MenuEntry[] {
   return [
-    { id: "study-legend:settings", label: "Settings…" },
+    { id: "study-legend:settings", label: "Settings…", glyph: "gear" },
     // The legend only ever draws a study that is currently drawn, so this row
     // hides; the row for a hidden study lives on the legend's own hidden list.
-    { id: "study-legend:toggle-visible", label: "Hide" },
+    { id: "study-legend:toggle-visible", label: "Hide", glyph: "eye" },
+    { id: "sep-tree", separator: true },
+    /*
+     * The one row from the reference's indicator menu that this product can
+     * genuinely hand somewhere: the chart menu already ships `Object tree` and
+     * resolves it to the objects panel, so the legend resolves it the same way
+     * rather than opening a second, parallel idea of the same panel.
+     */
+    { id: "study-legend:object-tree", label: "Object tree", glyph: "tree" },
     { id: "sep-remove", separator: true },
-    {
-      id: "study-legend:remove", label: `Remove ${ctx.title}`, destructive: true,
-    },
+    /*
+     * `Remove`, not `Remove <every word of the study's title>`. The drawing
+     * menu three functions up already says `Remove` with a trash glyph, so the
+     * long form made this menu the odd one out in its own product as well as
+     * against the reference — and the title is already the menu's own heading.
+     */
+    { id: "study-legend:remove", label: "Remove", glyph: "trash", destructive: true },
   ];
 }
 

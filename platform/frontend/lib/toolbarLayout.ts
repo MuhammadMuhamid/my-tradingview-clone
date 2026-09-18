@@ -132,8 +132,30 @@ export function isPrimaryControl(id: ToolbarControlId): boolean {
 /** The account cell at the top of the left-rail column; the row starts after it. */
 export const TOOLBAR_ACCOUNT_CELL_WIDTH = 52;
 
-/** Tailwind's `md`, in pixels: below it the workspace cluster moves into the More strip. */
-export const TOOLBAR_CLUSTER_WIDTH = 768;
+/**
+ * Tailwind's `xl`, in pixels: below it the workspace cluster moves into the
+ * More strip.
+ *
+ * ── Why this is not `md` any more ─────────────────────────────────────────
+ *
+ * It was 768, on the reasoning that the only decision left is the phone
+ * breakpoint. That reasoning was right about the SHAPE and wrong about the
+ * NUMBER: the primary row's intrinsic width is 1232px, the row is
+ * `flex-nowrap`, and the page does not scroll horizontally. So between 768 and
+ * 1232 the row did not collapse and did not fit — it simply ran off the right
+ * edge, and what fell off first was the right-hand group.
+ *
+ * That made More the control that overflowed, which is the one control that
+ * must never overflow: it is the way IN to everything a narrow row cannot
+ * hold. At 1100 the casualties were Chart image, More and Trade; at 900 there
+ * were eight, and Correlation, Object tree, Data window and Maximize pane went
+ * with More because More is their only route. A control that is off-screen
+ * with no scrollbar is not dense, it is gone.
+ *
+ * 1280 is the first Tailwind step above the intrinsic width, so the cluster
+ * leaves the row while there is still room for it to leave gracefully.
+ */
+export const TOOLBAR_CLUSTER_WIDTH = 1280;
 
 export interface ToolbarDensity {
   /** The workspace-action cluster, the saved-layout identity and Trade are on the primary row. */
