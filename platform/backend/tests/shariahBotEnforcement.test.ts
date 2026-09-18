@@ -217,7 +217,10 @@ async function modeApp(over: {
      * put one back — it outlived the test and surfaced as an uncaught
      * "terminating connection due to administrator command".
      */
-    recordModeChange: async (input) => { over.audit?.push(input); },
+    recordModeChange: async (input: {
+      fromMode: string; toMode: string; botFloorPushed: boolean;
+      changedBy: string; policyVersion: string;
+    }) => { over.audit?.push(input); },
     mode: {
       get: async () => stored,
       set: async (mode: "off" | "enforce") => {

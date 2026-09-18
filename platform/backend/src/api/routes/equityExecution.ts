@@ -167,9 +167,12 @@ export async function equityExecutionRoutes(app: FastifyInstance, dependencies: 
      * looked the equity up and had doubts. It had not; TS_SHARIAH_V1 makes no
      * finding about equities at all. The scope check says that instead.
      */
-    const shariah = await assertShariahScopeAllowed(
+    // No block travels: see the note in `derivativeExecution.ts`. A scope this
+    // policy cannot speak to produces a refusal or silence, never a half
+    // decision the far side will validate as a whole one.
+    await assertShariahScopeAllowed(
       { scope: "equity", side: opening ? "BUY" : "SELL" }, shariahDeps);
-    const command: Record<string, unknown> = { shariah, environment: "paper", canonicalInstrumentId,
+    const command: Record<string, unknown> = { environment: "paper", canonicalInstrumentId,
       providerSymbol: instrument.listing.providerSymbol,
       instrumentType: instrument.identity.instrumentType === "stock" ? "STOCK" : "ETF",
       primaryVenue: instrument.equity.primaryListing.venueId, side, positionEffect, quantity,

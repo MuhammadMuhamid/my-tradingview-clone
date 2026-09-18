@@ -134,9 +134,18 @@ export async function derivativeExecutionRoutes(app: FastifyInstance, dependenci
      * scope is checked instead, and outside spot a new position is refused
      * while enforcing. Reducing or closing is never blocked.
      */
-    const context = await assertShariahScopeAllowed(
+    await assertShariahScopeAllowed(
       { scope: "derivative", side: reducing ? "SELL" : "BUY" }, shariahDeps);
-    const command: Record<string, unknown> = { ...parsed, shariah: context };
+    /*
+     * No `shariah` block travels for a scope this policy does not rule on.
+     *
+     * It used to, carrying `mode: "enforce"` with null asset fields — and the
+     * Bot reads `enforce` as a promise that a complete asset decision follows,
+     * so it rejected the block before reaching its own entry/exit branch. A
+     * `reduceOnly` CLOSE was therefore refused while enforcing, trapping an
+     * operator in a position. Claiming a decision nobody made is what did it.
+     */
+    const command: Record<string, unknown> = { ...parsed };
     const actionSide = command.actionSide as "BUY" | "SELL";
     const claim = await claimIntent({ deploymentId, dedupeKey, action: actionSide === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) {

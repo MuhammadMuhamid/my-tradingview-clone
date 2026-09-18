@@ -239,9 +239,6 @@ const pendingEquityIntent = { id: 84, deploymentId: equityOrder.deploymentId, al
   dedupeKey: equityOrder.dedupeKey, action: "buy" as const, barTime: equityOrder.barTime,
   exitLeg: null, state: "pending" as const, resolvedAt: null, detail: null, emitterId: null,
   createdAt: Date.parse("2026-03-09T14:30:00.000Z") };
-const allowShariah = async () => ({ allowed: true, reason: null, context: { mode: "off" as const,
-  policyVersion: null, assetId: null, baseAsset: null, effectiveStatus: "REVIEW" as const,
-  publicationId: null } });
 
 test("signed X4 proxy derives raw paper/session/asset truth before durable Bot delivery", async () => {
   const old = config.equityPaperExecutionEnabled; config.equityPaperExecutionEnabled = true;
@@ -249,7 +246,9 @@ test("signed X4 proxy derives raw paper/session/asset truth before durable Bot d
   const app = Fastify();
   await app.register(async (child) => equityExecutionRoutes(child, { registry: registry(),
     providerId: "alpaca-us-equities-fixture", now: () => Date.parse("2026-03-09T14:30:00.000Z"),
-    evaluateShariah: allowShariah,
+    // Equities are outside TS_SHARIAH_V1, so the route takes a MODE reader now
+    // rather than an asset evaluator: the scope is what is checked.
+    shariah: { readMode: async () => "off" as const },
     claimIntent: async () => { events.push("claim"); return { claimed: true, intent: pendingEquityIntent }; },
     botRequest: async (input) => { events.push("bot"); sent = input.body as Record<string, unknown>; return { status: "NEW" }; },
     resolveIntent: async (id, state) => { events.push("resolve"); assert.equal(id, 84); assert.equal(state, "delivered"); },
@@ -278,7 +277,9 @@ test("X4 proxy refuses closed sessions and caller-asserted provider semantics be
   let claims = 0; let botCalls = 0;
   const app = Fastify(); await app.register(async (child) => equityExecutionRoutes(child, { registry: registry(),
     providerId: "alpaca-us-equities-fixture", now: () => Date.parse("2026-11-26T15:00:00.000Z"),
-    evaluateShariah: allowShariah,
+    // Equities are outside TS_SHARIAH_V1, so the route takes a MODE reader now
+    // rather than an asset evaluator: the scope is what is checked.
+    shariah: { readMode: async () => "off" as const },
     claimIntent: async () => { claims += 1; return { claimed: true, intent: pendingEquityIntent }; },
     botRequest: async () => { botCalls += 1; return {}; }, resolveIntent: async () => {},
   }));
@@ -300,7 +301,9 @@ test("X4 proxy refuses unresolved duplicate intents without blind Bot replay", a
   let botCalls = 0;
   const app = Fastify(); await app.register(async (child) => equityExecutionRoutes(child, { registry: registry(),
     providerId: "alpaca-us-equities-fixture", now: () => Date.parse("2026-03-09T14:30:00.000Z"),
-    evaluateShariah: allowShariah, claimIntent: async () => ({ claimed: false, existing: pendingEquityIntent }),
+    // Equities are outside TS_SHARIAH_V1, so the route takes a MODE reader now
+    // rather than an asset evaluator: the scope is what is checked.
+    shariah: { readMode: async () => "off" as const }, claimIntent: async () => ({ claimed: false, existing: pendingEquityIntent }),
     botRequest: async () => { botCalls += 1; return {}; }, resolveIntent: async () => {},
   }));
   try {

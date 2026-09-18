@@ -223,21 +223,23 @@ test("a scope the policy does not rule on is refused, not cleared by a spot verd
         && /makes\s*no finding about/.test((error as Error).message),
       `opening ${scope} exposure while enforcing must be refused`,
     );
-    // SELL is never gated, here as everywhere.
-    const exit = await assertShariahScopeAllowed({ scope, side: "SELL" }, enforcing);
-    assert.equal(exit.mode, "enforce");
+    /*
+     * SELL is never gated — and conveys NOTHING. A context here would carry
+     * `mode: "enforce"` with null asset fields, and the Bot reads `enforce` as
+     * a promise that a complete asset decision follows, so it rejected the
+     * block before its own entry/exit branch and refused the close. See
+     * `tests/shariahScopeContract.test.ts`.
+     */
+    assert.equal(await assertShariahScopeAllowed({ scope, side: "SELL" }, enforcing), null);
   }
   // Spot is the one scope this policy DOES rule on; the asset gate handles it.
   assert.equal(policyCoversScope("spot"), true);
-  const spot = await assertShariahScopeAllowed({ scope: "spot", side: "BUY" }, enforcing);
-  assert.equal(spot.mode, "enforce");
+  assert.equal(await assertShariahScopeAllowed({ scope: "spot", side: "BUY" }, enforcing), null);
 
   // And with the mode off nothing is refused at all.
   const off = { readMode: async () => "off" as const };
   for (const scope of ["derivative", "equity", "traditional"] as const) {
-    const context = await assertShariahScopeAllowed({ scope, side: "BUY" }, off);
-    assert.equal(context.mode, "off");
-    assert.equal(context.policyVersion, null);
+    assert.equal(await assertShariahScopeAllowed({ scope, side: "BUY" }, off), null);
   }
 });
 

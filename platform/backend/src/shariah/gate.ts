@@ -214,26 +214,44 @@ export function policyCoversScope(scope: ExposureScope): boolean {
 /**
  * Refuse new exposure in an asset class the policy does not rule on.
  *
- * Returns the context to sign onto the outbound request — carrying the mode
- * and, when enforcing, the policy version — so a Bot receiving the request can
- * see which policy was in force even for a scope that policy does not cover.
+ * ── Why this returns NOTHING when it allows ───────────────────────────────
+ *
+ * It used to return a context: the mode, the policy version when enforcing,
+ * and `assetId: null, baseAsset: null` because a scope check has no asset to
+ * name. The routes signed that onto the outbound request, and the Bot's
+ * contract reads `mode: "enforce"` as a promise that a COMPLETE asset decision
+ * follows — `webhookContract.ts` requires `assetId` and `baseAsset` to be valid
+ * strings under it.
+ *
+ * So the block was rejected, by `readShariahContext` at the top of the Bot's
+ * handler, BEFORE its entry/exit branch. Which meant a `reduceOnly` close was
+ * refused: an operator enforcing Shariah Mode could not get out of a
+ * derivative position. That is the one outcome this whole module says is
+ * impossible, and it was caused by claiming a decision that had not been made.
+ *
+ * The honest shape is that there is no decision to convey. A scope the policy
+ * does not rule on produces a REFUSAL or it produces silence — never a
+ * half-filled decision. The Bot's own installation floor still governs, which
+ * is the correct second line for a class this policy cannot speak to.
  */
 export async function assertShariahScopeAllowed(
   intent: { scope: ExposureScope; side: SpotSide },
   deps: ShariahGateDeps = {}
-): Promise<ShariahRequestContext> {
+): Promise<null> {
+  // SELL is never gated, here as everywhere — and it must not be handed a
+  // decision either, because a decision is what makes the far side validate one.
+  if (intent.side === "SELL") return null;
+  if (policyCoversScope(intent.scope)) return null;
   const mode = await (deps.readMode ?? getShariahMode)();
+  if (mode !== "enforce") return null;
   const context: ShariahRequestContext = {
     mode,
-    policyVersion: mode === "enforce" ? TS_SHARIAH_V1 : null,
+    policyVersion: TS_SHARIAH_V1,
     assetId: null,
     baseAsset: null,
     effectiveStatus: "REVIEW",
     publicationId: null,
   };
-  if (intent.side === "SELL") return context;
-  if (policyCoversScope(intent.scope)) return context;
-  if (mode !== "enforce") return context;
   throw new ShariahExposureBlockedError(
     `Shariah Mode is on. ${TS_SHARIAH_V1} screens Binance Spot crypto assets and makes `
     + `no finding about ${SCOPE_DESCRIPTION[intent.scope as Exclude<ExposureScope, "spot">]}, `

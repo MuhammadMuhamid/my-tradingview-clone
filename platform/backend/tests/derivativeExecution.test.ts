@@ -20,8 +20,7 @@ const command = { deploymentId: "00000000-0000-4000-8000-000000000020",
  * lifecycle. The refusal is asserted on its own below.
  */
 const shariahOff = { readMode: async () => "off" as const };
-const shariahOffContext = { mode: "off" as const, policyVersion: null,
-  assetId: null, baseAsset: null, effectiveStatus: "REVIEW" as const, publicationId: null };
+
 const pending = { id: 51, deploymentId: command.deploymentId, alertId: null, dedupeKey: command.dedupeKey,
   action: "buy" as const, barTime: command.barTime, exitLeg: null, state: "pending" as const,
   resolvedAt: null, detail: null, emitterId: null, createdAt: Date.parse("2026-09-10T20:00:00.000Z") };
@@ -46,7 +45,12 @@ test("X3B Platform durably claims before HMAC Bot delivery and binds every expos
       quantityUnit: command.quantityUnit, quantity: command.quantity, marginMode: command.marginMode, leverage: null,
       positionMode: command.positionMode, reduceOnly: false, closePosition: false, orderType: command.orderType,
       timeInForce: null, limitPrice: null, protective: null, paperReferencePrice: command.paperReferencePrice,
-      position: null, shariah: shariahOffContext })).digest("hex");
+      /*
+       * No block travels for a scope this policy does not rule on. It used to,
+       * with null asset fields under `mode: "enforce"`, and the Bot rejected it
+       * before its entry/exit branch — refusing a `reduceOnly` CLOSE.
+       */
+      position: null, shariah: null })).digest("hex");
     assert.equal(platform.payloadHash, expected);
   } finally { config.derivativeExecutionEnabled = old; await app.close(); }
 });

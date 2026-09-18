@@ -27,7 +27,16 @@ const DAY = 86_400_000;
 const NOW = Date.parse("2026-09-18T00:00:00Z");
 const YEARLY: ShariahReviewPolicy = { reviewMaxAgeDays: 365 };
 
-function asset(over: Partial<ReviewPackSource> & { assetId: string }): ReviewPackSource {
+/*
+ * `reviewedAt`/`publishedAt` are on the REGISTRY row rather than on
+ * `ReviewPackSource`, which is the projection the pack takes. The batch
+ * selector only reads `assetId`, `baseAsset`, `lifecycle`, `effectiveStatus`
+ * and `binanceAvailable`, so the extra fields ride along for readability and
+ * the cast is where they are admitted.
+ */
+function asset(
+  over: Partial<ReviewPackSource> & { assetId: string; reviewedAt?: string | null },
+): ReviewPackSource {
   return {
     baseAsset: over.baseAsset ?? `A${over.assetId}`,
     projectName: null,

@@ -114,14 +114,29 @@ export async function traditionalExecutionRoutes(app: FastifyInstance, dependenc
      * what was happening. Reducing is never blocked. Gated before the intent is
      * claimed, so a refused order consumes no dedupe identity.
      */
-    const shariah = await assertShariahScopeAllowed(
-      { scope: "traditional", side }, shariahDeps);
+    /*
+     * ── X5 has no "reduce", so every order here OPENS exposure ────────────
+     *
+     * This passed the raw `side` through, and the gate clears every SELL —
+     * which is right where SELL means closing. It does not mean that here:
+     * the very next lines build `positionDirection: side === "BUY" ? "LONG" :
+     * "SHORT"`, and this route has no `reduceOnly`, no `closePosition` and no
+     * `positionEffect`. So a BUY was refused while enforcing and an equally
+     * new SHORT was waved through — the opposite of the intent, and a worse
+     * outcome than either answer applied consistently.
+     *
+     * Both sides open, so both are gated. Nothing is trapped by this: there is
+     * no closing order on this route to trap. `derivativeExecution.ts` and
+     * `equityExecution.ts` both have a real position-effect and read it.
+     */
+    await assertShariahScopeAllowed(
+      { scope: "traditional", side: "BUY" }, shariahDeps);
     const claim = await claimIntent({ deploymentId, dedupeKey, action: side === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) return reply.code(409).send({ error: "this Platform X5 intent was already attempted; no retry was sent" });
     const platformIntent = { id: `x5_platform_intent_${claim.intent.id}`, dedupeKey,
       createdAt: new Date(claim.intent.createdAt).toISOString(), payloadHash: hash(command) };
     const result = await botRequest({ method: "POST", path: "/api/traditional-execution/v1/orders",
-      requestId: platformIntent.id, body: { platformIntent, ...command, shariah } });
+      requestId: platformIntent.id, body: { platformIntent, ...command } });
     await resolveIntent(claim.intent.id, "delivered", "Bot accepted durable X5 paper/practice intent; no automatic retry is permitted");
     return { ...(result as object), platformIntentId: platformIntent.id, dedupeKey };
   }));
