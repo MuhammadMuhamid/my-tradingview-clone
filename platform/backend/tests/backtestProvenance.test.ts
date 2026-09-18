@@ -39,6 +39,11 @@ function dbRow(engineFingerprint: string | null): DbBacktest {
     id: "00000000-0000-4000-8000-000000000001",
     strategy_id: 1,
     config_id: null,
+    // Added with the IS/OOS/holdout split. Null is what a historical row holds
+    // and is surfaced as unknown, never as a claim the run had none.
+    holdout_fraction: null,
+    segments: null,
+    execution_truth: null,
     symbol: "BTCUSDT",
     timeframe: "15m",
     start_time: now,

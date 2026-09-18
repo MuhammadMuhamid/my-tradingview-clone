@@ -268,6 +268,11 @@ export function runBars(
       t: chart.time[i]!,
       equity,
       drawdownPct: equityPeak > 0 ? ((equityPeak - Math.min(equity, lowEquity)) / equityPeak) * 100 : 0,
+      // Already computed for the drawdown above, and dropped on the floor.
+      // `computeSegmentMetrics` needs it to measure a sub-window's drawdown
+      // against its OWN peak; without it the segment falls back to the close
+      // and under-reports. `mtf_lean` stored it; these two did not.
+      low: lowEquity,
     });
 
   }

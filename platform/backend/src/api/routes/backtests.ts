@@ -46,6 +46,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       initialCapital?: number;
       commissionPct?: number;
       slippageTicks?: number;
+      holdoutFraction?: number;
     };
 
     if (!body?.strategyKey) {
@@ -73,6 +74,20 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `invalid timeframe: ${timeframe}` });
     }
 
+    /*
+     * The holdout is a fraction of the run, frozen and never selected on. It is
+     * validated here rather than at the engine so a bad number is a 400 on the
+     * request that made it, not an error on a queued row the user has to open
+     * a result page to discover.
+     */
+    if (body.holdoutFraction !== undefined
+      && !(Number.isFinite(body.holdoutFraction)
+        && body.holdoutFraction > 0 && body.holdoutFraction < 1)) {
+      return reply.code(400).send({
+        error: "holdoutFraction must be strictly between 0 and 1",
+      });
+    }
+
     const startTime = new Date(body.startTime ?? NaN).getTime();
     const endTime = new Date(body.endTime ?? NaN).getTime();
     if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
@@ -92,6 +107,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
       commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
       slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
+      holdoutFraction: body.holdoutFraction,
     });
     return reply.code(201).send(created);
   });

@@ -14,6 +14,14 @@ export interface BacktestRequest {
   initialCapital: number;
   commissionPct: number;  // % per fill, Pine commission_value
   slippageTicks: number;  // Pine slippage
+  /**
+   * How much of the run to freeze as a final holdout, strictly between 0 and 1.
+   *
+   * Absent takes the engine default of a fifth. It is a parameter because the
+   * figure is a research-policy decision rather than an engineering one, and
+   * because a constant nobody can see is a constant nobody can question.
+   */
+  holdoutFraction?: number;
 }
 
 export interface TradeRecord {
@@ -125,6 +133,8 @@ export interface BacktestRow {
   initialCapital: number;
   commissionPct: number;
   slippageTicks: number;
+  /** Fraction frozen as the final holdout; null uses the engine default. */
+  holdoutFraction: number | null;
   status: BacktestStatus;
   error: string | null;
   metrics: BacktestMetrics | null;
@@ -133,6 +143,10 @@ export interface BacktestRow {
   engineFingerprint: string | null;
   /** Complete X6+ semantic envelope. Historical rows deliberately remain null. */
   resultProvenance: Record<string, unknown> | null;
+  /** IS/OOS/holdout scores, or the reason this run cannot honestly split. */
+  segments: Record<string, unknown> | null;
+  /** Covered window, bars processed, sizing and fill timing as they were. */
+  executionTruth: Record<string, unknown> | null;
   /** Read-time label; it never mutates or guesses historical meaning. */
   semanticsStatus: "historical_unversioned" | "engine_only_legacy" | "reproducible";
   startedAt: string | null;

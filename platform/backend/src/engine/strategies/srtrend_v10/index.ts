@@ -71,7 +71,8 @@ export function runBars(feeds: FeedStore, symbol: string, chartTf: Interval, p: 
     if (broker.positionQty === 0 && !longSignal) { stop = NaN; target = NaN; trail = NaN; trailHi = NaN; trailOn = false; breakEven = NaN; htfMode = false; }
     prevClosed = broker.closed.length; prevPos = broker.positionQty; broker.processClose(chart, i);
     const equity = broker.equityAt(c), lowEq = broker.equityAt(l); peak = Math.max(peak, equity);
-    equityCurve.push({ t: chart.time[i]!, equity, drawdownPct: peak > 0 ? (peak - Math.min(equity, lowEq)) / peak * 100 : 0 });
+    // `low` is what `computeSegmentMetrics` measures a sub-window's drawdown with.
+    equityCurve.push({ t: chart.time[i]!, equity, drawdownPct: peak > 0 ? (peak - Math.min(equity, lowEq)) / peak * 100 : 0, low: lowEq });
   }
   let cum = 0; for (const t of broker.closed) { cum += t.pnl ?? 0; t.cumProfit = cum; }
   return { broker, equityCurve, barsProcessed };

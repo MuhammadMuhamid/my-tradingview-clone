@@ -10,7 +10,8 @@ import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
-import { computeMetrics, downsampleEquity, toTradeRecords } from "./metrics";
+import { computeMetrics, computeSegmentMetrics, downsampleEquity, toTradeRecords } from "./metrics";
+import { splitWindows, type WindowSplit } from "./holdout";
 import { ACTIVE_CORRECTIONS, assertCorrectedEngine, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
 import { srTrendV10Module } from "./strategies/srtrend_v10";
@@ -50,6 +51,56 @@ export interface BacktestOutput {
   provenance: Record<string, unknown>;
   /** Exit legs the exchange filters refused, when `exchangeFilters` is on. */
   rejectedLegs: { bar: number; id: string; qty: number; reason: string }[];
+  /** IS / OOS / frozen-holdout scores, or why this run cannot honestly split. */
+  segments: BacktestSegments;
+  /** What actually ran, as against what was asked for. */
+  executionTruth: ExecutionTruth;
+}
+
+/**
+ * The three windows of one run, scored separately.
+ *
+ * `splitWindows` and `computeSegmentMetrics` have been in this engine, tested,
+ * since the holdout work — with no production caller, so no surface could show
+ * a user where their development data ended and their validation data began. A
+ * run is one contiguous simulation either way; what this adds is the honest
+ * division of it, and the refusal to pretend to one where it would mean
+ * nothing.
+ *
+ * The holdout is FROZEN: it is reported and never selected on. That is a
+ * property of how it is used, not of this record, and it is why the record
+ * names it rather than calling it a second out-of-sample.
+ */
+export type BacktestSegments =
+  | {
+      available: true;
+      /** The window each segment covers, so the dates are never inferred. */
+      split: WindowSplit;
+      inSample: BacktestMetrics;
+      outOfSample: BacktestMetrics;
+      holdout: BacktestMetrics;
+      holdoutFraction: number;
+    }
+  | { available: false; reason: string };
+
+/** What actually ran — the answer to "is this number about the window I asked for?" */
+export interface ExecutionTruth {
+  requested: { startMs: number; endMs: number };
+  /** The window the simulated bars actually spanned, which may be narrower. */
+  covered: { startMs: number; endMs: number } | null;
+  barsProcessed: number;
+  /**
+   * Fixed cash, or a percentage of equity that compounds. The two are not
+   * comparable and two product surfaces defaulted to different ones.
+   */
+  sizing: { mode: "fixed_cash" | "percent_of_equity"; value: number };
+  /**
+   * When an entry fills. `next_bar_open` is the default; `signal_bar_close` is
+   * TradingView's `process_orders_on_close` and assumes zero latency — one
+   * shipped strategy defaults to each, which made cross-strategy comparison on
+   * one chart quietly not like-for-like.
+   */
+  fillTiming: "next_bar_open" | "signal_bar_close";
 }
 
 /** The finest already-loaded feed strictly below `chartTf`, or null. */
@@ -181,6 +232,49 @@ export async function executeBacktest(
   );
   const trades = toTradeRecords(result.broker.closed);
 
+  /*
+   * ── What actually ran, and how it divides ────────────────────────────────
+   *
+   * Boundary coverage is legitimately partial — `ensureCandles` above permits
+   * a window that begins inside the requested one because the pair was listed
+   * later or the cache starts further in — and `barsProcessed` was computed by
+   * every strategy and thrown away here. So a result could report a confident
+   * figure over a window a third of which had no data, printed against the
+   * REQUESTED dates. It reports the covered window now, beside the requested
+   * one, and never instead of it.
+   */
+  const qtyPctEquity = Number(params.qty_pct_equity ?? 0);
+  const coveredCurve = result.equityCurve;
+  const covered = coveredCurve.length > 0
+    ? { startMs: coveredCurve[0]!.t, endMs: coveredCurve[coveredCurve.length - 1]!.t }
+    : null;
+  const executionTruth: ExecutionTruth = {
+    requested: { startMs, endMs },
+    covered,
+    barsProcessed: result.barsProcessed,
+    sizing: qtyPctEquity > 0
+      ? { mode: "percent_of_equity", value: qtyPctEquity }
+      : { mode: "fixed_cash", value: Number(params.qty_cash) },
+    fillTiming: params.fill_bar_close ? "signal_bar_close" : "next_bar_open",
+  };
+
+  /*
+   * The split is taken over the window that was SIMULATED, not the one that
+   * was asked for: carving a holdout out of dates the run never reached would
+   * hand back three windows two of which are empty.
+   *
+   * It is refused rather than approximated when the run compounds.
+   * `computeSegmentMetrics` throws on that by design — under
+   * percent-of-equity sizing a later segment's outcomes depend on how the
+   * earlier one performed, so rebasing each segment to the initial capital
+   * produces a number with no interpretation. Saying so is the honest result;
+   * a plausible-looking number would be the dishonest one.
+   */
+  const segments = computeSegments(
+    covered, result.broker.closed, result.equityCurve,
+    row.initialCapital, qtyPctEquity, row.holdoutFraction,
+  );
+
   // A position still open at the end of the window: report it as a running
   // trade rather than dropping it. Metrics stay closed-trades-only.
   const broker = result.broker;
@@ -267,5 +361,48 @@ export async function executeBacktest(
       dataCompleteness: "internal_gaps_rejected; incomplete_live_bars_not_persisted",
     },
     rejectedLegs,
+    segments,
+    executionTruth,
+  };
+}
+
+/** The three-window division of a finished run, or the reason there is none. */
+function computeSegments(
+  covered: { startMs: number; endMs: number } | null,
+  closed: Parameters<typeof computeSegmentMetrics>[0],
+  equityCurve: EquityPoint[],
+  initialCapital: number,
+  qtyPctEquity: number,
+  holdoutFraction: number | null | undefined,
+): BacktestSegments {
+  if (covered === null) {
+    return { available: false, reason: "This run simulated no bars, so it has no window to divide." };
+  }
+  if (qtyPctEquity > 0) {
+    return {
+      available: false,
+      reason: "This run sizes each entry as a percentage of equity, so it compounds: "
+        + "a later window's outcomes depend on how the earlier one performed, and scoring "
+        + "the windows separately would produce numbers with no meaning. Re-run with a "
+        + "fixed cash size to see the in-sample, out-of-sample and holdout split.",
+    };
+  }
+  const fraction = holdoutFraction ?? undefined;
+  let split: WindowSplit;
+  try {
+    split = splitWindows(covered, fraction === undefined ? {} : { holdoutFraction: fraction });
+  } catch (error) {
+    return { available: false, reason: (error as Error).message };
+  }
+  const score = (w: { startMs: number; endMs: number }): BacktestMetrics => computeSegmentMetrics(
+    closed, equityCurve, initialCapital, w.startMs, w.endMs, { qtyPctEquity },
+  );
+  return {
+    available: true,
+    split,
+    inSample: score(split.inSample),
+    outOfSample: score(split.outOfSample),
+    holdout: score(split.holdout),
+    holdoutFraction: fraction ?? 0.2,
   };
 }

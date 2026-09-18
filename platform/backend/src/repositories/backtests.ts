@@ -1,4 +1,4 @@
-import { query } from "../db/pool";
+import { pool, query } from "../db/pool";
 import type {
   BacktestMetrics,
   BacktestRequest,
@@ -22,12 +22,15 @@ export interface DbBacktest {
   initial_capital: number;
   commission_pct: number;
   slippage_ticks: number;
+  holdout_fraction: number | null;
   status: BacktestStatus;
   error: string | null;
   metrics: BacktestMetrics | null;
   equity_curve: EquityPoint[] | null;
   engine_fingerprint: string | null;
   result_provenance: Record<string, unknown> | null;
+  segments: Record<string, unknown> | null;
+  execution_truth: Record<string, unknown> | null;
   started_at: Date | null;
   finished_at: Date | null;
   created_at: Date;
@@ -46,12 +49,15 @@ export function toBacktestRow(r: DbBacktest): BacktestRow {
     initialCapital: r.initial_capital,
     commissionPct: r.commission_pct,
     slippageTicks: r.slippage_ticks,
+    holdoutFraction: r.holdout_fraction ?? null,
     status: r.status,
     error: r.error,
     metrics: r.metrics,
     equityCurve: r.equity_curve,
     engineFingerprint: r.engine_fingerprint,
     resultProvenance: r.result_provenance ?? null,
+    segments: r.segments ?? null,
+    executionTruth: r.execution_truth ?? null,
     semanticsStatus: r.result_provenance ? "reproducible"
       : r.engine_fingerprint ? "engine_only_legacy" : "historical_unversioned",
     startedAt: r.started_at ? r.started_at.toISOString() : null,
@@ -64,8 +70,8 @@ export async function createBacktest(req: BacktestRequest): Promise<BacktestRow>
   const { rows } = await query<DbBacktest>(
     `INSERT INTO backtests
        (strategy_id, config_id, symbol, timeframe, start_time, end_time,
-        params, initial_capital, commission_pct, slippage_ticks)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        params, initial_capital, commission_pct, slippage_ticks, holdout_fraction)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING *`,
     [
       req.strategyId,
@@ -78,6 +84,7 @@ export async function createBacktest(req: BacktestRequest): Promise<BacktestRow>
       req.initialCapital,
       req.commissionPct,
       req.slippageTicks,
+      req.holdoutFraction ?? null,
     ]
   );
   return toBacktestRow(rows[0]!);
@@ -125,6 +132,20 @@ export async function claimNextQueued(): Promise<BacktestRow | null> {
 
 type WriteQuery = (text: string, params?: unknown[]) => Promise<unknown>;
 
+/**
+ * Record a finished run: its metrics, and the trades that produced them.
+ *
+ * ── Why this takes a client rather than the pool ──────────────────────────
+ *
+ * These are two statements, and they were two statements on two connections.
+ * A crash, a restart or a lost connection between them left a row reading
+ * `status = 'done'` with a full metrics block and no trades at all — a result
+ * that looks complete, is reported as complete, and cannot be told apart from
+ * a genuine zero-trade run. So the pair is atomic: either the run is finished
+ * with its trades or it is not finished.
+ *
+ * `runQuery` stays injectable for the tests that drive this without a database.
+ */
 export async function finishBacktest(
   id: string,
   result: {
@@ -133,34 +154,68 @@ export async function finishBacktest(
     trades: TradeRecord[];
     engine: string;
     provenance?: Record<string, unknown>;
+    segments?: unknown;
+    executionTruth?: unknown;
   },
-  runQuery: WriteQuery = query
+  runQuery?: WriteQuery
 ): Promise<void> {
+  if (runQuery === undefined) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await finishBacktest(id, result, (text, params) => client.query(text, params));
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
   await runQuery(
     `UPDATE backtests
      SET status = 'done', metrics = $2, equity_curve = $3,
-         engine_fingerprint = $4, result_provenance = $5, finished_at = now()
+         engine_fingerprint = $4, result_provenance = $5,
+         segments = $6, execution_truth = $7, finished_at = now()
      WHERE id = $1`,
     [id, JSON.stringify(result.metrics), JSON.stringify(result.equityCurve), result.engine,
-      result.provenance ? JSON.stringify(result.provenance) : null]
+      result.provenance ? JSON.stringify(result.provenance) : null,
+      result.segments ? JSON.stringify(result.segments) : null,
+      result.executionTruth ? JSON.stringify(result.executionTruth) : null]
   );
   if (result.trades.length > 0) {
-    const COLS = 13;
+    /*
+     * `cum_profit` used to be missing from here and from nowhere else.
+     *
+     * The column exists (`001_init.sql`), all three strategies compute it, the
+     * record type carries it, `getBacktestTrades` reads it back and
+     * `TradeList` renders it — and this INSERT named thirteen columns. So
+     * every stored trade had a null cumulative, and the Cumulative column was
+     * blank on the research detail page and in the chart's Strategy Tester,
+     * for every run ever recorded. Written down as a count, `COLS` is the kind
+     * of thing that stays thirteen when a fourteenth value is added; the
+     * column list below is the source of truth for it now.
+     */
+    const COLUMNS = [
+      "backtest_id", "trade_no", "direction", "entry_time", "entry_price",
+      "exit_time", "exit_price", "qty", "pnl", "pnl_pct", "exit_reason",
+      "run_up_pct", "drawdown_pct", "cum_profit",
+    ] as const;
     const values: unknown[] = [];
     const tuples = result.trades.map((t, i) => {
-      const o = i * COLS;
+      const o = i * COLUMNS.length;
       values.push(
         id, t.tradeNo, t.direction,
         new Date(t.entryTime), t.entryPrice,
         t.exitTime !== null ? new Date(t.exitTime) : null, t.exitPrice,
-        t.qty, t.pnl, t.pnlPct, t.exitReason, t.runUpPct, t.drawdownPct
+        t.qty, t.pnl, t.pnlPct, t.exitReason, t.runUpPct, t.drawdownPct,
+        t.cumProfit
       );
-      return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9},$${o + 10},$${o + 11},$${o + 12},$${o + 13})`;
+      return `(${COLUMNS.map((_, c) => `$${o + c + 1}`).join(",")})`;
     });
     await runQuery(
-      `INSERT INTO backtest_trades
-         (backtest_id, trade_no, direction, entry_time, entry_price,
-          exit_time, exit_price, qty, pnl, pnl_pct, exit_reason, run_up_pct, drawdown_pct)
+      `INSERT INTO backtest_trades (${COLUMNS.join(", ")})
        VALUES ${tuples.join(",")}`,
       values
     );
