@@ -160,6 +160,280 @@ export interface AlertPatchDeps {
   ) => Promise<PatternProfileSnapshot | null>;
 }
 
+/** Either a patch ready to write, or the refusal that stops it being written. */
+export type PatchPlan =
+  | { patch: maAlertRepo.MaAlertPatch; columns: ReturnType<typeof toColumns> | null }
+  | { status: number; body: { error: string } };
+
+const reject = (status: number, body: { error: string }): PatchPlan => ({ status, body });
+
+/**
+ * Work out what editing `row` with `b` would do, WITHOUT writing anything.
+ *
+ * Extracted from `alertPatchHandler` rather than copied, because bulk editing
+ * has to answer the same question for every selected row before it writes any
+ * of them — and a second implementation of "what does this edit mean" is how
+ * the two paths end up disagreeing about which edits are legal.
+ */
+export async function planAlertPatch(
+  row: MaAlertRow, b: Record<string, unknown>, deps: AlertPatchDeps
+): Promise<PatchPlan> {
+    // An alert's family is fixed. Converting one would keep the id and the
+    // event log while making every historical entry describe something the
+    // alert no longer is, and the per-kind unique indexes would change meaning
+    // underneath a live row.
+    if (b.conditionKind !== undefined && String(b.conditionKind) !== row.conditionKind) {
+      return reject(400, bad(
+        `an alert's type cannot be changed (this one is ${row.conditionKind}); ` +
+        "delete it and create the alert you want instead"
+      ));
+    }
+    const internal = INTERNAL_ALERT_FIELDS.filter(
+      (field) => field !== "conditionKind" && b[field] !== undefined
+    );
+    if (internal.length > 0) {
+      return reject(400, bad(
+        `${internal.join(", ")} ${internal.length === 1 ? "is" : "are"} maintained by the ` +
+        "alert runner and cannot be edited"
+      ));
+    }
+
+    const known = new Set<string>([
+      ...COMMON_EDITABLE_FIELDS,
+      ...EDITABLE_CONDITION_FIELDS[row.conditionKind],
+      "conditionKind",
+    ]);
+    // A field that belongs to a DIFFERENT family is refused rather than
+    // dropped: silently ignoring `rsiLevel` on a MACD alert is how a UI ends up
+    // showing a saved value the server never stored.
+    const foreign = Object.keys(b).filter((key) => !known.has(key));
+    if (foreign.length > 0) {
+      return reject(400, bad(
+        `${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} not editable on a ` +
+        `${row.conditionKind} alert`
+      ));
+    }
+
+    const patch: maAlertRepo.MaAlertPatch = {};
+
+    if (b.symbol !== undefined) {
+      const identity = alertInstrumentIdentity(String(b.symbol));
+      if ("error" in identity) return { status: identity.status, body: bad(
+        isCanonicalEquityAlertSymbol(String(b.symbol)) ? EQUITY_ALERT_UNAVAILABLE : identity.error) };
+      patch.symbol = identity.symbol;
+      patch.canonicalInstrumentId = identity.canonicalInstrumentId;
+      patch.providerId = identity.providerId;
+      patch.priceBasis = identity.priceBasis;
+    }
+    if (b.timeframe !== undefined) {
+      const tf = String(b.timeframe);
+      if (!isAlertInterval(tf)) {
+        return reject(400, bad(
+          isInterval(tf)
+            ? `${tf} is a chart resolution but not an alert resolution — see ALERT_INTERVALS`
+            : "invalid timeframe"));
+      }
+      patch.timeframe = tf;
+    }
+    if (b.frequency !== undefined) {
+      const f = String(b.frequency);
+      if (!isAlertFrequency(f)) {
+        return reject(400, bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
+      }
+      patch.frequency = f;
+      if (row.conditionKind === "candlestick_pattern" && f !== "once_per_bar_close") {
+        return reject(400, bad("candlestick pattern alerts run only once per bar close"));
+      }
+    }
+    if (b.cooldownMin !== undefined) {
+      const cooldownMin = Number(b.cooldownMin);
+      if (!Number.isInteger(cooldownMin) || cooldownMin < 0) {
+        return reject(400, bad("cooldownMin must be a non-negative integer"));
+      }
+      patch.cooldownMin = cooldownMin;
+    }
+    if (b.enabled !== undefined) patch.enabled = Boolean(b.enabled);
+    if (b.note !== undefined) {
+      const note = readNote(b.note);
+      if ("error" in note) return reject(400, note);
+      patch.note = note.value;
+    }
+
+    const merged = mergeConditionRequest(row, b);
+    let columns: ReturnType<typeof toColumns> | null = null;
+    if (merged) {
+      const read = readCondition(row.conditionKind, merged);
+      if ("error" in read) return reject(400, read);
+      const invalid = validateCondition(read.condition);
+      if (invalid) return reject(400, bad(invalid));
+      columns = toColumns(read.condition);
+      // Everything the condition owns is written together, including the
+      // columns the edit did not name — they came out of the row itself, so
+      // this restates them rather than resetting them.
+      const { conditionKind: _kind, ...conditionColumns } = columns;
+      Object.assign(patch, conditionColumns);
+    }
+
+    // Pattern meaning includes its complete detector profile and timeframe.
+    // Refresh the immutable snapshot whenever either can change, and when an
+    // operator explicitly re-arms an older row that predates provenance.
+    if (row.conditionKind === "candlestick_pattern" && (
+      merged !== null ||
+      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
+      b.enabled === true
+    )) {
+      const patternId = (columns?.patternId ?? row.patternId) as string | null;
+      if (!patternId) {
+        return reject(400, bad("patternId is required to arm this alert"));
+      }
+      const resolveProfile = deps.resolvePatternProfile ?? patternProfile;
+      const profile = await resolveProfile(
+        patternId, (patch.timeframe ?? row.timeframe) as Interval,
+      );
+      if (!profile) {
+        return reject(400, bad("patternId is not in the canonical catalog"));
+      }
+      Object.assign(patch, profile);
+    }
+
+    // The cross memory is only cleared when the thing it was recorded against
+    // moved. A different symbol or timeframe is a different series; a different
+    // reference is a different comparison. A new mode or cadence is neither.
+    patch.resetLastSide =
+      (patch.symbol !== undefined && patch.symbol !== row.symbol) ||
+      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
+      (columns !== null && referenceChanged(row.conditionKind, row, columns));
+
+  return { patch, columns };
+}
+
+export interface BulkEditDeps extends AlertPatchDeps {
+  updateAlert: (
+    id: string, patch: maAlertRepo.MaAlertPatch
+  ) => Promise<MaAlertRow | null>;
+}
+
+/**
+ * Edit many alerts with one patch.
+ *
+ * ── Everything is planned before anything is written ──────────────────────
+ *
+ * Every selected row goes through `planAlertPatch` — the same function the
+ * single-alert route uses, not a second implementation of it — and the first
+ * refusal ends the request having written nothing. A partially applied bulk
+ * edit is the worst outcome available here: the user cannot see which half
+ * landed, and re-sending it is not idempotent for the rows that did.
+ *
+ * A field belonging to one family is therefore refused on a MIXED selection
+ * for free, because `planAlertPatch` already refuses it on the rows that are
+ * not that family. The error names the alert, so "which one" is answerable.
+ *
+ * ── The dry run catches what the schema would catch too late ──────────────
+ *
+ * Two selected alerts that the patch would make IDENTICAL are rejected here,
+ * before the write. That is not hypothetical: it is what happens when the
+ * selection holds two alerts differing only by their gates and you give them
+ * both the same gates. The post-patch keys come from `alertIdentityKey`, which
+ * reads CONFLICT_TARGET — so this check and the unique index it is predicting
+ * agree by construction rather than by two people remembering the same list.
+ *
+ * ── Gates replace, they do not merge ──────────────────────────────────────
+ *
+ * `filters` sent here replaces each alert's gates outright. "Add this gate to
+ * whatever each alert already has" cannot be SHOWN honestly for a selection
+ * whose alerts carry different gates, so it is not offered.
+ */
+export function bulkEditHandler(deps: BulkEditDeps = {
+  getAlert: maAlertRepo.getAlert,
+  updateAlert: maAlertRepo.updateAlert,
+  resolvePatternProfile: patternProfile,
+}) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    if (!Array.isArray(body.ids)) {
+      return reply.code(400).send(bad("ids must be a non-empty array"));
+    }
+    const rawIds = body.ids;
+    if (rawIds.length === 0) return reply.code(400).send(bad("ids must not be empty"));
+    if (rawIds.length > MAX_BULK_ALERTS) {
+      return reply.code(400).send(bad(
+        `at most ${MAX_BULK_ALERTS} alerts may be edited at once`
+      ));
+    }
+    if (rawIds.some((id) => typeof id !== "string" || !UUID.test(id))) {
+      return reply.code(400).send(bad("every id must be a UUID"));
+    }
+    const ids = [...new Set(rawIds as string[])];
+
+    const patchBody = body.patch;
+    if (typeof patchBody !== "object" || patchBody === null || Array.isArray(patchBody)) {
+      return reply.code(400).send(bad("patch must be an object"));
+    }
+    const b = patchBody as Record<string, unknown>;
+    if (Object.keys(b).length === 0) {
+      return reply.code(400).send(bad("patch must name at least one field to change"));
+    }
+
+    const rows: MaAlertRow[] = [];
+    const missingIds: string[] = [];
+    for (const id of ids) {
+      const row = await deps.getAlert(id);
+      if (row) rows.push(row); else missingIds.push(id);
+    }
+    if (missingIds.length > 0) {
+      return reply.code(409).send({
+        error: "one or more alerts no longer exist in the current admin scope",
+        missingIds,
+      });
+    }
+
+    // ── plan every row, write none yet ──
+    const planned: { row: MaAlertRow; patch: maAlertRepo.MaAlertPatch }[] = [];
+    for (const row of rows) {
+      const plan = await planAlertPatch(row, b, deps);
+      if ("status" in plan) {
+        return reply.code(plan.status).send(bad(
+          `${row.symbol} ${row.timeframe} (${row.conditionKind}): ${plan.body.error}`
+        ));
+      }
+      planned.push({ row, patch: plan.patch });
+    }
+
+    // ── would the patch make two of them the same alert? ──
+    const seen = new Map<string, MaAlertRow>();
+    for (const { row, patch } of planned) {
+      const after = { ...row, ...patch } as unknown as Record<string, unknown>;
+      const key = maAlertRepo.alertIdentityKey(row.conditionKind, after);
+      const clash = seen.get(key);
+      if (clash) {
+        return reply.code(409).send(bad(
+          `this edit would make two selected alerts identical ` +
+          `(${clash.symbol} ${clash.timeframe} and ${row.symbol} ${row.timeframe}), ` +
+          "and only one of them can exist"
+        ));
+      }
+      seen.set(key, row);
+    }
+
+    const updated: MaAlertRow[] = [];
+    for (const { row, patch } of planned) {
+      try {
+        const next = await deps.updateAlert(row.id, patch);
+        if (next) updated.push(next);
+      } catch (error) {
+        if (error instanceof AlertConflictError) {
+          return reply.code(409).send(bad(
+            `${row.symbol} ${row.timeframe}: ${error.message}`
+          ));
+        }
+        throw error;
+      }
+    }
+    return { updated, missingIds: [] as string[] };
+  };
+}
+
 /**
  * Edit one alert in place.
  *
@@ -194,131 +468,9 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
     const row = await deps.getAlert(id);
     if (!row) return reply.code(404).send(bad("alert not found"));
 
-    // An alert's family is fixed. Converting one would keep the id and the
-    // event log while making every historical entry describe something the
-    // alert no longer is, and the per-kind unique indexes would change meaning
-    // underneath a live row.
-    if (b.conditionKind !== undefined && String(b.conditionKind) !== row.conditionKind) {
-      return reply.code(400).send(bad(
-        `an alert's type cannot be changed (this one is ${row.conditionKind}); ` +
-        "delete it and create the alert you want instead"
-      ));
-    }
-    const internal = INTERNAL_ALERT_FIELDS.filter(
-      (field) => field !== "conditionKind" && b[field] !== undefined
-    );
-    if (internal.length > 0) {
-      return reply.code(400).send(bad(
-        `${internal.join(", ")} ${internal.length === 1 ? "is" : "are"} maintained by the ` +
-        "alert runner and cannot be edited"
-      ));
-    }
-
-    const known = new Set<string>([
-      ...COMMON_EDITABLE_FIELDS,
-      ...EDITABLE_CONDITION_FIELDS[row.conditionKind],
-      "conditionKind",
-    ]);
-    // A field that belongs to a DIFFERENT family is refused rather than
-    // dropped: silently ignoring `rsiLevel` on a MACD alert is how a UI ends up
-    // showing a saved value the server never stored.
-    const foreign = Object.keys(b).filter((key) => !known.has(key));
-    if (foreign.length > 0) {
-      return reply.code(400).send(bad(
-        `${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} not editable on a ` +
-        `${row.conditionKind} alert`
-      ));
-    }
-
-    const patch: maAlertRepo.MaAlertPatch = {};
-
-    if (b.symbol !== undefined) {
-      const identity = alertInstrumentIdentity(String(b.symbol));
-      if ("error" in identity) return reply.code(identity.status).send(bad(
-        isCanonicalEquityAlertSymbol(String(b.symbol)) ? EQUITY_ALERT_UNAVAILABLE : identity.error));
-      patch.symbol = identity.symbol;
-      patch.canonicalInstrumentId = identity.canonicalInstrumentId;
-      patch.providerId = identity.providerId;
-      patch.priceBasis = identity.priceBasis;
-    }
-    if (b.timeframe !== undefined) {
-      const tf = String(b.timeframe);
-      if (!isAlertInterval(tf)) {
-        return reply.code(400).send(bad(
-          isInterval(tf)
-            ? `${tf} is a chart resolution but not an alert resolution — see ALERT_INTERVALS`
-            : "invalid timeframe"));
-      }
-      patch.timeframe = tf;
-    }
-    if (b.frequency !== undefined) {
-      const f = String(b.frequency);
-      if (!isAlertFrequency(f)) {
-        return reply.code(400).send(bad(`frequency must be one of ${ALERT_FREQUENCIES.join(", ")}`));
-      }
-      patch.frequency = f;
-      if (row.conditionKind === "candlestick_pattern" && f !== "once_per_bar_close") {
-        return reply.code(400).send(bad("candlestick pattern alerts run only once per bar close"));
-      }
-    }
-    if (b.cooldownMin !== undefined) {
-      const cooldownMin = Number(b.cooldownMin);
-      if (!Number.isInteger(cooldownMin) || cooldownMin < 0) {
-        return reply.code(400).send(bad("cooldownMin must be a non-negative integer"));
-      }
-      patch.cooldownMin = cooldownMin;
-    }
-    if (b.enabled !== undefined) patch.enabled = Boolean(b.enabled);
-    if (b.note !== undefined) {
-      const note = readNote(b.note);
-      if ("error" in note) return reply.code(400).send(note);
-      patch.note = note.value;
-    }
-
-    const merged = mergeConditionRequest(row, b);
-    let columns: ReturnType<typeof toColumns> | null = null;
-    if (merged) {
-      const read = readCondition(row.conditionKind, merged);
-      if ("error" in read) return reply.code(400).send(read);
-      const invalid = validateCondition(read.condition);
-      if (invalid) return reply.code(400).send(bad(invalid));
-      columns = toColumns(read.condition);
-      // Everything the condition owns is written together, including the
-      // columns the edit did not name — they came out of the row itself, so
-      // this restates them rather than resetting them.
-      const { conditionKind: _kind, ...conditionColumns } = columns;
-      Object.assign(patch, conditionColumns);
-    }
-
-    // Pattern meaning includes its complete detector profile and timeframe.
-    // Refresh the immutable snapshot whenever either can change, and when an
-    // operator explicitly re-arms an older row that predates provenance.
-    if (row.conditionKind === "candlestick_pattern" && (
-      merged !== null ||
-      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
-      b.enabled === true
-    )) {
-      const patternId = (columns?.patternId ?? row.patternId) as string | null;
-      if (!patternId) {
-        return reply.code(400).send(bad("patternId is required to arm this alert"));
-      }
-      const resolveProfile = deps.resolvePatternProfile ?? patternProfile;
-      const profile = await resolveProfile(
-        patternId, (patch.timeframe ?? row.timeframe) as Interval,
-      );
-      if (!profile) {
-        return reply.code(400).send(bad("patternId is not in the canonical catalog"));
-      }
-      Object.assign(patch, profile);
-    }
-
-    // The cross memory is only cleared when the thing it was recorded against
-    // moved. A different symbol or timeframe is a different series; a different
-    // reference is a different comparison. A new mode or cadence is neither.
-    patch.resetLastSide =
-      (patch.symbol !== undefined && patch.symbol !== row.symbol) ||
-      (patch.timeframe !== undefined && patch.timeframe !== row.timeframe) ||
-      (columns !== null && referenceChanged(row.conditionKind, row, columns));
+    const plan = await planAlertPatch(row, b, deps);
+    if ("status" in plan) return reply.code(plan.status).send(plan.body);
+    const { patch } = plan;
 
     let updated: MaAlertRow | null;
     try {
@@ -500,6 +652,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/api/ma-alerts/bulk", bulkAlertHandler());
+  app.post("/api/ma-alerts/bulk-edit", bulkEditHandler());
 
   app.patch("/api/ma-alerts/:id", alertPatchHandler());
 

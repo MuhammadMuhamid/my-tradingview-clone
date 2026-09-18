@@ -302,6 +302,25 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
  * exists so the test compares the SAME object the query builds from, rather
  * than a copy that could drift from it independently.
  */
+/**
+ * What the database will consider "the same alert" for this row.
+ *
+ * Derived from CONFLICT_TARGET itself rather than from a second list of key
+ * fields, so a bulk edit's dry run and the unique index it is predicting can
+ * never disagree about what a duplicate is. Adding a column to the key
+ * automatically adds it here.
+ */
+export function alertIdentityKey(
+  kind: ConditionKind, row: Record<string, unknown>
+): string {
+  const columns = /^\((.*?)\)/.exec(CONFLICT_TARGET[kind].trim());
+  if (!columns) throw new Error(`conflict target for ${kind} is not in the expected shape`);
+  const camel = (c: string): string => c.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
+  return JSON.stringify(
+    columns[1]!.split(",").map((c) => row[camel(c.trim())] ?? null)
+  );
+}
+
 export const CONFLICT_TARGETS_FOR_TEST: Readonly<Record<string, string>> = CONFLICT_TARGET;
 
 export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {

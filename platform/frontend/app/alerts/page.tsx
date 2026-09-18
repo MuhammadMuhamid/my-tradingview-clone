@@ -14,8 +14,9 @@ import {
 } from "@/lib/alerts";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import {
-  ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, buildBulkRequest, bulkCompletionMessage,
-  describeAlertScope, filterAlerts, selectionConfirmation, type AlertStatusFilter,
+  ALERT_STATUS_FILTERS, ALERT_TYPE_FILTERS, alertTimeframeOptions, buildBulkRequest,
+  bulkCompletionMessage, describeAlertScope, filterAlerts, normalizeTimeframeFilter,
+  selectionConfirmation, type AlertStatusFilter, type AlertTimeframeFilter,
   type AlertTypeFilter,
 } from "@/lib/alertManagement";
 import { leavesFilteredView } from "@/lib/alertEditing";
@@ -42,6 +43,7 @@ export default function AlertsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<AlertStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<AlertTypeFilter>("all");
+  const [timeframeFilter, setTimeframeFilter] = useState<AlertTimeframeFilter>("all");
   /** The alert open in the shared editor, or null. */
   const [editing, setEditing] = useState<MaAlert | null>(null);
   /**
@@ -84,9 +86,24 @@ export default function AlertsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const filters = useMemo(() => ({
-    search, status: statusFilter, type: typeFilter,
-  }), [search, statusFilter, typeFilter]);
+  /**
+   * Only the timeframes some alert is on are offered, and the chosen one falls
+   * back to "all" once its last alert is gone — otherwise deleting the last 4h
+   * alert while filtered to 4h leaves an empty list under a filter the user
+   * can no longer see the point of, which reads as "my alerts are gone".
+   */
+  const timeframeOptions = useMemo(
+    () => alertTimeframeOptions(alerts ?? []), [alerts]
+  );
+  useEffect(() => {
+    if (timeframeFilter !== "all" && !timeframeOptions.includes(timeframeFilter)) {
+      setTimeframeFilter("all");
+    }
+  }, [timeframeOptions, timeframeFilter]);
+
+  const filters = useMemo(() => normalizeTimeframeFilter({
+    search, status: statusFilter, type: typeFilter, timeframe: timeframeFilter,
+  }, alerts ?? []), [search, statusFilter, typeFilter, timeframeFilter, alerts]);
   const filteredAlerts = useMemo(
     () => filterAlerts(alerts ?? [], filters),
     [alerts, filters]
@@ -270,10 +287,33 @@ export default function AlertsPage() {
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </Select>
-              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all") && (
+              {/*
+                Offered only when there is a choice to make: one timeframe in
+                the whole list means this control can only ever select what is
+                already shown.
+              */}
+              {timeframeOptions.length > 1 && (
+                <Select
+                  value={timeframeFilter}
+                  onChange={(event) =>
+                    setTimeframeFilter(event.target.value as AlertTimeframeFilter)}
+                  aria-label="Filter alerts by timeframe"
+                  className="min-w-0 flex-1 sm:flex-none"
+                >
+                  <option value="all">All timeframes</option>
+                  {timeframeOptions.map((tf) => (
+                    <option key={tf} value={tf}>{tf}</option>
+                  ))}
+                </Select>
+              )}
+              {(search.trim() !== "" || statusFilter !== "all" || typeFilter !== "all"
+                || timeframeFilter !== "all") && (
                 <Button
                   variant="ghost"
-                  onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); }}
+                  onClick={() => {
+                    setSearch(""); setStatusFilter("all");
+                    setTypeFilter("all"); setTimeframeFilter("all");
+                  }}
                 >
                   Clear
                 </Button>
