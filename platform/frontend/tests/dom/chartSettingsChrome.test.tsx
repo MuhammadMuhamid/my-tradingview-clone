@@ -99,14 +99,28 @@ test("R6b-06 — the Status tab's value column is fixed, not `max-content`", asy
   const chart = await mountChart();
   await openSettings(chart, "Status line");
 
+  /*
+   * Read from the custom property, not from `gridTemplateColumns`.
+   *
+   * The template moved onto `--ts-settings-cols` so a breakpoint can undo it:
+   * at 390px a 206px rail beside a 366px dialog left a 100px content column
+   * with every value outside it, and an inline `gridTemplateColumns` cannot be
+   * overridden by a media query. Above `sm` the class applies this variable, so
+   * the measured grammar asserted here is the one that renders.
+   */
   const panel = screen.getByRole("tabpanel");
-  assert.match(panel.style.gridTemplateColumns, /^103px/,
+  assert.match(panel.style.getPropertyValue("--ts-settings-cols"), /^103px/,
     "`Last day change values` (179px) used to push the Title dropdown to x=790");
+  assert.match(panel.className, /sm:\[grid-template-columns:var\(--ts-settings-cols\)\]/,
+    "the measured two-column grammar must still apply wherever there is room");
+  assert.match(panel.className, /grid-cols-1/, "and collapse to one column below it");
 
   // Every other tab keeps the floor-and-grow column it was measured with.
   fireEvent.click(screen.getByRole("tab", { name: "Canvas" }));
   await settle();
-  assert.match(screen.getByRole("tabpanel").style.gridTemplateColumns, /^minmax\(155px/);
+  assert.match(
+    screen.getByRole("tabpanel").style.getPropertyValue("--ts-settings-cols"),
+    /^minmax\(155px/);
 });
 
 test("R6b-15/22 — the Indicators dropdown is 180 and `Only active alerts` is not indented",

@@ -212,8 +212,18 @@ export function ChartSettingsModal(props: {
   const setMany = (patch: Partial<ChartSettings>): void => onSettings({ ...settings, ...patch });
 
   /** The same condition `CandleChart`'s series-appearance effect applies. */
+  /*
+   * Point & figure joins the two types that draw their own bodies.
+   *
+   * Its columns are X and O glyphs drawn by a series primitive, and the
+   * candlestick series underneath them is transparent ON PURPOSE. Offering
+   * Body, Borders and Wick colour wells for it would be three controls that
+   * change nothing — the same "a control that cannot act" the rest of this
+   * dialog is careful to avoid.
+   */
   const seriesColoursApply = renderKind(chartType) === "candles"
-    && chartType !== "hollowCandles" && chartType !== "highLow";
+    && chartType !== "hollowCandles" && chartType !== "highLow"
+    && chartType !== "pointAndFigure";
 
   /*
    * Thin bars reaches exactly one chart type — gated on the RENDER KIND rather
@@ -352,8 +362,18 @@ export function ChartSettingsModal(props: {
         </div>
       }
     >
-      <div className="flex min-h-0 flex-1 gap-5">
-        <nav aria-label="Chart settings sections" className="w-[206px] shrink-0">
+      {/*
+        ── On a phone the rail is a strip, not a column ─────────────────────
+        A 206px rail beside a 366px dialog leaves a 100px content column, and
+        every value in this dialog — the colour wells, Precision, Timezone —
+        sat entirely outside it. The labels truncated mid-word and the only way
+        to reach a control was to scroll a 100px sliver sideways. Above `sm`
+        nothing changes.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row sm:gap-5">
+        <nav aria-label="Chart settings sections"
+          className="flex w-full shrink-0 gap-1 overflow-x-auto pb-1
+            sm:block sm:w-[206px] sm:overflow-x-visible sm:pb-0">
           {TABS.map((item) => (
             <button key={item.id} role="tab" aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
@@ -372,7 +392,7 @@ export function ChartSettingsModal(props: {
                 in this product, and inventing one in `globals.css` would
                 repaint more than a tab rail.
               */
-              className={`tvc-control flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm ${
+              className={`tvc-control flex h-10 w-auto shrink-0 items-center gap-2 rounded-md px-3 text-left text-sm sm:w-full ${
                 tab === item.id
                   ? "font-semibold text-[var(--ts-menu-selected-bg)]"
                   : "text-ink hover:text-[var(--ts-menu-selected-bg)]"
@@ -389,7 +409,8 @@ export function ChartSettingsModal(props: {
         */}
         <section
           role="tabpanel"
-          className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto pt-2"
+          className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start grid-cols-1 gap-x-5
+            overflow-y-auto pt-2 sm:[grid-template-columns:var(--ts-settings-cols)]"
           /*
             R6b-06: the Status tab's column is FIXED, not `max-content`.
 
@@ -401,8 +422,14 @@ export function ChartSettingsModal(props: {
             already — so the column is the reference's 123px and nothing moves
             it.
           */
+          /*
+            Carried as a custom property rather than written to
+            `gridTemplateColumns`, because an inline style cannot be undone by
+            a breakpoint and the phone layout needs one column. The measured
+            two-column grammar is unchanged wherever there is room for it.
+          */
           style={{
-            gridTemplateColumns: tab === "status"
+            ["--ts-settings-cols" as string]: tab === "status"
               ? "103px 1fr"
               : `minmax(${VALUE_COLUMN[tab]}px, max-content) 1fr`,
           }}
