@@ -94,11 +94,17 @@ test("a footprint chart whose tape reaches two bars still draws the other twenty
 
   // And it must say, in bars, how far the cells reach. Silence here is what
   // made the blank pane read as a bug rather than as a boundary.
-  const chip = screen.getByText(/Footprint cells on \d+ of \d+ bars/);
+  const chip = screen.getByText(/Footprint cells on \d+ recent bars?/);
   assert.equal(chip.getAttribute("data-footprint-coverage"), "2",
     `the pane miscounted the bars the tape covers: ${JSON.stringify(chip.textContent)}`);
-  assert.match(chip.textContent ?? "", new RegExp(`of ${BARS} bars`),
-    "the count must be against the bars on screen");
+  /*
+   * Deliberately no denominator. It read "N of M bars" against the whole LOADED
+   * series — which on a real chart is "3 of 9999", true and useless to someone
+   * looking at a hundred bars, whose question is which of THOSE have order
+   * flow. A number that invites the wrong comparison is worse than none.
+   */
+  assert.doesNotMatch(chip.textContent ?? "", new RegExp(`of ${BARS}\\b`));
+  assert.doesNotMatch(chip.textContent ?? "", /of \d+ bars/);
 
   // The disclosure must name what the other bars ARE, so a reader cannot take
   // a drawn bar as evidence of order flow.
@@ -114,6 +120,6 @@ test("full tape coverage says nothing, because there is nothing to disclose", as
   const chart = await mountChart();
   await chooseVolumeFootprint(chart.container);
 
-  assertAbsent(screen.queryByText(/Footprint cells on \d+ of \d+ bars/),
+  assertAbsent(screen.queryByText(/Footprint cells on \d+ recent bars?/),
     "a chip that appears when every bar has cells stops carrying information");
 });

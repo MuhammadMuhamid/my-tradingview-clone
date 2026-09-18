@@ -4023,7 +4023,16 @@ export function CandleChart({
           title={FOOTPRINT_COVERAGE_HINT}
           className="rounded-sm border border-border/70 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-ink-muted"
         >
-          Footprint cells on {footprintCoverage.withTape} of {footprintCoverage.total} bars
+          {/*
+            No denominator. It used to read "3 of 9999 bars", counting the whole
+            LOADED series — true, and useless to someone looking at a hundred
+            bars on screen, whose question is which of THOSE have order flow.
+            The tape is a recent contiguous window, so the count plus "recent"
+            is the whole answer, and a number that invites the wrong comparison
+            is worse than no number.
+          */}
+          Footprint cells on {footprintCoverage.withTape} recent{" "}
+          {footprintCoverage.withTape === 1 ? "bar" : "bars"}
           <span className="sr-only"> — {FOOTPRINT_COVERAGE_HINT}</span>
         </div>
       )}

@@ -107,3 +107,44 @@ test("a run that produced nothing is never reported as a clean compile", async (
     `the console printed a transport string as page copy: ${JSON.stringify(panel.textContent)}`,
   );
 });
+
+test("EVERY run path reduces, not just the editor's button", async () => {
+  /*
+   * There are two. `PineEditor.run` is the button; `runIndicator` in
+   * `lib/indicators.ts` is the path that keeps an APPLIED study live on every
+   * chart context change — and it is the more consequential of the two,
+   * because a Pine indicator on the chart re-runs constantly.
+   *
+   * Only the first was reduced, so `Add to chart` succeeded and then every
+   * re-run 400'd and the study rendered nothing. Live acceptance caught it:
+   * one request carried `BTCUSDT` and the next carried
+   * `instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot`.
+   *
+   * Asserted by ENUMERATION rather than by naming the two known callers: a
+   * third run path added later is exactly how this returns.
+   */
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const root = process.cwd();
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "node_modules" || entry === ".next" || entry === "tests") continue;
+      const full = `${dir}/${entry}`;
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry)) files.push(full);
+    }
+  };
+  for (const dir of ["app", "components", "lib"]) walk(`${root}/${dir}`);
+
+  const offenders: string[] = [];
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    if (!/api\.runPine\(/.test(source)) continue;
+    if (file.endsWith("lib/api.ts")) continue; // the definition
+    // A caller must reduce at the boundary before it can send.
+    if (!/legacyBinanceSpotTicker/.test(source)) offenders.push(file.slice(root.length + 1));
+  }
+  assert.deepEqual(offenders, [],
+    "these call `/api/pine/run` without reducing the canonical id to the ticker "
+    + "the route's contract requires, so every run answers 400 invalid symbol");
+});

@@ -17,6 +17,7 @@ import {
 } from "@/lib/chartSeries";
 import type { Trade } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
+import { legacyBinanceSpotTicker } from "@/lib/instrument";
 
 export type PineParams = Record<string, number | string | boolean>;
 
@@ -334,10 +335,30 @@ export async function runIndicator(
   ind: AppliedIndicator,
   ctx: { symbol: string; timeframe: Resolution; startTime: string; endTime: string }
 ): Promise<AppliedIndicator> {
+  /*
+   * `/api/pine/run` is a TICKER contract; `ctx.symbol` is the pane's CANONICAL
+   * id. The editor's own run path was reduced at this boundary and this one —
+   * the path that keeps an APPLIED study live on every chart context change —
+   * was not, so a Pine indicator added to the chart 400'd on every re-run and
+   * rendered nothing. Live acceptance caught it: `Add to chart` succeeded and a
+   * second request went out carrying `instrument:v1:…`.
+   *
+   * Refused with a reason rather than sent to fail when the instrument is not
+   * in the engine's store, which is the same answer the editor gives.
+   */
+  const runSymbol = legacyBinanceSpotTicker(ctx.symbol);
+  if (runSymbol === null) {
+    return {
+      ...ind,
+      loading: false,
+      error: "The Pine engine reads the Binance Spot candle store; this instrument is not in it.",
+      overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],
+    };
+  }
   try {
     const r = await api.runPine({
       source: ind.source,
-      symbol: ctx.symbol,
+      symbol: runSymbol,
       timeframe: ctx.timeframe,
       ...pineRunRange(ctx),
       params: ind.params,
