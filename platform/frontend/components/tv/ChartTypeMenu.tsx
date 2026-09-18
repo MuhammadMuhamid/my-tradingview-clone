@@ -457,7 +457,7 @@ export function ChartTypeMenu({
         <button
           role="menuitemradio"
           aria-checked={selected}
-          title={describe(t)}
+          data-tooltip={describe(t)}
           aria-label={t.group === "transform"
             ? `${t.label} — a synthetic display transform`
             : t.label}
@@ -484,7 +484,7 @@ export function ChartTypeMenu({
         <button
           onClick={() => toggleFavourite(t.value)}
           aria-pressed={starred}
-          title={starred
+          data-tooltip={starred
             ? `Take ${t.label} off the toolbar`
             : full
               ? `The toolbar holds ${MAX_FAVOURITES} styles — unstar one to add ${t.label}`
@@ -529,7 +529,7 @@ export function ChartTypeMenu({
               key={t.value}
               role="radio"
               aria-checked={selected}
-              title={describe(t)}
+              data-tooltip={describe(t)}
               aria-label={t.group === "transform"
                 ? `${t.label} — a synthetic display transform`
                 : t.label}
@@ -557,7 +557,7 @@ export function ChartTypeMenu({
         <button
           ref={buttonRef}
           onClick={() => setOpen(!open)}
-          title={synthetic
+          data-tooltip={synthetic
             ? `Chart style — ${active.label}. ${SYNTHETIC_DISCLOSURE_HINT}`
             : `Chart style — ${active.label}`}
           aria-label="Chart style"

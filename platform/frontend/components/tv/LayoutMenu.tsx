@@ -275,7 +275,7 @@ export function LayoutMenu({
       <button
         onClick={() => { if (dirty && current) onSaveNow(); }}
         className={`${TOOL_BUTTON} min-w-0`}
-        title={`${current?.name ?? "Unnamed layout"} — ${status.label}. ${status.help}`}
+        data-tooltip={`${current?.name ?? "Unnamed layout"} — ${status.label}. ${status.help}`}
         aria-label={`Saved layout — ${current?.name ?? "Unnamed"}, ${status.label}`}
       >
         {/* R1c-19: the 18.9px line box the interval chips use. `text-sm`'s own
@@ -333,7 +333,7 @@ export function LayoutMenu({
           aria-expanded={open}
           aria-haspopup="menu"
           aria-label="Manage layouts"
-          title="Manage layouts"
+          data-tooltip="Manage layouts"
           className={TOOL_CARET_BUTTON}
         >
           {/* the shared 8×4 ink caret — the interval and style controls' own */}
@@ -485,7 +485,7 @@ export function LayoutMenu({
                             onDelete(l.id);
                           }}
                           className="mr-1.5 hidden rounded p-1 text-ink-faint hover:text-down focus-visible:block group-hover:block"
-                          title={`Delete “${l.name}”`}
+                          data-tooltip={`Delete “${l.name}”`}
                           aria-label={`Delete the layout “${l.name}”`}
                         >
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">

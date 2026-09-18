@@ -190,7 +190,7 @@ function PickerRow({
           where a workstation puts an explanation it does not want in the way,
           and `tests/dom/intervals.test.tsx` asserts it is still reachable.
         */
-        title={explainResolution(resolution)}
+        data-tooltip={explainResolution(resolution)}
         aria-label={`${describeResolution(resolution)} — ${explainResolution(resolution)}`}
         onClick={() => onPick(resolution)}
         className="flex min-w-0 flex-1 items-center text-left text-[13px]"
@@ -200,7 +200,7 @@ function PickerRow({
       {onRemove && (
         <button
           onClick={() => onRemove(resolution)}
-          title={`Remove the custom ${resolution} resolution`}
+          data-tooltip={`Remove the custom ${resolution} resolution`}
           aria-label={`Remove the custom ${resolution} resolution`}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
         >
@@ -212,7 +212,7 @@ function PickerRow({
       <button
         onClick={() => onToggleFavourite(resolution)}
         aria-pressed={favourite}
-        title={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
+        data-tooltip={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         /*
          * The star INHERITS the row's colour, always.
@@ -585,7 +585,7 @@ export function LegendTimeframe(props: LegendTimeframeProps) {
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        title={`${explainResolution(props.interval)} — change this pane's timeframe`}
+        data-tooltip={`${explainResolution(props.interval)} — change this pane's timeframe`}
         aria-label={`Timeframe for this pane — currently ${props.interval}`}
         className="flex h-5 items-center gap-0.5 rounded px-1 text-[11px] font-semibold text-ink hover:bg-state-hover/80"
       >
@@ -635,7 +635,7 @@ function StripChip(props: {
       data-resolution={props.resolution}
       onClick={() => props.onPick(props.resolution)}
       aria-pressed={props.armed}
-      title={describeResolution(props.resolution)}
+      data-tooltip={describeResolution(props.resolution)}
       aria-label={describeResolution(props.resolution)}
       /*
         R1b-01 / BLIND clue 10: full ink at REST and REGULAR weight at 13px.
@@ -769,7 +769,7 @@ export function TimeframePicker(props: TimeframePickerProps) {
           onClick={() => setOpen(!open)}
           aria-expanded={open}
           aria-haspopup="menu"
-          title="All timeframes"
+          data-tooltip="All timeframes"
           /*
            * No `aria-pressed`. It used to be set when this button was standing
            * in for the armed chip, so the control announced itself as a toggle

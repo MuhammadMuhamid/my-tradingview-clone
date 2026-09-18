@@ -73,6 +73,7 @@ import {
   timeAxisMenu,
 } from "@/lib/menuPayloads";
 import { useShortcuts } from "@/lib/useShortcuts";
+import { ChromeTooltip } from "@/components/ui";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
 import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
@@ -2376,6 +2377,12 @@ export default function TvWorkspace() {
 
   return (
     <div ref={fullscreen.ref} className="flex min-h-0 flex-1 flex-col bg-bg pb-[52px] md:pb-0 tv-workstation">
+      {/*
+        One tooltip for the whole workstation. Every chrome control names
+        itself with `data-tooltip` and this draws the chip, so the operating
+        system never draws one in the middle of the product.
+      */}
+      <ChromeTooltip />
       {/*
         ── row 1: the account cell and the toolbar, full width ──
 

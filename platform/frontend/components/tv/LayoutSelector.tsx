@@ -201,7 +201,7 @@ export function LayoutSelector({
         }}
         aria-pressed={isBrowsing}
         aria-label={`${n} chart${n === 1 ? "" : "s"}${isCurrent ? " — current layout" : ""}`}
-        title={defaultPresetFor(n).label}
+        data-tooltip={defaultPresetFor(n).label}
         className={`tabular flex h-7 shrink-0 items-center justify-center gap-1.5 rounded px-1.5 text-[12px] ${
           withThumbnail ? "min-w-[46px]" : "min-w-[28px]"
         } tvc-control ${
@@ -223,7 +223,7 @@ export function LayoutSelector({
       <button
         ref={buttonRef}
         onClick={() => setOpen(!open)}
-        title="Chart layout"
+        data-tooltip="Chart layout"
         aria-label={`Chart layout — ${current.label}`}
         aria-expanded={open}
         aria-haspopup="menu"

@@ -301,7 +301,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "watchlist" ? null : "watchlist"))}
         className={railBtn(props.panel === "watchlist")}
-        title="Watchlist"
+        data-tooltip="Watchlist"
         aria-label="Watchlist"
         aria-pressed={props.panel === "watchlist"}
       >
@@ -320,7 +320,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "alerts" ? null : "alerts"))}
         disabled={props.replayBlocksLiveActions}
         className={railBtn(props.panel === "alerts")}
-        title={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations — running strategies and their order log"}
+        data-tooltip={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations — running strategies and their order log"}
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to manage live automation" : "Automations"}
         aria-pressed={props.panel === "alerts"}
       >
@@ -341,7 +341,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "objects" ? null : "objects"))}
         className={railBtn(props.panel === "objects")}
-        title="Object tree and Data window"
+        data-tooltip="Object tree and Data window"
         aria-label="Object tree and Data window"
         aria-pressed={props.panel === "objects"}
       >
@@ -359,7 +359,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "indicators" ? null : "indicators"))}
         className={railBtn(props.panel === "indicators")}
-        title="Indicators"
+        data-tooltip="Indicators"
         aria-label="Indicators"
         aria-pressed={props.panel === "indicators"}
       >
@@ -371,7 +371,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "ma" ? null : "ma"))}
         className={railBtn(props.panel === "ma")}
-        title="Moving averages and the alerts armed on them"
+        data-tooltip="Moving averages and the alerts armed on them"
         aria-label="Moving averages"
         aria-pressed={props.panel === "ma"}
       >
@@ -383,7 +383,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "correlation" ? null : "correlation"))}
         className={railBtn(props.panel === "correlation")}
-        title="Correlation — how the watchlist's instruments move together"
+        data-tooltip="Correlation — how the watchlist's instruments move together"
         aria-label="Correlation"
         aria-pressed={props.panel === "correlation"}
       >
@@ -396,7 +396,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
         disabled={props.replayBlocksLiveActions}
         className={railBtn(props.panel === "manual")}
-        title={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+        data-tooltip={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
         aria-label={props.replayBlocksLiveActions ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
         aria-pressed={props.panel === "manual"}
       >
@@ -419,7 +419,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
         <button
           onClick={() => setShortcutsOpen(true)}
           className={railBtn(false)}
-          title="Keyboard shortcuts"
+          data-tooltip="Keyboard shortcuts"
           aria-label="Keyboard shortcuts"
         >
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1">
@@ -476,7 +476,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           key={id}
           onClick={onClick}
           disabled={props.replayBlocksLiveActions && id === "alerts"}
-          title={props.replayBlocksLiveActions && id === "alerts" ? "Exit Replay to manage live automation" : undefined}
+          data-tooltip={props.replayBlocksLiveActions && id === "alerts" ? "Exit Replay to manage live automation" : undefined}
           aria-label={label}
           aria-pressed={isActive}
           className={`relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] ${

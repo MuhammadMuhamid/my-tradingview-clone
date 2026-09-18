@@ -291,7 +291,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
 
       {/* The reference's order: quick search, settings, fullscreen, snapshot. */}
       <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
-        title="Search tool or function"
+        data-tooltip="Search tool or function"
         aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
         {/*
           R1b-03: a plain magnifier was the blind reviewer's first clue. The
@@ -313,7 +313,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
       </button>
 
       <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
-        title="Chart settings — symbol, status, scales, canvas, trading and events"
+        data-tooltip="Chart settings — symbol, status, scales, canvas, trading and events"
         aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
         {/*
           R1b-03: ours was a narrow POINTY-TOP hexagon at 16×18; the
@@ -336,7 +336,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
           {...ctl("fullscreen")}
           onClick={props.onToggleFullscreen}
           aria-pressed={props.fullscreen}
-          title={props.fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen the chart workspace"}
+          data-tooltip={props.fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen the chart workspace"}
           aria-label={props.fullscreen ? "Exit fullscreen" : "Fullscreen"}
           className={TOOL_ICON_BUTTON}
         >
@@ -427,7 +427,7 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Chart image"
+        data-tooltip="Chart image"
         aria-label="Chart image" className={TOOL_ICON_BUTTON}>
         {/*
           R1b-03: 21×17, not 18×14 — the reference's camera nearly fills its
@@ -499,7 +499,7 @@ function CompareButton(props: ChartToolbarProps & { className: string }) {
     <button
       {...ctl("compare")}
       onClick={props.onOpenCompare}
-      title="Compare this chart with another instrument"
+      data-tooltip="Compare this chart with another instrument"
       aria-label="Compare with another instrument"
       className={`${TOOL_ICON_BUTTON} ${props.className}`}
     >
@@ -578,7 +578,7 @@ function FavoriteIndicatorsMenu({ onAdd }: { onAdd: (id: string) => void }) {
   return (
     <div ref={boxRef} className="relative flex h-[38px] w-6 shrink-0 items-center">
       <button type="button" aria-label="Favorite indicators" aria-haspopup="menu"
-        aria-expanded={open} title="Favorite indicators"
+        aria-expanded={open} data-tooltip="Favorite indicators"
         onClick={() => setOpen(!open)}
         className="tvc-control flex h-[38px] w-6 items-center justify-center text-ink">
         <svg width="8" height="6" viewBox="0 0 8 6" fill="none" stroke="currentColor"
@@ -619,7 +619,7 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
       <button
         {...ctl("indicators")}
         onClick={props.onOpenIndicators}
-        title="Indicators, metrics, and strategies"
+        data-tooltip="Indicators, metrics, and strategies"
         aria-label={props.indicatorCount > 0
           ? `Indicators — ${props.indicatorCount} on the focused chart`
           : "Indicators"}
@@ -662,7 +662,7 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
       <button
         {...ctl("alert")}
         onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
-        title={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
+        data-tooltip={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
         aria-label="Create alert"
         className={TOOL_LABELLED_BUTTON}
       >
@@ -692,7 +692,7 @@ function ContextActions(props: ChartToolbarProps & { className: string }) {
         onClick={props.onToggleReplayPicker}
         aria-pressed={replayActive || props.replayPickerOpen}
         aria-label="Bar replay"
-        title={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
+        data-tooltip={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
         className={TOOL_LABELLED_BUTTON}
       >
         {/*
@@ -737,7 +737,7 @@ function TradeButton(props: ChartToolbarProps & { className: string }) {
     <button
       {...ctl("trade")}
       onClick={props.onOpenManual} disabled={props.replayBlocksLiveActions}
-      title={props.replayActive ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
+      data-tooltip={props.replayActive ? "Exit Replay to trade" : "Paper / demo / testnet order ticket"}
       aria-label="Trade"
       className={`${TOOL_PILL_OUTLINE} ${props.className}`}
     >
@@ -802,7 +802,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
         <button
           {...ctl("symbol")}
           onClick={props.onOpenSearch}
-          title={`${symbolLabel} — change symbol (/)`}
+          data-tooltip={`${symbolLabel} — change symbol (/)`}
           aria-label={`Change symbol — currently ${symbolLabel}`}
           /*
             ── R1c-04: the ticker is SEMIBOLD, and the pixels say so ─────────
@@ -876,7 +876,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onUndo}
             disabled={!props.canUndo}
             aria-label="Undo"
-            title="Undo last drawing change"
+            data-tooltip="Undo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
             {/*
@@ -892,7 +892,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             onClick={props.onRedo}
             disabled={!props.canRedo}
             aria-label="Redo"
-            title="Redo last drawing change"
+            data-tooltip="Redo last drawing change"
             className={TOOL_ICON_BUTTON}
           >
             {/* The same box, mirrored about the cell's centre. */}
@@ -918,7 +918,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             aria-expanded={moreOpen}
             aria-controls="chart-toolbar-more"
             aria-label={moreOpen ? "Fewer controls" : "More controls"}
-            title={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
+            data-tooltip={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
             className={TOOL_ICON_BUTTON}
           >
             <Glyph stroke={2.6}><path d="M6.5 14h.01M14 14h.01M21.5 14h.01" /></Glyph>
@@ -964,7 +964,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <Separator className={density.separatorInMore} />
 
           <div {...ctl("history")} role="group" aria-label="History depth"
-            title={loaded !== undefined
+            data-tooltip={loaded !== undefined
               ? `${loaded.toLocaleString()} bars loaded on the focused chart`
               : undefined}
             className="flex items-center gap-0.5">
@@ -973,7 +973,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
             </span>
             {HISTORY_OPTIONS.map((h) => (
               <button key={h.label} onClick={() => props.onBars(h.bars)}
-                title={`Show up to ${h.bars.toLocaleString()} bars`}
+                data-tooltip={`Show up to ${h.bars.toLocaleString()} bars`}
                 aria-pressed={props.bars === h.bars}
                 className={`tvc-control flex h-[38px] items-center px-2 text-[13px] ${
                   props.bars === h.bars ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
@@ -995,7 +995,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <button
             {...ctl("automate")}
             onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
-            title={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
+            data-tooltip={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
             className={TOOL_BUTTON}>
             <Glyph size={18}><path d="M15.2 2.3L4.7 16.3h8.2l-1.2 9.3 10.5-14h-8.2z" /></Glyph>
             Automate
@@ -1004,7 +1004,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <button
             {...ctl("strategy")}
             onClick={props.onOpenStrategy}
-            title="Strategy properties for the tester"
+            data-tooltip="Strategy properties for the tester"
             className={TOOL_BUTTON}>
             <Glyph size={18}><path d="M3.5 14h4.7l2.3-8.2 4.7 16.3 2.3-8.2h7" /></Glyph>
             Strategy
@@ -1013,7 +1013,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <button
             {...ctl("best")}
             onClick={props.onApplyBest} disabled={props.loadingBest || replayActive}
-            title={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
+            data-tooltip={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
             /*
               A toolbar control, not a call to action: 38px, transparent, the
               inset chip — `warn` is reserved for a state whose outcome is not

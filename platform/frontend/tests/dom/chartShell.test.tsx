@@ -43,7 +43,7 @@ function loadedBarsNote(chart: { container: HTMLElement }): string {
   const more = chart.container.querySelector<HTMLElement>('button[aria-label="More controls"]');
   if (more) fireEvent.click(more);
   const group = chart.container.querySelector<HTMLElement>('[role="group"][aria-label="History depth"]');
-  const note = group?.getAttribute("title") ?? "";
+  const note = group?.getAttribute("data-tooltip") ?? "";
   const again = chart.container.querySelector<HTMLElement>('button[aria-label="Fewer controls"]');
   if (again) fireEvent.click(again);
   return note;

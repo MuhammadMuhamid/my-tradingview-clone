@@ -284,7 +284,8 @@ test("the interval trigger is a caret, not a word", () => {
   assert.match(picker, /className=\{TOOL_CARET_BUTTON\}/,
     "the trigger must use the bar's shared 24px caret chrome");
   assert.match(picker, /aria-label="Chart interval — all timeframes"/);
-  assert.match(picker, /title="All timeframes"/);
+  // The chrome draws its own tooltip chip now; the OS never draws one.
+  assert.match(picker, /data-tooltip="All timeframes"/);
   assert.doesNotMatch(picker, /menuLabel/,
     "the trigger no longer prints a label, so it no longer computes one");
   // `role="group" aria-label="Timeframe"` names the GROUP for assistive tech

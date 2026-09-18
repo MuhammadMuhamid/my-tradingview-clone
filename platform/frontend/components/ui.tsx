@@ -1015,3 +1015,87 @@ export function NumberField({
     </span>
   );
 }
+
+/**
+ * The workstation's own tooltip.
+ *
+ * ── Why this exists ───────────────────────────────────────────────────────
+ *
+ * Measured across the chrome: 38 of 65 buttons carried a native `title` and 27
+ * carried nothing, so hovering a control either produced the OPERATING
+ * SYSTEM's bubble — its font, its delay, its corner, its shadow — or produced
+ * silence. The reference draws its own chip on every control and sets
+ * `title=null`, and an OS bubble in the middle of a workstation is an instant
+ * "this is a web page". Several of the `title` strings here are word-for-word
+ * the reference's tooltip copy, so the intent was always to match; only the
+ * mechanism was wrong.
+ *
+ * ── Why one listener rather than a chip per control ───────────────────────
+ *
+ * The drawing rail already draws a correct chip, as a sibling span revealed by
+ * `peer-hover`. That works there because a rail cell is a fixed 52px box with
+ * room beside it. A toolbar button is 38px in a `flex-nowrap` row, and 38
+ * copies of an absolutely-positioned span inside it is 38 chances to clip one
+ * against a scroll container. This renders ONE element at the document level
+ * and moves it, which also means a control opts in by naming itself
+ * (`data-tooltip`) rather than by being wrapped.
+ *
+ * Geometry is the reference's, measured 2026-09-18: 24px tall, 13px text,
+ * `--ts-tooltip-bg`, radius 2, padding 3px 8px, 4px below the control.
+ */
+export function ChromeTooltip() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const clear = () => {
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    };
+    const hide = () => { clear(); setTip(null); };
+
+    const over = (event: PointerEvent) => {
+      const target = (event.target as Element | null)?.closest?.("[data-tooltip]");
+      if (!(target instanceof HTMLElement)) { hide(); return; }
+      const text = target.getAttribute("data-tooltip");
+      if (!text) { hide(); return; }
+      // A disabled control still explains itself — that is usually when the
+      // reader most wants to know what it is.
+      clear();
+      timer.current = setTimeout(() => {
+        const box = target.getBoundingClientRect();
+        setTip({ text, x: Math.round(box.left + box.width / 2), y: Math.round(box.bottom + 4) });
+      }, 260);
+    };
+
+    document.addEventListener("pointerover", over, true);
+    document.addEventListener("pointerdown", hide, true);
+    // A control that scrolls or unmounts under the pointer must not leave its
+    // chip behind.
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+    return () => {
+      clear();
+      document.removeEventListener("pointerover", over, true);
+      document.removeEventListener("pointerdown", hide, true);
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("blur", hide);
+    };
+  }, []);
+
+  if (!tip) return null;
+  return (
+    <div
+      role="tooltip"
+      data-chrome-tooltip="true"
+      style={{
+        position: "fixed", left: tip.x, top: tip.y,
+        transform: "translateX(-50%)",
+        backgroundColor: "var(--ts-tooltip-bg)",
+      }}
+      className="pointer-events-none z-[200] flex h-[24px] max-w-[320px] items-center
+        overflow-hidden whitespace-nowrap rounded-[2px] px-2 text-[13px] leading-none text-white"
+    >
+      {tip.text}
+    </div>
+  );
+}

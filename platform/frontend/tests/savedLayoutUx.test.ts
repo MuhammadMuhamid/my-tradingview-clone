@@ -68,7 +68,9 @@ test("the unsaved state is a sentence somewhere, and never a bare dot", () => {
    */
   const trigger = triggerOf(source);
   assert.match(trigger, /aria-label=\{`Saved layout — [^`]*\$\{status\.label\}`\}/);
-  assert.match(trigger, /title=\{`[^`]*\$\{status\.label\}\. \$\{status\.help\}`\}/,
+  // `data-tooltip`, because the workstation draws its own chip rather than
+  // asking the operating system to draw one. The copy is unchanged.
+  assert.match(trigger, /data-tooltip=\{`[^`]*\$\{status\.label\}\. \$\{status\.help\}`\}/,
     "the word AND the sentence behind it are the tooltip");
   // ...and nowhere in the markup is it a child, i.e. visible text.
   assert.doesNotMatch(trigger, />\s*\{status\.label\}|\{status\.label\}\s*</,

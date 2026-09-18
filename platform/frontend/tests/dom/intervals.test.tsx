@@ -31,7 +31,7 @@ async function openPicker(container: HTMLElement): Promise<HTMLElement> {
   // by its accessible name — `Chart interval — all timeframes` — and never by
   // what it prints.
   const button = container.querySelector<HTMLElement>('button[aria-label^="Chart interval"]')
-    ?? container.querySelector<HTMLElement>('button[title="All timeframes"]');
+    ?? container.querySelector<HTMLElement>('button[data-tooltip="All timeframes"]');
   assert.ok(button, "the toolbar has no timeframe picker");
   fireEvent.click(button);
   await settle();
@@ -98,7 +98,7 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
     ["1m", "5m", "15m", "1h", "4h", "1d"],
     "the chip's label is presentation; its resolution id is not");
   const spoken = [...strip.querySelectorAll<HTMLElement>("button[data-resolution]")]
-    .map((button) => [button.getAttribute("title"), button.getAttribute("aria-label")]);
+    .map((button) => [button.getAttribute("data-tooltip"), button.getAttribute("aria-label")]);
   assert.deepEqual(spoken, [
     ["1 minute", "1 minute"], ["5 minutes", "5 minutes"], ["15 minutes", "15 minutes"],
     ["1 hour", "1 hour"], ["4 hours", "4 hours"], ["1 day", "1 day"],
@@ -110,7 +110,7 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
   assert.ok(trigger, "the group has no way into the catalogue");
   assert.equal((trigger.textContent ?? "").trim(), "",
     "the interval trigger must print no label at any width");
-  assert.equal(trigger.getAttribute("title"), "All timeframes");
+  assert.equal(trigger.getAttribute("data-tooltip"), "All timeframes");
   assert.equal(trigger.getAttribute("aria-pressed"), null,
     "a menu button is not a toggle");
 
@@ -146,7 +146,7 @@ test("a derived row says what it is made of, on the row", async () => {
   const derived = menuRow(menu, "45m");
   assert.match(derived.textContent ?? "", /45 minutes/,
     "the row names the interval in full words, as the reference's does");
-  assert.match(derived.getAttribute("title") ?? "", /3 whole 15m/,
+  assert.match(derived.getAttribute("data-tooltip") ?? "", /3 whole 15m/,
     "a person choosing 45m is entitled to see that it is three real 15m bars");
   assert.match(derived.getAttribute("aria-label") ?? "", /45 minutes/);
   assert.match(derived.getAttribute("aria-label") ?? "", /3 whole 15m bars, aggregated/);

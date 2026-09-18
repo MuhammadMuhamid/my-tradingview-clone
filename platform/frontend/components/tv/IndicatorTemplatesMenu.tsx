@@ -216,7 +216,7 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        title="Indicator templates"
+        data-tooltip="Indicator templates"
         aria-label={templates.length > 0
           ? `Indicator templates — ${templates.length} saved`
           : "Indicator templates"}
@@ -249,7 +249,7 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
             role="menuitem"
             onClick={() => void save()}
             disabled={onChart === 0}
-            title={onChart === 0
+            data-tooltip={onChart === 0
               ? "Put at least one study on the chart first"
               : `Save the ${onChart} stud${onChart === 1 ? "y" : "ies"} on this chart as a template`}
             className="tvc-menu-row w-full px-3 text-left text-[13px] text-ink disabled:opacity-40"
@@ -298,7 +298,7 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
                     key={t.name}
                     role="menuitem"
                     onClick={() => { setOpen(false); void apply(t); }}
-                    title={`Apply the ${t.name} set — ${t.studies.length} built-in studies`}
+                    data-tooltip={`Apply the ${t.name} set — ${t.studies.length} built-in studies`}
                     className="tvc-menu-row w-full px-3 text-left text-[13px] text-ink"
                   >
                     {t.name}
@@ -319,7 +319,7 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
               <button
                 role="menuitem"
                 onClick={() => { setOpen(false); void apply(t); }}
-                title={`Apply “${t.name}” — this chart's studies become the `
+                data-tooltip={`Apply “${t.name}” — this chart's studies become the `
                   + `${t.indicators.length + t.studies.length} in this template`}
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
               >
@@ -328,7 +328,7 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
               <button
                 onClick={(e) => { e.stopPropagation(); void remove(t); }}
                 aria-label={`Delete the template ${t.name}`}
-                title="Delete this template"
+                data-tooltip="Delete this template"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint
                   opacity-0 transition-opacity focus-visible:opacity-100 hover:text-down
                   group-hover/row:opacity-100"
