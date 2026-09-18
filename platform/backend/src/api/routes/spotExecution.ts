@@ -85,7 +85,7 @@ export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
     if (!config.spotExecutionEnabled) throw new ManualBotError("paper/testnet spot execution is disabled", 404);
     const body = record(req.body); const deploymentId = text(body, "deploymentId"); const dedupeKey = text(body, "dedupeKey");
     if (!UUID.test(deploymentId)) throw new ManualBotError("deploymentId must be a UUID", 400);
-    if (!/^[A-Za-z0-9:_-]{16,160}$/.test(dedupeKey)) throw new ManualBotError("dedupeKey must be a durable bounded identity", 400);
+    if (!/^[A-Za-z0-9:_-]{15,160}$/.test(dedupeKey)) throw new ManualBotError("dedupeKey must be a durable bounded identity", 400);
     const barTime = Number(body.barTime); if (!Number.isSafeInteger(barTime) || barTime <= 0) throw new ManualBotError("barTime must be a positive integer", 400);
     const venue = text(body, "venue"); if (!(VENUES as readonly string[]).includes(venue)) throw new ManualBotError("unsupported spot venue", 422);
     const environment = text(body, "environment"); if (!(ENVIRONMENTS as readonly string[]).includes(environment)) throw new ManualBotError("unsupported execution environment", 422);

@@ -73,7 +73,7 @@ export async function traditionalExecutionRoutes(app: FastifyInstance, dependenc
     if (!config.traditionalPaperExecutionEnabled) throw new ManualBotError("traditional paper/practice execution is disabled", 404);
     const body = bodyRecord(req.body); const deploymentId = text(body, "deploymentId");
     const dedupeKey = text(body, "dedupeKey"); const barTime = Number(body.barTime);
-    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{16,160}$/.test(dedupeKey) || !Number.isSafeInteger(barTime) || barTime <= 0) {
+    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{15,160}$/.test(dedupeKey) || !Number.isSafeInteger(barTime) || barTime <= 0) {
       throw new ManualBotError("durable deployment/dedupe/bar identity is invalid", 400);
     }
     const requested = text(body, "canonicalInstrumentId"); const canonicalId = normalizeCanonicalInstrumentId(requested);

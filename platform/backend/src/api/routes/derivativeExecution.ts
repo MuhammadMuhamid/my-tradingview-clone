@@ -122,7 +122,7 @@ export async function derivativeExecutionRoutes(app: FastifyInstance, dependenci
   app.post("/api/derivative-execution/v1/orders", async (req, reply) => send(reply, async () => {
     if (!config.derivativeExecutionEnabled) throw new ManualBotError("paper/testnet derivatives execution is disabled", 404);
     const body = record(req.body); const deploymentId = text(body, "deploymentId"); const dedupeKey = text(body, "dedupeKey");
-    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{16,160}$/.test(dedupeKey)) throw new ManualBotError("durable deployment/dedupe identity is invalid", 400);
+    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{15,160}$/.test(dedupeKey)) throw new ManualBotError("durable deployment/dedupe identity is invalid", 400);
     const barTime = Number(body.barTime); if (!Number.isSafeInteger(barTime) || barTime <= 0) throw new ManualBotError("barTime must be a positive integer", 400);
     const parsed = parseCommand(body);
     const reducing = parsed.reduceOnly === true || parsed.closePosition === true;

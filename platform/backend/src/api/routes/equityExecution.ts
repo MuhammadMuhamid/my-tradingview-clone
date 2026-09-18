@@ -122,7 +122,7 @@ export async function equityExecutionRoutes(app: FastifyInstance, dependencies: 
     const deploymentId = text(body, "deploymentId");
     const dedupeKey = text(body, "dedupeKey");
     const barTime = Number(body.barTime);
-    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{16,160}$/.test(dedupeKey)) {
+    if (!UUID.test(deploymentId) || !/^[A-Za-z0-9:_-]{15,160}$/.test(dedupeKey)) {
       throw new ManualBotError("durable deployment/dedupe identity is invalid", 400);
     }
     if (!Number.isSafeInteger(barTime) || barTime <= 0) throw new ManualBotError("barTime must be a positive integer", 400);
