@@ -83,11 +83,9 @@ test("a quote tick does not delete a gate the user added", async () => {
   const view = render(dialog(100));
   await settle();
 
-  // Three steps, because the gates are off by default and say so twice: the
-  // dialog reveals the field, the field offers to start a list, the list adds
-  // a row.
-  fireEvent.click(screen.getByRole("button", { name: /Add condition/ }));
-  await settle();
+  // Two steps: the field offers to start a list, the list adds a row. There
+  // used to be a third, because this dialog wrapped the field in a second
+  // disclosure its three siblings do not have.
   fireEvent.click(screen.getByRole("button", { name: /Add a condition \(optional\)/ }));
   await settle();
   fireEvent.click(screen.getByRole("button", { name: "Add condition" }));

@@ -115,7 +115,6 @@ export function PriceAlertModal({
   const [cooldownMin, setCooldownMin] = useState(DEFAULT_COOLDOWN_MIN);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<FailureCopy | null>(null);
-  const [conditionOpen, setConditionOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -336,9 +335,19 @@ export function PriceAlertModal({
           </p>
         )}
 
-        <button type="button" aria-expanded={conditionOpen} onClick={() => setConditionOpen((v) => !v)}
-          className="flex h-8 items-center gap-1 text-[13px] text-ink-muted hover:text-ink">＋ Add condition</button>
-        {conditionOpen && <div className="pb-1"><AlertFiltersField value={filters} onChange={setFilters} /></div>}
+        {/*
+          One control, as the three sibling dialogs have.
+
+          This one wrapped the gate field in a SECOND disclosure, so the dialog
+          showed two stacked buttons 56px apart that both offered to add a
+          condition — and spelled the plus two different ways, the outer one as
+          a typed `＋` (U+FF0B), which the contract forbids in as many words.
+          `AlertFiltersField` already owns its own collapsed affordance and
+          opens itself when the alert being edited carries gates; the extra
+          layer added nothing but a second thing to press.
+        */}
+        <div className="my-1 border-t border-border" />
+        <AlertFiltersField value={filters} onChange={setFilters} />
 
         <ResolutionNotice notice={resolutionNotice} using={timeframe} />
         <Row label="Timeframe">
