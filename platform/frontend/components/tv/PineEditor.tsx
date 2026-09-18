@@ -81,6 +81,10 @@ export function PineEditor({
     setName(openScript.name);
     setSource(openScript.source);
     setParams(openParams ?? {});
+    // A fault belongs to the script that produced it. Carrying it across an
+    // open leaves "run failed" attributed to a script that was never run, and
+    // it outranks the compile summary — so a clean recompile stays masked.
+    setRunFault(null);
     setStatus(`Opened “${openScript.name}”`);
     onOpenScriptConsumed?.();
   }, [openScript, openParams, onOpenScriptConsumed]);

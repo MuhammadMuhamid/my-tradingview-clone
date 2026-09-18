@@ -32,7 +32,14 @@ function SegmentRow({ name, note, window, m }: {
         {m.totalTrades === 0 ? "—" : `${fmtNum(m.winRatePct, 1)}%`}
       </td>
       <td className="px-4 py-2 text-right">
-        {m.profitFactor === null ? "∞" : fmtNum(m.profitFactor)}
+        {/*
+          `profitFactor` is null both for "no losses" and for "no trades", and
+          the second is common here — the holdout is a fifth of every run. A
+          window that took nothing showed the same ∞ as a window that lost
+          nothing, which is the strongest possible claim about the weakest
+          possible evidence.
+        */}
+        {m.totalTrades === 0 ? "—" : m.profitFactor === null ? "∞" : fmtNum(m.profitFactor)}
       </td>
     </tr>
   );
@@ -74,9 +81,17 @@ export function RunWindows({ segments, execution, initialCapital }: {
     );
   }
 
-  const short = execution
+  /*
+   * Both ends, not just the start. A run whose data STOPS months before the
+   * requested end is just as narrow, and the segments and the holdout are
+   * computed over the truncated window either way — so it needs the same
+   * notice. Guarding only the start was arbitrary.
+   */
+  const DAY_MS = 86_400_000;
+  const short = execution !== null
     && execution.covered !== null
-    && execution.covered.startMs > execution.requested.startMs + 86_400_000;
+    && (execution.covered.startMs > execution.requested.startMs + DAY_MS
+      || execution.covered.endMs < execution.requested.endMs - DAY_MS);
 
   return (
     <Card>

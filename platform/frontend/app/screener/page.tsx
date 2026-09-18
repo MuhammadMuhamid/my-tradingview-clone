@@ -243,8 +243,10 @@ export default function ScannerPage() {
                 ? "no compatible compute snapshot installed"
                 : error ? "market identity unknown"
                   : !snapshot ? "market identity loading"
-                    : state.total > 0 && !state.resolvedAny
-                      ? "no instrument resolved against the exchange"
+                    : !state.resolvedAny
+                      ? state.total === 0
+                        ? "no instruments in this snapshot"
+                        : "no instrument resolved against the exchange"
                       : snapshot.market.spot ? "API provenance verified"
                         : "market identity unknown"}
             </p>

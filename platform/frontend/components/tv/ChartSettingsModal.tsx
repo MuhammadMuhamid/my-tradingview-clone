@@ -479,8 +479,17 @@ export function ChartSettingsModal(props: {
                       blank the reader has to interpret; what changes is whether
                       the size follows the instrument's price or stays put.
                     */}
+                    {/*
+                      `setMany`, not two `set` calls. `set` spreads the
+                      `settings` PROP captured this render, so two of them in
+                      one handler mean the second overwrites the first — the
+                      user turned auto off and kept the old size, silently. This
+                      is what `setMany` two lines below its definition exists
+                      for, and it is documented there as "two keys that describe
+                      one control, written together".
+                    */}
                     <NumberField value={settings.rangeTicks} min={1} max={10000} unit="ticks"
-                      onChange={(v) => { set("rangeTicks", v); set("rangeAuto", false); }}
+                      onChange={(v) => setMany({ rangeTicks: v, rangeAuto: false })}
                       label="Range size in ticks" />
                   </FieldRow>
                   <CheckRow label="Size from price" checked={settings.rangeAuto}

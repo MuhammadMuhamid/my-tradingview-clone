@@ -118,3 +118,26 @@ test("Range says its time-anchored layers are hidden rather than losing them", a
   assert.equal(screen.queryByText(/Time-anchored layers hidden/), null,
     "the layers must come back on a canonical chart type");
 });
+
+test("Range's synthetic ordering key never escapes to another pane", async () => {
+  /*
+   * `isSyntheticTimeBase` was introduced to replace the proxy
+   * `transform !== null && transform !== "heikinAshi"`, and three branches in
+   * `CandleChart` were left asking the proxy. Range applies no candle transform,
+   * so it took the CANONICAL branch in all three — publishing its ordering key
+   * to cross-pane crosshair sync, and drawing exchange volume at canonical times
+   * under a series drawn at synthetic ones.
+   *
+   * Asserted structurally: the predicate is the thing that must be asked, and a
+   * fourth branch added later asking the proxy is the way this regresses.
+   */
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    new URL("./components/CandleChart.tsx", `file://${process.cwd()}/`), "utf8");
+  const stripped = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(stripped, /transform !== null && transform !== "heikinAshi"/,
+    "a branch still decides synthetic-vs-canonical by transform; Range answers that wrongly");
+  // And the volume omission is keyed on the same predicate, so Range gets it.
+  assert.match(stripped, /if \(isSyntheticTimeBase\(kind\)\)/,
+    "the volume histogram must be omitted for every synthetic time base, Range included");
+});

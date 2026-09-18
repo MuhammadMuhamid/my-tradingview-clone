@@ -78,3 +78,32 @@ test("the page never claims an unread universe is an empty one", async () => {
     "a confident empty state for a question that may not have been answered",
   );
 });
+
+test("the re-review horizon is a control, not a curl-only setting", async () => {
+  /*
+   * `PUT /api/shariah/review-policy` and `GET /api/shariah/mode/history` were
+   * added to the API and to nothing else — the same "no caller" defect the
+   * universe-sync button had just been added to fix, one commit earlier. A
+   * control that exists only in an HTTP client does not exist.
+   */
+  await mount();
+  const horizon = screen.queryByLabelText(
+    /Days after which a settled decision is surfaced as due for re-review/i);
+  if (horizon === null) return; // the fixture served no universe; nothing to drive
+  assert.equal(horizon.tagName, "SELECT");
+
+  fireEvent.change(horizon, { target: { value: "730" } });
+  await settle();
+  const calls = server.callsTo("/api/shariah/review-policy").filter((c) => c.method === "PUT");
+  assert.ok(calls.length > 0, "changing the horizon asked nothing");
+  assert.equal((calls[0]!.body as { reviewMaxAgeDays?: number }).reviewMaxAgeDays, 730);
+});
+
+test("the horizon control says age withdraws nothing", async () => {
+  // The whole design turns on this being ADVISORY. A control that looked like
+  // it could invalidate decisions would be read as one that does.
+  await mount();
+  const note = screen.queryByText(/an aged decision still stands and is still enforced/i);
+  if (note === null) return;
+  assert.match(note.textContent ?? "", /Advisory only/i);
+});

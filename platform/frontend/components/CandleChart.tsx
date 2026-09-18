@@ -71,6 +71,24 @@ import { rangeBarsAsOhlc, rangeBarSize, footprintBarsAsOhlc, footprintCoveredTim
  */
 const FOOTPRINT_GHOST = "rgba(128,128,128,0.32)";
 
+/**
+ * Range's time axis is an ORDERING, and the dates on it are not market time.
+ *
+ * A range bar completes on a price crossing, so several can complete inside one
+ * second — and the series key must be a distinct integer second for each, which
+ * means the axis runs ahead of the clock whenever bars complete faster than one
+ * per second. On a dense tape that is hours, printed as real dates.
+ *
+ * `syntheticDisclosure` is deliberately null for Range and should stay null:
+ * that chip is about a synthetic PRICE, and every price on a range chart is a
+ * real traded price. This is a different claim about a different axis, so it
+ * gets its own sentence rather than overloading one that means something else.
+ */
+const RANGE_AXIS_HINT =
+  "A range bar completes on a price move, not on a clock, so the time axis orders the bars "
+  + "rather than dating them — several bars can complete in the same second, and the axis runs "
+  + "ahead of market time when they do. Each bar's real time is on the crosshair.";
+
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
@@ -1996,8 +2014,17 @@ export function CandleChart({
         setLegend(latestLegend());
         return;
       }
-      const transform = chartTransform(mainKindRef.current);
-      if (transform !== null && transform !== "heikinAshi") {
+      /*
+       * Keyed on the TYPE's time base, not on its transform.
+       *
+       * `transform !== null && transform !== "heikinAshi"` is what
+       * `isSyntheticTimeBase` was extracted to replace, and Range — which
+       * applies no candle transform but has a time base of its own — took the
+       * canonical branch here and published its synthetic ordering key to
+       * cross-pane crosshair sync. The comment above this block calls it "the
+       * one place a synthetic time could escape".
+       */
+      if (isSyntheticTimeBase(mainKindRef.current)) {
         const display = displayRef.current;
         const brickIndex = snapToBarIndexBy(
           display, raw, (bar) => Math.floor(bar.openTime / 1000));
@@ -2303,8 +2330,15 @@ export function CandleChart({
      * Renko is the one exception, and it is an omission rather than a
      * reinterpretation — a brick is not a time bar, so there is no honest
      * volume to put under it and none is drawn.
+     *
+     * Range is the same exception and was missing from it. Keyed on the
+     * transform, Range took the canonical branch and drew the exchange's
+     * volume at CANONICAL times under a series drawn at SYNTHETIC ones: the
+     * bars did not line up, and the shared time scale spanned the union of two
+     * unrelated ranges, which is the other half of the collapsed viewport F-1
+     * set out to fix. A range bar is not a time bar either.
      */
-    if (transform !== null && transform !== "heikinAshi") {
+    if (isSyntheticTimeBase(kind)) {
       if (volumeDrawnRef.current) {
         vol.setData([]);
         volumeDrawnRef.current = false;
@@ -3150,8 +3184,8 @@ export function CandleChart({
       chart.clearCrosshairPosition();
       return;
     }
-    const transform = chartTransform(chartType);
-    if (transform !== null && transform !== "heikinAshi") {
+    // Same rule, same reason as the publish above: the TYPE's time base.
+    if (isSyntheticTimeBase(chartType)) {
       /*
        * Synthetic columns/lines carry their source bar timestamp separately
        * from the strictly increasing display timestamp. Mapping through that
@@ -3176,7 +3210,8 @@ export function CandleChart({
     // Heikin Ashi keeps one bar per canonical timestamp, so the time is the
     // canonical one; the PRICE the crosshair is anchored at is the drawn bar's,
     // so the readout describes the body on screen rather than one that is not.
-    const drawn = transform === "heikinAshi" ? displayRef.current[found] : undefined;
+    const drawn = chartTransform(chartType) === "heikinAshi"
+      ? displayRef.current[found] : undefined;
     chart.setCrosshairPosition(
       drawn ? drawn.close : bar.close,
       Math.floor(bar.openTime / 1000) as UTCTimestamp,
@@ -3968,6 +4003,17 @@ export function CandleChart({
       {chartUnavailable && (
         <div role="status" className="rounded-sm border border-warn/40 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-warn">
           {chartUnavailable}
+        </div>
+      )}
+      {chartType === "range" && !chartUnavailable && (
+        <div
+          role="status"
+          data-range-axis-notice="ordering"
+          title={RANGE_AXIS_HINT}
+          className="rounded-sm border border-border/70 bg-surface/90 px-1.5 text-[11px] leading-[18px] text-ink-muted"
+        >
+          Time axis orders bars, not dates them
+          <span className="sr-only"> — {RANGE_AXIS_HINT}</span>
         </div>
       )}
       {footprintCoverage && (

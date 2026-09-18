@@ -276,6 +276,32 @@ function manualWindows(
         + `${new Date(window.endMs).toISOString()}. A window must name a period the `
         + "benchmark actually covers.");
     }
+    /*
+     * PARTIAL overlap is refused too, and it was not.
+     *
+     * Only a window lying wholly outside the benchmark raised; one that
+     * straddled an edge was silently clipped to whatever the benchmark had —
+     * so a request for five days across a year boundary came back as nine
+     * hours, reported as the window the user asked for, with its return,
+     * drawdown and volatility all computed over the wrong period. That is the
+     * same class of defect as clipping without saying so anywhere else in this
+     * product, and the docstring, the documentation and the test name all
+     * already claimed it was refused.
+     *
+     * A whole bar of slack at each end, because snapping to bar boundaries is
+     * expected and is not clipping.
+     */
+    const first = candles[i]!;
+    const last = candles[j]!;
+    const slack = last.closeTime - last.openTime + 1;
+    if (first.openTime > window.startMs + slack || last.closeTime < window.endMs - slack) {
+      throw new StressDiscoveryError(
+        `the benchmark covers only ${new Date(first.openTime).toISOString()} to `
+        + `${new Date(last.closeTime).toISOString()} of the window `
+        + `${new Date(window.startMs).toISOString()} .. ${new Date(window.endMs).toISOString()}. `
+        + "A partly covered window is refused rather than clipped: its statistics would "
+        + "describe a period you did not ask about.");
+    }
     const stats = describe(candles, i, j);
     return {
       rank: rank + 1,

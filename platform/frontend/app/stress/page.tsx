@@ -66,6 +66,25 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
         <tbody>
           {detail.results.map(({ window, backtest }) => {
             const m = backtest?.metrics ?? null;
+            /*
+             * A zero is ambiguous in the worst way here.
+             *
+             * "0 trades" over the market's worst stretch reads as "the strategy
+             * survived it". It equally means the configuration could never have
+             * taken a trade at all, or that the traded instrument did not exist
+             * for most of the window. Both are already on the wire —
+             * `explainNoEntries` was built for the first — and this page was
+             * showing none of it.
+             */
+            const truth = backtest?.executionTruth ?? null;
+            const covered = truth?.covered ?? null;
+            const short = covered !== null
+              && covered.startMs > window.startMs + 86_400_000;
+            const note = truth?.noEntryReason
+              ? "This configuration could not have taken a trade in any window."
+              : short
+                ? `Only ${new Date(covered.startMs).toISOString().slice(0, 10)} onward had data.`
+                : null;
             return (
               <tr key={window.backtestId} className="border-b border-border/50">
                 <td className="px-4 py-2 text-ink-muted">{window.rank}</td>
@@ -85,7 +104,14 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
                 <td className="px-4 py-2 text-right text-ink-muted">
                   {m ? `-${fmtNum(m.maxDrawdownPct)}%` : "—"}
                 </td>
-                <td className="px-4 py-2 text-right">{m ? m.totalTrades : "—"}</td>
+                <td className="px-4 py-2 text-right">
+                  {m ? m.totalTrades : "—"}
+                  {note && (
+                    <span className="ml-1 cursor-help text-warn" title={
+                      truth?.noEntryReason ?? note
+                    }>!</span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-right">
                   {m && m.totalTrades > 0 ? `${fmtNum(m.winRatePct, 1)}%` : "—"}
                 </td>
@@ -103,7 +129,23 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
           })}
         </tbody>
       </table>
+      {detail.results.some((r) => r.backtest?.executionTruth?.noEntryReason) && (
+        <div className="border-t border-border px-4 py-2 text-xs text-warn">
+          {detail.results.find((r) => r.backtest?.executionTruth?.noEntryReason)!
+            .backtest!.executionTruth!.noEntryReason}{" "}
+          Every window below therefore shows no trades for that reason, not because
+          the strategy weathered them.
+        </div>
+      )}
       <p className="px-4 py-3 text-xs text-ink-faint">
+        {/*
+          Said plainly: this page does not yet offer a parameter editor, so a
+          run uses the strategy's own defaults. Implying it ran the reader's
+          configuration would make every number on the table mean something it
+          does not.
+        */}
+        This run used the strategy&rsquo;s default parameters — this page has no
+        parameter editor yet, so it is not your saved configuration.{" "}
         Each window ran as an ordinary backtest — same engine, same costs, same warm-up,
         same no-lookahead rules — so these numbers are directly comparable with any other
         run on this install. The benchmark columns describe {detail.benchmarkSymbol} on the{" "}

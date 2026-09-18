@@ -112,9 +112,21 @@ export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
      * asserting it inspected two other routes by name. It is gated before the
      * intent is claimed, so a refused order consumes no dedupe identity.
      */
+    /*
+     * No `?? command.venueSymbol` fallback.
+     *
+     * `registrySymbolFor` answers null for a canonical id that is not spot, and
+     * the comment on it says null "refuses while enforcing, never an exemption".
+     * Falling back to the venue symbol broke exactly that: a perpetual's venue
+     * symbol reduces to a base asset, so a derivative would have been cleared on
+     * BTC's SPOT verdict — structurally the same defect the derivatives route
+     * was just repaired for.
+     *
+     * An empty string resolves to no registry identity, which `gate.ts` maps to
+     * REVIEW and refuses while enforcing. That is the intended fail-closed path.
+     */
     const shariah = await assertShariahExposureAllowed(
-      { symbol: registrySymbolFor(command.canonicalInstrumentId) ?? command.venueSymbol,
-        side: command.side },
+      { symbol: registrySymbolFor(command.canonicalInstrumentId) ?? "", side: command.side },
       shariahDeps,
     );
     const claim = await claimIntent({ deploymentId, dedupeKey, action: command.side === "BUY" ? "buy" : "sell", barTime });

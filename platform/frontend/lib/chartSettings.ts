@@ -836,9 +836,16 @@ export function normalizeChartSettings(raw: unknown): ChartSettings {
 
     rangeTicks: typeof value.rangeTicks === "number" && Number.isFinite(value.rangeTicks)
       && value.rangeTicks >= 1 ? Math.min(10000, Math.round(value.rangeTicks)) : 20,
-    // Absent means automatic: the stored 20 is the old default, and the old
-    // default is the thing being replaced.
-    rangeAuto: bool(value.rangeAuto, true),
+    /*
+     * Absent means automatic ONLY where the stored size is the old default.
+     *
+     * Twenty was the old default and is the thing being replaced, so a blob
+     * carrying it has expressed no preference and should follow price. A blob
+     * carrying anything else was set deliberately — and defaulting that to auto
+     * would silently discard a number the user chose, on upgrade, with no way
+     * to tell it had happened.
+     */
+    rangeAuto: bool(value.rangeAuto, value.rangeTicks === undefined || value.rangeTicks === 20),
 
     renkoAtrPeriod: Math.round(num(value.renkoAtrPeriod, 14, 2, 200)),
     lineBreakLines: Math.round(num(value.lineBreakLines, 3, 2, 10)),

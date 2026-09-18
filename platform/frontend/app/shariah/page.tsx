@@ -5,7 +5,8 @@ import {
   ShariahImportError, describeShariahSync, downloadReviewPack, normalizeShariahMode,
   parseResultsFile, shariahApi,
   type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
-  type ShariahImportPreview, type ShariahMode, type ShariahModeState, type ShariahSnapshotMeta,
+  type ShariahImportPreview, type ShariahMode, type ShariahModeChange,
+  type ShariahModeState, type ShariahSnapshotMeta,
   type ShariahSyncLevel, type ShariahUniverse,
 } from "@/lib/shariah";
 import { Button, Card, CardHeader, Empty, Field, Notice, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
@@ -176,18 +177,28 @@ export default function ShariahPage() {
    * unknown, out of sync, or never armed at all.
    */
   const [modeState, setModeState] = useState<ShariahModeState | null>(null);
+  /*
+   * The mode history and the re-review horizon were added to the API and to
+   * nothing else — `GET /api/shariah/mode/history` and
+   * `PUT /api/shariah/review-policy` were curl-only, which is precisely the
+   * defect the universe-sync button had just been added to fix, one commit
+   * earlier. A control that exists only in an HTTP client does not exist.
+   */
+  const [modeHistory, setModeHistory] = useState<ShariahModeChange[] | null>(null);
   /** False until the first universe/mode read has come back, either way. */
   const [loaded, setLoaded] = useState(false);
   const mode: ShariahMode | null = modeState?.mode ?? null;
 
   const loadUniverse = useCallback(async () => {
     try {
-      const [u, s, m] = await Promise.all([
+      const [u, s, m, h] = await Promise.all([
         shariahApi.universe(), shariahApi.snapshots(), shariahApi.mode(),
+        shariahApi.modeHistory().catch(() => ({ changes: [] as ShariahModeChange[] })),
       ]);
       setUniverse(u);
       setSnapshots(s.snapshots);
       setModeState(normalizeShariahMode(m));
+      setModeHistory(h.changes);
     } catch (e) {
       /*
        * `loaded` is what separates "not answered yet" from "answered, and the
@@ -385,6 +396,40 @@ export default function ShariahPage() {
 
       <BotFloorPanel state={modeState} unreadable={loaded} />
 
+      {/*
+        The append-only record of who changed enforcement, when, and whether
+        the Bot's floor moved with it. `app_settings` held this switch as one
+        mutable row with a single `updated_at`, so "someone turned it off at
+        some point" was the only recoverable fact about the control that
+        governs religious compliance for the whole installation.
+      */}
+      {modeHistory !== null && modeHistory.length > 0 && (
+        <details className="mb-3 rounded-md border border-border bg-surface-2/40">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint hover:text-ink">
+            Enforcement history — {modeHistory.length} change{modeHistory.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="border-t border-border px-3 py-2 text-[11px] text-ink-muted">
+            {modeHistory.slice(0, 20).map((change) => (
+              <li key={change.id} className="flex flex-wrap items-center gap-x-3 py-0.5">
+                <span className="tabular text-ink-faint">
+                  {new Date(change.changedAt).toISOString().replace("T", " ").slice(0, 19)}Z
+                </span>
+                <span className="text-ink">
+                  {change.fromMode === "enforce" ? "ON" : "OFF"} &rarr;{" "}
+                  {change.toMode === "enforce" ? "ON" : "OFF"}
+                </span>
+                <span>by {change.changedBy}</span>
+                <span className={change.botFloorPushed ? "text-ink-faint" : "text-warn"}>
+                  {change.botFloorPushed
+                    ? "Bot floor moved"
+                    : "Bot floor NOT moved — no control channel"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {mode === "enforce" && (
         <div className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-muted">
           Enforcement is on. A BUY is refused unless the asset is ELIGIBLE; UNSCREENED and STALE
@@ -448,6 +493,36 @@ export default function ShariahPage() {
               {universe.reviewPolicy.reviewMaxAgeDays} days ago. They still stand and are still
               enforced — age withdraws nothing — but they reach the front of the next review pack
               so a project that has changed since gets looked at again.
+            </div>
+          )}
+          {universe && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-[11px] text-ink-muted">
+              <span>Re-review a settled decision after</span>
+              <select
+                aria-label="Days after which a settled decision is surfaced as due for re-review"
+                disabled={busy}
+                value={universe.reviewPolicy.reviewMaxAgeDays ?? 0}
+                onChange={(e) => {
+                  const days = Number(e.target.value);
+                  setBusy(true); setError(null); setNotice(null);
+                  void shariahApi.setReviewPolicy(days === 0 ? null : days)
+                    .then(() => loadUniverse())
+                    .then(() => setNotice(days === 0
+                      ? "Time-based re-review is off. Decisions are surfaced only when a delisted ticker reappears."
+                      : `Settled decisions older than ${days} days are now surfaced as due. Nothing is demoted by age.`))
+                    .catch((e) => setError((e as Error).message))
+                    .finally(() => setBusy(false));
+                }}
+                className="rounded border border-control-border bg-transparent px-1.5 py-0.5"
+              >
+                <option value={180}>180 days</option>
+                <option value={365}>365 days</option>
+                <option value={730}>730 days</option>
+                <option value={0}>never (off)</option>
+              </select>
+              <span className="text-ink-faint">
+                Advisory only — an aged decision still stands and is still enforced.
+              </span>
             </div>
           )}
           <p className="px-4 py-2 text-[11px] leading-5 text-ink-faint">

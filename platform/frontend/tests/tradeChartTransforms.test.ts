@@ -153,9 +153,39 @@ test("F-1 — range bars ascend strictly, and keep their real market time", () =
     [1_700_000_000_123, 1_700_000_001_456, 1_700_000_002_789],
     "every bar must carry the timestamp of the execution that completed it",
   );
+  /*
+   * This used to assert `sourceOpenTime <= openTime + 1000 * bars.length` and
+   * call it a drift bound. It could never fail: `openTime` is already at least
+   * `floor(sourceOpenTime / 1000) * 1000`, so the inequality holds for ANY
+   * number of bars, and the bound was the maximum drift by construction. A test
+   * that cannot fail is worse than no test, because it is counted.
+   *
+   * The real property is the opposite one, and it is not a bound — it is a
+   * DIRECTION. The key never runs BEHIND market time, and it may run ahead of
+   * it without limit when bars complete faster than one per second. That is
+   * inherent: the renderer's time points are integers, and N bars in one second
+   * need N distinct ones. So the chart discloses it (`RANGE_AXIS_HINT`) rather
+   * than pretending to a bound nobody can honour.
+   */
   for (const bar of bars) {
-    assert.ok(bar.sourceOpenTime <= bar.openTime + 1_000 * bars.length,
-      "the ordering key must stay in the neighbourhood of the real time");
+    assert.ok(bar.openTime >= Math.floor(bar.sourceOpenTime / 1000) * 1000,
+      "the ordering key must never date a bar BEFORE the execution that completed it");
+  }
+
+  // And the drift is real, so the test says so rather than hiding it: a burst
+  // of completions inside one second pushes the axis a second per bar.
+  const burst = rangeBars(
+    Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1, timestamp: 1_700_000_000_000, price: 100 + i * 0.25,
+      quantity: 1, aggressor: "buy" as const,
+    })), 0.20, 0.01);
+  assert.ok(burst.length > 1);
+  const span = burst[burst.length - 1]!.openTime - burst[0]!.openTime;
+  assert.equal(span, (burst.length - 1) * 1000,
+    "bars completing in one instant are spaced a second apart on the axis");
+  for (const bar of burst) {
+    assert.equal(bar.sourceOpenTime, 1_700_000_000_000,
+      "and every one of them still carries the instant it actually happened");
   }
 });
 

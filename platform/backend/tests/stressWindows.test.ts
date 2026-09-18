@@ -234,6 +234,39 @@ test("manual windows snap to benchmark bars and rank by date", () => {
   }
 });
 
+test("a PARTLY covered manual window is refused too — clipping was the whole bug", () => {
+  /*
+   * Only a window lying wholly outside raised. One straddling an edge was
+   * silently clipped to whatever the benchmark had, and reported as the window
+   * that was asked for — with its return, drawdown and volatility computed over
+   * a period the user never named. The docstring, `docs/STRESS-ANALYSIS.md` and
+   * the very next test's NAME all said it was refused.
+   */
+  const candles = twoEpisodes();
+  const firstOpen = candles[0]!.openTime;
+  assert.throws(
+    () => discoverStressWindows(candles, {
+      method: "manual", lengthBars: 10, topN: 1,
+      // Starts five days before the benchmark does, ends inside it.
+      manualWindows: [{ startMs: firstOpen - 5 * 24 * HOUR, endMs: firstOpen + 10 * HOUR }],
+    }),
+    /partly covered window is refused rather than clipped/,
+    "a window the benchmark only partly covers must be refused",
+  );
+
+  // Snapping to a bar boundary is expected and is NOT clipping: a window asked
+  // for mid-bar still resolves, because the bar it lands in is the bar it meant.
+  const snapped = discoverStressWindows(candles, {
+    method: "manual", lengthBars: 10, topN: 1,
+    manualWindows: [{
+      startMs: candles[20]!.openTime + 12 * 60_000,
+      endMs: candles[30]!.closeTime - 12 * 60_000,
+    }],
+  });
+  assert.equal(snapped.length, 1);
+  assert.equal(snapped[0]!.startMs, candles[20]!.openTime);
+});
+
 test("a manual window outside the benchmark's coverage is refused, not clipped", () => {
   assert.throws(
     () => discoverStressWindows(twoEpisodes(), {
