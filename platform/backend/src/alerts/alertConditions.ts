@@ -26,10 +26,12 @@ import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
   PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
+  MAX_ALERT_FILTERS,
   isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
+  isFilterKind, isFilterSide, isFilterTimeframe,
   type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
   type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
-  type StochasticTarget,
+  type StochasticTarget, type FilterTimeframe,
 } from "../types/maAlerts";
 
 export type Side = "above" | "below";
@@ -105,21 +107,83 @@ export interface MaVsMaCondition {
  * request as the level version, and refusing it on some families would be an
  * artefact of the order the families were built in rather than a rule.
  */
-export interface AlertFilters {
-  /** RSI(length) must sit above/below `level`. */
-  rsi?: { length: number; level: number; side: Side };
-  /** The close must sit above/below this moving average. */
-  ma?: { type: MaType; length: number; side: Side };
+export interface GateBase {
   /**
-   * Price must be on the named side of the Supertrend — "above" is its
-   * uptrend. Read from the indicator's own trend rather than by comparing the
-   * close to the drawn line: the two agree by construction, and the trend is
-   * the value the study itself acts on.
+   * The timeframe this gate is measured on. Omitted means the alert's own,
+   * which is what every gate written before migration 045 meant.
    */
-  supertrend?: {
-    period: number; multiplier: number; atrMethod: StAtrMethod; side: Side;
-  };
+  timeframe?: FilterTimeframe;
+  side: Side;
 }
+
+/** RSI(length) must sit above/below a fixed `level` on the 0..100 scale. */
+export interface RsiGate extends GateBase {
+  kind: "rsi";
+  length: number;
+  level: number;
+}
+
+/** The close must sit above/below this moving average. */
+export interface MaGate extends GateBase {
+  kind: "ma";
+  type: MaType;
+  length: number;
+}
+
+/**
+ * Price must be on the named side of the Supertrend — "above" is its uptrend.
+ * Read from the indicator's own trend rather than by comparing the close to the
+ * drawn line: the two agree by construction, and the trend is the value the
+ * study itself acts on.
+ */
+export interface SupertrendGate extends GateBase {
+  kind: "supertrend";
+  period: number;
+  multiplier: number;
+  atrMethod: StAtrMethod;
+}
+
+/**
+ * RSI against a moving average OF THE RSI ITSELF.
+ *
+ * Unlike the `rsi` gate this needs no fixed level to be meaningful: it asks
+ * whether momentum is above its own recent average, which stays true across
+ * regimes where a hard 50 does not.
+ */
+export interface RsiMaGate extends GateBase {
+  kind: "rsi_ma";
+  length: number;
+  maType: MaType;
+  maLength: number;
+}
+
+/**
+ * The MACD line against its signal, or against zero.
+ *
+ * This is the STATE a crossover leaves behind, not the crossing. A gate asks
+ * "is this true now", and a cross is true for exactly one bar — gating on the
+ * cross would let the alert fire on that bar only, which is not what "only
+ * while the MACD is bullish" means.
+ */
+export interface MacdGate extends GateBase {
+  kind: "macd";
+  fastLength: number;
+  slowLength: number;
+  signalLength: number;
+  target: MacdTarget;
+}
+
+export type AlertFilter =
+  | RsiGate | MaGate | SupertrendGate | RsiMaGate | MacdGate;
+
+/**
+ * The gates an alert carries, in the order the user arranged them.
+ *
+ * A LIST rather than one slot per kind: "the 1h RSI above its EMA 14 and the
+ * 4h RSI above its EMA 21" is two gates of the same kind, and the fixed-slot
+ * shape this replaced could not express it at all.
+ */
+export type AlertFilters = AlertFilter[];
 
 /**
  * The nearest live support or resistance on the alert's own timeframe.
@@ -314,11 +378,20 @@ export interface Sample {
   indicatorValue?: number;
   indicatorReference?: number;
   /** RSI reading for a filter gate, resolved on the alert's own timeframe. */
-  filterRsiValue?: number;
-  /** Moving-average value for a filter gate, same bar and timeframe. */
-  filterMaValue?: number;
-  /** Supertrend direction (+1 / -1) for a filter gate, same bar and timeframe. */
-  filterSupertrendValue?: number;
+  /**
+   * One reading per gate, positionally matched to the alert's `filters`.
+   *
+   * Every gate reduces to a SIGNED SPREAD: the gate opens when the reading is
+   * positive for side "above" and negative for side "below". RSI against a
+   * level subtracts the level, price against a moving average subtracts the
+   * line, and the two that compare two computed series — `rsi_ma` and `macd` —
+   * subtract one from the other. Supertrend already had this shape, since its
+   * trend is +1 or -1.
+   *
+   * `undefined` at a position means that gate's input has not resolved, and
+   * `filtersPass` treats it as shut. See `filterReadings` in `alertPlan.ts`.
+   */
+  filterReadings?: readonly (number | undefined)[];
   /** Stable ids recognized on this exact completed bar by the canonical service. */
   patternIds?: readonly string[];
   patternName?: string;
@@ -528,31 +601,18 @@ function evaluateAgainstReference(
 export function filtersPass(
   filters: AlertFilters | undefined, sample: Sample
 ): boolean {
-  if (!filters) return true;
+  if (!filters || filters.length === 0) return true;
+  const readings = sample.filterReadings ?? [];
 
-  if (filters.rsi) {
-    const v = sample.filterRsiValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.rsi.side === "above" ? !(v > filters.rsi.level) : !(v < filters.rsi.level)) {
-      return false;
-    }
-  }
-
-  if (filters.ma) {
-    const v = sample.filterMaValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.ma.side === "above" ? !(sample.close > v) : !(sample.close < v)) {
-      return false;
-    }
-  }
-
-  if (filters.supertrend) {
-    // The indicator's own direction: +1 uptrend, -1 downtrend. Comparing the
-    // close to the drawn line instead would agree on every bar but one — the
-    // flip bar, where the line has already moved to the other side of price.
-    const v = sample.filterSupertrendValue;
-    if (v === undefined || !Number.isFinite(v)) return false;
-    if (filters.supertrend.side === "above" ? !(v > 0) : !(v < 0)) return false;
+  for (let i = 0; i < filters.length; i++) {
+    const gate = filters[i];
+    if (!gate) return false;
+    const reading = readings[i];
+    // An input that has not resolved leaves the gate SHUT. The user asked for
+    // "only while the trend is up"; firing because the trend is *unknown*
+    // answers a different question, and would do so silently.
+    if (reading === undefined || !Number.isFinite(reading)) return false;
+    if (gate.side === "above" ? !(reading > 0) : !(reading < 0)) return false;
   }
 
   return true;
@@ -1083,13 +1143,114 @@ export function validateCondition(condition: AlertCondition): string | null {
 }
 
 /**
- * Rebuild the optional gates from their columns.
+ * Read the gates back out of whatever the database returned.
  *
- * A half-written gate — a length with no side — is treated as no gate at all
- * rather than guessed at, so a row that cannot express a complete rule can
+ * ── Why this refuses rather than drops ────────────────────────────────────
+ *
+ * The obvious shape for a tolerant reader is "skip what you cannot parse".
+ * That is WRONG here, and dangerously so: a gate kind this build does not
+ * recognise — a row written by a newer deploy, or by a rollback's newer
+ * sibling — would be read back as NO gate, and the alert would then fire
+ * completely UNGATED while its stored filter still says otherwise. The user
+ * asked for a precondition and would get none, silently.
+ *
+ * The type checker cannot catch that, because the value arrives as `unknown`.
+ * So an unrecognised or malformed gate makes the WHOLE list unreadable, and
+ * `conditionFromRow` then treats the alert as not evaluable — which the runner
+ * already logs and skips. Refusing to evaluate is the safe direction; firing
+ * without the precondition is not.
+ */
+export function parseStoredFilters(raw: unknown): AlertFilters | null {
+  if (raw == null) return null;
+  if (!Array.isArray(raw)) return null;
+  if (raw.length === 0) return null;
+  // A widening CHECK bounds this in the database too; enforced here as well so
+  // a row written before the cap moved cannot outrun the evaluator.
+  if (raw.length > MAX_ALERT_FILTERS) return null;
+
+  const out: AlertFilter[] = [];
+  for (const entry of raw) {
+    const gate = parseStoredGate(entry);
+    if (!gate) return null; // refuse the list, never the gate
+    out.push(gate);
+  }
+  return out;
+}
+
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+
+function parseStoredGate(raw: unknown): AlertFilter | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const g = raw as Record<string, unknown>;
+
+  const kind = g.kind;
+  if (typeof kind !== "string" || !isFilterKind(kind)) return null;
+
+  const side = g.side;
+  if (typeof side !== "string" || !isFilterSide(side)) return null;
+
+  // Absent means "the alert's own timeframe". Present but unrecognised is a
+  // gate this build cannot measure, which is refused rather than silently
+  // measured somewhere else.
+  let timeframe: FilterTimeframe | undefined;
+  if (g.timeframe != null) {
+    if (typeof g.timeframe !== "string" || !isFilterTimeframe(g.timeframe)) return null;
+    timeframe = g.timeframe;
+  }
+
+  const base = timeframe ? { side, timeframe } : { side };
+
+  switch (kind) {
+    case "rsi": {
+      const length = num(g.length), level = num(g.level);
+      if (length == null || level == null) return null;
+      return { ...base, kind, length, level };
+    }
+    case "ma": {
+      const length = num(g.length);
+      const type = g.type;
+      if (length == null || typeof type !== "string" || !isMaType(type)) return null;
+      return { ...base, kind, type, length };
+    }
+    case "supertrend": {
+      const period = num(g.period), multiplier = num(g.multiplier);
+      const atrMethod = g.atrMethod;
+      if (period == null || multiplier == null) return null;
+      if (typeof atrMethod !== "string" || !isStAtrMethod(atrMethod)) return null;
+      return { ...base, kind, period, multiplier, atrMethod };
+    }
+    case "rsi_ma": {
+      const length = num(g.length), maLength = num(g.maLength);
+      const maType = g.maType;
+      if (length == null || maLength == null) return null;
+      if (typeof maType !== "string" || !isMaType(maType)) return null;
+      return { ...base, kind, length, maType, maLength };
+    }
+    case "macd": {
+      const fastLength = num(g.fastLength), slowLength = num(g.slowLength);
+      const signalLength = num(g.signalLength);
+      const target = g.target;
+      if (fastLength == null || slowLength == null || signalLength == null) return null;
+      if (typeof target !== "string" || !isMacdTarget(target)) return null;
+      // A fast length at or above the slow one INVERTS the line, which would
+      // make "above the signal" mean its opposite. Refused, not normalised.
+      if (fastLength >= slowLength) return null;
+      return { ...base, kind, fastLength, slowLength, signalLength, target };
+    }
+  }
+}
+
+/**
+ * Rebuild the gates for one row: the `filters` list if it has one, else the
+ * legacy per-kind columns.
+ *
+ * A half-written legacy gate — a length with no side — is treated as no gate at
+ * all rather than guessed at, so a row that cannot express a complete rule can
  * never silently become a different one.
  */
 function filtersFromRow(row: {
+  filters?: unknown;
   filterRsiLength?: number | null;
   filterRsiLevel?: number | null;
   filterRsiSide?: string | null;
@@ -1101,17 +1262,29 @@ function filtersFromRow(row: {
   filterStAtrMethod?: string | null;
   filterStSide?: string | null;
 }): { filters?: AlertFilters } {
-  const filters: AlertFilters = {};
+  if (row.filters != null) {
+    // `conditionFromRow` refuses the row outright when this cannot be read, so
+    // by the time we are here the list either parses or the caller never ran.
+    const parsed = parseStoredFilters(row.filters);
+    if (parsed) return { filters: parsed };
+    return {};
+  }
+
+  const filters: AlertFilter[] = [];
   const side = (v: string | null | undefined): Side | null =>
     v === "above" || v === "below" ? v : null;
 
   const rsiSide = side(row.filterRsiSide);
   if (row.filterRsiLength != null && row.filterRsiLevel != null && rsiSide) {
-    filters.rsi = { length: row.filterRsiLength, level: row.filterRsiLevel, side: rsiSide };
+    filters.push({
+      kind: "rsi", length: row.filterRsiLength, level: row.filterRsiLevel, side: rsiSide,
+    });
   }
   const maSide = side(row.filterMaSide);
   if (row.filterMaType != null && row.filterMaLength != null && maSide) {
-    filters.ma = { type: row.filterMaType, length: row.filterMaLength, side: maSide };
+    filters.push({
+      kind: "ma", type: row.filterMaType, length: row.filterMaLength, side: maSide,
+    });
   }
   const stSide = side(row.filterStSide);
   const stMethod = row.filterStAtrMethod;
@@ -1119,32 +1292,78 @@ function filtersFromRow(row: {
     row.filterStPeriod != null && row.filterStMultiplier != null && stSide &&
     stMethod != null && isStAtrMethod(stMethod)
   ) {
-    filters.supertrend = {
+    filters.push({
+      kind: "supertrend",
       period: row.filterStPeriod,
       multiplier: row.filterStMultiplier,
       atrMethod: stMethod,
       side: stSide,
-    };
+    });
   }
-  return Object.keys(filters).length > 0 ? { filters } : {};
+  return filters.length > 0 ? { filters } : {};
 }
 
 /** "RSI 50 above 50" / "price above EMA 200" — the gates, for the UI list. */
 export function describeFilters(filters: AlertFilters | undefined): string {
-  if (!filters) return "";
-  const parts: string[] = [];
-  if (filters.rsi) {
-    parts.push(`RSI ${filters.rsi.length} is ${filters.rsi.side} ${filters.rsi.level}`);
-  }
-  if (filters.ma) {
-    parts.push(
-      `price is ${filters.ma.side} the ${maLabel(filters.ma.type, filters.ma.length)}`
-    );
-  }
-  if (filters.supertrend) {
-    parts.push(`price is ${filters.supertrend.side} the ${stLabel(filters.supertrend)}`);
-  }
+  if (!filters || filters.length === 0) return "";
+  const parts = filters.map(describeGate);
   return parts.length > 0 ? ` — only while ${parts.join(" and ")}` : "";
+}
+
+/**
+ * The timeframe a gate names, as a prefix, or "" when it is on the alert's own.
+ *
+ * Deliberately WITHOUT an article: the phrases that need one already carry it
+ * ("price is above the 1h EMA 200"), and the ones that start with the
+ * indicator supply their own ("the 1h RSI 50 is above 50").
+ */
+const tfPrefix = (gate: AlertFilter): string =>
+  gate.timeframe ? `${gate.timeframe} ` : "";
+
+/** "the 1h RSI…" / "RSI…" — an article only when a timeframe precedes it. */
+const leading = (gate: AlertFilter): string => (gate.timeframe ? "the " : "");
+
+/**
+ * One gate as a sentence fragment.
+ *
+ * ── Why the MACD gate says "bullish" ──────────────────────────────────────
+ *
+ * Against the SIGNAL line the sides are named for the mood they describe:
+ * "MACD is above signal line" is the same rule wearing a name nobody
+ * recognises, and it was asked for a second time by someone who had already
+ * been given it. Against ZERO they keep above/below, because there the mood
+ * words would be WRONG — the centreline says which way the trend leans, not
+ * whether momentum has turned.
+ *
+ * This sentence exists twice, here for the notification and again in the
+ * frontend for the alert list. Both assert the same literals in their tests,
+ * because nothing else stops them drifting the moment one is edited.
+ */
+export function describeGate(gate: AlertFilter): string {
+  const tf = tfPrefix(gate);
+  const lead = leading(gate);
+  switch (gate.kind) {
+    case "rsi":
+      return `${lead}${tf}RSI ${gate.length} is ${gate.side} ${gate.level}`;
+    case "ma":
+      return `price is ${gate.side} the ${tf}${maLabel(gate.type, gate.length)}`;
+    case "supertrend":
+      return `price is ${gate.side} the ${tf}${stLabel(gate)}`;
+    case "rsi_ma":
+      return `${lead}${tf}RSI ${gate.length} is ${gate.side} its ` +
+        `${maLabel(gate.maType, gate.maLength)}`;
+    case "macd": {
+      const macdLabel =
+        `MACD ${gate.fastLength}/${gate.slowLength}/${gate.signalLength}`;
+      if (gate.target === "zero") {
+        return `${lead}${tf}${macdLabel} is ${gate.side} zero`;
+      }
+      const mood = gate.side === "above"
+        ? "bullish (above signal)"
+        : "bearish (below signal)";
+      return `${lead}${tf}${macdLabel} is ${mood}`;
+    }
+  }
 }
 
 /**
@@ -1153,38 +1372,86 @@ export function describeFilters(filters: AlertFilters | undefined): string {
  * from a market that never met the condition.
  */
 function filterError(filters: AlertFilters | undefined): string | null {
-  if (!filters) return null;
-  if (filters.rsi) {
-    const { length, level, side } = filters.rsi;
-    if (!Number.isInteger(length) || length < 1) {
-      return "filterRsiLength must be a positive integer";
-    }
-    // RSI is bounded 0..100, so a gate outside that range is either always
-    // open or permanently shut.
-    if (!Number.isFinite(level) || level <= 0 || level >= 100) {
-      return "filterRsiLevel must be between 0 and 100 (exclusive)";
-    }
-    if (side !== "above" && side !== "below") return "filterRsiSide must be above or below";
+  if (!filters || filters.length === 0) return null;
+  if (filters.length > MAX_ALERT_FILTERS) {
+    return `an alert may carry at most ${MAX_ALERT_FILTERS} gates`;
   }
-  if (filters.ma) {
-    const { length, side } = filters.ma;
-    if (!Number.isInteger(length) || length < 1) {
-      return "filterMaLength must be a positive integer";
-    }
-    if (side !== "above" && side !== "below") return "filterMaSide must be above or below";
-  }
-  if (filters.supertrend) {
-    const { period, multiplier, atrMethod, side } = filters.supertrend;
-    if (!Number.isInteger(period) || period < 1) {
-      return "filterStPeriod must be a positive integer";
-    }
-    if (!Number.isFinite(multiplier) || multiplier <= 0) {
-      return "filterStMultiplier must be a positive number";
-    }
-    if (!isStAtrMethod(atrMethod)) return "filterStAtrMethod must be rma or sma";
-    if (side !== "above" && side !== "below") return "filterStSide must be above or below";
+  for (const gate of filters) {
+    const err = gateError(gate);
+    if (err) return err;
   }
   return null;
+}
+
+function gateError(gate: AlertFilter): string | null {
+  if (gate.side !== "above" && gate.side !== "below") {
+    return "a gate's side must be above or below";
+  }
+  if (gate.timeframe != null && !isFilterTimeframe(gate.timeframe)) {
+    return "a gate's timeframe is not one this build can measure";
+  }
+  switch (gate.kind) {
+    case "rsi": {
+      const { length, level } = gate;
+      if (!Number.isInteger(length) || length < 1) {
+        return "filterRsiLength must be a positive integer";
+      }
+      // RSI is bounded 0..100, so a gate outside that range is either always
+      // open or permanently shut.
+      if (!Number.isFinite(level) || level <= 0 || level >= 100) {
+        return "filterRsiLevel must be between 0 and 100 (exclusive)";
+      }
+      return null;
+    }
+    case "ma": {
+      if (!Number.isInteger(gate.length) || gate.length < 1) {
+        return "filterMaLength must be a positive integer";
+      }
+      if (!isMaType(gate.type)) return "filterMaType is not a moving average this build knows";
+      return null;
+    }
+    case "supertrend": {
+      const { period, multiplier, atrMethod } = gate;
+      if (!Number.isInteger(period) || period < 1) {
+        return "filterStPeriod must be a positive integer";
+      }
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        return "filterStMultiplier must be a positive number";
+      }
+      if (!isStAtrMethod(atrMethod)) return "filterStAtrMethod must be rma or sma";
+      return null;
+    }
+    case "rsi_ma": {
+      const { length, maLength, maType } = gate;
+      if (!Number.isInteger(length) || length < 1) {
+        return "filterRsiLength must be a positive integer";
+      }
+      if (!Number.isInteger(maLength) || maLength < 1) {
+        return "filterRsiMaLength must be a positive integer";
+      }
+      if (!isMaType(maType)) return "filterRsiMaType is not a moving average this build knows";
+      return null;
+    }
+    case "macd": {
+      const { fastLength, slowLength, signalLength, target } = gate;
+      if (!Number.isInteger(fastLength) || fastLength < 1) {
+        return "filterMacdFast must be a positive integer";
+      }
+      if (!Number.isInteger(slowLength) || slowLength < 1) {
+        return "filterMacdSlow must be a positive integer";
+      }
+      if (!Number.isInteger(signalLength) || signalLength < 1) {
+        return "filterMacdSignal must be a positive integer";
+      }
+      // Refused rather than normalised: a fast length at or above the slow one
+      // inverts the line, which would make "is bullish" mean its opposite.
+      if (fastLength >= slowLength) {
+        return "filterMacdFast must be shorter than filterMacdSlow";
+      }
+      if (!isMacdTarget(target)) return "filterMacdTarget must be signal or zero";
+      return null;
+    }
+  }
 }
 
 /** The near-band rule, shared by every kind that offers `near_above`/`near_below`. */
@@ -1205,6 +1472,7 @@ function nearBandError(mode: MaMode, minPct: number, maxPct: number): string | n
  */
 export function conditionFromRow(row: {
   conditionKind: ConditionKind;
+  filters?: unknown;
   maType: MaType | null;
   maLength: number | null;
   mode: MaAlertMode | null;
@@ -1253,6 +1521,12 @@ export function conditionFromRow(row: {
   adxSmoothing?: number | null;
   adxLevel?: number | null;
 }): AlertCondition | null {
+  // Gates that cannot be read make the alert NOT EVALUABLE, never ungated.
+  // The runner logs this row and skips it, which is the safe direction: an
+  // alert whose stored precondition this build cannot understand must not fire
+  // as though it had no precondition at all.
+  if (row.filters != null && parseStoredFilters(row.filters) === null) return null;
+
   switch (row.conditionKind) {
     case "candlestick_pattern":
       return row.patternId ? {

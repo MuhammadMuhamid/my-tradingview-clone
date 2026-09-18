@@ -28,6 +28,8 @@ const ID = "11111111-1111-4111-8111-111111111111";
 
 const BASE: MaAlertRow = {
   id: ID, symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
+  // A real row always HAS the column; NULL is what "ungated" looks like.
+  filters: null,
   maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,
   targetPrice: 100, priceDirection: "either",
   patternId: null,
@@ -128,9 +130,28 @@ test("every family round-trips row -> request -> condition -> columns unchanged"
     assert.equal(columns.conditionKind, kind);
     for (const [key, value] of Object.entries(columns)) {
       if (key === "conditionKind") continue;
+      // `filters` is asserted separately: a row whose gates live only in the
+      // legacy columns is UPGRADED to the list form by the round trip, which
+      // is the point of the migration rather than a failure of it.
+      if (key === "filters") continue;
       assert.deepEqual(
         value, (row as unknown as Record<string, unknown>)[key],
         `${kind}.${key} was not preserved by the round trip`
+      );
+    }
+
+    // The gates themselves must survive, in whichever form the row carried
+    // them. An ungated row stays ungated; a row gated through the legacy
+    // columns comes back as the equivalent list, and keeps those columns too
+    // so a rollback still reads the gate.
+    const rowGates = (row as unknown as Record<string, unknown>).filters;
+    if (rowGates == null && row.filterStPeriod == null && row.filterRsiLength == null &&
+        row.filterMaLength == null) {
+      assert.equal(columns.filters, null, `${kind}: an ungated row gained gates`);
+    } else {
+      assert.ok(
+        Array.isArray(columns.filters) && (columns.filters as unknown[]).length > 0,
+        `${kind}: the round trip dropped the gate`
       );
     }
   }

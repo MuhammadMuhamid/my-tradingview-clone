@@ -54,6 +54,7 @@ interface DbAlert {
   adx_smoothing: number | null;
   adx_level: string | number | null;
   indicator_target: string | null;
+  filters: unknown;
   filter_rsi_length: number | null;
   filter_rsi_level: string | number | null;
   filter_rsi_side: string | null;
@@ -126,6 +127,7 @@ function toRow(r: DbAlert): MaAlertRow {
     adxSmoothing: r.adx_smoothing,
     adxLevel: r.adx_level === null ? null : num(r.adx_level),
     indicatorTarget: r.indicator_target,
+    filters: r.filters ?? null,
     filterRsiLength: r.filter_rsi_length,
     filterRsiLevel: r.filter_rsi_level === null ? null : num(r.filter_rsi_level),
     filterRsiSide: r.filter_rsi_side,
@@ -200,6 +202,7 @@ export interface MaAlertInput {
   stMultiplier?: number | null;
   stAtrMethod?: StAtrMethod | null;
   indicatorTarget?: string | null;
+  filters?: unknown;
   filterRsiLength?: number | null;
   filterRsiLevel?: number | null;
   filterRsiSide?: string | null;
@@ -223,41 +226,63 @@ export interface MaAlertInput {
   adxLevel?: number | null;
 }
 
-/** The unique index that governs "the same alert" for each condition kind. */
+/**
+ * The unique index that governs "the same alert" for each condition kind.
+ *
+ * ── Why `filters` is part of every key ────────────────────────────────────
+ *
+ * Before gates existed, the condition alone identified an alert. It does not
+ * any more: "a 15m BTCUSDT support alert gated on the 1h MACD" and "the same
+ * alert gated on the 4h RSI" are two different questions, and keying on the
+ * condition alone rejected the second as a duplicate of the first.
+ *
+ * `NULLS NOT DISTINCT` keeps the older guarantee intact underneath: two
+ * UNGATED alerts both carry `filters = NULL`, and under the default rule two
+ * NULLs never conflict — so without it the index would stop matching and
+ * re-arming an ungated alert would insert a duplicate instead of updating it.
+ *
+ * ── This list is load-bearing, not documentation ──────────────────────────
+ *
+ * Postgres infers the ON CONFLICT arbiter FROM THE COLUMN LIST, with no
+ * fallback: if these columns do not name a real unique index, every insert of
+ * that kind fails with 42P10. `conflictTargets.test.ts` reads migration 045
+ * and compares the two lists for exactly that reason — SQL-only tests do not
+ * catch it, because the drift is between the SQL and this file.
+ */
 const CONFLICT_TARGET: Record<ConditionKind, string> = {
   candlestick_pattern:
-    "(symbol, timeframe, pattern_id) WHERE condition_kind = 'candlestick_pattern'",
-  ma: "(symbol, timeframe, ma_type, ma_length, mode) WHERE condition_kind = 'ma'",
-  price: "(symbol, timeframe, target_price, price_direction) WHERE condition_kind = 'price'",
+    "(symbol, timeframe, pattern_id, filters) WHERE condition_kind = 'candlestick_pattern'",
+  ma: "(symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
+  price: "(symbol, timeframe, target_price, price_direction, filters) WHERE condition_kind = 'price'",
   ma_vs_ma:
-    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode)" +
+    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode, filters)" +
     " WHERE condition_kind = 'ma_vs_ma'",
-  sr_zone: "(symbol, timeframe, sr_side, mode) WHERE condition_kind = 'sr_zone'",
+  sr_zone: "(symbol, timeframe, sr_side, mode, filters) WHERE condition_kind = 'sr_zone'",
   pivot_level:
-    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode)" +
+    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode, filters)" +
     " WHERE condition_kind = 'pivot_level'",
   rsi:
-    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode)" +
+    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode, filters)" +
     " WHERE condition_kind = 'rsi'",
   macd:
-    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode)" +
+    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode, filters)" +
     " WHERE condition_kind = 'macd'",
   // The two inputs are part of the key: Supertrend 10/3 and 14/2 flip on
   // different bars, so they are different alerts rather than one being an edit
   // of the other.
   supertrend:
-    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode)" +
+    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode, filters)" +
     " WHERE condition_kind = 'supertrend'",
   // Every band input is part of the key: an upper-band touch and a lower-band
   // touch are two alerts, and a 20/2 band and a 20/3 band are two lines.
   bollinger:
-    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode)" +
+    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode, filters)" +
     " WHERE condition_kind = 'bollinger'",
   stochastic:
     "(symbol, timeframe, stoch_k_length, stoch_k_smooth, stoch_d_smooth," +
-    " indicator_target, stoch_level, mode) WHERE condition_kind = 'stochastic'",
+    " indicator_target, stoch_level, mode, filters) WHERE condition_kind = 'stochastic'",
   adx:
-    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode)" +
+    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode, filters)" +
     " WHERE condition_kind = 'adx'",
 };
 
@@ -270,6 +295,15 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
  * spent once_only alert means "watch this again", and leaving `completed_at` set
  * would hand them an alert that looks armed and can never fire.
  */
+/**
+ * The conflict targets, exposed for `conflictTargets.test.ts`.
+ *
+ * Not for production use: the upsert reads `CONFLICT_TARGET` directly. This
+ * exists so the test compares the SAME object the query builds from, rather
+ * than a copy that could drift from it independently.
+ */
+export const CONFLICT_TARGETS_FOR_TEST: Readonly<Record<string, string>> = CONFLICT_TARGET;
+
 export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
   const kind = input.conditionKind ?? "ma";
   // Internal seed/import callers historically supplied only the runner symbol.
@@ -296,11 +330,12 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         filter_st_period, filter_st_multiplier, filter_st_atr_method, filter_st_side,
         pattern_id, pattern_detector_id, pattern_detector_version,
         pattern_settings_hash, pattern_settings,
-        canonical_instrument_id, provider_id, price_basis)
+        canonical_instrument_id, provider_id, price_basis,
+        filters)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -337,6 +372,7 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
        adx_di_length       = EXCLUDED.adx_di_length,
        adx_smoothing       = EXCLUDED.adx_smoothing,
        adx_level           = EXCLUDED.adx_level,
+       filters             = EXCLUDED.filters,
        filter_rsi_length   = EXCLUDED.filter_rsi_length,
        filter_rsi_level    = EXCLUDED.filter_rsi_level,
        filter_rsi_side     = EXCLUDED.filter_rsi_side,
@@ -389,6 +425,9 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.patternDetectorId ?? null, input.patternDetectorVersion ?? null,
       input.patternSettingsHash ?? null, input.patternSettings ?? null,
       canonicalInstrumentId, providerId, input.priceBasis ?? "last",
+      // JSONB: pg needs the array handed over as JSON text, not as a
+      // JS array, which it would otherwise encode as a Postgres array.
+      input.filters == null ? null : JSON.stringify(input.filters),
     ]
   );
   return toRow(rows[0]!);

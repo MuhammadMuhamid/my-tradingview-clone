@@ -17,10 +17,11 @@ import {
   BOLLINGER_BANDS, BOLLINGER_DEFAULTS, isBollingerBand,
   STOCHASTIC_TARGETS, STOCHASTIC_DEFAULTS, isStochasticTarget,
   ADX_DEFAULTS,
-  FILTER_DEFAULTS, isFilterSide,
+  FILTER_DEFAULTS, MAX_ALERT_FILTERS, isFilterSide,
   ALERT_HISTORY_BARS, warmupBars,
 } from "../types/maAlerts";
-import type { AlertCondition, AlertFilters } from "./alertConditions";
+import { parseStoredFilters } from "./alertConditions";
+import type { AlertCondition, AlertFilter, AlertFilters } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
 
@@ -49,14 +50,44 @@ const tooLong = (need: number): Rejection =>
       `${ALERT_HISTORY_BARS}; the alert could never warm up`);
 
 /**
- * Read the optional gates a level alert may carry.
+ * Read the optional gates an alert may carry.
  *
- * Absent keys mean "no gate", which is the pre-existing behaviour every alert
- * created before this feature has. A gate is only built when the client asks
- * for it explicitly, so an unrelated request can never acquire one by default.
+ * Two shapes are accepted, and they are not equivalent:
+ *
+ *  - `filters: [...]`, the LIST form, which is the only one that can express
+ *    more than one gate of a kind or a gate on another timeframe;
+ *  - the flat `filterRsi*` / `filterMa*` / `filterSt*` fields, kept because
+ *    every client written before the list form sends them, and an alert
+ *    created that way must keep working unchanged.
+ *
+ * Absent keys mean "no gate", which is the behaviour every alert created
+ * before gates existed has. A gate is only built when the client asks for it
+ * explicitly, so an unrelated request can never acquire one by default.
+ *
+ * The list form is parsed by `parseStoredFilters` — the SAME reader the
+ * database rows go through. That is deliberate: it makes the API and the
+ * persisted form agree by construction, so a gate the database would refuse to
+ * read back can never be accepted here in the first place.
  */
 function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | Rejection {
-  const filters: AlertFilters = {};
+  if (b.filters !== undefined) {
+    if (b.filters === null) return {};
+    if (!Array.isArray(b.filters)) return bad("filters must be an array of gates");
+    if (b.filters.length === 0) return {};
+    if (b.filters.length > MAX_ALERT_FILTERS) {
+      return bad(`an alert may carry at most ${MAX_ALERT_FILTERS} gates`);
+    }
+    const parsed = parseStoredFilters(b.filters);
+    if (!parsed) {
+      return bad(
+        "filters contains a gate this build cannot read: check kind, side, " +
+        "timeframe and the fields that kind requires"
+      );
+    }
+    return { filters: parsed };
+  }
+
+  const filters: AlertFilter[] = [];
 
   if (b.filterRsi === true || b.filterRsiLength !== undefined) {
     const length = Number(b.filterRsiLength ?? FILTER_DEFAULTS.rsi.length);
@@ -67,7 +98,7 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
       return bad("filterRsiLevel must be a number between 0 and 100 (exclusive)");
     }
     if (!isFilterSide(side)) return bad("filterRsiSide must be above or below");
-    filters.rsi = { length, level, side };
+    filters.push({ kind: "rsi", length, level, side });
   }
 
   if (b.filterMa === true || b.filterMaLength !== undefined) {
@@ -77,7 +108,7 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
     if (!isMaType(type)) return bad("filterMaType must be sma or ema");
     if (!isLength(length)) return bad("filterMaLength must be an integer 1..1000");
     if (!isFilterSide(side)) return bad("filterMaSide must be above or below");
-    filters.ma = { type, length, side };
+    filters.push({ kind: "ma", type, length, side });
   }
 
   if (b.filterSt === true || b.filterStPeriod !== undefined) {
@@ -91,10 +122,10 @@ function readFilters(b: Record<string, unknown>): { filters?: AlertFilters } | R
       return bad(`filterStAtrMethod must be one of ${ST_ATR_METHODS.join(", ")}`);
     }
     if (!isFilterSide(side)) return bad("filterStSide must be above or below");
-    filters.supertrend = { period, multiplier, atrMethod, side };
+    filters.push({ kind: "supertrend", period, multiplier, atrMethod, side });
   }
 
-  return Object.keys(filters).length > 0 ? { filters } : {};
+  return filters.length > 0 ? { filters } : {};
 }
 
 /**
@@ -440,18 +471,47 @@ export function toColumns(condition: AlertCondition): AlertColumns {
    * way to the database, which presents to the user as a filter that does
    * nothing — the hardest kind of alert bug to notice.
    */
-  const gates = (f: AlertFilters | undefined) => ({
-    filterRsiLength: f?.rsi?.length ?? null,
-    filterRsiLevel: f?.rsi?.level ?? null,
-    filterRsiSide: f?.rsi?.side ?? null,
-    filterMaType: f?.ma?.type ?? null,
-    filterMaLength: f?.ma?.length ?? null,
-    filterMaSide: f?.ma?.side ?? null,
-    filterStPeriod: f?.supertrend?.period ?? null,
-    filterStMultiplier: f?.supertrend?.multiplier ?? null,
-    filterStAtrMethod: f?.supertrend?.atrMethod ?? null,
-    filterStSide: f?.supertrend?.side ?? null,
-  });
+  /**
+   * Project the gates onto the row.
+   *
+   * `filters` is the authoritative column and carries the whole list. The flat
+   * `filter_*` columns are ALSO written, but only when the list happens to be
+   * expressible in them — at most one gate per kind, none of them on another
+   * timeframe, and none of the two kinds those columns never had. They exist so
+   * a rollback to a build that predates `filters` reads a coherent, if lesser,
+   * alert rather than an ungated one.
+   *
+   * When the list cannot be squeezed into them they are written NULL rather
+   * than partially: half a rule is a DIFFERENT rule, and a rollback firing on
+   * two of an alert's five gates is worse than one that reads no gates and is
+   * plainly wrong.
+   */
+  const gates = (f: AlertFilters | undefined) => {
+    const list = f ?? [];
+    const legacible = list.length > 0 &&
+      list.every((g) =>
+        g.timeframe === undefined &&
+        (g.kind === "rsi" || g.kind === "ma" || g.kind === "supertrend")) &&
+      new Set(list.map((g) => g.kind)).size === list.length;
+    const pick = <K extends AlertFilter["kind"]>(kind: K) =>
+      legacible
+        ? (list.find((g) => g.kind === kind) as Extract<AlertFilter, { kind: K }> | undefined)
+        : undefined;
+    const rsi = pick("rsi"), ma = pick("ma"), st = pick("supertrend");
+    return {
+      filters: list.length > 0 ? list : null,
+      filterRsiLength: rsi?.length ?? null,
+      filterRsiLevel: rsi?.level ?? null,
+      filterRsiSide: rsi?.side ?? null,
+      filterMaType: ma?.type ?? null,
+      filterMaLength: ma?.length ?? null,
+      filterMaSide: ma?.side ?? null,
+      filterStPeriod: st?.period ?? null,
+      filterStMultiplier: st?.multiplier ?? null,
+      filterStAtrMethod: st?.atrMethod ?? null,
+      filterStSide: st?.side ?? null,
+    };
+  };
   switch (condition.kind) {
     case "candlestick_pattern":
       return {

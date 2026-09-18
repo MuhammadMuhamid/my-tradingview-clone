@@ -19,7 +19,7 @@
  */
 import {
   evaluateCondition,
-  type AlertCondition, type AlertFilters, type Sample, type Side,
+  type AlertCondition, type AlertFilter, type AlertFilters, type Sample, type Side,
 } from "./alertConditions";
 import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
@@ -84,6 +84,14 @@ export interface FeedSample {
   rsi?: (
     length: number, target: RsiTarget, level: number, maLength: number
   ) => { value: number; reference: number } | undefined;
+  /**
+   * RSI at this bar against a moving average OF THE RSI ITSELF, in the type the
+   * gate named. Separate from `rsi` because that resolver's "sma" target is
+   * fixed to a simple average, and this one must honour `maType`.
+   */
+  rsiMa?: (
+    length: number, maType: MaType, maLength: number
+  ) => { value: number; reference: number } | undefined;
   /** MACD line and its reference: the signal line, or zero. */
   macd?: (
     fast: number, slow: number, signal: number, target: MacdTarget
@@ -116,6 +124,19 @@ export interface FeedSample {
   ) => { value: number; reference: number } | undefined;
   /** Canonical server result for this exact completed bar. */
   patterns?: { ids: readonly string[]; nameFor: (id: string) => string | undefined };
+  /**
+   * A feed per DISTINCT gate timeframe on this symbol, for gates measured
+   * somewhere other than the alert's own timeframe.
+   *
+   * The runner builds one entry per timeframe any active alert on the symbol
+   * gates on, and shares it across every alert there — so ten gates spread
+   * over two timeframes cost the two fetches that two gates would.
+   *
+   * A timeframe missing from this map is a gate that cannot be read, which
+   * `filtersPass` treats as SHUT.
+   */
+  gateFeeds?: Readonly<Record<string, FeedSample | undefined>>;
+
 }
 
 export type SkipReason =
@@ -204,7 +225,7 @@ export function planAlert(spec: AlertSpec, sample: FeedSample, now: number): Ale
 function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
   const base: Sample = {
     high: sample.high, low: sample.low, close: sample.close,
-    ...filterValues(condition.filters, sample),
+    ...filterReadings(condition.filters, sample),
   };
   switch (condition.kind) {
     case "candlestick_pattern":
@@ -278,36 +299,81 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
 }
 
 /**
- * Resolve the gate inputs from the feed.
+ * Resolve one reading per gate, positionally matched to `filters`.
  *
- * Both come from resolvers the runner already provides for their own alert
- * families, so a gate costs no extra computation beyond the cache lookup: the
- * 200 EMA a filter reads is the same array an MA alert on that line uses.
+ * ── The uniform shape ─────────────────────────────────────────────────────
+ *
+ * Every gate reduces to a SIGNED SPREAD, so `filtersPass` only ever tests a
+ * sign and never needs to know which kind it is looking at. RSI against a
+ * level subtracts the level; price against a moving average subtracts the
+ * line; the two that compare two computed series — `rsi_ma` and `macd` —
+ * subtract one series from the other. Supertrend already had this shape,
+ * because its trend is +1 or -1.
+ *
+ * ── Where each gate is measured ───────────────────────────────────────────
+ *
+ * A gate with no timeframe reads `sample`, the alert's own. A gate that names
+ * one reads the FeedSample the runner built for that timeframe, handed in via
+ * `sample.gateFeeds`. A named timeframe with no feed — the fetch failed, or it
+ * is not a timeframe the runner subscribes to — yields `undefined`, which
+ * `filtersPass` treats as a shut gate rather than an open one.
+ *
+ * Every resolver here is one the runner already provides for that family's own
+ * alerts, so a gate costs no extra computation beyond the cache lookup: the
+ * 200 EMA a gate reads is the same array an MA alert on that line uses.
  */
-function filterValues(
+function filterReadings(
   filters: AlertFilters | undefined, sample: FeedSample
-): { filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number } {
-  if (!filters) return {};
-  const out: {
-    filterRsiValue?: number; filterMaValue?: number; filterSupertrendValue?: number;
-  } = {};
-  if (filters.rsi) {
-    // The gate only needs the reading, so the target it is compared against
-    // here is irrelevant — "level" keeps the resolver on its cheapest path.
-    out.filterRsiValue = sample.rsi?.(
-      filters.rsi.length, "level", filters.rsi.level, filters.rsi.length
-    )?.value;
+): { filterReadings?: readonly (number | undefined)[] } {
+  if (!filters || filters.length === 0) return {};
+  return { filterReadings: filters.map((gate) => gateReading(gate, sample)) };
+}
+
+function gateReading(gate: AlertFilter, own: FeedSample): number | undefined {
+  const feed = gate.timeframe ? own.gateFeeds?.[gate.timeframe] : own;
+  if (!feed) return undefined;
+
+  const finite = (v: number | undefined): number | undefined =>
+    v !== undefined && Number.isFinite(v) ? v : undefined;
+  const spread = (a: number | undefined, b: number | undefined): number | undefined => {
+    const x = finite(a), y = finite(b);
+    return x === undefined || y === undefined ? undefined : x - y;
+  };
+
+  switch (gate.kind) {
+    case "rsi": {
+      // The gate only needs the reading, so the target it is compared against
+      // inside the resolver is irrelevant — "level" keeps it on its cheapest
+      // path, and the subtraction happens here.
+      const v = feed.rsi?.(gate.length, "level", gate.level, gate.length)?.value;
+      return spread(v, gate.level);
+    }
+    case "ma":
+      return spread(feed.close, finite(feed.series(gate.type, gate.length)));
+    case "supertrend":
+      // The indicator's own direction: +1 uptrend, -1 downtrend. Comparing the
+      // close to the drawn line instead would agree on every bar but one — the
+      // flip bar, where the line has already moved to the other side of price.
+      return finite(
+        feed.supertrend?.(gate.period, gate.multiplier, gate.atrMethod)?.trend
+      );
+    case "rsi_ma": {
+      // NOT `feed.rsi` with the "sma" target: that resolver hardcodes a simple
+      // average, so an EMA gate would be silently measured as an SMA and the
+      // rule would not be the one the user wrote.
+      const r = feed.rsiMa?.(gate.length, gate.maType, gate.maLength);
+      return spread(r?.value, r?.reference);
+    }
+    case "macd": {
+      const m = feed.macd?.(
+        gate.fastLength, gate.slowLength, gate.signalLength, gate.target
+      );
+      // Against zero the resolver's reference IS zero, so one subtraction
+      // covers both targets. This is the STATE the crossover left behind,
+      // which is what a gate must ask — a cross is true for one bar only.
+      return spread(m?.value, m?.reference);
+    }
   }
-  if (filters.ma) {
-    out.filterMaValue = sample.series(filters.ma.type, filters.ma.length);
-  }
-  if (filters.supertrend) {
-    out.filterSupertrendValue = sample.supertrend?.(
-      filters.supertrend.period, filters.supertrend.multiplier,
-      filters.supertrend.atrMethod
-    )?.trend;
-  }
-  return out;
 }
 
 /** The alert state to persist after acting on `plan`. */

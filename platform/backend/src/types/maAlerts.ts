@@ -62,6 +62,41 @@ export const isFilterSide = (v: string): v is FilterSide =>
   (FILTER_SIDES as readonly string[]).includes(v);
 
 /**
+ * The timeframes a gate may be measured on.
+ *
+ * A gate with no timeframe is measured on the alert's OWN, which is what every
+ * gate written before the `filters` column did and what an omitted field still
+ * means. Naming one turns a single-timeframe question into a multi-timeframe
+ * one — "15m support, but only while the 1h trend is down and the 4h is up" —
+ * which is a correlation a trader would otherwise have to do by hand across
+ * two alerts that cannot actually be correlated.
+ */
+export const FILTER_TIMEFRAMES = [
+  "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d",
+] as const;
+export type FilterTimeframe = (typeof FILTER_TIMEFRAMES)[number];
+export const isFilterTimeframe = (v: string): v is FilterTimeframe =>
+  (FILTER_TIMEFRAMES as readonly string[]).includes(v);
+
+/**
+ * The most gates one alert may carry.
+ *
+ * A bound on what a person can reason about, NOT on cost. The runner fetches
+ * one candle series per DISTINCT timeframe and shares it across every alert on
+ * the symbol, so ten gates spread over two timeframes cost the same two
+ * fetches that two gates would.
+ *
+ * Asking one question on two timeframes already spends two slots, and a trader
+ * who wants an RSI and a moving average behind it is at four before the
+ * interesting part — which is why this is 10 rather than the 3 the fixed-slot
+ * design allowed.
+ *
+ * Raising it is a WIDENING, so the CHECK that carries it can never fail
+ * against a row that already exists.
+ */
+export const MAX_ALERT_FILTERS = 10;
+
+/**
  * Defaults for the gates: RSI 50 > 50, price > EMA 200, price above Supertrend.
  *
  * The Supertrend gate's defaults are the study's own inputs, so "only while the
@@ -74,7 +109,32 @@ export const FILTER_DEFAULTS = {
   supertrend: {
     period: 10, multiplier: 3, atrMethod: "rma" as StAtrMethod, side: "above" as FilterSide,
   },
+  /*
+   * RSI 50 against its own EMA 14 — a momentum gate that does not need a fixed
+   * level to be meaningful. The RSI length defaults to the same 50 the plain
+   * RSI gate uses, so switching between the two kinds does not silently change
+   * which oscillator is being read.
+   */
+  rsi_ma: {
+    length: 50, maType: "ema" as MaType, maLength: 14, side: "above" as FilterSide,
+  },
+  /** The classic 12/26/9, matching the MACD condition family's own defaults. */
+  macd: {
+    fastLength: 12, slowLength: 26, signalLength: 9,
+    target: "signal" as MacdTarget, side: "above" as FilterSide,
+  },
 } as const;
+
+/**
+ * The gate kinds, in the order the editor offers them.
+ *
+ * `rsi_ma` and `macd` both compare two computed series rather than a series to
+ * a constant, which is why their reading is a SPREAD (see `filterReadings`).
+ */
+export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd"] as const;
+export type FilterKind = (typeof FILTER_KINDS)[number];
+export const isFilterKind = (v: string): v is FilterKind =>
+  (FILTER_KINDS as readonly string[]).includes(v);
 
 /**
  * Which average of true range the Supertrend uses.
@@ -296,6 +356,17 @@ export interface MaAlertRow {
   indicatorTarget: string | null;
 
   // ── optional gates, available on every family ──
+  /**
+   * The gates this alert carries, in order, as stored in the `filters` JSONB
+   * column. Null on a row written before migration 045; the legacy `filter_*`
+   * columns below are then read instead. See `filtersFromRow`.
+   *
+   * Typed `unknown` deliberately: it is whatever the database returned, and
+   * `parseStoredFilters` is the only thing allowed to decide it is gates.
+   */
+  filters: unknown;
+
+  // ── legacy single gates, superseded by `filters` (migration 045) ──
   /** Null when no RSI gate is configured. */
   filterRsiLength: number | null;
   filterRsiLevel: number | null;
