@@ -152,6 +152,8 @@ test("X5 never gates SELL, because a SELL may be the only way out", async () => 
       const exitApp = Fastify();
       await exitApp.register(async (child) => traditionalExecutionRoutes(child, {
         shariah: { readMode: async () => { modeWasRead = true; return "enforce" as const; } },
+        // The same fixed, session-open clock as the BUY half above.
+        now: () => Date.UTC(2026, 8, 16, 15, 0, 0),
         botRequest: async () => ({ status: "FILLED" }),
         claimIntent: async () => { throw new Error("stop after the gate"); },
         resolveIntent: async () => {},
@@ -167,9 +169,25 @@ test("X5 never gates SELL, because a SELL may be the only way out", async () => 
             side: "SELL", quantity: "1000", orderType: "MARKET",
           },
         });
-        assert.notEqual(response.statusCode, 403,
-          `a SELL was refused while enforcing — the operator is trapped: ${response.body}`);
+        /*
+         * An EXACT status, not `notEqual(403)`.
+         *
+         * `notEqual` was satisfied by anything that was not a 403 — a 400 from
+         * a renamed field, a 404 from a moved route, a 500. It was in fact
+         * passing on a 422 "session is closed" for most of every week, which
+         * means the claim "an exit is never refusable" was unproven on the one
+         * route whose own comments admit is the weakest: X5 has no
+         * `positionEffect`, so this SELL is its only representable exit.
+         *
+         * `claimIntent` throws deliberately, to stop the request one step past
+         * the gate. Reaching that throw is the proof the gate cleared it, and
+         * it is a 500 only because the test put the wall there.
+         */
+        assert.equal(response.statusCode, 500,
+          `a SELL did not reach the intent claim, so the gate did not clear it: ${response.body}`);
         assert.doesNotMatch(response.body, /makes\s*no finding about/);
+        assert.doesNotMatch(response.body, /session is closed/,
+          "the session gate answered before the Shariah gate; this test proves nothing then");
       } finally { await exitApp.close(); }
       assert.equal(modeWasRead, false,
         "an exit consulted the mode; it must short-circuit before anything that could fail");

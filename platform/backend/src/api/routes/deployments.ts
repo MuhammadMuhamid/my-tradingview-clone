@@ -12,6 +12,7 @@ import {
 } from "../../alerts/dispatcher";
 import { validateDeploymentPatch, type DeploymentPatchInput } from "../deploymentPatch";
 import { config as appConfig } from "../../config";
+import * as liveSafety from "../../repositories/liveSafety";
 import * as paperRepo from "../../repositories/paperFills";
 import { PAPER_COMMISSION_PCT, summarisePaper } from "../../engine/paperBroker";
 import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
@@ -25,10 +26,22 @@ const publicDeployment = <T extends { secret: string | null; botUuid: string | n
 
 export function deploymentRoutes(
   getRunner: () => LiveRunner,
-  deps: { shariah?: ShariahGateDeps } = {}
+  deps: {
+    shariah?: ShariahGateDeps;
+    /** Injected so the halt refusal is provable without a database. */
+    riskLimits?: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>;
+    /**
+     * Injected for the same reason: a test that proves a SELL gets PAST the
+     * halt has to let the request continue, and continuing means a real query
+     * whose connection another test file's teardown can close underneath it.
+     */
+    getDeployment?: typeof deploymentRepo.getDeployment;
+  } = {}
 ) {
   return async function (app: FastifyInstance): Promise<void> {
     const runner = { activate: (id: string) => getRunner().activate(id), deactivate: (id: string) => getRunner().deactivate(id) };
+    const readRiskLimits = deps.riskLimits ?? liveSafety.getRiskLimits;
+    const readDeployment = deps.getDeployment ?? deploymentRepo.getDeployment;
     app.post("/api/deployments", async (req, reply) => {
       const body = req.body as {
         strategyKey?: string;
@@ -185,7 +198,37 @@ export function deploymentRoutes(
       if (body.action !== "buy" && body.action !== "sell") {
         return reply.code(400).send({ error: "action must be buy or sell" });
       }
-      const dep = await deploymentRepo.getDeployment(id);
+
+      /*
+       * ── The operator halt reaches this route too ─────────────────────────
+       *
+       * The comment below has always said this is "a real new-exposure path
+       * and is gated like one", and it was gated like one in every way except
+       * the halt: `deployments.ts` did not import `liveSafety` at all. So an
+       * operator who pressed "Halt all trading" — under copy reading "Halting
+       * refuses every emission, entries and exits alike" — could still place a
+       * real order from here.
+       *
+       * That is the same defect `manualHalt.test.ts` documents: the halt
+       * stopped the automated deployments and nothing else. The repair went to
+       * the manual ticket and this second real-order path was missed.
+       *
+       * BUY only, for the reason `shariah/gate.ts` states for the whole
+       * product — an operator must always be able to get OUT — and BEFORE the
+       * deployment is fetched, because a platform that has said it is not
+       * trading has no reason to go and read a row in order to say so.
+       */
+      if (body.action === "buy") {
+        const limits = await readRiskLimits();
+        if (limits.tradingHalted) {
+          return reply.code(409).send({
+            error: limits.haltedReason
+              ? `trading is halted: ${limits.haltedReason}. Closing an open position is still allowed.`
+              : "trading is halted. Closing an open position is still allowed.",
+          });
+        }
+      }
+      const dep = await readDeployment(id);
       if (!dep) return reply.code(404).send({ error: "deployment not found" });
       if (dep.status !== "paused") {
         return reply.code(409).send({ error: "test-signal requires a paused deployment" });
@@ -212,7 +255,11 @@ export function deploymentRoutes(
       }
 
       const tickerRes = await fetch(
-        `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(dep.symbol)}`
+        // The CONFIGURED origin. `api.binance.com` answers 451 from some
+        // regions, which is the entire reason
+        // `BINANCE_MARKET_DATA_BASE_URL` exists; every other public
+        // market-data read in this service already goes through it.
+        `${appConfig.binanceMarketDataBaseUrl}/api/v3/ticker/price?symbol=${encodeURIComponent(dep.symbol)}`
       );
       if (!tickerRes.ok) {
         return reply.code(502).send({ error: `Binance ticker failed (${tickerRes.status})` });

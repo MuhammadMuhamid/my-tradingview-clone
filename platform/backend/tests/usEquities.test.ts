@@ -311,3 +311,81 @@ test("X4 proxy refuses unresolved duplicate intents without blind Bot replay", a
     assert.equal(response.statusCode, 409); assert.match(response.body, /no retry was sent/); assert.equal(botCalls, 0);
   } finally { config.equityPaperExecutionEnabled = old; await app.close(); }
 });
+
+
+/**
+ * X4's exit, which nothing tested.
+ *
+ * `equityExecution.ts:162` derives `opening` from `positionEffect` and passes
+ * `opening ? "BUY" : "SELL"` to the scope gate. That is the correct shape —
+ * `COVER_SHORT` arrives on the wire as side `BUY`, and keying the gate on the
+ * WIRE SIDE instead would refuse it and trap a short exactly as this
+ * repository has twice done before.
+ *
+ * It was correct and unguarded: no test in this tree named `CLOSE_LONG` or
+ * `COVER_SHORT`, so the next edit could have swapped `positionEffect` for
+ * `side` and every suite would still have been green. X3A and X3B both carry
+ * a behavioural exit test; this is X4's.
+ */
+const exitOrder = (positionEffect: string, side: string) => ({
+  ...equityOrder,
+  dedupeKey: `equity:alpaca:AAPL:exit:${positionEffect}`,
+  side, positionEffect,
+});
+
+for (const [positionEffect, side] of [
+  ["CLOSE_LONG", "SELL"],
+  // The one that matters: closing a short is a wire-side BUY.
+  ["COVER_SHORT", "BUY"],
+] as const) {
+  test(`X4 routes a ${positionEffect} while enforcing, because it is an exit`, async () => {
+    const old = config.equityPaperExecutionEnabled; config.equityPaperExecutionEnabled = true;
+    let reachedBot = false; let modeWasRead = false;
+    const app = Fastify();
+    await app.register(async (child) => equityExecutionRoutes(child, {
+      registry: registry(), providerId: "alpaca-us-equities-fixture",
+      now: () => Date.parse("2026-03-09T14:30:00.000Z"),
+      shariah: { readMode: async () => { modeWasRead = true; return "enforce" as const; } },
+      claimIntent: async () => ({ claimed: true, intent: pendingEquityIntent }),
+      botRequest: async () => { reachedBot = true; return { status: "NEW" }; },
+      resolveIntent: async () => {},
+    }));
+    try {
+      const response = await app.inject({
+        method: "POST", url: "/api/equity-execution/v1/orders",
+        payload: exitOrder(positionEffect, side),
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(reachedBot, true, `a ${positionEffect} was refused while enforcing`);
+      assert.equal(modeWasRead, false,
+        "an exit consulted the mode; it must short-circuit on the side before anything that could fail");
+    } finally { config.equityPaperExecutionEnabled = old; await app.close(); }
+  });
+}
+
+for (const [positionEffect, side] of [
+  ["OPEN_LONG", "BUY"],
+  ["OPEN_SHORT", "SELL"],
+] as const) {
+  test(`X4 refuses a ${positionEffect} while enforcing, without contacting the Bot`, async () => {
+    const old = config.equityPaperExecutionEnabled; config.equityPaperExecutionEnabled = true;
+    let reachedBot = false;
+    const app = Fastify();
+    await app.register(async (child) => equityExecutionRoutes(child, {
+      registry: registry(), providerId: "alpaca-us-equities-fixture",
+      now: () => Date.parse("2026-03-09T14:30:00.000Z"),
+      shariah: { readMode: async () => "enforce" as const },
+      claimIntent: async () => { throw new Error("a refused order must not claim an intent"); },
+      botRequest: async () => { reachedBot = true; return { status: "NEW" }; },
+      resolveIntent: async () => {},
+    }));
+    try {
+      const response = await app.inject({
+        method: "POST", url: "/api/equity-execution/v1/orders",
+        payload: exitOrder(positionEffect, side),
+      });
+      assert.equal(response.statusCode, 403, response.body);
+      assert.equal(reachedBot, false, "a refused new position still reached the Bot");
+    } finally { config.equityPaperExecutionEnabled = old; await app.close(); }
+  });
+}
