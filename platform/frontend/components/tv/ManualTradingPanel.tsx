@@ -147,6 +147,15 @@ export function ManualTradingPanel({
    * stale badge here can mislead but can never permit.
    */
   const [shariah, setShariah] = useState<ShariahSymbolStatus | null>(null);
+  /**
+   * Whether the operator has halted trading.
+   *
+   * The backend refuses a halted BUY with a 409 and always did; this panel had
+   * no idea, so it drew a live Buy button and the operator learned of the halt
+   * only by pressing it. The same reasoning as the Shariah badge beside it:
+   * ask, so the reader is told before they act rather than after.
+   */
+  const [halted, setHalted] = useState<{ reason: string | null } | null>(null);
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
   const [amount, setAmount] = useState("");
   const [limitPrice, setLimitPrice] = useState("");
@@ -216,6 +225,28 @@ export function ManualTradingPanel({
       .catch(() => { if (!cancelled) setShariah(null); });
     return () => { cancelled = true; };
   }, [symbol]);
+
+  /*
+   * Polled on the panel's own cadence. A failure leaves it null — unknown,
+   * which says nothing and blocks nothing, because the authority is the
+   * backend's 409 and not this badge.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const read = () => {
+      api.opsStatus()
+        .then((status) => {
+          if (cancelled) return;
+          setHalted(status.risk.tradingHalted
+            ? { reason: status.risk.haltedReason ?? null }
+            : null);
+        })
+        .catch(() => { if (!cancelled) setHalted(null); });
+    };
+    read();
+    const id = setInterval(read, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   /**
    * Tell the workspace whether anything is staged.
@@ -303,6 +334,12 @@ export function ManualTradingPanel({
    * trip to a backend that would refuse it anyway.
    */
   const shariahBlocksBuy = side === "BUY" && shariah !== null && !shariah.buyAllowed;
+  /*
+   * A halt refuses NEW exposure and leaves the exit open, which is the whole
+   * reason to halt rather than stop the runner. So this blocks BUY and says
+   * nothing about SELL — the same shape as the Shariah gate above.
+   */
+  const haltBlocksBuy = side === "BUY" && halted !== null;
 
   /** The largest order this account can place right now, on this side. */
   const maximum = maximumOrder(accountState, side);
@@ -341,6 +378,7 @@ export function ManualTradingPanel({
   const valid = !!account && account.testnet && Number(amount) > 0 &&
     (orderType === "MARKET" || Number(limitPrice) > 0)
     && !shariahBlocksBuy
+    && !haltBlocksBuy
     && staleTicket === null
     && sizingProblem === null
     && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
@@ -724,6 +762,14 @@ export function ManualTradingPanel({
         the way the reference does. Nothing is sent from here — the review
         dialog is still the only place an order can be confirmed.
       */}
+      {halted && (
+        <p role="status" data-halt-notice="true"
+          className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+          Trading is halted{halted.reason ? `: ${halted.reason}` : ""}. New positions are
+          refused. <span className="text-ink-muted">Closing, cancelling and adjusting
+          protection are still available.</span>
+        </p>
+      )}
       {shariah && shariah.mode === "enforce" && (
         <div className={`rounded-md border px-2.5 py-2 text-[11px] leading-4 ${
           shariah.buyAllowed

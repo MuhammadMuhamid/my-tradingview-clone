@@ -33,7 +33,16 @@ const MODE_STYLE: Record<OpsStatus["mode"], { badge: string; note: string }> = {
   },
   HALTED: {
     badge: "bg-down/15 text-down border-down/30",
-    note: "Every emission is refused — entries and exits alike — until trading is resumed.",
+    /*
+     * "Entries and exits alike" is true of the AUTOMATION and became false of
+     * the product when the halt was extended to the paths that reach the
+     * market by hand. Those refuse a new position and deliberately leave
+     * closing, cancelling and tightening protection open — that is the whole
+     * reason to halt rather than stop the runner, and saying otherwise sends
+     * an operator to the exchange for something this product now does.
+     */
+    note: "Every automated emission is refused until trading is resumed. Closing, "
+      + "cancelling and adjusting protection by hand stay available.",
   },
   DISABLED: {
     badge: "bg-ink-faint/15 text-ink-muted border-border",
@@ -484,10 +493,12 @@ export default function OperationsPage() {
             </div>
           )}
           <p className="text-xs text-ink-faint">
-            Halting refuses every emission, entries and exits alike. It does <strong>not</strong> close
-            open positions: the platform cannot flatten a position it does not hold, and inventing an
-            exit price would put real money behind a guess. Close positions in the bot or on the
-            exchange.
+            Halting refuses every automated emission, and refuses any NEW exposure from the
+            manual ticket and the live test signal. It does <strong>not</strong> close open
+            positions by itself: the platform cannot flatten a position it does not hold, and
+            inventing an exit price would put real money behind a guess. Closing, cancelling
+            and tightening a stop stay available to you by hand — in the manual panel, in the
+            bot, or on the exchange.
           </p>
         </div>
       </Card>

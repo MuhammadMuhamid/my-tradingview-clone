@@ -885,10 +885,11 @@ export default function GettingStarted() {
             />
             <Callout tone="critical" title="Halting does not close positions">
               <p>
-                A halt refuses every emission, entries and exits alike. It cannot flatten
-                a position, because this platform holds no credential and knows no fill
-                price it did not produce. Close positions in the execution Bot or on the
-                exchange.
+                A halt refuses every automated emission, and refuses any new exposure from
+                the manual ticket. It cannot flatten a position by itself, because this
+                platform holds no credential and knows no fill price it did not produce —
+                but closing, cancelling and tightening a stop stay available to you by hand,
+                in the manual panel, in the execution Bot, or on the exchange.
               </p>
             </Callout>
           </Section>
