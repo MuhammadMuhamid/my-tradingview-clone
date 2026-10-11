@@ -42,7 +42,7 @@ import {
   compositePane, copyCanvasToClipboard, downloadCanvas, snapshotFilename,
 } from "@/lib/chartSnapshot";
 import { NativeStudySettings, PineStudySettings } from "@/components/tv/NativeStudySettings";
-import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
+import { ChartSettingsModal, type ChartSettingsTab } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
@@ -73,6 +73,7 @@ import {
   CHART_ADD_TO_LIST_PREFIX, DRAWING_TEMPLATE_APPLY_PREFIX, SERIES_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu,
   drawingToolName, priceAxisMenu,
   seriesLegendMenu, TIME_ZONE_MENU_PREFIX, timeAxisMenu,
+  LEGEND_MENU_SETTING, legendDisplayMenu, type LegendMenuSettingKey,
 } from "@/lib/menuPayloads";
 import { CHART_TIME_ZONES } from "@/lib/chartClock";
 import { useShortcuts } from "@/lib/useShortcuts";
@@ -587,6 +588,8 @@ export default function TvWorkspace() {
   const [bottomToggle, setBottomToggle] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  // W2A-11: the tab it opens on, for a caller that names one; cleared on close.
+  const [chartSettingsTab, setChartSettingsTab] = useState<ChartSettingsTab | undefined>(undefined);
   /*
    * R6 SC-4: whether the Scales tab may offer a `Bid and ask` row.
    *
@@ -1694,7 +1697,7 @@ export default function TvWorkspace() {
   const [menu, setMenu] = useState<
     | null
     | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
-        kind: "chart" | "drawing" | "axis" | "time" | "series"; paneId: string; price: number | null;
+        kind: "chart" | "drawing" | "axis" | "time" | "series" | "legend"; paneId: string; price: number | null;
         drawingId: string | null;
         /** An exact panel width, for a payload the reference measures. */
         width?: number }
@@ -1909,13 +1912,32 @@ export default function TvWorkspace() {
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
       /** Which strip was clicked: the plot, the price axis, or the time axis. */
-      region: "plot" | "axis" | "time" | "series";
+      region: "plot" | "axis" | "time" | "series" | "legend";
     }
   ) => {
     activatePane(paneId);
     const pane = paneById(workspace, paneId);
     const paneSymbol = pane?.symbol ?? symbol;
     const drawings = replayActive ? replayDrawings : drawingStore.get(paneSymbol);
+    if (event.region === "legend") {
+      // W2A-11: a legend row's right-click is the legend's own display menu.
+      const settings = paneChartSettings(workspace, paneId);
+      setMenu({
+        at: { x: event.x, y: event.y },
+        label: "Legend",
+        kind: "legend",
+        paneId,
+        price: null,
+        drawingId: null,
+        entries: legendDisplayMenu({
+          showStatusLine: settings.showStatusLine,
+          values: Object.fromEntries(Object.values(LEGEND_MENU_SETTING)
+            .map((key) => [key, settings[key]])) as Record<LegendMenuSettingKey, boolean>,
+          mac: isMacPlatform(),
+        }),
+      });
+      return;
+    }
     if (event.region === "series") {
       /*
        * A4: the series legend's `⋯`. It opened the chart's own menu; Premium
@@ -2177,6 +2199,28 @@ export default function TvWorkspace() {
         return;
       case "chart:chart-settings":
       case "series:chart-settings": setChartSettingsOpen(true); return;
+      /*
+       * W2A-11: the legend menu's rows are the Status line tab's own keys,
+       * written to the pane the menu was opened on, and its `Settings…` opens
+       * the dialog on that tab rather than on Symbol.
+       */
+      case "legend:toggle-symbol":
+      case "legend:toggle-market-status":
+      case "legend:toggle-ohlc":
+      case "legend:toggle-bar-change":
+      case "legend:toggle-volume":
+      case "legend:toggle-day-change":
+      case "legend:toggle-indicator-titles":
+      case "legend:toggle-indicator-inputs":
+      case "legend:toggle-indicator-values": {
+        const key = LEGEND_MENU_SETTING[id];
+        writeSettings({ [key]: !chartSettings[key] });
+        return;
+      }
+      case "legend:settings":
+        setChartSettingsTab("status");
+        setChartSettingsOpen(true);
+        return;
       case "chart:object-tree": setPanel("objects"); return;
       case "chart:table-view":
       case "series:table-view": setPanel("objects"); return;
@@ -3182,7 +3226,8 @@ export default function TvWorkspace() {
       />
       <ChartSettingsModal
         open={chartSettingsOpen}
-        onClose={() => setChartSettingsOpen(false)}
+        onClose={() => { setChartSettingsOpen(false); setChartSettingsTab(undefined); }}
+        initialTab={chartSettingsTab}
         symbol={symbol}
         interval={interval}
         chartType={active.chartType}

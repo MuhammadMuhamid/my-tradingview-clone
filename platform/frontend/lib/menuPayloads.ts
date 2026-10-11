@@ -674,6 +674,77 @@ export function legendStudyMenu(ctx: LegendStudyMenuContext): MenuEntry[] {
   ];
 }
 
+/**
+ * The LEGEND's own menu — what a right-click on a legend row opens (W2A-11).
+ *
+ * Measured on live Premium (2026-10-11): right-clicking a study's row on the
+ * legend does not open that study's menu — its `⋯` does that — it opens a
+ * menu about the legend itself: `Symbol title`, `Open market status`,
+ * `Chart values`, `Bar change values`, `Volume`, `Last day change values`,
+ * then `Indicator titles`, `inputs`, `values`, then `Settings…`. Every row is
+ * a Status-line setting this product already has, so each toggles the same
+ * key the Chart settings dialog's Status line tab writes, and `Settings…`
+ * opens that dialog on that tab. Checkbox rows: a ✓, never the selected fill.
+ *
+ * Premium's `Show Buy/Sell buttons` is absent for the reason §6a gives (no
+ * on-chart order entry).
+ */
+export const LEGEND_MENU_IDS = [
+  "legend:toggle-symbol", "legend:toggle-market-status", "legend:toggle-ohlc",
+  "legend:toggle-bar-change", "legend:toggle-volume", "legend:toggle-day-change",
+  "legend:toggle-indicator-titles", "legend:toggle-indicator-inputs",
+  "legend:toggle-indicator-values", "legend:settings",
+] as const;
+export type LegendMenuId = (typeof LEGEND_MENU_IDS)[number];
+
+/** The Status-line keys the legend menu reads and writes, by row. */
+export const LEGEND_MENU_SETTING = {
+  "legend:toggle-symbol": "statusSymbol",
+  "legend:toggle-market-status": "statusMarketStatus",
+  "legend:toggle-ohlc": "statusOhlc",
+  "legend:toggle-bar-change": "statusBarChange",
+  "legend:toggle-volume": "statusVolume",
+  "legend:toggle-day-change": "statusDayChange",
+  "legend:toggle-indicator-titles": "statusIndicatorTitles",
+  "legend:toggle-indicator-inputs": "statusIndicatorInputs",
+  "legend:toggle-indicator-values": "statusIndicatorValues",
+} as const satisfies Partial<Record<LegendMenuId, string>>;
+export type LegendMenuSettingKey = (typeof LEGEND_MENU_SETTING)[keyof typeof LEGEND_MENU_SETTING];
+
+export interface LegendMenuContext {
+  /** The whole status line, which the instrument rows live inside. */
+  showStatusLine: boolean;
+  values: Record<LegendMenuSettingKey, boolean>;
+  mac: boolean;
+}
+
+export function legendDisplayMenu(ctx: LegendMenuContext): MenuEntry[] {
+  const row = (id: keyof typeof LEGEND_MENU_SETTING, label: string,
+    extra: { disabled?: boolean; disabledReason?: string } = {}) => ({
+    id, label, checked: ctx.values[LEGEND_MENU_SETTING[id]], ...extra,
+  });
+  // The instrument rows are parts of the status line; with it off they move
+  // nothing, so they say so rather than toggle a hidden row.
+  const lineOff = ctx.showStatusLine
+    ? {} : { disabled: true, disabledReason: "The status line is off — turn it on in Settings" };
+  return [
+    row("legend:toggle-symbol", "Symbol title", lineOff),
+    row("legend:toggle-market-status", "Open market status", lineOff),
+    row("legend:toggle-ohlc", "Chart values", lineOff),
+    row("legend:toggle-bar-change", "Bar change values", lineOff),
+    row("legend:toggle-volume", "Volume", lineOff),
+    row("legend:toggle-day-change", "Last day change values", lineOff),
+    { id: "sep-indicators", separator: true },
+    row("legend:toggle-indicator-titles", "Indicator titles"),
+    // Dependent on titles, as the dialog's own row is: inputs print after a name.
+    row("legend:toggle-indicator-inputs", "Indicator inputs", ctx.values.statusIndicatorTitles
+      ? {} : { disabled: true, disabledReason: "Inputs are printed after a title — turn titles on first" }),
+    row("legend:toggle-indicator-values", "Indicator values"),
+    { id: "sep-settings", separator: true },
+    { id: "legend:settings", label: "Settings…", glyph: "gear", hint: menuCap("chart-settings", ctx.mac) },
+  ];
+}
+
 export interface AxisMenuContext {
   autoScale: boolean;
   logScale: boolean;

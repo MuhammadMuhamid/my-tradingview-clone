@@ -928,8 +928,8 @@ export function CandleChart({
   onChartContextMenu?: (
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
-      /** Which strip was clicked: the plot, the price axis, or the time axis. */
-      region: "plot" | "axis" | "time";
+      /** Which strip was clicked: the plot, the price axis, the time axis — or a legend row (W2A-11). */
+      region: "plot" | "axis" | "time" | "legend";
     }
   ) => void;
   magnet?: MagnetMode;
@@ -1994,6 +1994,12 @@ export function CandleChart({
 
   const onChartContextMenuRef = useRef(onChartContextMenu);
   onChartContextMenuRef.current = onChartContextMenu;
+  /** W2A-11: a right-click on any legend row — price pane or study pane — is the legend's menu. */
+  const hasChartMenu = onChartContextMenu !== undefined;
+  const openLegendMenu = useMemo(() => hasChartMenu
+    ? (at: { x: number; y: number }) => onChartContextMenuRef.current?.({
+      ...at, drawingId: null, price: null, region: "legend",
+    }) : undefined, [hasChartMenu]);
 
   /*
    * ── TVP8: the lines the "Scales and lines" tab is named for ──────────────
@@ -4885,6 +4891,7 @@ export function CandleChart({
             && ((key, action, target) => onIndicatorPaneAction(`indicator:${key}`, action, target))}
           onOpenObjectTree={onOpenObjectTree}
           canAction={canIndicatorAction}
+          onDisplayMenu={openLegendMenu}
           alertFor={indicatorAlertFor}
           hidden={hiddenStudies}
         />
@@ -5129,6 +5136,7 @@ export function CandleChart({
                 onRangeChange={indicatorPaneRange}
                 onAction={onIndicatorPaneAction}
                 onOpenObjectTree={onOpenObjectTree}
+                onLegendMenu={openLegendMenu}
                 studyAlert={indicatorAlertFor?.(pane.id.replace(/^indicator:/, "")) ?? null}
                 /* R6 SC-3: one answer for every study on this chart. */
                 lastValue={settings.indicatorLastValue}

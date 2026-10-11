@@ -83,6 +83,7 @@ function statusTitleForm(value: string): StatusTitleForm {
 }
 
 type Tab = "symbol" | "status" | "scales" | "canvas" | "trading" | "alerts" | "events";
+export type ChartSettingsTab = Tab;
 
 /**
  * The sidebar's glyphs, drawn here in the product's own icon family.
@@ -186,6 +187,8 @@ export function ChartSettingsModal(props: {
    * provider without quotes must not be shown a control that cannot move.
    */
   hasBidAsk?: boolean;
+  /** The tab it opens on — `status` from the legend menu's `Settings…` (W2A-11). Symbol otherwise. */
+  initialTab?: ChartSettingsTab;
 }) {
   const {
     open, onClose, chartType, scale, onScale, settings, onSettings, hasBidAsk = false,
@@ -212,7 +215,7 @@ export function ChartSettingsModal(props: {
   const touched = useRef({ settings: false, scale: false });
   useEffect(() => {
     if (!open) { setEntry(null); return; }
-    setTab("symbol");
+    setTab(props.initialTab ?? "symbol");
     setEntry({ settings, scale });
     touched.current = { settings: false, scale: false };
     // Captured once per opening, deliberately: this must be the state on ENTRY.

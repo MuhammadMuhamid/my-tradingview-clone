@@ -159,7 +159,7 @@ export interface MenuItem {
   radio?: boolean;
   /** Destructive items are tinted and are never the initially focused item. */
   destructive?: boolean;
-  /** The row's 20px leading mark. Suppressed while `checked` is true. */
+  /** The row's 28px leading mark (W2A-07). Suppressed while `checked` is true. */
   glyph?: MenuGlyph;
   /**
    * A submenu, drawn with `›` and opened on hover or `→`.

@@ -20,7 +20,7 @@ import {
  */
 export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
-  title, onAction, onOpenObjectTree, canAction, alertFor, hidden = [],
+  title, onAction, onOpenObjectTree, onDisplayMenu, canAction, alertFor, hidden = [],
   showTitles = true, showInputs = true, showValues = true,
   background = true, backgroundOpacity = 60,
 }: {
@@ -77,6 +77,12 @@ export function IndicatorLegend({
    * verb that acts on the pane instead.
    */
   onOpenObjectTree?: () => void;
+  /**
+   * W2A-11: open the legend's own display menu at the pointer, for a
+   * right-click on any row. Without it a right-click on a study row opens
+   * that study's `⋯` menu, as it did before.
+   */
+  onDisplayMenu?: (at: { x: number; y: number }) => void;
   /**
    * Whether this instance is a study that `onAction` can actually move.
    *
@@ -281,7 +287,18 @@ export function IndicatorLegend({
                   browser's default, so nothing here claims a gesture it
                   cannot answer.
                 */
-                onContextMenu={onAction && canAction?.(group.id) ? (event) => {
+                /*
+                  W2A-11: and where the owner hands one, the LEGEND's menu
+                  instead — measured on live Premium, a right-click on a study
+                  row opens the legend display menu (`Symbol title` … `Indicator
+                  values`, `Settings…`), and the study's own menu stays on its
+                  `⋯`. Every row answers the gesture then, a study or not.
+                */
+                onContextMenu={onDisplayMenu ? (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onDisplayMenu({ x: event.clientX, y: event.clientY });
+                } : onAction && canAction?.(group.id) ? (event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   setMoreMenu({ id: group.id, title: group.title, at: { x: event.clientX, y: event.clientY } });

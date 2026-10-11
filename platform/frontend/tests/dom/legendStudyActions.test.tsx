@@ -136,18 +136,13 @@ function rsiRow(): HTMLElement {
   return title!;
 }
 
-test("A5/A16 — a right-click on a study row is that study's menu, led by its alert", async () => {
+test("A5 — a study's ⋯ is that study's menu, led by its alert", async () => {
   seedRsi();
   await mountChart();
   await settle();
-  const event = new window.MouseEvent("contextmenu", {
-    bubbles: true, cancelable: true, clientX: 60, clientY: 40, button: 2,
-  });
-  fireEvent(rsiRow(), event);
+  fireEvent.click(button(/^More for Relative Strength Index/)!);
   await settle();
-  assert.equal(event.defaultPrevented, true, "the browser's own menu would open over the chart");
-  assert.equal(menuLabel(), "Relative Strength Index",
-    "the right-click opened some other menu — the chart's is about the candles, not the study");
+  assert.equal(menuLabel(), "Relative Strength Index");
   const rows = menuItems().map((i) => i.label);
   assert.equal(rows[0], "Add alert on Relative Strength Index…");
   assert.equal(rows[rows.length - 1], "Remove", "Remove stays last");
@@ -188,6 +183,62 @@ test("C-04 — a MACD's alert carries its fast, slow and signal lengths", async 
   await settle();
   const value = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).value;
   assert.deepEqual([value("Fast length"), value("Slow length"), value("Signal length")], ["8", "21", "5"]);
+  await press("Escape");
+});
+
+/** Right-click a legend row; returns whether the browser's own menu was refused. */
+async function rightClickRow(row: HTMLElement): Promise<boolean> {
+  const event = new window.MouseEvent("contextmenu", {
+    bubbles: true, cancelable: true, clientX: 60, clientY: 40, button: 2,
+  });
+  fireEvent(row, event);
+  await settle();
+  return event.defaultPrevented;
+}
+
+test("W2A-11 — a right-click on a study row is the LEGEND's menu, and it moves the legend", async () => {
+  /*
+   * Live Premium (2026-10-11): right-clicking a study's legend row opens the
+   * legend display menu — Symbol title … Indicator values, Settings… — and
+   * the study's own menu stays on its ⋯. This used to open the study's menu.
+   */
+  seedRsi();
+  await mountChart();
+  await settle();
+  assert.equal(await rightClickRow(rsiRow()), true, "the browser's own menu would open over the chart");
+  assert.equal(menuLabel(), "Legend");
+  const labels = menuItems().map((i) => i.label);
+  assert.deepEqual(labels.slice(0, -1), [
+    "Symbol title", "Open market status", "Chart values", "Bar change values", "Volume",
+    "Last day change values", "Indicator titles", "Indicator inputs", "Indicator values",
+  ]);
+  // `Settings…` carries the chart-settings chord, which is bound.
+  assert.match(labels[labels.length - 1] ?? "", /^Settings…/);
+  const checked = (name: string): string | null =>
+    screen.getByRole("menuitemcheckbox", { name }).getAttribute("aria-checked");
+  // The defaults, read from the pane's own settings: Volume and day change off.
+  assert.equal(checked("Chart values"), "true");
+  assert.equal(checked("Volume"), "false");
+  assert.ok(screen.getByRole("menuitemcheckbox", { name: "Indicator inputs" }).hasAttribute("data-check-mark"),
+    "a checkbox row states itself with a ✓, not with the selected fill");
+
+  // Indicator inputs off: the RSI row stops printing `14 close`.
+  const inputsShown = (): boolean => /14 close/.test(rsiRow().textContent ?? "");
+  assert.equal(inputsShown(), true, "the RSI row prints its inputs by default");
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Indicator inputs" }));
+  await settle();
+  assert.equal(inputsShown(), false, "the legend menu's toggle did not reach the legend");
+
+  // And it is the same key the dialog writes: Settings… lands on Status line.
+  await rightClickRow(rsiRow());
+  assert.equal(checked("Indicator inputs"), "false", "the menu reopened on a stale reading");
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Settings…/ }));
+  await settle();
+  assert.equal(screen.getByRole("tab", { name: "Status line" }).getAttribute("aria-selected"), "true",
+    "Settings… opened the dialog on some other tab");
+  assert.equal(screen.getByRole("checkbox", { name: "Inputs" }).getAttribute("aria-checked") === "true"
+    || (screen.getByRole("checkbox", { name: "Inputs" }) as HTMLInputElement).checked, false,
+    "the dialog and the menu disagree about one setting");
   await press("Escape");
 });
 

@@ -145,7 +145,7 @@ export type PaneAction = "hide" | "settings" | "remove" | "alert";
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
   onAction,
-  onOpenObjectTree, studyAlert = null,
+  onOpenObjectTree, onLegendMenu, studyAlert = null,
   collapsed = false, onToggleCollapsed,
   maximized = false, canMaximize = false, onToggleMaximized,
   canMoveUp = false, canMoveDown = false, onMove,
@@ -198,6 +198,8 @@ export function IndicatorPane({
   onAction?: (paneId: string, action: PaneAction) => void;
   /** The legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
+  /** W2A-11: a right-click on this pane's legend row opens the legend's display menu. */
+  onLegendMenu?: (at: { x: number; y: number }) => void;
   /**
    * Whether this study's legend menu offers `Add alert on …`, and whether it
    * can be taken right now — see `IndicatorLegend`'s `alertFor`. Null when the
@@ -883,6 +885,7 @@ export function IndicatorPane({
           backgroundOpacity={legendBackgroundOpacity}
           onAction={onAction && ((_instanceId, action) => onAction(id, action))}
           onOpenObjectTree={onOpenObjectTree}
+          onDisplayMenu={onLegendMenu}
           canAction={onAction ? () => true : undefined}
           alertFor={studyAlert ? () => studyAlert : undefined}
         />

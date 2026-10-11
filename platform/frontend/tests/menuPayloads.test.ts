@@ -27,7 +27,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  LEGEND_ALERT_TARGET_PREFIX, legendStudyMenu,
+  LEGEND_ALERT_TARGET_PREFIX, LEGEND_MENU_SETTING, legendDisplayMenu, legendStudyMenu,
   TIME_ZONE_MENU_PREFIX, WATCHLIST_VIEW_DEFAULTS, priceAxisMenu, timeAxisMenu,
   watchlistAddToListMenu, watchlistListsMenu, watchlistMenu, watchlistSettingsMenu,
 } from "../lib/menuPayloads";
@@ -295,6 +295,30 @@ test("W2A-04 — a grouped legend row's alert arms one line: directly for one, a
   ]);
 
   // A study with no targets keeps its own row.
+  const rsiOnly = legendStudyMenu({ title: "RSI", alert: { replayActive: false } });
+  assert.equal((rsiOnly[0] as { children?: unknown }).children, undefined);
+});
+
+test("W2A-11 — the legend menu is the Status-line keys, as ✓ rows, and says why a row is greyed", () => {
+  const values = Object.fromEntries(Object.values(LEGEND_MENU_SETTING).map((k) => [k, true])) as
+    Record<(typeof LEGEND_MENU_SETTING)[keyof typeof LEGEND_MENU_SETTING], boolean>;
+  const on = legendDisplayMenu({ showStatusLine: true, values: { ...values, statusVolume: false }, mac: true });
+  const items = on.filter((e) => !isSeparator(e)) as { id: string; checked?: boolean; disabled?: boolean }[];
+  assert.equal(items.find((e) => e.id === "legend:toggle-volume")?.checked, false);
+  assert.equal(items.find((e) => e.id === "legend:toggle-ohlc")?.checked, true);
+  assert.equal(items.find((e) => e.id === "legend:settings")?.checked, undefined, "Settings… is a verb");
+  assert.ok(items.every((e) => !e.disabled));
+
+  const off = legendDisplayMenu({
+    showStatusLine: false, values: { ...values, statusIndicatorTitles: false }, mac: true,
+  }).filter((e) => !isSeparator(e)) as { id: string; disabled?: boolean; disabledReason?: string }[];
+  assert.ok(off.find((e) => e.id === "legend:toggle-symbol")?.disabled, "a status-line row with the line off");
+  assert.ok(off.find((e) => e.id === "legend:toggle-indicator-inputs")?.disabledReason,
+    "inputs depend on titles, and the row says so");
+  assert.ok(!off.find((e) => e.id === "legend:toggle-indicator-values")?.disabled);
+});
+
+test("W2A-04 — a study row with no targets arms the study itself", () => {
   const rsi = legendStudyMenu({ title: "RSI", alert: { replayActive: false } });
   assert.equal((rsi[0] as { id: string }).id, "study-legend:add-alert");
 });

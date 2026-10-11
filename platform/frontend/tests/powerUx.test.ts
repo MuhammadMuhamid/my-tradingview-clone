@@ -28,7 +28,7 @@ import {
   resolveShortcut, resolveTypedInterval,
 } from "../lib/shortcuts";
 import {
-  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, DRAWING_TEMPLATE_APPLY_PREFIX, SERIES_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, seriesLegendMenu, studyMenu, watchlistMenu,
+  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, DRAWING_TEMPLATE_APPLY_PREFIX, LEGEND_MENU_IDS, SERIES_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, seriesLegendMenu, studyMenu, watchlistMenu,
 } from "../lib/menuPayloads";
 import { FLAG_COLOURS } from "../lib/watchlistFlags";
 import {
@@ -966,6 +966,8 @@ const CHART_PAGE = read("app/chart/page.tsx");
 const ALL_MENU_IDS = [
   ...CHART_MENU_IDS, ...DRAWING_MENU_IDS, ...STUDY_MENU_IDS,
   ...AXIS_MENU_IDS, ...TIME_AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS, ...SERIES_MENU_IDS,
+  // W2A-11: the legend's display menu, answered on the chart page.
+  ...LEGEND_MENU_IDS,
 ];
 
 test("every id a menu can emit is answered by a handler", () => {
@@ -1036,7 +1038,7 @@ test("two menus cannot collide on an id", () => {
   for (const [prefix, ids] of [
     ["chart", CHART_MENU_IDS], ["drawing", DRAWING_MENU_IDS], ["study", STUDY_MENU_IDS],
     ["axis", AXIS_MENU_IDS], ["time", TIME_AXIS_MENU_IDS], ["watchlist", WATCHLIST_MENU_IDS],
-    ["series", SERIES_MENU_IDS],
+    ["series", SERIES_MENU_IDS], ["legend", LEGEND_MENU_IDS],
   ] as const) {
     for (const id of ids) {
       assert.ok(id.startsWith(`${prefix}:`), `${id} does not name its own menu`);
