@@ -810,6 +810,7 @@ from being lost — §9 has the test:
 | failures are announced, toned, and never print the raw cause | `tests/renderedUx.test.ts` |
 | chart settings reach the pane; Cancel undoes the whole visit | `tests/dom/chartShell.test.tsx` |
 | the workstation's symbol/interval controls exist exactly once | `tests/dom/shellDensity.test.tsx` |
+| a backtest result counts one population (entries) per row and names it; the last window is "Validation", never "frozen"; a failed run leads with the reader's sentence and keeps the engine's words behind a disclosure; a run can be reproduced from its page | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts` |
 
 Add to this table when you add a rule worth protecting. Prefer semantic DOM
 assertions; do not snapshot pixels, and do not pin a Tailwind class string as a

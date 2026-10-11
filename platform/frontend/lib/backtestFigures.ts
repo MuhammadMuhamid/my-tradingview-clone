@@ -14,7 +14,7 @@
  * Every surface now asks this file, so a rule is fixed once.
  */
 import type { Backtest, BacktestMetrics, Strategy, StrategyParams } from "./types";
-import { ALL_FIELDS } from "./paramSchema";
+import { groupsFor } from "./paramSchema";
 
 // ── One denominator per row ─────────────────────────────────────────────────
 
@@ -440,6 +440,8 @@ export interface RunFormValues {
   start: string;
   end: string;
   params: StrategyParams;
+  /** Which strategy the params belong to; its schema supplies the bounds. */
+  strategyKey?: string;
 }
 
 /**
@@ -465,7 +467,12 @@ export function runFormProblem(v: RunFormValues, nowMs: number): string | null {
   if (start >= end) return "The start date must be before the end date.";
   const today = Math.floor(nowMs / 86_400_000) * 86_400_000;
   if (end > today) return "The end date is in the future. A backtest can only run over history that has already happened.";
-  for (const f of ALL_FIELDS) {
+  // The CHOSEN strategy's own fields and bounds: `mtf_lean` and `ma_rr_v9`
+  // share key names with different meanings, and checking one against the
+  // other's limits would refuse a valid run. No strategy given keeps the
+  // historical ma_rr_v9 schema.
+  const fields = (groupsFor(v.strategyKey ?? "ma_rr_v9") ?? []).flatMap((g) => g.fields);
+  for (const f of fields) {
     const raw = v.params[f.key];
     if (typeof raw !== "number") continue;
     if (!Number.isFinite(raw)) return `${f.label} must be a number.`;

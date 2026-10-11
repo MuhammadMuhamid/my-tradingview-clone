@@ -2,12 +2,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardHeader, Empty, PageHeader, PageShell, StatusBadge } from "@/components/ui";
+import { Card, CardHeader, Checkbox, Empty, PageHeader, PageShell, StatusBadge } from "@/components/ui";
 import { shortReason } from "@/lib/errorCopy";
 import { BacktestForm } from "@/components/BacktestForm";
+import { CompareRuns } from "@/components/CompareRuns";
 import { api } from "@/lib/api";
 import type { Backtest, Strategy, SymbolInfo } from "@/lib/types";
 import { fmtPct, fmtDate, fmtAgo, signClass, UTC_DATE_NOTE } from "@/lib/format";
+import {
+  profitFactorText, profitFactorTone, runFailure, strategyFor, tradeFigures, winRateText,
+} from "@/lib/backtestFigures";
+
+/** At most this many runs are compared at once — a side-by-side, not a table. */
+const COMPARE_MAX = 2;
 
 export default function BacktestsPage() {
   const router = useRouter();
@@ -24,6 +31,14 @@ export default function BacktestsPage() {
    */
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  /** Runs ticked for comparison, in the order they were ticked. */
+  const [picked, setPicked] = useState<string[]>([]);
+  /*
+   * "Edit and re-run" on a result page lands here as `?from=<id>`. Read from
+   * `window.location` once on mount rather than `useSearchParams`, which would
+   * oblige a Suspense boundary around the whole page for one optional value.
+   */
+  const [preset, setPreset] = useState<Backtest | null>(null);
 
   const refresh = () => api.listBacktests()
     .then((r) => { setRows(r); setError(null); })
@@ -34,6 +49,10 @@ export default function BacktestsPage() {
     api.listSymbols().then(setSymbols).catch(() => {});
     api.listStrategies().then(setStrategies).catch(() => {});
     refresh();
+    const from = new URLSearchParams(window.location.search).get("from");
+    // An unreadable source run leaves the form on its defaults, which is what
+    // the reader would have had without the link.
+    if (from) api.getBacktest(from).then(setPreset).catch(() => {});
   }, []);
 
   // Poll while any run is queued/running.
@@ -54,7 +73,14 @@ export default function BacktestsPage() {
           application; this page is the quick historical check.
         </>}
       />
-      <BacktestForm symbols={symbols} strategies={strategies} onQueued={() => refresh()} />
+      {/*
+        Keyed on the preset AND, for a preset, on whether the strategy list has
+        arrived: the form reads both into its initial state, and a strategy key
+        resolved against an empty list would fall back to the default strategy.
+        A blank form is never remounted, so nothing a reader has typed is lost.
+      */}
+      <BacktestForm key={preset ? `${preset.id}:${strategies.length > 0}` : "new"}
+        symbols={symbols} strategies={strategies} preset={preset} onQueued={() => refresh()} />
 
       <Card>
         <CardHeader title="Recent runs" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
@@ -70,16 +96,19 @@ export default function BacktestsPage() {
           <Empty>No backtests yet. Configure one above and hit “Run backtest”.</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm tabular">
+            <table className="w-full min-w-[860px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-ink-muted">
+                  <th className="w-8 py-2 pl-4 font-medium"><span className="sr-only">Compare</span></th>
                   <th className="px-4 py-2 font-medium">Symbol</th>
+                  <th className="px-4 py-2 font-medium">Strategy</th>
                   <th className="px-4 py-2 font-medium">TF</th>
                   <th className="px-4 py-2 font-medium" title={UTC_DATE_NOTE}>Window (UTC)</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium text-right">Net %</th>
                   <th className="px-4 py-2 font-medium text-right">PF</th>
-                  <th className="px-4 py-2 font-medium text-right">Trades</th>
+                  <th className="px-4 py-2 font-medium text-right"
+                    title="Entries. A run recorded before entries were counted separately shows exit legs, and says so.">Trades</th>
                   <th className="px-4 py-2 font-medium text-right">Win %</th>
                   <th className="px-4 py-2 font-medium">When</th>
                 </tr>
@@ -87,7 +116,12 @@ export default function BacktestsPage() {
               <tbody>
                 {rows.map((r) => {
                   const m = r.metrics;
+                  const f = m ? tradeFigures(m) : null;
+                  const pfTone = f ? profitFactorTone(f) : "none";
                   const clickable = r.status === "done";
+                  const strategy = strategyFor(r, strategies);
+                  const isPicked = picked.includes(r.id);
+                  const failure = r.status === "error" ? runFailure(r.error) : null;
                   return (
                     <tr
                       key={r.id}
@@ -102,6 +136,14 @@ export default function BacktestsPage() {
                         and no Enter handler, so opening a result was impossible
                         without a mouse, and this is the ONLY route to one.
                       */}
+                      <td className="py-2 pl-4" onClick={(e) => e.stopPropagation()}>
+                        {clickable && (
+                          <Checkbox checked={isPicked}
+                            disabled={!isPicked && picked.length >= COMPARE_MAX}
+                            label={`Compare ${r.symbol} ${r.timeframe} run from ${fmtDate(r.createdAt)}`}
+                            onChange={(on) => setPicked((p) => on ? [...p, r.id].slice(-COMPARE_MAX) : p.filter((x) => x !== r.id))} />
+                        )}
+                      </td>
                       <td className="px-4 py-2 font-medium">
                         {clickable ? (
                           <Link href={`/research/${r.id}`}
@@ -110,26 +152,60 @@ export default function BacktestsPage() {
                             {r.symbol}
                           </Link>
                         ) : r.symbol}
+                        {/*
+                          A stress window is an ordinary backtest row, chosen
+                          with hindsight. Unmarked, it reads as one more quick
+                          run over a strangely short window.
+                        */}
+                        {r.stressRunId !== null && (
+                          <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[11px] font-normal text-ink-muted"
+                            title="One window of a stress analysis — its dates were chosen with hindsight">
+                            Stress
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted" title={strategy ? `key ${strategy.key}` : undefined}>
+                        {strategy ? strategy.name : strategies.length === 0 ? "—" : `#${r.strategyId}`}
                       </td>
                       <td className="px-4 py-2 text-ink-muted">{r.timeframe}</td>
                       <td className="px-4 py-2 text-ink-muted">{fmtDate(r.startTime)} → {fmtDate(r.endTime)}</td>
                       <td className="px-4 py-2">
                         <StatusBadge status={r.status} />
-                        {r.error && <div className="mt-1 text-xs text-down">{r.error}</div>}
+                        {/*
+                          The engine's own words (`invalid SOLUSDT 1h backfill:
+                          empty_series`) were this cell's body. They are the
+                          tooltip now; the cell says what happened.
+                        */}
+                        {failure && <div className="mt-1 max-w-[260px] text-xs text-down" title={failure.detail}>{failure.headline}</div>}
                       </td>
                       <td className={`px-4 py-2 text-right ${m ? signClass(m.netProfitPct) : "text-ink-faint"}`}>{m ? fmtPct(m.netProfitPct) : "—"}</td>
-                      <td className="px-4 py-2 text-right">{m ? (m.profitFactor === null ? "∞" : m.profitFactor.toFixed(2)) : "—"}</td>
-                      <td className="px-4 py-2 text-right">{m ? m.totalTrades : "—"}</td>
-                      <td className="px-4 py-2 text-right">{m ? `${m.winRatePct.toFixed(1)}%` : "—"}</td>
+                      <td className={`px-4 py-2 text-right ${pfTone === "up" ? "text-up" : pfTone === "down" ? "text-down" : ""}`}>
+                        {f ? profitFactorText(f) : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {f ? f.count : "—"}
+                        {f?.basis === "legs" && <span className="ml-1 text-xs text-ink-faint">legs</span>}
+                      </td>
+                      <td className="px-4 py-2 text-right">{f ? winRateText(f) : "—"}</td>
                       <td className="px-4 py-2 text-ink-faint">{fmtAgo(r.createdAt)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {picked.length < COMPARE_MAX && rows.some((r) => r.status === "done") && (
+              <p className="px-4 py-2 text-xs text-ink-faint">
+                Tick two finished runs to compare them side by side.
+              </p>
+            )}
           </div>
         )}
       </Card>
+
+      {(() => {
+        const [a, b] = picked.map((id) => rows.find((r) => r.id === id)).filter((r): r is Backtest => r !== undefined);
+        return a && b ? <CompareRuns a={a} b={b} strategies={strategies} onClear={() => setPicked([])} /> : null;
+      })()}
     </PageShell>
   );
 }

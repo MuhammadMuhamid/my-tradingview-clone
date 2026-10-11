@@ -156,6 +156,9 @@ test("the form refuses impossible numbers and a future window before sending", (
   assert.match(runFormProblem({ ...ok, start: "2026-10-10" }, NOW) ?? "", /before the end/);
   // The schema's own bounds: "Reward : Risk ratio" has min 0.25.
   assert.match(runFormProblem({ ...ok, params: { rrRatio: -2 } }, NOW) ?? "", /Reward : Risk ratio must be at least 0\.25/);
+  // Bounds come from the CHOSEN strategy's schema: a strategy without that
+  // field is not checked against another strategy's limit for it.
+  assert.equal(runFormProblem({ ...ok, params: { rrRatio: -2 }, strategyKey: "no_such_strategy" }, NOW), null);
 });
 
 // ── C-7: two runs side by side ──────────────────────────────────────────────
