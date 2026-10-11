@@ -331,13 +331,13 @@ export function IndicatorAlertModal({
       onClose={onClose}
       title={
         <>
-          {COPY[kind].title} alert on <span className="text-accent">{displayTicker(symbol)}</span>
+          {COPY[kind].title} alert on <span>{displayTicker(symbol)}</span>
         </>
       }
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy}>
+          <Button variant="contrast" onClick={() => void save()} disabled={busy}>
             {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
           </Button>
         </>

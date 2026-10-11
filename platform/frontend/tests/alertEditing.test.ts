@@ -615,9 +615,6 @@ test("W2A-08 — an alert dialog confirms in contrast, names its symbol in ink, 
    * never a title's decoration. These dialogs confirmed in accent blue and
    * printed the ticker in accent, and the price dialog's `Pick` was a
    * hand-rolled 45×32 at radius 4 — a third height and a fourth radius.
-   *
-   * `IndicatorAlertModal` follows in its own change (it is being reworked
-   * separately); it is the one alert dialog not listed here.
    */
   const dialogs = [
     "components/tv/PriceAlertModal.tsx",
@@ -626,6 +623,7 @@ test("W2A-08 — an alert dialog confirms in contrast, names its symbol in ink, 
     "components/tv/EditAlertModal.tsx",
     "components/tv/AlertEditor.tsx",
     "components/tv/AlertModal.tsx",
+    "components/tv/IndicatorAlertModal.tsx",
   ];
   for (const file of dialogs) {
     const src = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
