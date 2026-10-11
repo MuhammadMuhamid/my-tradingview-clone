@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   compareRuns, profitFactorText, profitFactorTone, rerunRequest, runFailure, runFormProblem,
-  runSettings, tradeFigures, validationFractionOf, winRateText,
+  runSettings, tradeFigures, tradeNetPct, validationFractionOf, winRateText,
 } from "../lib/backtestFigures";
 import type { Backtest, BacktestMetrics, Strategy } from "../lib/types";
 
@@ -190,6 +190,19 @@ test("a comparison puts the differing settings and every window side by side", (
   assert.equal(cmp.headline.find((r) => r.label === "Trades")!.a, "20 entries");
   assert.equal(cmp.headline.find((r) => r.label === "Net profit")!.b, "-1.00%");
   assert.ok(cmp.windows.some((r) => r.label.startsWith("Validation")), "the validation window is compared too");
+});
+
+test("C-08 a trade's P/L % is net of costs, like the P/L beside it", () => {
+  // The reviewer's row: the price moved +0.16 % while the trade lost 0.33 net.
+  const trade = {
+    tradeNo: 1, direction: "long" as const, entryTime: 0, entryPrice: 100, exitTime: 1, exitPrice: 100.16,
+    qty: 9.3, pnl: -0.33, pnlPct: 0.16, exitReason: "TP", runUpPct: null, drawdownPct: null, cumProfit: null,
+  };
+  // -0.33 over a 930 entry notional.
+  assert.ok(Math.abs(tradeNetPct(trade)! - (-0.33 / 930) * 100) < 1e-12);
+  assert.ok(tradeNetPct(trade)! < 0, "a losing trade must not read as a gain");
+  assert.equal(tradeNetPct({ ...trade, pnl: null }), null, "an open trade has no realised %");
+  assert.equal(tradeNetPct({ ...trade, qty: 0 }), null, "no notional, no percentage of it");
 });
 
 test("C-07 differing strategy parameters are listed key by key, not as 'differ / differ'", () => {

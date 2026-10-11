@@ -27,6 +27,7 @@ import {
 import { assertAbsent, assertPresent, closeBrowser, compactSeries, render, resetBrowser, server, settle } from "./harness/env";
 import { RunWindows } from "@/components/RunWindows";
 import { Metrics } from "@/components/Metrics";
+import { TradeList } from "@/components/TradeList";
 import BacktestDetail from "@/app/research/[id]/page";
 import BacktestsPage from "@/app/research/page";
 import type { Backtest, BacktestMetrics, Strategy } from "@/lib/types";
@@ -221,6 +222,19 @@ test("C-05 every screen-reader-only label on the result page's chart has a posit
     assert.ok(at && at !== document.body,
       `"${label.textContent}" has no positioned ancestor, so it is placed against the viewport`);
   }
+});
+
+test("C-08 the trade list's P/L % is net, beside the net P/L, with the move kept on hover", () => {
+  render(<TradeList trades={[{
+    tradeNo: 1, direction: "long", entryTime: T0, entryPrice: 100, exitTime: T0 + DAY, exitPrice: 100.16,
+    qty: 9.3, pnl: -0.33, pnlPct: 0.16, exitReason: "TP", runUpPct: null, drawdownPct: null, cumProfit: -0.33,
+  }]} />);
+  const header = screen.getByRole("columnheader", { name: "P/L %" });
+  assert.match(header.getAttribute("title") ?? "", /net of costs/i);
+  const cells = [...document.querySelectorAll("tbody td")].map((td) => td as HTMLElement);
+  const pct = cells[6]!;
+  assert.equal(pct.textContent, "-0.04%", "+0.16% beside -0.33 read as a winning trade");
+  assert.match(pct.getAttribute("title") ?? "", /\+0\.16% price move before costs/);
 });
 
 // ── C-2: reproducible from the page ─────────────────────────────────────────

@@ -1,5 +1,6 @@
 import type { Trade } from "@/lib/types";
 import { fmtPrice, fmtPct, fmtNum, fmtDateTime, signClass } from "@/lib/format";
+import { tradeNetPct } from "@/lib/backtestFigures";
 
 export function TradeList({ trades }: { trades: Trade[] }) {
   if (trades.length === 0) {
@@ -22,7 +23,14 @@ export function TradeList({ trades }: { trades: Trade[] }) {
             <th className="px-3 py-2 font-medium">Exit time</th>
             <th className="px-3 py-2 font-medium text-right">Exit</th>
             <th className="px-3 py-2 font-medium">Reason</th>
-            <th className="px-3 py-2 font-medium text-right">P/L %</th>
+            {/*
+              C-08: net of costs, the same basis as P/L beside it. It was the
+              raw price move, so a trade could read +0.16 % beside a loss.
+            */}
+            <th className="px-3 py-2 font-medium text-right"
+              title="Net of costs: this trade's P/L over what its entry spent. Hover a value for the price move before costs.">
+              P/L %
+            </th>
             <th className="px-3 py-2 font-medium text-right">P/L</th>
             <th className="px-3 py-2 font-medium text-right">Cumulative</th>
           </tr>
@@ -30,6 +38,7 @@ export function TradeList({ trades }: { trades: Trade[] }) {
         <tbody>
           {trades.map((t) => {
             const open = t.exitTime === null;
+            const netPct = tradeNetPct(t);
             return (
             <tr key={t.tradeNo}
                 className={`border-b border-border/50 hover:bg-state-hover ${open ? "bg-warn/5" : ""}`}>
@@ -43,7 +52,10 @@ export function TradeList({ trades }: { trades: Trade[] }) {
                   ? <span className="rounded bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-warn">OPEN</span>
                   : <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-muted">{t.exitReason ?? "—"}</span>}
               </td>
-              <td className={`px-3 py-1.5 text-right ${signClass(t.pnlPct)}`}>{fmtPct(t.pnlPct)}</td>
+              <td className={`px-3 py-1.5 text-right ${signClass(netPct)}`}
+                title={t.pnlPct === null ? undefined : `${fmtPct(t.pnlPct)} price move before costs`}>
+                {fmtPct(netPct)}
+              </td>
               <td className={`px-3 py-1.5 text-right ${signClass(t.pnl)}`}>{fmtNum(t.pnl)}</td>
               <td className={`px-3 py-1.5 text-right ${signClass(t.cumProfit)}`}>{fmtNum(t.cumProfit)}</td>
             </tr>

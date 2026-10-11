@@ -13,7 +13,7 @@
  *
  * Every surface now asks this file, so a rule is fixed once.
  */
-import type { Backtest, BacktestMetrics, Strategy, StrategyParams } from "./types";
+import type { Backtest, BacktestMetrics, Strategy, StrategyParams, Trade } from "./types";
 import { ENGINE_ORDER_SIZE, groupsFor } from "./paramSchema";
 
 // ── One denominator per row ─────────────────────────────────────────────────
@@ -512,6 +512,22 @@ export interface CompareRow {
   b: string;
   /** True when the two differ — the rows a reader needs to see first. */
   differs: boolean;
+}
+
+/**
+ * A closed trade's P/L as a percentage of what it put in, NET of costs.
+ *
+ * C-08: the trade list's "P/L %" was the engine's `pnlPct` — the raw price
+ * move, entry to exit — while "P/L" beside it is net of both commissions. So
+ * a row read +0.16 % beside −0.33: a losing trade with a winning percentage.
+ * This is the same division the engine's `netAvgTrade` correction makes for
+ * the average: the leg's net P/L over its entry notional. The price move
+ * stays available, as the cell's tooltip.
+ */
+export function tradeNetPct(t: Pick<Trade, "pnl" | "entryPrice" | "qty">): number | null {
+  if (t.pnl === null) return null;
+  const notional = t.entryPrice * Math.abs(t.qty);
+  return notional > 0 ? (t.pnl / notional) * 100 : null;
 }
 
 /**
