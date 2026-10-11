@@ -27,9 +27,9 @@ import * as candleRepo from "../../repositories/candles";
 import { ensureCandles } from "../../data/binanceRest";
 import {
   discoverStressWindows, StressDiscoveryError, stressProvenance,
-  STRESS_EPISTEMIC_NOTE, type StressMethod, type StressWindowConfig,
+  STRESS_EPISTEMIC_NOTE, validateStressConfig, type StressMethod, type StressWindowConfig,
 } from "../../engine/stress";
-import { isInterval, type Interval } from "../../types/market";
+import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import {
   DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
 } from "./backtests";
@@ -133,22 +133,36 @@ async function prepareDiscovery(body: DiscoveryBody): Promise<
     };
   }
 
+  if (!Array.isArray(body.manualWindows ?? [])) {
+    return { ok: false, code: 400, error: "manualWindows must be a list" };
+  }
   const manualWindows = (body.manualWindows ?? []).map((w) => ({
     startMs: Number(w.startMs), endMs: Number(w.endMs),
     ...(w.label === undefined ? {} : { label: String(w.label) }),
   }));
-  return {
-    ok: true, benchmark, interval,
-    startMs, endMs,
-    config: {
-      method: method as StressMethod,
-      lengthBars: Number(body.lengthBars),
-      topN: Number(body.topN),
-      ...(body.minSeparationBars === undefined
-        ? {} : { minSeparationBars: Number(body.minSeparationBars) }),
-      ...(manualWindows.length === 0 ? {} : { manualWindows }),
-    },
+  const config: StressWindowConfig = {
+    method: method as StressMethod,
+    lengthBars: Number(body.lengthBars),
+    topN: Number(body.topN),
+    ...(body.minSeparationBars === undefined
+      ? {} : { minSeparationBars: Number(body.minSeparationBars) }),
+    ...(manualWindows.length === 0 ? {} : { manualWindows }),
   };
+  /*
+   * Refused HERE, before `ensureCandles`, and not only inside discovery: an
+   * oversized request used to download and read every minute bar of the
+   * period first and only then learn it could not be answered. The number of
+   * positions is estimated from the period, which is what the search would
+   * read if the store held every bar.
+   */
+  try {
+    validateStressConfig(config,
+      Math.max(0, Math.floor((endMs - startMs) / INTERVAL_MS[interval]) - config.lengthBars + 1));
+  } catch (error) {
+    if (error instanceof StressDiscoveryError) return { ok: false, code: 400, error: error.message };
+    throw error;
+  }
+  return { ok: true, benchmark, interval, startMs, endMs, config };
 }
 
 export async function stressRoutes(app: FastifyInstance): Promise<void> {

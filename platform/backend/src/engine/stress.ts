@@ -151,45 +151,178 @@ function describe(candles: readonly Candle[], i: number, j: number): {
 }
 
 /**
- * Rank every window position, then keep the top N that respect separation.
+ * Keep the top N window positions that respect separation.
  *
  * Ordering is total and deterministic: by severity, then by the EARLIER start.
  * Two windows with an identical metric — which happens on flat or synthetic
  * data far more often than on real data — must not be ordered by whatever
  * order the array happened to be built in, or the same inputs would produce
  * different reports on different days.
+ *
+ * This was a full sort of every position followed by a greedy walk. The walk
+ * takes, at each step, the first candidate in that order that clashes with
+ * nothing already taken — which is exactly the most severe non-clashing
+ * candidate. So it is found directly, N linear passes, instead of sorting
+ * three quarters of a million positions to read ten of them. A scan in
+ * ascending index that replaces only on STRICTLY greater severity is the
+ * sort's tie-break: the earlier window wins. A score that is not a number is
+ * never selected; the sort used to place it arbitrarily.
  */
 function rankAndSeparate(
-  scored: { index: number; severity: number; value: number }[],
+  severity: Float64Array,
+  values: Float64Array,
   candles: readonly Candle[],
   lengthBars: number,
   topN: number,
   minSeparationBars: number,
   method: StressMethod,
 ): StressWindow[] {
-  scored.sort((a, b) => b.severity - a.severity || a.index - b.index);
-  const chosen: typeof scored = [];
-  for (const candidate of scored) {
-    if (chosen.length >= topN) break;
-    const clashes = chosen.some(
-      (taken) => Math.abs(taken.index - candidate.index) < minSeparationBars);
-    if (clashes) continue;
-    chosen.push(candidate);
+  const chosen: number[] = [];
+  while (chosen.length < topN) {
+    let best = -1;
+    for (let index = 0; index < severity.length; index += 1) {
+      const candidate = severity[index]!;
+      if (best >= 0 ? !(candidate > severity[best]!) : Number.isNaN(candidate)) continue;
+      if (chosen.some((taken) => Math.abs(taken - index) < minSeparationBars)) continue;
+      best = index;
+    }
+    if (best < 0) break;
+    chosen.push(best);
   }
-  return chosen.map((entry, i) => {
-    const j = entry.index + lengthBars - 1;
-    const stats = describe(candles, entry.index, j);
+  return chosen.map((index, i) => {
+    const j = index + lengthBars - 1;
+    const stats = describe(candles, index, j);
     return {
       rank: i + 1,
-      startMs: candles[entry.index]!.openTime,
+      startMs: candles[index]!.openTime,
       endMs: candles[j]!.closeTime,
       bars: lengthBars,
       benchmarkReturnPct: stats.returnPct,
       benchmarkDrawdownPct: stats.drawdownPct,
       benchmarkVolatilityPct: stats.volatilityPct,
-      selectedBy: { metric: method, value: entry.value },
+      selectedBy: { metric: method, value: values[index]! },
     };
   });
+}
+
+/*
+ * ── Bounds, and why they are where they are ───────────────────────────────
+ *
+ * Discovery runs on the request thread. Unbounded, one request for 540 days of
+ * 1-minute bars with a one-day window held the event loop for 8.2 seconds,
+ * during which every other caller of the API — a chart's history, a live
+ * order — waited behind it.
+ *
+ * `worst_return` is now linear in the series, so a long search is cheap.
+ * `deepest_drawdown` and `highest_volatility` are still a pass over every bar
+ * of every window position, and they stay exact on purpose: a rolling sum
+ * drifts in the last bits, and a stored run's windows must be reproducible
+ * from its provenance BYTE FOR BYTE — two near-equal windows trading places
+ * because of an add-then-subtract would change which crash the report is
+ * about. Their work is bounded instead: positions × window length may not
+ * exceed `MAX_STRESS_SCAN_CELLS` (a few hundred milliseconds at worst), and
+ * the refusal says what to change.
+ *
+ * `topN` is a ceiling on the number of BACKTESTS one stress run queues, one
+ * per window, so it is bounded by what one click should hand the worker as
+ * well as by what a person can read in one table. Manual windows count
+ * against the same ceiling for the same reason.
+ */
+export const MAX_STRESS_TOP_N = 10;
+export const MAX_STRESS_LENGTH_BARS = 20_000;
+export const MAX_STRESS_SCAN_CELLS = 20_000_000;
+
+/** Methods whose cost is positions × window length rather than positions. */
+function scansEveryBar(method: StressMethod): boolean {
+  return method === "deepest_drawdown" || method === "highest_volatility";
+}
+
+const count = (n: number): string => n.toLocaleString("en-US");
+
+/**
+ * Refuse a configuration before any candle is read for it.
+ *
+ * `positions` is the number of window positions the search will score. The
+ * route passes an ESTIMATE from the requested period and interval, so an
+ * oversized request is refused before it downloads a year of minute bars;
+ * discovery passes the real count.
+ */
+export function validateStressConfig(config: StressWindowConfig, positions?: number): void {
+  const { method, lengthBars, topN } = config;
+  if (!Number.isInteger(lengthBars) || lengthBars < 2) {
+    throw new StressDiscoveryError(
+      `a stress window must span at least 2 benchmark bars, got ${lengthBars}`);
+  }
+  if (lengthBars > MAX_STRESS_LENGTH_BARS) {
+    throw new StressDiscoveryError(
+      `a stress window may span at most ${count(MAX_STRESS_LENGTH_BARS)} benchmark bars, `
+      + `got ${count(lengthBars)}. Choose a coarser benchmark interval for a window that long.`);
+  }
+  if (!Number.isInteger(topN) || topN < 1) {
+    throw new StressDiscoveryError(`topN must be a positive whole number, got ${topN}`);
+  }
+  if (topN > MAX_STRESS_TOP_N) {
+    throw new StressDiscoveryError(
+      `at most ${MAX_STRESS_TOP_N} windows can be kept, got ${topN}: `
+      + "each window queues a backtest of its own");
+  }
+  if ((config.manualWindows?.length ?? 0) > MAX_STRESS_TOP_N) {
+    throw new StressDiscoveryError(
+      `at most ${MAX_STRESS_TOP_N} manual windows can be named, got `
+      + `${config.manualWindows!.length}: each window queues a backtest of its own`);
+  }
+  const minSeparationBars = config.minSeparationBars ?? lengthBars;
+  if (!Number.isInteger(minSeparationBars) || minSeparationBars < 1) {
+    throw new StressDiscoveryError(
+      `minSeparationBars must be a positive whole number, got ${minSeparationBars}`);
+  }
+  if (positions !== undefined && scansEveryBar(method)
+    && positions * lengthBars > MAX_STRESS_SCAN_CELLS) {
+    throw new StressDiscoveryError(
+      `ranking by ${method.replace(/_/g, " ")} reads every bar of every window position, and `
+      + `${count(positions)} positions × ${count(lengthBars)} bars is more than one search `
+      + `may read (${count(MAX_STRESS_SCAN_CELLS)}). Choose a coarser benchmark interval, a `
+      + "shorter period or a shorter window — or rank by worst return, which has no such limit.");
+  }
+}
+
+/*
+ * The ranked statistic alone, for one window position.
+ *
+ * Each is `describe`'s own arithmetic for that statistic — the same
+ * expressions in the same order — so the value a window was RANKED on is bit
+ * for bit the value it REPORTS, and a stored run replays to the same windows.
+ * `tests/stressWindows.test.ts` holds the old all-statistics implementation as
+ * the oracle for that.
+ */
+function drawdownOf(candles: readonly Candle[], i: number, j: number): number {
+  let peak = candles[i]!.close;
+  let worst = 0;
+  for (let k = i; k <= j; k += 1) {
+    const bar = candles[k]!;
+    if (bar.close > peak) peak = bar.close;
+    if (peak > 0) {
+      const fall = ((peak - bar.low) / peak) * 100;
+      if (fall > worst) worst = fall;
+    }
+  }
+  return worst;
+}
+
+function volatilityOf(candles: readonly Candle[], i: number, j: number): number {
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let k = i + 1; k <= j; k += 1) {
+    const previous = candles[k - 1]!.close;
+    if (previous > 0) {
+      const r = ((candles[k]!.close - previous) / previous) * 100;
+      sum += r; sumSq += r * r; n += 1;
+    }
+  }
+  const mean = n > 0 ? sum / n : 0;
+  const variance = n > 1 ? Math.max(0, sumSq / n - mean * mean) : 0;
+  return Math.sqrt(variance);
 }
 
 /**
@@ -202,19 +335,8 @@ export function discoverStressWindows(
   candles: readonly Candle[], config: StressWindowConfig,
 ): StressWindow[] {
   const { method, lengthBars, topN } = config;
-
-  if (!Number.isInteger(lengthBars) || lengthBars < 2) {
-    throw new StressDiscoveryError(
-      `a stress window must span at least 2 benchmark bars, got ${lengthBars}`);
-  }
-  if (!Number.isInteger(topN) || topN < 1) {
-    throw new StressDiscoveryError(`topN must be a positive whole number, got ${topN}`);
-  }
+  validateStressConfig(config);
   const minSeparationBars = config.minSeparationBars ?? lengthBars;
-  if (!Number.isInteger(minSeparationBars) || minSeparationBars < 1) {
-    throw new StressDiscoveryError(
-      `minSeparationBars must be a positive whole number, got ${minSeparationBars}`);
-  }
 
   if (method === "manual") return manualWindows(candles, config);
 
@@ -224,18 +346,27 @@ export function discoverStressWindows(
       + `${lengthBars}-bar window. Widen the benchmark period, shorten the window, `
       + "or choose a finer benchmark interval.");
   }
+  const positions = candles.length - lengthBars + 1;
+  validateStressConfig(config, positions);
 
-  const scored: { index: number; severity: number; value: number }[] = [];
-  for (let i = 0; i + lengthBars <= candles.length; i += 1) {
-    const stats = describe(candles, i, i + lengthBars - 1);
+  /*
+   * Only the statistic being ranked is computed per position; all three are
+   * computed for the windows actually kept, by `describe`. `worst_return`
+   * needs two closes per position, so it is linear in the series however long
+   * the window is.
+   */
+  const severity = new Float64Array(positions);
+  const values = new Float64Array(positions);
+  for (let i = 0; i < positions; i += 1) {
+    const j = i + lengthBars - 1;
+    const value = method === "worst_return" ? changePct(candles[i]!.close, candles[j]!.close)
+      : method === "deepest_drawdown" ? drawdownOf(candles, i, j)
+        : volatilityOf(candles, i, j);
+    values[i] = value;
     // Severity is always "larger is worse", whatever the metric's own sign.
-    const value = method === "worst_return" ? stats.returnPct
-      : method === "deepest_drawdown" ? stats.drawdownPct
-        : stats.volatilityPct;
-    const severity = method === "worst_return" ? -stats.returnPct : value;
-    scored.push({ index: i, severity, value });
+    severity[i] = method === "worst_return" ? -value : value;
   }
-  return rankAndSeparate(scored, candles, lengthBars, topN, minSeparationBars, method);
+  return rankAndSeparate(severity, values, candles, lengthBars, topN, minSeparationBars, method);
 }
 
 /**

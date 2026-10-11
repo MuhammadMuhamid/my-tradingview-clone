@@ -12,8 +12,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  barsForDuration, discoverStressWindows, StressDiscoveryError, stressProvenance,
-  STRESS_EPISTEMIC_NOTE, type StressWindowConfig,
+  barsForDuration, discoverStressWindows, MAX_STRESS_LENGTH_BARS, MAX_STRESS_SCAN_CELLS,
+  MAX_STRESS_TOP_N, StressDiscoveryError, stressProvenance, STRESS_EPISTEMIC_NOTE,
+  validateStressConfig, type StressWindowConfig,
 } from "../src/engine/stress";
 import type { Candle, Interval } from "../src/types/market";
 
@@ -360,4 +361,202 @@ test("the benchmark is named independently of the traded instrument", () => {
     twoEpisodes().map((bar) => ({ ...bar, symbol: "SOLUSDT" })), BASE);
   assert.deepEqual(btc.map((w) => [w.startMs, w.endMs]), sol.map((w) => [w.startMs, w.endMs]),
     "discovery reads the series it is given and nothing about which symbol it is");
+});
+
+// ── Bounded work, and the same answers as before ────────────────────────────
+
+/**
+ * The discovery this module shipped with, kept verbatim as the oracle.
+ *
+ * It scored every position by computing all three statistics over every bar
+ * of the window, then sorted every position. The current implementation
+ * computes only the ranked statistic and selects without sorting; a stored
+ * run's windows must replay from its provenance byte for byte, so the two
+ * must agree EXACTLY — `deepStrictEqual`, not a tolerance.
+ */
+function referenceDiscover(candles: readonly Candle[], config: StressWindowConfig) {
+  const { method, lengthBars, topN } = config;
+  const minSeparationBars = config.minSeparationBars ?? lengthBars;
+  const changePct = (from: number, to: number) => (from > 0 ? ((to - from) / from) * 100 : 0);
+  const describe = (i: number, j: number) => {
+    const first = candles[i]!;
+    const last = candles[j]!;
+    let peak = first.close;
+    let worst = 0;
+    let sum = 0;
+    let sumSq = 0;
+    let n = 0;
+    for (let k = i; k <= j; k += 1) {
+      const bar = candles[k]!;
+      if (bar.close > peak) peak = bar.close;
+      if (peak > 0) {
+        const fall = ((peak - bar.low) / peak) * 100;
+        if (fall > worst) worst = fall;
+      }
+      if (k > i) {
+        const previous = candles[k - 1]!.close;
+        if (previous > 0) {
+          const r = ((bar.close - previous) / previous) * 100;
+          sum += r; sumSq += r * r; n += 1;
+        }
+      }
+    }
+    const mean = n > 0 ? sum / n : 0;
+    const variance = n > 1 ? Math.max(0, sumSq / n - mean * mean) : 0;
+    return {
+      returnPct: changePct(first.close, last.close),
+      drawdownPct: worst,
+      volatilityPct: Math.sqrt(variance),
+    };
+  };
+  const scored: { index: number; severity: number; value: number }[] = [];
+  for (let i = 0; i + lengthBars <= candles.length; i += 1) {
+    const stats = describe(i, i + lengthBars - 1);
+    const value = method === "worst_return" ? stats.returnPct
+      : method === "deepest_drawdown" ? stats.drawdownPct
+        : stats.volatilityPct;
+    const severity = method === "worst_return" ? -stats.returnPct : value;
+    scored.push({ index: i, severity, value });
+  }
+  scored.sort((a, b) => b.severity - a.severity || a.index - b.index);
+  const chosen: typeof scored = [];
+  for (const candidate of scored) {
+    if (chosen.length >= topN) break;
+    if (chosen.some((taken) => Math.abs(taken.index - candidate.index) < minSeparationBars)) continue;
+    chosen.push(candidate);
+  }
+  return chosen.map((entry, i) => {
+    const j = entry.index + lengthBars - 1;
+    const stats = describe(entry.index, j);
+    return {
+      rank: i + 1,
+      startMs: candles[entry.index]!.openTime,
+      endMs: candles[j]!.closeTime,
+      bars: lengthBars,
+      benchmarkReturnPct: stats.returnPct,
+      benchmarkDrawdownPct: stats.drawdownPct,
+      benchmarkVolatilityPct: stats.volatilityPct,
+      selectedBy: { metric: method, value: entry.value },
+    };
+  });
+}
+
+/** A seeded random walk with real intrabar range, so lows differ from closes. */
+function randomWalk(n: number, seed: number, step = 0.02): Candle[] {
+  let state = seed;
+  const next = (): number => { state = (state * 16807) % 2147483647; return state / 2147483647; };
+  const candles: Candle[] = [];
+  let price = 100;
+  for (let i = 0; i < n; i += 1) {
+    const open = price;
+    price = Math.max(0.01, price * (1 + (next() - 0.5) * step));
+    candles.push({
+      symbol: "BTCUSDT", interval: "1h",
+      openTime: T0 + i * HOUR, closeTime: T0 + (i + 1) * HOUR - 1,
+      open, close: price,
+      high: Math.max(open, price) * (1 + next() * step / 4),
+      low: Math.min(open, price) * (1 - next() * step / 4),
+      volume: 1,
+    });
+  }
+  return candles;
+}
+
+test("the bounded discovery returns exactly what the exhaustive one did", () => {
+  /*
+   * Fixtures chosen for where a faster implementation goes wrong: exact ties
+   * (flat, and a sawtooth that repeats the same window many times), zero
+   * prices (`changePct` refuses them), real intrabar range (drawdown reads
+   * lows, not closes), and plain noise.
+   */
+  const sawtooth = series(new Array(120).fill(0).map((_, i) => 100 - (i % 12) * 2));
+  const withZeros = series([100, 90, 0, 0, 50, 60, 0, 70, 65, 40, 45, 30, 35, 100, 20, 25]);
+  const fixtures: [string, Candle[]][] = [
+    ["two episodes", twoEpisodes()],
+    ["flat", series(new Array(60).fill(100))],
+    ["sawtooth ties", sawtooth],
+    ["zero prices", withZeros],
+    ["random walk A", randomWalk(400, 7)],
+    ["random walk B", randomWalk(1500, 12345, 0.05)],
+  ];
+  const methods = ["worst_return", "deepest_drawdown", "highest_volatility"] as const;
+  let compared = 0;
+  for (const [name, candles] of fixtures) {
+    for (const method of methods) {
+      for (const lengthBars of [2, 3, 5, 10, 24]) {
+        if (lengthBars > candles.length) continue;
+        for (const topN of [1, 3, 10]) {
+          for (const minSeparationBars of [undefined, 1, 4]) {
+            const config: StressWindowConfig = {
+              method, lengthBars, topN,
+              ...(minSeparationBars === undefined ? {} : { minSeparationBars }),
+            };
+            assert.deepStrictEqual(
+              discoverStressWindows(candles, config), referenceDiscover(candles, config),
+              `${name} · ${method} · L=${lengthBars} · top ${topN} · sep ${minSeparationBars}`);
+            compared += 1;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(compared > 200, `only ${compared} configurations were compared`);
+});
+
+test("worst return is linear in the series, so a long minute-bar search does not stall", () => {
+  /*
+   * 540 days of 1-minute bars with a one-day window was measured holding the
+   * event loop for 8.2 seconds (29 s on a slower machine), because every
+   * position re-read all 1,440 bars of its window. Ranking on return needs
+   * two closes per position. The ceiling is generous, so a loaded machine
+   * does not fail it and the quadratic version cannot pass it.
+   */
+  const candles = randomWalk(400_000, 99, 0.004);
+  const started = performance.now();
+  const windows = discoverStressWindows(candles, { method: "worst_return", lengthBars: 1440, topN: 10 });
+  const elapsed = performance.now() - started;
+  assert.equal(windows.length, 10);
+  assert.ok(elapsed < 3000, `discovery took ${Math.round(elapsed)} ms`);
+});
+
+test("the expensive rankings are bounded, and the refusal says what to change", () => {
+  const candles = randomWalk(30_000, 3, 0.01);
+  for (const method of ["deepest_drawdown", "highest_volatility"] as const) {
+    assert.throws(
+      () => discoverStressWindows(candles, { method, lengthBars: 1000, topN: 3 }),
+      (error: unknown) => error instanceof StressDiscoveryError
+        && (error as Error).message.includes(
+          `more than one search may read (${MAX_STRESS_SCAN_CELLS.toLocaleString("en-US")})`)
+        && /rank by worst return/.test((error as Error).message),
+      `${method} over 29,001 positions × 1,000 bars must be refused`,
+    );
+  }
+  // The same request ranked on return is not bounded by it.
+  assert.equal(
+    discoverStressWindows(candles, { method: "worst_return", lengthBars: 1000, topN: 3 }).length, 3);
+  // And the route can refuse on an ESTIMATE, before it reads a candle.
+  assert.throws(
+    () => validateStressConfig({ method: "highest_volatility", lengthBars: 1440, topN: 3 }, 777_600),
+    StressDiscoveryError);
+  assert.doesNotThrow(
+    () => validateStressConfig({ method: "worst_return", lengthBars: 1440, topN: 3 }, 777_600));
+});
+
+test("topN, window length and manual windows have ceilings", () => {
+  const candles = twoEpisodes();
+  assert.throws(
+    () => discoverStressWindows(candles, { ...BASE, topN: MAX_STRESS_TOP_N + 1 }),
+    /at most 10 windows can be kept/);
+  assert.doesNotThrow(() => discoverStressWindows(candles, { ...BASE, topN: MAX_STRESS_TOP_N }));
+  assert.throws(
+    () => validateStressConfig({ ...BASE, lengthBars: MAX_STRESS_LENGTH_BARS + 1 }),
+    /at most 20,000 benchmark bars/);
+  const many = new Array(MAX_STRESS_TOP_N + 1).fill(0).map((_, i) => ({
+    startMs: T0 + i * HOUR, endMs: T0 + (i + 2) * HOUR,
+  }));
+  assert.throws(
+    () => discoverStressWindows(candles, {
+      method: "manual", lengthBars: 2, topN: 1, manualWindows: many,
+    }),
+    /at most 10 manual windows/);
 });
