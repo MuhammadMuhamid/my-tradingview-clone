@@ -331,6 +331,23 @@ test("C-05/C-07 — MACD input grammar and per-study output settings reach overl
   }
 });
 
+test("A9 — a built-in study's levels put no pill on the price scale; its plots still do", () => {
+  /*
+   * The RSI pane showed `70.00 / 50.00 / 30.00` as grey pills and no ordinary
+   * tick labels (each pill clears the tick it touches), with the value pill
+   * landing on the 50 band's. Premium: tick labels, one value pill, no band
+   * pills.
+   */
+  const def = studyById("rsi")!;
+  const out = runNativeStudy(def, newNativeStudy(def, "rsi-levels"), bars(200), "1m", 2);
+  const levels = out.overlays.filter((overlay) => overlay.constantValue !== undefined);
+  const plots = out.overlays.filter((overlay) => overlay.constantValue === undefined);
+  assert.ok(levels.length >= 2, "RSI is expected to carry its bands as levels");
+  assert.ok(plots.length >= 1);
+  for (const level of levels) assert.equal(level.priceScaleLabelVisible, false, level.id);
+  for (const plot of plots) assert.equal(plot.priceScaleLabelVisible, true, plot.id);
+});
+
 // ── windowing and memoisation ───────────────────────────────────────────────
 
 test("a bounded study is handed its warmup plus the visible window, not the whole history", () => {

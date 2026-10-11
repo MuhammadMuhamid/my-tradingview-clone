@@ -258,7 +258,16 @@ export function runNativeStudy(
       instanceTitle: def.name,
       instanceParams,
       precision,
-      priceScaleLabelVisible: applied.labelsOnPriceScale !== false,
+      /*
+       * A9: a level never puts a pill on the scale. The reference's RSI pane
+       * shows ordinary tick labels and a value pill; ours showed three grey
+       * `70.00 / 50.00 / 30.00` pills instead, and because a pill clears the
+       * tick it touches (`lib/axisTickClearance`) the pane's own ticks went
+       * with them, and the RSI value pill landed on the 50 band's. A level is a
+       * constant: where it sits is the dashed line itself, and its value is in
+       * the study's settings. `Labels on price scale` still governs the plots.
+       */
+      priceScaleLabelVisible: false,
       statusValueVisible: applied.valuesInStatusLine !== false,
       statusInputVisible: applied.inputsInStatusLine !== false,
       constantValue: level.value,
