@@ -104,6 +104,18 @@ export interface BacktestMetrics {
    *  with the reported trade count. */
   legWinRatePct?: number;
   legProfitFactor?: number | null;
+  /*
+   * The trade figures per ENTRY, under names that cannot be mistaken for the
+   * leg-based headline fields. Set on the headline and on every window of a
+   * run recorded after they were added; absent on older rows, which must then
+   * be read as legs. See `entryFigures` in `engine/metrics.ts`.
+   */
+  winningEntries?: number;
+  losingEntries?: number;
+  entryWinRatePct?: number;
+  entryProfitFactor?: number | null;
+  avgEntryPct?: number;
+  avgBarsPerEntry?: number;
   /** Entries where at least one leg exited on the stop (win or lose). */
   slEntries?: number;
   /** Entries stopped out where the stopped portion LOST money. */

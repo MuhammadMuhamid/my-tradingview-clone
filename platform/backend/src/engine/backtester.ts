@@ -11,7 +11,7 @@ import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
-import { computeMetrics, computeSegmentMetrics, downsampleEquity, toTradeRecords } from "./metrics";
+import { computeMetrics, computeSegmentMetrics, downsampleEquity, entryFigures, toTradeRecords } from "./metrics";
 import { DEFAULT_HOLDOUT_FRACTION, splitWindows, type WindowSplit } from "./holdout";
 import { ACTIVE_CORRECTIONS, assertCorrectedEngine, correctionsFingerprint, describeCorrections } from "./corrections";
 import { maRrV9Module } from "./strategies/ma_rr_v9";
@@ -241,6 +241,16 @@ export async function executeBacktest(
     result.broker.commissionPaid,
     ACTIVE_CORRECTIONS
   );
+  /*
+   * The headline's trade figures per ENTRY, beside the leg-based ones.
+   *
+   * The windows below have always been scored per entry and the headline per
+   * exit leg, so a result page set 242 "trades" at a leg win rate above
+   * windows of 60 / 128 / 20 entries. `winRatePct` keeps its leg meaning —
+   * selection reads it — and the entry population is added under its own
+   * names, so the page can show one denominator everywhere and say which.
+   */
+  Object.assign(metrics, entryFigures(result.broker.closed));
   const trades = toTradeRecords(result.broker.closed);
 
   /*

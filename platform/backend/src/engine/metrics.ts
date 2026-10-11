@@ -182,17 +182,8 @@ export function computeSegmentMetrics(
   // stop-out. Measured on PUMPUSDT that inflated the figure to 56.1% against a
   // 59.8% win rate (116% combined) when only 40% of trades actually lost.
   // With this definition slLossRatePct can never exceed (100 - winRatePct).
-  const byEntry = new Map<number, { stopped: boolean; tp: boolean; pnl: number }>();
-  for (const t of legs) {
-    const e = byEntry.get(t.entryBar) ?? { stopped: false, tp: false, pnl: 0 };
-    const reason = String(t.exitReason ?? "");
-    if (reason === "SL") e.stopped = true;
-    else if (reason.startsWith("TP")) e.tp = true;
-    e.pnl += t.pnl ?? 0;
-    byEntry.set(t.entryBar, e);
-  }
-  let stopped = 0, slLoss = 0, slProfit = 0, tpHit = 0;
-  let eWins = 0, eGP = 0, eGL = 0, otherLoss = 0;
+  const byEntry = groupByEntry(legs);
+  let stopped = 0, slLoss = 0, slProfit = 0, tpHit = 0, otherLoss = 0;
   for (const e of byEntry.values()) {
     if (e.stopped) {
       stopped++;
@@ -201,18 +192,20 @@ export function computeSegmentMetrics(
       if (e.pnl < 0) slLoss++; else slProfit++;
     }
     if (e.tp) tpHit++;
-    if (e.pnl > 0) { eWins++; eGP += e.pnl; } else { eGL += -e.pnl; if (!e.stopped) otherLoss++; }
+    if (!(e.pnl > 0) && !e.stopped) otherLoss++;
   }
   // Win rate and profit factor must share the SAME denominator as `trades`,
   // which is ENTRIES. computeMetrics scores legs, so with partial TPs on it
   // reported a leg win rate beside an entry count — measured 10.6 points apart
   // on ZEC. Leg-based values are kept for reference.
+  const entry = entryFiguresOf(byEntry);
   out.legWinRatePct = out.winRatePct;
   out.legProfitFactor = out.profitFactor;
-  out.winningTrades = eWins;
-  out.losingTrades = byEntry.size - eWins;
-  out.winRatePct = byEntry.size > 0 ? (eWins / byEntry.size) * 100 : 0;
-  out.profitFactor = eGL > 0 ? eGP / eGL : null;
+  out.winningTrades = entry.winningEntries;
+  out.losingTrades = entry.losingEntries;
+  out.winRatePct = entry.entryWinRatePct;
+  out.profitFactor = entry.entryProfitFactor;
+  Object.assign(out, entry);
 
   const n = byEntry.size;
   out.entries = n;
@@ -232,6 +225,95 @@ export function computeSegmentMetrics(
   out.otherLossEntries = otherLoss;
   out.otherLossRatePct = n > 0 ? (otherLoss / n) * 100 : 0;
   return out;
+}
+
+/** One entry's legs, folded together. */
+interface EntryGroup {
+  stopped: boolean;
+  tp: boolean;
+  /** Net P&L of every leg that closed this entry. */
+  pnl: number;
+  /** Entry notional summed over the legs, for a per-entry return. */
+  notional: number;
+  entryBar: number;
+  lastExitBar: number;
+}
+
+/** Legs grouped by the entry that opened them (one position at a time, so the entry bar names it). */
+function groupByEntry(legs: readonly ClosedLeg[]): Map<number, EntryGroup> {
+  const byEntry = new Map<number, EntryGroup>();
+  for (const t of legs) {
+    const e = byEntry.get(t.entryBar) ?? {
+      stopped: false, tp: false, pnl: 0, notional: 0, entryBar: t.entryBar, lastExitBar: t.exitBar,
+    };
+    const reason = String(t.exitReason ?? "");
+    if (reason === "SL") e.stopped = true;
+    else if (reason.startsWith("TP")) e.tp = true;
+    e.pnl += t.pnl ?? 0;
+    e.notional += t.entryPrice * Math.abs(t.qty);
+    if (t.exitBar > e.lastExitBar) e.lastExitBar = t.exitBar;
+    byEntry.set(t.entryBar, e);
+  }
+  return byEntry;
+}
+
+/**
+ * The trade figures counted per ENTRY, under names that say so.
+ *
+ * ── Why both populations are stored, and why these have their own names ──
+ *
+ * `computeMetrics` scores exit LEGS, and that is a contract other code relies
+ * on: the walk-forward selection reads `winRatePct` and `profitFactor` as
+ * leg-based (`optimizer/selection.ts`, `OPT-04`). `computeSegmentMetrics`, on
+ * the other hand, overwrites the same two fields with entry-based values. So a
+ * result page that printed the headline beside its windows showed 242 trades
+ * at a 17.4 % win rate — legs — above windows of 68 / 148 / 26 trades (legs
+ * again) whose win rates were computed over 60 / 128 / 20 ENTRIES. Every row
+ * mixed two denominators and no row said which.
+ *
+ * Changing what `winRatePct` means on the headline would silently move every
+ * consumer that reads it, so it is left alone. These fields are added beside
+ * it, on the headline and on every window, so a reader can be shown one
+ * population everywhere and told which one it is.
+ *
+ * An entry is a win when the legs that closed it net positive; a scratch
+ * entry counts as a loss, exactly as the window scoring has always counted it.
+ */
+export interface EntryFigures {
+  entries: number;
+  winningEntries: number;
+  losingEntries: number;
+  entryWinRatePct: number;
+  /** Null when no entry lost (including when there were no entries). */
+  entryProfitFactor: number | null;
+  /** Mean net return per entry, as a % of that entry's notional. */
+  avgEntryPct: number;
+  /** Mean bars from entry to the entry's last exit. */
+  avgBarsPerEntry: number;
+}
+
+function entryFiguresOf(byEntry: Map<number, EntryGroup>): EntryFigures {
+  let wins = 0, gp = 0, gl = 0, pctSum = 0, barsSum = 0;
+  for (const e of byEntry.values()) {
+    if (e.pnl > 0) { wins++; gp += e.pnl; } else gl += -e.pnl;
+    pctSum += e.notional > 0 ? (e.pnl / e.notional) * 100 : 0;
+    barsSum += e.lastExitBar - e.entryBar;
+  }
+  const n = byEntry.size;
+  return {
+    entries: n,
+    winningEntries: wins,
+    losingEntries: n - wins,
+    entryWinRatePct: n > 0 ? (wins / n) * 100 : 0,
+    entryProfitFactor: gl > 0 ? gp / gl : null,
+    avgEntryPct: n > 0 ? pctSum / n : 0,
+    avgBarsPerEntry: n > 0 ? barsSum / n : 0,
+  };
+}
+
+/** Entry-based figures for a set of closed legs — the headline's half of the pair above. */
+export function entryFigures(legs: readonly ClosedLeg[]): EntryFigures {
+  return entryFiguresOf(groupByEntry(legs));
 }
 
 /** Downsample the equity curve for storage/charting, keeping first/last points. */
