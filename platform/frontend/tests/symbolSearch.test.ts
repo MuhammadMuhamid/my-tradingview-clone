@@ -185,7 +185,8 @@ test("the box opens on the chart's TICKER and the chart's instrument leads the l
     "pre-filling the BASE asset is the defect R4-04 found");
   // E7: the rows are the server's answer, or the recent list for an empty
   // box — and whichever they are, the chart's own instrument leads them.
-  assert.match(source, /if \(!shown\) show\(res\.results, null\);/);
+  // C-05: the answer is ranked first — primary venue and spot win a tie.
+  assert.match(source, /if \(!shown\) show\(rankSearchResults\(res\.results, term\), null\);/);
   assert.match(source, /currentFirst\(answered, currentRef\.current\)/);
   assert.match(source, /const row = ordered\[0\];/,
     "an armed Enter must select from the ORDERED rows, or it re-introduces the defect");

@@ -507,6 +507,17 @@ export function expandCompact(payload: CompactCandles): Candle[] {
  * live runner is off by configuration rather than by an operator's decision.
  */
 export type OpsMode = "LIVE" | "STANDBY" | "HALTED" | "DISABLED";
+
+/**
+ * `/api/ops/runner`: whether anything on this install evaluates active
+ * automations. `off` is the runner never started (`LIVE_RUNNER_ENABLED` is
+ * not true); `reason` is operator wording and is never page copy.
+ */
+export interface StrategyRunnerStatus {
+  state: "off" | "halted" | "standby" | "live";
+  evaluating: boolean;
+  reason: string;
+}
 export type FeedState = "live" | "delayed" | "reconnecting" | "gap" | "error" | "unknown";
 export type DeliveryState = "failing" | "stalled" | "degraded" | "idle" | "healthy";
 
@@ -1098,6 +1109,11 @@ export interface MaAlertOptions {
   /** The server's own cap on a note, so the dialogs never invent their own. */
   noteMaxLength?: number;
   frequencies: AlertFrequencyOption[];
+  /**
+   * C-03: whether this install evaluates alerts at all. Optional because an
+   * older backend does not send it — and absence is "unknown", never "off".
+   */
+  evaluation?: { enabled: boolean; reason: string | null };
 }
 
 /**
@@ -1473,6 +1489,7 @@ export const api = {
 
   // operator console
   opsStatus: () => req<OpsStatus>(`/api/ops/status`),
+  strategyRunnerStatus: () => req<StrategyRunnerStatus>(`/api/ops/runner`),
   opsUnresolvedIntents: () => req<UnresolvedIntents>(`/api/ops/unresolved-intents`),
   opsHalt: (reason: string) =>
     req<{ halted: true; reason: string }>(`/api/ops/halt`, {

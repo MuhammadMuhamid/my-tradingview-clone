@@ -616,6 +616,78 @@ export function currentFirst(rows: readonly SymbolSearchResult[], current: strin
   return [rows[at]!, ...rows.slice(0, at), ...rows.slice(at + 1)];
 }
 
+/* ── C-05: equal relevance goes to the venue this product executes on ──────
+ *
+ * The catalogue answers "eth" with every ETH instrument it holds, and the
+ * route's own order put `ETHUSD.P · Hyperliquid · perpetual` above Binance
+ * `ETHUSDT` — Hyperliquid's listing code IS `ETH`, so it scored as an exact
+ * match. Enter took it, and the chart landed on a perpetual where the
+ * strategy is "Not available for this instrument". The reference ranks spot
+ * first, and so does this.
+ *
+ * Text relevance still leads — a query is an instruction — but it is judged
+ * on what the ROW SAYS (its displayed ticker, `ETHUSD.P`), not on a venue's
+ * private listing code. Inside one relevance band: the primary execution
+ * venue, then spot over perpetuals over dated contracts, then the mainstream
+ * quotes. Everything else keeps the server's order (the sort is stable).
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** The venue the platform executes on; its spot pairs are what a strategy runs. */
+export const PRIMARY_EXECUTION_VENUE = "BINANCE";
+
+const PREFERRED_QUOTES = ["USDT", "USDC", "FDUSD", "USD", "EUR", "BTC", "ETH", "BNB"];
+
+/** Lower is better. 0 exact ticker, 1 exact pair, 2 base asset, 3 ticker prefix, 4 anything else. */
+function textRelevance(row: SymbolSearchResult, term: string): number {
+  const ticker = rowTicker(row).toUpperCase();
+  const pair = `${row.baseAsset}${row.quoteAsset}`.toUpperCase();
+  if (ticker === term) return 0;
+  if (pair === term && (row.instrumentType ?? "spot") === "spot") return 1;
+  if (row.baseAsset.toUpperCase() === term) return 2;
+  if (ticker.startsWith(term)) return 3;
+  return 4;
+}
+
+function venueRank(row: SymbolSearchResult): number {
+  return (row.venueId ?? PRIMARY_EXECUTION_VENUE).toUpperCase() === PRIMARY_EXECUTION_VENUE ? 0 : 1;
+}
+
+function productRank(row: SymbolSearchResult): number {
+  switch (row.instrumentType ?? "spot") {
+    case "spot": case "stock": case "etf": case "fx_pair": case "index": return 0;
+    case "perpetual": return 1;
+    case "continuous_future": return 2;
+    default: return 3;
+  }
+}
+
+function quoteRank(row: SymbolSearchResult): number {
+  const at = PREFERRED_QUOTES.indexOf(row.quoteAsset.toUpperCase());
+  return at < 0 ? PREFERRED_QUOTES.length : at;
+}
+
+/**
+ * Search results in the order a reader means them.
+ *
+ * Applied to search ANSWERS only — the recent and tracked starting lists have
+ * their own order, which is the user's history and the installation's majors.
+ */
+export function rankSearchResults(
+  rows: readonly SymbolSearchResult[], term: string,
+): SymbolSearchResult[] {
+  const q = term.trim().toUpperCase().replace(/[\s/:-]+/g, "");
+  if (q.length === 0) return [...rows];
+  return rows
+    .map((row, index) => ({ row, index, text: textRelevance(row, q) }))
+    .sort((a, b) =>
+      a.text - b.text
+      || venueRank(a.row) - venueRank(b.row)
+      || productRank(a.row) - productRank(b.row)
+      || quoteRank(a.row) - quoteRank(b.row)
+      || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
 /** The part of a description the query matched, so the row can mark it. */
 export function matchParts(text: string, term: string): { pre: string; hit: string; post: string } | null {
   const needle = term.trim();

@@ -5,7 +5,7 @@ import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, Dropdown, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
-import { AlertArmedField } from "@/components/tv/AlertArmedField";
+import { AlertArmedField, AlertEvaluatorNotice } from "@/components/tv/AlertArmedField";
 import {
   AlertFiltersField, emptyFilters, filtersFromAlert, filterRequest, filterRequestForEdit,
   type AlertFilterState,
@@ -432,6 +432,9 @@ export function PriceAlertModal({
       }
     >
       <div className="space-y-1">
+        {/* C-03: the armed field is folded under Notifications here, so the
+            evaluator-off notice is placed where it is always seen. */}
+        <AlertEvaluatorNotice className="pb-2" />
         {/*
           The alert source was a two-value control — Price, Studies — wired to
           `onChange={() => undefined}`. Studies alerts are a real family, armed
@@ -550,7 +553,7 @@ export function PriceAlertModal({
         */}
         <Disclosure label="Notifications" value={armed ? "Armed" : "Paused"} open={notificationsOpen} onToggle={() => setNotificationsOpen((v) => !v)}>
           <div className="space-y-1 pt-1">
-            <AlertArmedField value={armed} onChange={setArmed} />
+            <AlertArmedField value={armed} onChange={setArmed} evaluatorNotice={false} />
             {editing?.completedAt && !armed && (
               <p className="text-xs text-ink-faint">
                 This once-only alert has already fired. Tick Armed and save to watch for it again.

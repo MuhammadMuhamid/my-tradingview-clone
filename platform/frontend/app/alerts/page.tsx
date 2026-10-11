@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, Notice, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
@@ -10,7 +10,7 @@ import {
   api, DEFAULT_ALERT_FREQUENCY, type BulkAlertAction, type MaAlert, type MaAlertEvent,
 } from "@/lib/api";
 import {
-  alertColor, alertInactiveReason, alertLineLabel, describeAlert,
+  alertColor, alertLineLabel, describeAlert,
   FREQUENCY_LABELS, isAlertActive,
 } from "@/lib/alerts";
 import { BulkEditAlertsModal } from "@/components/tv/BulkEditAlertsModal";
@@ -24,6 +24,10 @@ import {
 import { editsInPriceDialog, leavesFilteredView } from "@/lib/alertEditing";
 import { parseScannerAlertTarget } from "@/lib/spotScene";
 import { alertGroupHeader } from "@/lib/alerts";
+import {
+  ALERT_EVALUATOR_OFF_NOTICE, alertInventoryTitle, alertsPageDescription, alertStateLabel,
+} from "@/lib/evaluationState";
+import { useAlertEvaluatorOff } from "@/lib/useEvaluationState";
 /**
  * Every alert across every coin, in one place.
  *
@@ -56,6 +60,12 @@ export default function AlertsPage() {
    */
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkEditing, setBulkEditing] = useState(false);
+  /**
+   * C-03: whether this install evaluates any of this. The rows, counts and
+   * controls are unchanged — an armed alert is still armed and still editable
+   * — but nothing here may say an alert is being watched when nothing is.
+   */
+  const evaluatorOff = useAlertEvaluatorOff();
 
   const refresh = useCallback(async () => {
     try {
@@ -209,7 +219,7 @@ export default function AlertsPage() {
         <div>
           <PageHeader
             title="Alerts"
-            description="Price levels and moving averages, evaluated server-side and pushed to your devices — the chart does not need to be open."
+            description={alertsPageDescription(evaluatorOff)}
           />
           {/*
             These alerts NOTIFY. They cannot reach a deployment, a broker or an
@@ -236,6 +246,12 @@ export default function AlertsPage() {
         </div>
       </div>
 
+      {evaluatorOff && (
+        <div data-alert-evaluator-off>
+          <Notice tone="warn" role="status">{ALERT_EVALUATOR_OFF_NOTICE}</Notice>
+        </div>
+      )}
+
       {/* TVP8: the raw thrown message was the whole of this banner. */}
       {err && <ErrorNotice error={err} what="your alerts" />}
 
@@ -244,7 +260,7 @@ export default function AlertsPage() {
           title={
             alerts === null
               ? "Active alerts"
-              : `Notification alerts · ${activeCount} of ${alerts.length} armed`
+              : alertInventoryTitle(activeCount, alerts.length, evaluatorOff)
           }
           right={
             <div className="flex items-center gap-2">
@@ -495,11 +511,15 @@ export default function AlertsPage() {
                         aria-label={`${isAlertActive(a) ? "Pause" : "Re-arm"} ${a.symbol} ${alertLineLabel(a)}`}
                         className={`rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
                           isAlertActive(a)
-                            ? "bg-up/15 text-up hover:bg-up/25"
+                            ? evaluatorOff
+                              // Armed, and watched by nothing: not the green
+                              // of a working alert.
+                              ? "bg-warn/15 text-warn hover:bg-warn/25"
+                              : "bg-up/15 text-up hover:bg-up/25"
                             : "bg-surface-2 text-ink-muted hover:text-ink"
                         }`}
                       >
-                        {alertInactiveReason(a) ?? "Active"}
+                        {alertStateLabel(a, evaluatorOff)}
                       </button>
                       <button
                         disabled={busy !== null}
@@ -526,8 +546,10 @@ export default function AlertsPage() {
         <CardHeader title={`Recently fired · ${events.length}`} />
         {events.length === 0 ? (
           <Empty>
-            Nothing has fired yet. Alerts are checked as each candle closes — or during the candle,
-            for alerts set to an intrabar frequency.
+            {evaluatorOff
+              ? "Nothing has fired. This install does not evaluate alerts, so nothing will fire until the alert evaluator is turned on."
+              : <>Nothing has fired yet. Alerts are checked as each candle closes — or during the candle,
+                for alerts set to an intrabar frequency.</>}
           </Empty>
         ) : (
           <div className="divide-y divide-border">

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useAsk } from "@/components/AskDialog";
-import { Button, Card, CardHeader, Empty, PageShell, StatusBadge, PageHeader, Notice } from "@/components/ui";
+import { Button, Card, CardHeader, Empty, PageShell, PageHeader, Notice } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { DeploymentForm } from "@/components/DeploymentForm";
 import { AlertFeed } from "@/components/AlertFeed";
@@ -17,6 +17,9 @@ import type { Alert, Deployment, SymbolInfo } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
 import { fmtChartBarTime, CHART_TIME_ZONE } from "@/lib/chartClock";
 import { INTERVAL_MS } from "@/lib/types";
+import { automationsHeadline, RUNNER_OFF_NOTICE, runnerOff } from "@/lib/evaluationState";
+import { useStrategyRunner } from "@/lib/useEvaluationState";
+import { DeploymentStatusBadge, RunnerOffRowNote } from "@/components/DeploymentStatus";
 
 export default function DeploymentsPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -48,6 +51,12 @@ export default function DeploymentsPage() {
    */
   const [actionError, setActionError] = useState<FailureCopy | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /**
+   * C-04: whether anything on this install runs an active automation. With
+   * the strategy runner off, "1 running · Active" was the page's headline
+   * while Operations said nothing was evaluated.
+   */
+  const runner = useStrategyRunner();
 
   const refresh = useCallback(async () => {
     try {
@@ -146,7 +155,7 @@ export default function DeploymentsPage() {
           primary action beside it was the shape four pages hand-rolled. */}
       <PageHeader
         title="Automations"
-        description={`${activeCount} running · a strategy watching one symbol and timeframe, acting on each confirmed bar close. Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.`}
+        description={`${automationsHeadline(activeCount, runner)} · a strategy watching one symbol and timeframe, acting on each confirmed bar close. Paper simulates fills; Live sends real Spot orders to the execution bot. Notification alerts are separate, under Alerts.`}
         actions={
           <Button variant={showForm ? "ghost" : "primary"} className="shrink-0 whitespace-nowrap" onClick={() => setShowForm((s) => !s)}>
             {showForm ? "Cancel" : "+ New automation"}
@@ -154,6 +163,11 @@ export default function DeploymentsPage() {
         }
       />
 
+      {runnerOff(runner) && (
+        <div data-runner-off>
+          <Notice tone="warn" role="status">{RUNNER_OFF_NOTICE}</Notice>
+        </div>
+      )}
       <StaleNotice state={freshness} />
       {actionError && (
         <Notice tone="error" role="alert" onDismiss={() => setActionError(null)}>
@@ -277,7 +291,7 @@ export default function DeploymentsPage() {
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
                   <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge status={d.status} />
+                    <DeploymentStatusBadge status={d.status} runner={runner} />
                     <span className="font-medium text-ink">{d.symbol}</span>
                     <span className="text-sm text-ink-muted">{d.timeframe}</span>
                     {/* accent-is-meaning: `paper` is what this deployment IS, and the
@@ -315,6 +329,7 @@ export default function DeploymentsPage() {
                     {d.lastBarTime && (
                       <span className="text-ink-faint">last bar {fmtAgo(d.lastBarTime)}</span>
                     )}
+                    <RunnerOffRowNote status={d.status} runner={runner} />
                   </div>
                   </div>
                   <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -376,6 +391,12 @@ export default function DeploymentsPage() {
               Activation starts this deployment immediately. Live delivery can place real orders;
               confirm the exact mode and size below.
             </p>
+            {runnerOff(runner) && (
+              <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn" data-runner-off>
+                The strategy runner is off on this install, so this automation is saved as active
+                but nothing evaluates it until the runner is turned on.
+              </p>
+            )}
             <label className="flex items-start gap-2 text-xs text-ink">
               <input
                 type="checkbox"

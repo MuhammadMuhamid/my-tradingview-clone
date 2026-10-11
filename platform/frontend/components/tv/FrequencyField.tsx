@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  api, isIntrabarFrequency, type AlertFrequency, type AlertFrequencyOption,
+  isIntrabarFrequency, type AlertFrequency, type AlertFrequencyOption,
 } from "@/lib/api";
+import { loadMaAlertOptions } from "@/lib/useEvaluationState";
 import { FREQUENCY_HELP, FREQUENCY_LABELS, INTRABAR_WARNING } from "@/lib/alerts";
 import type { Interval } from "@/lib/types";
 import { Dropdown } from "@/components/ui";
@@ -37,7 +38,7 @@ export function FrequencyField({
     let live = true;
     // A failure here is not worth an error message: the local copy says the
     // same thing, and the alert can still be armed.
-    api.maAlertOptions()
+    loadMaAlertOptions()
       .then((o) => { if (live) setOptions(o.frequencies); })
       .catch(() => { /* fall back to the local wording */ });
     return () => { live = false; };

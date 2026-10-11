@@ -8,7 +8,7 @@ import {
   NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, TYPE_LABELS, chipById, chipDegradedTitle, chipForInstrument,
   chipTypeDefault, currentFirst, dialogClosed, matchParts, moveCursor,
   isInstrument, readRecentSymbols, recentRowsFor, rememberRecentSymbol, trackedRows,
-  pressEnter, queryChanged, quoteFilters, reasonForSource, responseArrived, rowAtCursor, rowDescription,
+  pressEnter, queryChanged, quoteFilters, rankSearchResults, reasonForSource, responseArrived, rowAtCursor, rowDescription,
   rowTicker, rowTitle, rowTypeWords, searchKey, showsExpiry, typeOptionsFor, venueOptions,
   type SearchAssetClass, type SearchExpiry, type SearchInstrumentType, type SearchIntent,
 } from "@/lib/symbolSearch";
@@ -353,7 +353,8 @@ export function SymbolSearch({
           setVenues(res.venues ?? []);
           setErrors(res.errors ?? []);
           // An empty box with nothing to start from falls back to the answer.
-          if (!shown) show(res.results, null);
+          // C-05: equal relevance goes to the primary venue and to spot.
+          if (!shown) show(rankSearchResults(res.results, term), null);
         })
         .catch((e) => {
           if (reqId.current !== id) return;
@@ -903,5 +904,47 @@ export function SymbolSearch({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * One search result, narrow enough for a 300px panel.
+ *
+ * C-06: the watchlist's `+` box was a bare input that added whatever was typed
+ * — "eth" became a Hyperliquid perpetual with no quotes. It now offers the
+ * same rows as this dialog, ranked the same way (`rankSearchResults`), built
+ * from the same identity helpers and the same marks; only the column widths
+ * differ, because the dialog's 211px ticker column is two-thirds of a
+ * watchlist. 40px, the contract's dropdown row; the cursor row wears the
+ * neutral hover tint, never accent.
+ */
+export function SymbolResultLine({ row, venueLabel, term, highlighted, inList }: {
+  row: SymbolSearchResult;
+  venueLabel: string;
+  term: string;
+  highlighted: boolean;
+  /** Already a member of the list it would be added to. */
+  inList?: boolean;
+}) {
+  const ticker = rowTicker(row);
+  const hit = matchParts(ticker, term.trim());
+  return (
+    <span
+      className={`grid h-10 w-full grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-2 px-2 text-left ${
+        highlighted ? "bg-state-hover" : "hover:bg-state-hover"}`}
+    >
+      <AssetMark asset={row.baseAsset} />
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        <span className="shrink-0 text-sm text-ink" data-result-ticker>
+          {hit === null ? ticker : <>{hit.pre}<span className="font-semibold">{hit.hit}</span>{hit.post}</>}
+        </span>
+        <span className="truncate text-[12px] text-ink-faint">{rowDescription(row)}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-ink-faint">
+        {inList ? <span>in list</span> : <span>{rowTypeWords(row)}</span>}
+        <span className="max-w-[84px] truncate text-ink-muted">{venueLabel}</span>
+        <VenueMark label={venueLabel} />
+      </span>
+    </span>
   );
 }

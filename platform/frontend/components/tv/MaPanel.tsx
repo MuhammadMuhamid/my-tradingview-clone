@@ -11,6 +11,9 @@ import {
 } from "@/lib/alerts";
 import { DEFAULT_ALERT_FREQUENCY } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
+import { Notice } from "@/components/ui";
+import { ALERT_EVALUATOR_OFF_NOTICE, ARMED_NOT_EVALUATED } from "@/lib/evaluationState";
+import { useAlertEvaluatorOff } from "@/lib/useEvaluationState";
 
 type LevelKind = "sr_zone" | "pivot_level";
 /** The families the indicator dialog arms. Mirrors `IndicatorKind`. */
@@ -184,6 +187,8 @@ export function MaPanel({
   push: React.ReactNode;
   liveActionsDisabled?: boolean;
 }) {
+  /** C-03: the rail lists alerts as "armed"; it must say when nothing watches them. */
+  const evaluatorOff = useAlertEvaluatorOff();
   /**
    * Alerts grouped by the line they watch, across all timeframes. Only the `ma`
    * kind belongs to a line — a price alert sits on no moving average, and a
@@ -368,6 +373,11 @@ export function MaPanel({
             + Price
           </button>
         </div>
+        {evaluatorOff && (
+          <div className="px-3 py-2" data-alert-evaluator-off>
+            <Notice tone="warn" role="status">{ALERT_EVALUATOR_OFF_NOTICE}</Notice>
+          </div>
+        )}
         {armedList.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-ink-faint">
             No alerts on this symbol yet.
@@ -398,8 +408,10 @@ export function MaPanel({
                   {FREQUENCY_LABELS[a.frequency]}
                 </span>
               )}
-              {alertInactiveReason(a) && (
+              {alertInactiveReason(a) ? (
                 <span className="shrink-0 text-[10px] text-ink-faint">{alertInactiveReason(a)}</span>
+              ) : evaluatorOff && (
+                <span className="shrink-0 text-[10px] text-warn">{ARMED_NOT_EVALUATED}</span>
               )}
               {/* accent-is-meaning: "you are here" — this alert is on the
                   timeframe currently shown, which is a fact about the alert

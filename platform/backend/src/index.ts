@@ -6,6 +6,7 @@ import { buildServer } from "./api/server";
 import { startBacktestWorker } from "./engine/worker";
 import { LiveRunner } from "./engine/liveRunner";
 import { MaAlertRunner } from "./engine/maAlertRunner";
+import { alertEvaluation } from "./alerts/evaluationGate";
 import * as pushRepo from "./repositories/pushSubscriptions";
 import { encryptLegacySecrets } from "./repositories/deployments";
 import { seedIndicatorLibrary } from "./pine/librarySeed";
@@ -120,7 +121,7 @@ async function main(): Promise<void> {
   // Independent of the strategy live runner: MA alerts must keep watching even
   // when no strategy deployment is active.
   let maAlerts: MaAlertRunner | undefined;
-  if (process.env.MA_ALERTS_ENABLED !== "false") {
+  if (alertEvaluation().enabled) {
     maAlerts = new MaAlertRunner(app.log);
     await maAlerts.start();
   }

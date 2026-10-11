@@ -32,6 +32,7 @@ import {
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
 import { validateCondition } from "../../alerts/alertConditions";
+import { alertEvaluation } from "../../alerts/evaluationGate";
 import { scannerRequest } from "../../scanner/client";
 import { canonicalizeLegacySpotSymbol, normalizeCanonicalInstrumentId } from "../../market/model";
 
@@ -535,6 +536,14 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
       intrabar: isIntrabar(f),
       warning: isIntrabar(f) ? INTRABAR_WARNING : null,
     })),
+    /*
+     * C-03: whether anything on this install will ever evaluate what the
+     * dialogs save. Read per request, from the same predicate the start-up
+     * gate uses, so the dialogs and /alerts cannot say "armed" about alerts
+     * an evaluator-less install merely stores. Creation stays allowed: a
+     * saved alert runs as soon as the evaluator is turned on.
+     */
+    evaluation: alertEvaluation(),
   }));
 
   app.get("/api/ma-alerts", async (req) => {

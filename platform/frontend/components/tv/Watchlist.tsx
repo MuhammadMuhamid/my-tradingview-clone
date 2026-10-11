@@ -37,6 +37,7 @@ import { useInstrumentStats } from "@/lib/useInstrumentStats";
 import { CaretGlyph } from "@/components/ui";
 import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { AssetMark, WatchlistDetails, type MarketLine } from "@/components/tv/WatchlistDetails";
+import { WatchlistAddBox } from "@/components/tv/WatchlistAddBox";
 
 type Ticker = Pick<WatchlistTicker, "last" | "chg" | "chgPct" | "stale" | "changeKnown">;
 type NamedWatchlist = ServerWatchlist;
@@ -373,7 +374,6 @@ export function Watchlist({
   onHide?: () => void;
 }) {
   const ask = useAsk();
-  const [adding, setAdding] = useState("");
   /** The add-symbol field is opened from the header, not permanently reserved. */
   /*
    * TVP7: closed. This field was open on load, so the panel spent a permanent
@@ -813,9 +813,9 @@ export function Watchlist({
    * "adding a symbol" means exactly one thing however it was reached — the
    * starter list is not a second, looser admission path.
    */
-  const addSymbols = async (wanted: readonly string[], intoId?: string) => {
+  const addSymbols = async (wanted: readonly string[], intoId?: string): Promise<boolean> => {
     const clean = wanted.map((s) => s.trim()).filter(Boolean);
-    if (clean.length === 0) return;
+    if (clean.length === 0) return false;
     setErr(null);
     try {
       const resolved: string[] = [];
@@ -842,20 +842,21 @@ export function Watchlist({
           symbols: [...l.symbols, ...resolved.filter((s) => !l.symbols.includes(s))],
         }));
       }
-      setAdding("");
-    } catch (e) { setErr(describeAction(e, "create the list")); }
+      return true;
+    } catch (e) {
+      setErr(describeAction(e, "create the list"));
+      return false;
+    }
   };
 
-  const add = async () => {
-    const s = adding.trim().toUpperCase();
-    if (!s) return;
-    // Legacy suffix split, kept deliberately: this quick-add accepts USDT
-    // pairs and only USDT pairs, so the suffix is the admission rule and the
-    // base asset follows from it. Adding a pair through the symbol dialog
-    // instead registers it from the venue's own metadata.
-    await addSymbols([s]);
-    setAddOpen(false);
-  };
+  /**
+   * C-06: the `+` field adds a RESOLVED instrument — a row the user saw in
+   * the results — never the text in the box. The canonical id is what is
+   * stored, so a Binance pair and a Hyperliquid perpetual on the same base
+   * can never be confused by a spelling.
+   */
+  const addResolved = (row: { canonicalId?: string; symbol: string }): Promise<boolean> =>
+    addSymbols([row.canonicalId ?? row.symbol]);
 
   const removeSymbol = (symbol: string): void => {
     updateActive((l) => ({ ...l, symbols: l.symbols.filter((x) => x !== symbol) }));
@@ -1211,43 +1212,18 @@ export function Watchlist({
 
         {addOpen && (
           /*
-            R7-12: a 34px search row, not a form.
-
-            This was a 29px input with a 2px ACCENT border beside a filled-blue
-            `Add` button — a primary call to action inside a 300px workstation
-            panel, in the one colour the contract reserves for meaning. Enter
-            adds; Escape closes; the accessible names are unchanged because
-            `keyboard`, `drawings` and `watchlistEditFeed` all aim at them.
-
-            R7b-15: and the accent came BACK through the global `:focus-visible`
-            rule the moment the field autofocused — a 2px rgb(79,140,255)
-            outline on the one control in the panel that opens focused. The
-            field's focus is now the wrapper's border going to the strong
-            neutral, which is the grammar every other neutral chip uses.
+            R7-12 / C-06: the 34px search row, now with the symbol dialog's
+            own result rows under it. Enter adds the highlighted row; Escape
+            closes the field (not the panel); the accessible names are
+            unchanged because `keyboard`, `drawings` and `watchlistEditFeed`
+            all aim at them.
           */
-          <div className="flex h-[34px] shrink-0 items-center gap-1.5 rounded-md border border-control-border px-2 mx-2 mb-1 focus-within:border-[color:var(--ts-control-border-strong)]">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
-              aria-hidden="true" className="shrink-0 text-ink-faint">
-              <circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" />
-            </svg>
-            {/* A placeholder is not an accessible name, and it disappears as soon
-                as the field is typed into. Measured in a browser: this was the one
-                control on the chart with no name at all. */}
-            <input autoFocus value={adding} onChange={(e) => setAdding(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void add();
-                if (e.key === "Escape") {
-                  // R7b-06: closes the FIELD. The panel's window-level Escape
-                  // handler took the whole column with it.
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAdding("");
-                  setAddOpen(false);
-                }
-              }}
-              aria-label="Add a symbol to this watchlist" placeholder="Symbol, e.g. BTCUSDT"
-              className="w-full bg-transparent text-[14px] text-ink outline-none focus-visible:outline-none placeholder:text-ink-faint" />
-          </div>
+          <WatchlistAddBox
+            onAdd={addResolved}
+            onClose={() => setAddOpen(false)}
+            inList={(row) => Boolean(active?.symbols.some((s) =>
+              s === (row.canonicalId ?? row.symbol) || s === row.symbol))}
+          />
         )}
         {err && <div className="px-3 py-1.5 text-xs text-down" title={err.detail || undefined}>{err.headline}</div>}
         {/*

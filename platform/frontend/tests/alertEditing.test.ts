@@ -657,7 +657,10 @@ test("ALERTS — every create dialog can arm, and every control reaches the requ
   ];
   for (const file of dialogs) {
     const src = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
-    assert.match(src, /<AlertArmedField value=\{armed\} onChange=\{setArmed\} \/>/, `${file}: no armed field`);
+    // C-03: a dialog that folds the field under a disclosure places the
+    // evaluator-off notice itself and says so with `evaluatorNotice={false}`.
+    assert.match(src, /<AlertArmedField value=\{armed\} onChange=\{setArmed\}(?: evaluatorNotice=\{false\})? \/>/,
+      `${file}: no armed field`);
     assert.match(src, /enabled: armed,/, `${file}: the armed state never reaches the request`);
   }
 

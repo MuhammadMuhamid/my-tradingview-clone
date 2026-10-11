@@ -6,7 +6,10 @@ import { api } from "@/lib/api";
 import { freshAt, type Freshness } from "@/lib/freshness";
 import type { Alert, Deployment } from "@/lib/types";
 import { fmtAgo, fmtPrice } from "@/lib/format";
-import { StatusBadge } from "@/components/ui";
+import { Notice, StatusBadge } from "@/components/ui";
+import { DeploymentStatusBadge, RunnerOffRowNote } from "@/components/DeploymentStatus";
+import { automationsRailCount, RUNNER_OFF_NOTICE, runnerOff } from "@/lib/evaluationState";
+import { useStrategyRunner } from "@/lib/useEvaluationState";
 import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { EditAlertModal } from "./EditAlertModal";
 
@@ -36,6 +39,8 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
   const [freshness, setFreshness] = useState<Freshness>({ lastOkAt: null, lastError: null });
   /* REV-UX-01: the headline is the reader's, the cause is the tooltip's. */
   const [actionError, setActionError] = useState<FailureCopy | null>(null);
+  /** C-04: a "Running" tab must not list automations nothing runs as running. */
+  const runner = useStrategyRunner();
 
   const refresh = useCallback(async () => {
     try {
@@ -123,10 +128,17 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2v11M2 7.5h11" stroke="currentColor" strokeWidth="1.5" /></svg>
         </button>
         <span className="text-xs text-ink-faint">
-          {tab === "alerts" ? `${deps.filter((d) => d.status === "active").length} active` : `${log.length} events`}
+          {tab === "alerts"
+            ? automationsRailCount(deps.filter((d) => d.status === "active").length, runner)
+            : `${log.length} events`}
         </span>
       </div>
 
+      {tab === "alerts" && runnerOff(runner) && deps.length > 0 && (
+        <div className="border-b border-border px-2 py-2" data-runner-off>
+          <Notice tone="warn" role="status">{RUNNER_OFF_NOTICE}</Notice>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "alerts" ? (
           deps.length === 0 ? (
@@ -150,13 +162,16 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
               <div key={d.id} className="group border-b border-border/50 px-3 py-2.5 hover:bg-state-hover/60">
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-medium text-ink">{d.symbol} <span className="text-ink-faint">· {d.timeframe}</span></span>
-                  <StatusBadge status={d.status} />
+                  <DeploymentStatusBadge status={d.status} runner={runner} />
                 </div>
                 <div className="mt-0.5 flex items-center justify-between">
                   <span className="text-xs text-ink-faint">
                     {d.delivery === "off" ? "log only" : d.delivery === "paper" ? "paper" : d.delivery}
                     {d.buyQuoteQty != null && <> · {d.buyQuoteQty} USDT</>}
                     {" · "}{d.runtimeState.position === "long" ? "in position" : "flat"}
+                    {d.status === "active" && runnerOff(runner) && (
+                      <span className="block"><RunnerOffRowNote status={d.status} runner={runner} /></span>
+                    )}
                   </span>
                   {/*
                     Revealed on hover OR on focus. Without `focus-within` a

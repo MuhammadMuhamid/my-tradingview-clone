@@ -27,6 +27,7 @@ import type { CandleIntegrityState, CandleIntegrityIssueCode } from "../../data/
 import * as maAlertRepo from "../../repositories/maAlerts";
 import { readReadiness } from "./health";
 import type { MaAlertRow } from "../../types/maAlerts";
+import { alertEvaluation, ALERT_EVALUATOR_DISABLED_REASON } from "../../alerts/evaluationGate";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
@@ -96,7 +97,7 @@ export function formatAlertRunnerStatus(
     return {
       state: "disabled" as const, active: alerts.length, recent: 0, stale: 0,
       withoutEvidence: 0, lastEvaluatedAt: null,
-      reason: "MA_ALERTS_ENABLED is false; notification alerts are intentionally disabled.",
+      reason: ALERT_EVALUATOR_DISABLED_REASON,
     };
   }
   if (alerts.length === 0) {
@@ -145,6 +146,69 @@ export function formatAlertRunnerStatus(
     reason: `${recent} active alert(s) have recent evaluation evidence.`,
   };
 }
+
+/**
+ * What the strategy runner on THIS install is doing for active automations.
+ *
+ * C-04: Trading → Automations read "1 running · Active" for a Paper deployment
+ * while `LIVE_RUNNER_ENABLED` was false — the runner was never started, so the
+ * deployment was evaluated by nothing and emitted nothing, and Operations on
+ * the same install said so. `active` is the deployment's own status (the user
+ * asked for it to run); whether anything RUNS it is this answer, from the same
+ * evidence `/api/ops/status` reports: the configuration flag, the emitter
+ * lease and the halt latch.
+ *
+ * `reason` is for operators. The Automations page writes its own sentence.
+ */
+export type StrategyRunnerState = "off" | "halted" | "standby" | "live";
+
+export interface StrategyRunnerStatus {
+  state: StrategyRunnerState;
+  /** Whether this process evaluates active automations on each bar close. */
+  evaluating: boolean;
+  reason: string;
+}
+
+export function strategyRunnerStatus(input: {
+  liveRunnerEnabled: boolean;
+  isEmitter: boolean;
+  /** null when the halt latch could not be read. */
+  tradingHalted: boolean | null;
+}): StrategyRunnerStatus {
+  if (!input.liveRunnerEnabled) {
+    return {
+      state: "off", evaluating: false,
+      reason: "LIVE_RUNNER_ENABLED is not \"true\", so this process evaluates no automation and emits nothing.",
+    };
+  }
+  if (input.tradingHalted === true) {
+    return {
+      state: "halted", evaluating: input.isEmitter,
+      reason: "Trading is halted; every automated emission is refused until it is resumed.",
+    };
+  }
+  if (input.isEmitter) {
+    return {
+      state: "live", evaluating: true,
+      reason: "This process holds the emitter lease and evaluates active automations.",
+    };
+  }
+  return {
+    state: "standby", evaluating: false,
+    reason: "The runner is enabled but this process does not hold the emitter lease.",
+  };
+}
+
+/** What `/api/ops/runner` reads, injectable so the route is testable without a database. */
+export interface RunnerStatusDeps {
+  liveRunnerEnabled: () => boolean;
+  readTradingHalted: () => Promise<boolean>;
+}
+
+const DEFAULT_RUNNER_STATUS_DEPS: RunnerStatusDeps = {
+  liveRunnerEnabled: () => config.liveRunnerEnabled,
+  readTradingHalted: async () => (await liveSafety.getRiskLimits()).tradingHalted,
+};
 
 /** The limits an operator may set, or the refusal that stops them. */
 export type RiskLimitPatch =
@@ -231,8 +295,38 @@ export function readRiskLimitPatch(b: Record<string, unknown>): RiskLimitPatch {
   return { patch };
 }
 
-export function operationsRoutes(getRunner: () => LiveRunner) {
+export function operationsRoutes(
+  getRunner: () => LiveRunner,
+  runnerDeps: RunnerStatusDeps = DEFAULT_RUNNER_STATUS_DEPS,
+) {
   return async function register(app: FastifyInstance): Promise<void> {
+    /**
+     * The one fact the Automations surfaces need, without the whole operator
+     * status: is anything on this install evaluating active automations?
+     *
+     * Cheap on purpose — it is polled beside the deployment list — and it
+     * never 500s: an unreadable halt latch is `null`, not an error, because
+     * the configuration flag alone already answers the question that matters
+     * most (C-04: a runner that was never started).
+     */
+    app.get("/api/ops/runner", async () => {
+      let tradingHalted: boolean | null = null;
+      try {
+        tradingHalted = await runnerDeps.readTradingHalted();
+      } catch {
+        tradingHalted = null;
+      }
+      let isEmitter = false;
+      try {
+        isEmitter = getRunner().isEmitter;
+      } catch {
+        // Constructed after the server; before that it is not the emitter.
+      }
+      return strategyRunnerStatus({
+        liveRunnerEnabled: runnerDeps.liveRunnerEnabled(), isEmitter, tradingHalted,
+      });
+    });
+
     /**
      * The single screen an operator needs: is trading on, is this process the
      * emitter, are the feeds live, and where do the risk numbers stand.
@@ -272,7 +366,7 @@ export function operationsRoutes(getRunner: () => LiveRunner) {
       const bot = await readBotStatus([...active, ...deployments.filter((d) => d.status !== "active")]);
       const database = await readReadiness();
       const alertRunner = formatAlertRunnerStatus(
-        process.env.MA_ALERTS_ENABLED !== "false",
+        alertEvaluation().enabled,
         await maAlertRepo.listAlerts({ activeOnly: true }),
         Date.now()
       );
