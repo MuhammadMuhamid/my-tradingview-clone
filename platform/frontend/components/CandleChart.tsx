@@ -1344,7 +1344,8 @@ export function CandleChart({
    *
    * The cells come from the public execution tape, which reaches back only as
    * far as the provider will page: about two hours of BTC at the 50,000-row
-   * ceiling, and the window is requested as the last thirty minutes. Older
+   * ceiling. The window asks for the newest eight bars (never under thirty
+   * minutes) and narrows to what one page covers — `lib/useMarketTrades`. Older
    * bars are drawn as ordinary exchange OHLC — truthfully, and never with an
    * inferred cell — but a reader cannot tell a bar with no order flow from a
    * bar whose order flow is simply out of reach unless the pane says which.

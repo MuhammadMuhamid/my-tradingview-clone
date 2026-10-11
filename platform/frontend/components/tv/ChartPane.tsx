@@ -290,6 +290,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
     tradeMode,
     replay?.horizonCloseTime ?? null,
     `${pane.chartType}|${pane.interval}`,
+    resolutionMs(pane.interval),
   );
   const [priceTick, setPriceTick] = useState<number | null>(null);
   useEffect(() => {

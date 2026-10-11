@@ -7,7 +7,8 @@
  * as broken. The cause was not a missing backfill. `/api/data/trades` serves
  * aggregate trades; what is bounded is how far a page reaches (measured on this
  * provider: 50,000 executions is about two hours of BTC, walking forward from
- * the window start), and the client asks for the last thirty minutes. No window
+ * the window start), and the client asks for the newest eight bars, narrowed to
+ * what one page holds (D-F7; it was a fixed thirty minutes). No window
  * covers 24 daily bars, so the tape will always be partial and the chart has to
  * be truthful about it rather than silent.
  *
