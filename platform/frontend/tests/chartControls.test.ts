@@ -672,7 +672,8 @@ test("SHORTCUTS — the bottom row is time only; the scale controls sit on the a
    * The separator's own margins are `!ml-px !mr-2`, which is what puts the
    * rule at x=355 and the go-to-date glyph's 19px box at x=369.
    */
-  assert.match(CHART, /className="flex h-\[38px\] shrink-0 items-center border-t border-border bg-surface pl-\[9px\] pr-1\.5"/,
+  // C-05: `relative` holds the clock's sr-only label inside the row; it moves nothing.
+  assert.match(CHART, /className="relative flex h-\[38px\] shrink-0 items-center border-t border-border bg-surface pl-\[9px\] pr-1\.5"/,
     "the range row is 38px with the hairline inside it");
   assert.match(CHART, /role="group" aria-label="Visible range" className="flex items-center"/,
     "no gap class between the chips: the pitch is the label plus its own padding");

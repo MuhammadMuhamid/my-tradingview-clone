@@ -24,7 +24,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import {
   PathParamsContext, PathnameContext, SearchParamsContext,
 } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
-import { assertAbsent, assertPresent, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
+import { assertAbsent, assertPresent, closeBrowser, compactSeries, render, resetBrowser, server, settle } from "./harness/env";
 import { RunWindows } from "@/components/RunWindows";
 import { Metrics } from "@/components/Metrics";
 import BacktestDetail from "@/app/research/[id]/page";
@@ -197,6 +197,30 @@ test("C-01 a run that skipped every entry says so once, in the engine's sentence
   render(<RunWindows segments={run().segments} execution={execution} initialCapital={100} />);
   assert.equal(screen.queryAllByText(/could not have taken/).length, 1, "one notice, not two");
   assertPresent(screen.queryByText(/all 39 entries were skipped/), "the engine's own sentence carries the count");
+});
+
+test("C-05 every screen-reader-only label on the result page's chart has a positioned ancestor", async () => {
+  /*
+   * `sr-only` is `position: absolute`. Without a positioned ancestor its
+   * containing block is the viewport's, so the chart footer's " — chart
+   * display timezone" — far down inside the scrolling <main> — extended the
+   * DOCUMENT, and a wheel over the top nav or End scrolled the page 1,091px
+   * into blank grey. jsdom has no layout, so the rule is held structurally.
+   */
+  server.setCandles("SOLUSDT", "1h", compactSeries(300, { intervalMs: 3_600_000, endMs: T0 + 50 * DAY }));
+  serve([run()]);
+  render(<Route path={`/research/${ID}`} params={{ id: ID }}><BacktestDetail /></Route>);
+  await settle(6);
+  const labels = [...document.querySelectorAll<HTMLElement>(".sr-only")];
+  assert.ok(labels.some((el) => el.textContent === " — chart display timezone"),
+    "the chart's footer did not render — this test did not reach the label it is about");
+  const POSITIONED = /(^|\s)(relative|absolute|fixed|sticky)(\s|$)/;
+  for (const label of labels) {
+    let at: HTMLElement | null = label.parentElement;
+    while (at && at !== document.body && !POSITIONED.test(at.className)) at = at.parentElement;
+    assert.ok(at && at !== document.body,
+      `"${label.textContent}" has no positioned ancestor, so it is placed against the viewport`);
+  }
 });
 
 // ── C-2: reproducible from the page ─────────────────────────────────────────

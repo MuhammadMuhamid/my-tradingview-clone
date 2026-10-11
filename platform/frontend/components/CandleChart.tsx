@@ -5176,9 +5176,18 @@ export function CandleChart({
           (`px-1.5` plus a 2px gap). Two pixels per chip over nine chips put
           `All` fifteen pixels right of where the reference has it, which is
           what moved the separator and the go-to-date button off their marks.
+
+          C-05: `relative`, and nothing else about the row changes. Its clock
+          carries an `sr-only` label, and `sr-only` is `position: absolute`;
+          on /research/[id] no ancestor was positioned, so the label's
+          containing block was the viewport's and, sitting far down inside
+          the scrolling <main>, it extended the DOCUMENT — a wheel over the
+          top nav or End scrolled the page 1,091px into blank grey. A
+          positioned row keeps it, and anything absolute added here later,
+          inside the row.
         */
         portalled(
-        <div className="flex h-[38px] shrink-0 items-center border-t border-border bg-surface pl-[9px] pr-1.5">
+        <div className="relative flex h-[38px] shrink-0 items-center border-t border-border bg-surface pl-[9px] pr-1.5">
           {showRanges && (
           <div role="group" aria-label="Visible range" className="flex items-center">
             {shortcuts.map(({ shortcut, enabled }) => (
