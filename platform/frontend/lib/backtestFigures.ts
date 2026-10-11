@@ -276,6 +276,111 @@ const PROVIDERS: Record<string, string> = {
   "binance-spot": "Binance Spot",
 };
 
+// ── The engine a run was produced by ────────────────────────────────────────
+
+/**
+ * Each engine correction, in the reader's words.
+ *
+ * The keys are `backend/src/engine/corrections.ts`'s `CORRECTION_KEYS`; a key
+ * this list does not know is shown as itself rather than dropped, so a newer
+ * engine never reads as having fewer corrections than it has.
+ */
+export const CORRECTION_LABELS: Readonly<Record<string, string>> = {
+  executableCloseFills: "Protective exits fill at the bar's close",
+  netAvgTrade: "Average trade net of costs",
+  exchangeFilters: "Exchange lot and notional filters",
+  leanWarmupFloor: "Indicator warm-up floor",
+  zeroPnlIsScratch: "Zero-P/L trades are scratches",
+  assertSegmentValidity: "Window split validity check",
+  entryBarBrackets: "Stop and target active on the entry bar",
+  barMagnifier: "Bar magnifier",
+  lotDustExit: "Sub-lot remainder closes the position",
+  affordableEntries: "Entries the account cannot pay for are skipped",
+};
+
+export function correctionLabel(key: string): string {
+  return CORRECTION_LABELS[key] ?? key;
+}
+
+/** The corrections a stored fingerprint names, or null when it is not one the engine writes. */
+export function fingerprintCorrections(fingerprint: string | null | undefined): string[] | null {
+  if (typeof fingerprint !== "string") return null;
+  if (/^engine:legacy-baseline(:|$)/.test(fingerprint)) return [];
+  const m = /^engine:v2-corrected:(.+)$/.exec(fingerprint);
+  if (!m) return null;
+  return m[1]!.split("+").map((s) => s.trim()).filter(Boolean);
+}
+
+const listOf = (keys: readonly string[]): string => keys.map(correctionLabel).join("; ");
+
+/**
+ * C-02: the sentence a finished run carries when the engine that produced it
+ * is not the one the server runs now, or null.
+ *
+ * Its figures are reproducible only under an engine nobody runs any more — a
+ * run from before `lotDustExit` counts sub-lot dust legs as wins — so the
+ * page must not let "Reproducible" stand alone beside them.
+ */
+export function olderEngineNotice(bt: Pick<Backtest, "status" | "engineCurrency">): string | null {
+  const c = bt.engineCurrency;
+  if (!c || c.current || bt.status !== "done") return null;
+  if (c.missing.length > 0) {
+    return `This run used an older engine (missing: ${listOf(c.missing)}). `
+      + "Re-run to get figures from the current engine.";
+  }
+  return `This run used engine corrections the server no longer applies (${listOf(c.extra)}). `
+    + "Re-run to get figures from the current engine.";
+}
+
+/** The short form for a list row's badge tooltip. */
+export function olderEngineTitle(bt: Pick<Backtest, "engineCurrency">): string | null {
+  const c = bt.engineCurrency;
+  if (!c || c.current) return null;
+  return c.missing.length > 0
+    ? `Produced by an older engine — missing: ${listOf(c.missing)}. Re-run for current figures.`
+    : `Produced with corrections the server no longer applies: ${listOf(c.extra)}.`;
+}
+
+/**
+ * C-07: the sentence a run carries when the server would refuse its settings
+ * as a new request, or null. Re-run and Stress are refused with it.
+ */
+export function refusedSettingsNotice(bt: Pick<Backtest, "refusedSettings">): string | null {
+  return bt.refusedSettings ? `Settings this engine now refuses: ${bt.refusedSettings}` : null;
+}
+
+// ── The list's filter and delete ────────────────────────────────────────────
+
+/**
+ * HVBO-4: does a run match the list's filter?
+ *
+ * The text matches the symbol, the timeframe, the strategy's name or key and
+ * the status, case-insensitively; every word must match somewhere, so
+ * "sol error" finds the failed SOLUSDT runs. `status` is one status, or "all".
+ */
+export function runMatches(
+  r: Pick<Backtest, "symbol" | "timeframe" | "status">, strategy: Strategy | null, text: string, status: string,
+): boolean {
+  if (status !== "all" && r.status !== status) return false;
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const hay = [r.symbol, r.timeframe, r.status, strategy?.name ?? "", strategy?.key ?? ""]
+    .join(" ").toLowerCase();
+  return words.every((w) => hay.includes(w));
+}
+
+/** Why a run cannot be deleted, or null — the server's refusals, said before asking it. */
+export function deleteBlocked(r: Pick<Backtest, "status" | "stressRunId">): string | null {
+  if (r.status === "running") return "A running backtest cannot be deleted until it finishes.";
+  if (r.stressRunId !== null) return "This run is one window of a stress analysis, which reads it.";
+  return null;
+}
+
+/** A run that has not finished has no result for provenance to describe yet. */
+function isPending(bt: Pick<Backtest, "status">): boolean {
+  return bt.status === "queued" || bt.status === "running";
+}
+
 function utcDay(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 10);
@@ -318,7 +423,14 @@ export function runSettings(bt: Backtest, strategies: readonly Strategy[]): Sett
   };
   const tick = typeof prov.costs?.tickSize === "number" ? prov.costs.tickSize : null;
   const { fraction, stated } = validationFractionOf(bt);
-  const noResult = bt.status === "error" ? "No result — the run did not finish" : null;
+  /*
+   * C-08: a queued or running run read "Not recorded on this run" and
+   * "Recorded before results carried an engine version" — the words for an
+   * OLD finished run — about a run that had simply not finished yet.
+   */
+  const noResult = bt.status === "error" ? "No result — the run did not finish"
+    : isPending(bt) ? "Not finished yet" : null;
+  const corrections = fingerprintCorrections(bt.engineFingerprint);
   const sizing = bt.executionTruth?.sizing;
   const qtyPct = Number(bt.params.qty_pct_equity ?? 0);
   const qtyCash = bt.params.qty_cash;
@@ -376,9 +488,25 @@ export function runSettings(bt: Backtest, strategies: readonly Strategy[]): Sett
       value: noResult ?? engineVersion ?? (bt.engineFingerprint ? "Recorded" : "Not recorded on this run"),
       ...(bt.engineFingerprint ? { title: bt.engineFingerprint } : {}),
     },
+    /*
+     * C-01 (product-readiness): "v2-corrected" named the family and hid the
+     * set — two runs a correction apart both read "v2-corrected". The set is
+     * what decides the figures, so it is on the page in words.
+     */
+    ...(corrections !== null && noResult === null ? [{
+      label: "Engine corrections",
+      value: corrections.length === 0 ? "None — legacy baseline" : corrections.map(correctionLabel).join(", "),
+      title: corrections.length === 0 ? bt.engineFingerprint ?? undefined : corrections.join(", "),
+    }] : []),
     {
       label: "Result provenance",
-      value: noResult ?? SEMANTICS[bt.semanticsStatus ?? "historical_unversioned"],
+      value: noResult
+        ?? (bt.refusedSettings ? "Settings this engine now refuses — not reproducible as a new run"
+          : bt.engineCurrency && !bt.engineCurrency.current
+            ? "Older engine — a re-run today applies different corrections"
+            : SEMANTICS[bt.semanticsStatus ?? "historical_unversioned"]),
+      ...(bt.refusedSettings ? { title: bt.refusedSettings }
+        : bt.engineCurrency && !bt.engineCurrency.current ? { title: olderEngineTitle(bt) ?? undefined } : {}),
     },
     { label: "Created", value: utcStamp(bt.createdAt) },
   ];
@@ -511,6 +639,34 @@ function orderSizeProblem(
     + "A spot account cannot spend more than it holds — lower the order size or raise the initial capital.";
 }
 
+/** At or above this share of the capital per entry, the form warns before running. */
+export const ORDER_SIZE_HINT_SHARE = 0.9;
+
+/**
+ * C-09: an order size the account can pay for once, but perhaps not twice.
+ *
+ * The defaults — 1,000 capital, 930 per entry — are affordable, and after the
+ * first loss most entries are not: the engine skips them (`affordableEntries`)
+ * and the run reads as a strategy that went quiet. Not an error, so not a
+ * refusal: a hint, said before the run is queued. Null below the line, above
+ * the capital (that is `runFormProblem`'s refusal), and for percent-of-equity
+ * sizing, which is a share of whatever the account holds.
+ */
+export function orderSizeHint(params: StrategyParams, capital: number, strategyKey: string): string | null {
+  const defaults = ENGINE_ORDER_SIZE[strategyKey] ?? null;
+  const pick = (key: "qty_cash" | "qty_pct_equity"): number =>
+    Number(params[key] ?? defaults?.[key] ?? Number.NaN);
+  const pct = pick("qty_pct_equity");
+  if (Number.isFinite(pct) && pct > 0) return null;
+  const cash = pick("qty_cash");
+  if (!Number.isFinite(cash) || !Number.isFinite(capital) || capital <= 0) return null;
+  if (cash > capital || cash < capital * ORDER_SIZE_HINT_SHARE) return null;
+  const n = (x: number): string => x.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `Each entry spends ${n(cash)} of the ${n(capital)} initial capital `
+    + `(${Math.round((cash / capital) * 100)}%). After a loss the account may not afford the next entry; `
+    + "skipped entries are counted on the result.";
+}
+
 // ── Comparing two runs ──────────────────────────────────────────────────────
 
 export interface CompareRow {
@@ -596,6 +752,47 @@ function paramCompareRows(a: StrategyParams, b: StrategyParams): CompareRow[] {
 }
 
 /**
+ * C-01 (product-readiness): the engine corrections, compared as sets.
+ *
+ * A run and its "Re-run with these settings" child compared as "same" on
+ * every settings row — Engine `v2-corrected | v2-corrected`, parameters same —
+ * while Net read −44.00 % against −7.26 %. The difference was the correction
+ * set (`lotDustExit`, `affordableEntries` in the child only), carried in the
+ * fingerprint and shown nowhere but a tooltip. Each side's extra corrections
+ * get a row of their own, so the explanation is on the table.
+ */
+function engineCompareRows(a: Backtest, b: Backtest): CompareRow[] {
+  const ca = fingerprintCorrections(a.engineFingerprint);
+  const cb = fingerprintCorrections(b.engineFingerprint);
+  if (ca === null || cb === null) {
+    // One side recorded nothing comparable: say what each recorded, and flag
+    // a difference only when the stored identities differ.
+    const shown = (bt: Backtest, c: string[] | null): string =>
+      isPending(bt) ? "Not finished yet"
+        : c !== null ? (c.length === 0 ? "None — legacy baseline" : `${c.length} corrections`)
+          : bt.engineFingerprint ? "not comparable — recorded in an older format" : NOT_RECORDED;
+    const va = shown(a, ca);
+    const vb = shown(b, cb);
+    return [{ label: "Engine corrections", a: va, b: vb,
+      differs: (a.engineFingerprint ?? null) !== (b.engineFingerprint ?? null) }];
+  }
+  const onlyA = ca.filter((k) => !cb.includes(k));
+  const onlyB = cb.filter((k) => !ca.includes(k));
+  if (onlyA.length === 0 && onlyB.length === 0) {
+    return [{ label: "Engine corrections", a: "same", b: "same", differs: false }];
+  }
+  const count = `${onlyA.length + onlyB.length} differ`;
+  const rows: CompareRow[] = [{ label: "Engine corrections", a: count, b: count, differs: true }];
+  if (onlyA.length > 0) {
+    rows.push({ label: "Engine corrections — only in A", a: listOf(onlyA), b: "not applied", differs: true });
+  }
+  if (onlyB.length > 0) {
+    rows.push({ label: "Engine corrections — only in B", a: "not applied", b: listOf(onlyB), differs: true });
+  }
+  return rows;
+}
+
+/**
  * Two runs side by side: the settings that could explain a difference, the
  * headline, and each window.
  */
@@ -611,6 +808,7 @@ export function compareRuns(a: Backtest, b: Backtest, strategies: readonly Strat
     const vb = sb.find((r) => r.label === label)?.value ?? NOT_RECORDED;
     return { label, a: va, b: vb, differs: va !== vb };
   });
+  settings.push(...engineCompareRows(a, b));
   settings.push(...paramCompareRows(a.params ?? {}, b.params ?? {}));
 
   const seg = (bt: Backtest) => (bt.segments?.available ? bt.segments : null);

@@ -12,7 +12,8 @@ import { RunSettings } from "@/components/RunSettings";
 import { TradeList } from "@/components/TradeList";
 import { CandleChart, TRADE_LABEL_LIMIT, type ChartPriceLine } from "@/components/CandleChart";
 import { api } from "@/lib/api";
-import { runFailure } from "@/lib/backtestFigures";
+import { olderEngineNotice, refusedSettingsNotice, runFailure } from "@/lib/backtestFigures";
+import { downloadText, tradesCsv, tradesCsvName } from "@/lib/tradeExport";
 import type { Backtest, Candle, Strategy, Trade } from "@/lib/types";
 import { fmtDate, fmtPrice, UTC_DATE_NOTE } from "@/lib/format";
 
@@ -26,6 +27,8 @@ export default function BacktestDetail() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [tab, setTab] = useState<"chart" | "trades">("chart");
   const [err, setErr] = useState<string | null>(null);
+  /** What Copy link / Export last did, said once, politely. */
+  const [shareNote, setShareNote] = useState<string | null>(null);
 
   const ot = bt?.metrics?.openTrade ?? null;
   const openLines: ChartPriceLine[] = ot
@@ -83,6 +86,22 @@ export default function BacktestDetail() {
     api.listStrategies().then(setStrategies).catch(() => {});
   }, []);
 
+  /*
+   * The address bar already holds this, but a button says it can be shared
+   * and confirms that it was. Without the clipboard (an insecure origin, a
+   * denied permission) the address is printed so it can be copied by hand.
+   */
+  const copyLink = async (): Promise<void> => {
+    const href = window.location.href;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("no clipboard");
+      await navigator.clipboard.writeText(href);
+      setShareNote("Link copied.");
+    } catch {
+      setShareNote(`Copy this address: ${href}`);
+    }
+  };
+
   const rerun = async (body: Parameters<typeof api.createBacktest>[0]): Promise<string> => {
     const created = await api.createBacktest(body);
     router.push(`/research/${created.id}`);
@@ -118,6 +137,9 @@ export default function BacktestDetail() {
   );
   if (!bt) return shell(<div role="status" className="text-ink-faint">Loading…</div>);
 
+  const olderEngine = olderEngineNotice(bt);
+  const refused = refusedSettingsNotice(bt);
+
   return (
     <PageShell>
       <PageHeader
@@ -128,8 +150,13 @@ export default function BacktestDetail() {
           <span className="text-sm text-ink-faint" title={UTC_DATE_NOTE}>
             {fmtDate(bt.startTime)} → {fmtDate(bt.endTime)} <span className="text-ink-faint">UTC</span>
           </span>
+          {/* HVBO-3: this page's address, for a colleague or a note. */}
+          <Button variant="ghost" onClick={() => void copyLink()} title="Copy this result's address">
+            Copy link
+          </Button>
         </>}
       />
+      {shareNote && <p role="status" className="-mt-2 text-right text-xs text-ink-faint">{shareNote}</p>}
 
       {err && (
         <Notice tone="error" role="alert">
@@ -149,10 +176,47 @@ export default function BacktestDetail() {
         </>
       ) : (
         <>
-          {bt.metrics && <Metrics m={bt.metrics} initialCapital={bt.initialCapital} />}
+          {/*
+            C-02: a run from an older correction set is reproducible only
+            under an engine this server no longer runs, so its figures are
+            not what a re-run gives today. Said before the figures.
+          */}
+          {olderEngine && !refused && (
+            <Notice tone="warn"><span data-older-engine>{olderEngine}</span></Notice>
+          )}
+          {refused ? (
+            /*
+             * C-07: settings the server now refuses — a negative capital, a
+             * negative commission — produced Net −320 %, PF ∞, Win 100 % on
+             * the headline. Those are not figures about any market, so they
+             * lead with why and are kept one deliberate click away.
+             */
+            <>
+              <Notice tone="error" role="alert">
+                <span data-refused-settings-notice>
+                  {refused}{" "}
+                  These figures came from settings no market allows, and describe nothing that could be traded.
+                </span>
+              </Notice>
+              <details className="rounded-md border border-border">
+                <summary className="cursor-pointer select-none px-4 py-2 text-xs font-medium text-ink-muted hover:text-ink">
+                  Show the recorded figures anyway
+                </summary>
+                <div className="space-y-4 p-2 opacity-60">
+                  {bt.metrics && <Metrics m={bt.metrics} initialCapital={bt.initialCapital} />}
+                  <RunWindows segments={bt.segments} execution={bt.executionTruth}
+                    initialCapital={bt.initialCapital} stressRunId={bt.stressRunId} />
+                </div>
+              </details>
+            </>
+          ) : (
+            <>
+              {bt.metrics && <Metrics m={bt.metrics} initialCapital={bt.initialCapital} />}
 
-          <RunWindows segments={bt.segments} execution={bt.executionTruth}
-            initialCapital={bt.initialCapital} stressRunId={bt.stressRunId} />
+              <RunWindows segments={bt.segments} execution={bt.executionTruth}
+                initialCapital={bt.initialCapital} stressRunId={bt.stressRunId} />
+            </>
+          )}
 
           <RunSettings bt={bt} strategies={strategies} onRerun={rerun} />
 
@@ -204,6 +268,17 @@ export default function BacktestDetail() {
             <CardHeader
               title={tab === "chart" ? "Price & trades" : `Trades (${trades.length})`}
               right={
+                <div className="flex items-center gap-2">
+                {/* HVBO-3: the trade list, as a file, built here from the records shown. */}
+                <Button variant="ghost" disabled={trades.length === 0}
+                  title={trades.length === 0 ? "This run has no trades to export" : "Download every trade as a CSV file"}
+                  onClick={() => {
+                    const ok = downloadText(tradesCsvName(bt), tradesCsv(trades, bt.commissionPct));
+                    setShareNote(ok ? `Exported ${trades.length} trade${trades.length === 1 ? "" : "s"}.`
+                      : "This browser could not save the file.");
+                  }}>
+                  Export trades (CSV)
+                </Button>
                 <div className="flex rounded-md border border-border p-0.5">
                   {(["chart", "trades"] as const).map((t) => (
                     <button
@@ -214,6 +289,7 @@ export default function BacktestDetail() {
                       {t}
                     </button>
                   ))}
+                </div>
                 </div>
               }
             />

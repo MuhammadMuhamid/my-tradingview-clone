@@ -45,6 +45,13 @@ test("a run whose strategy this install cannot run is refused, not guessed at", 
   assert.match(refused.reason, /not available here/);
 });
 
+test("C-07 a run whose stored settings the server now refuses is not stressed", () => {
+  const refused = stressSourceFromBacktest(
+    backtest({ initialCapital: -5, refusedSettings: "Initial capital must be a number greater than 0." }), STRATEGIES);
+  assert.ok("reason" in refused);
+  assert.match(refused.reason, /this engine now refuses them: Initial capital must be a number greater than 0\./);
+});
+
 test("why a window qualified names the ranked statistic and its value", () => {
   const w = (metric: StressWindow["selectedBy"]["metric"], value: number) => ({
     rank: 1, startMs: 0, endMs: 1, bars: 2, benchmarkReturnPct: 0, benchmarkDrawdownPct: 0,

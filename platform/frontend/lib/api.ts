@@ -1543,6 +1543,8 @@ export const api = {
     req<Backtest[]>(`/api/backtests${symbol ? `?symbol=${symbol}` : ""}`),
   getBacktest: (id: string) => req<Backtest>(`/api/backtests/${id}`),
   getBacktestTrades: (id: string) => req<Trade[]>(`/api/backtests/${id}/trades`),
+  /** 204 when deleted; a 409 carries the sentence (running, or a stress window). */
+  deleteBacktest: (id: string) => req<void>(`/api/backtests/${id}`, { method: "DELETE" }),
   createBacktest: (body: {
     strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
     startTime: string; endTime: string; params?: StrategyParams;

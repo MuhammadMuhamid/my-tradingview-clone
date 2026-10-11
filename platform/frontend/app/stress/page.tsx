@@ -101,7 +101,7 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
   const traded = displayTicker(detail.symbol);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1100px] text-sm tabular">
+      <table className="w-full min-w-[1180px] text-sm tabular">
         <thead>
           <tr className="border-b border-border text-left text-xs text-ink-muted">
             <th className="px-4 py-2 font-medium" title="Severity rank: 1 is the worst window found">Rank</th>
@@ -122,6 +122,10 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
               title="Net profit over the initial capital — see the sizing note below">Strategy %</th>
             <th className="px-4 py-2 font-medium text-right">Strategy DD</th>
             <th className="px-4 py-2 font-medium text-right">Trades</th>
+            <th className="px-4 py-2 font-medium text-right"
+              title="Entries the strategy signalled that the account could not pay for at the time — each would have spent more than it held. Skipped, not traded.">
+              Skipped
+            </th>
             <th className="px-4 py-2 font-medium text-right">Win %</th>
             <th className="px-4 py-2 font-medium">Run</th>
           </tr>
@@ -141,6 +145,7 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
              */
             const truth = backtest?.executionTruth ?? null;
             const covered = truth?.covered ?? null;
+            const skipped = truth?.skippedEntries ?? null;
             /*
              * Both ends. The sibling check in `RunWindows` guarded only the
              * start and was corrected; this one, written in the same commit,
@@ -196,6 +201,17 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
                       truth?.noEntryReason ?? note
                     }>!</span>
                   )}
+                </td>
+                {/*
+                  C-09: a window where most entries were unaffordable after an
+                  early loss reads as a strategy that went quiet unless the
+                  count is beside the trades.
+                */}
+                <td className={`px-4 py-2 text-right ${skipped ? "text-warn" : "text-ink-muted"}`} data-stress-skipped
+                  title={skipped
+                    ? `${skipped.count} entr${skipped.count === 1 ? "y" : "ies"} skipped — the first would have spent ${fmtNum(skipped.cash, 0)} while the account held ${fmtNum(skipped.equity, 0)}`
+                    : truth ? undefined : "Not recorded for this run"}>
+                  {m === null ? "—" : skipped ? skipped.count : truth ? 0 : "—"}
                 </td>
                 <td className="px-4 py-2 text-right">
                   {m && m.totalTrades > 0 ? `${fmtNum(m.winRatePct, 1)}%` : "—"}
@@ -498,7 +514,8 @@ function StressWorkspace() {
   const strategyName = strategies.find((s) => s.key === strategyKey)?.name ?? strategyKey;
   const strategyNameById = (id: number): string | null => strategies.find((s) => s.id === id)?.name ?? null;
   // Runs a reader can start from: finished, and not themselves a stress window.
-  const startable = recent.filter((b) => b.status === "done" && b.stressRunId === null).slice(0, 50);
+  // C-07: a run whose settings the server now refuses is not offered — its windows would all be refused.
+  const startable = recent.filter((b) => b.status === "done" && b.stressRunId === null && !b.refusedSettings).slice(0, 50);
   const settingsLocked = sourceState !== null && sourceState.status !== "failed";
   const staleResult = open !== null && sourceMoved && (open.sourceBacktestId ?? null) !== (fromId ?? null);
 

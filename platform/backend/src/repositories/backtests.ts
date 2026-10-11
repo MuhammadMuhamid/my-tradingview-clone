@@ -226,6 +226,32 @@ export async function finishBacktest(
   }
 }
 
+/**
+ * Delete one run, unless it is running or belongs to a stress analysis.
+ *
+ * One statement, so the refusal and the delete cannot race the worker: a run
+ * the worker claims between a read and a delete would otherwise be deleted
+ * mid-simulation and its result written to nothing. Under READ COMMITTED a
+ * claim that commits first makes this `WHERE` fail on re-check.
+ *
+ * Trades go with the run (`backtest_trades … ON DELETE CASCADE`); a stress
+ * analysis seeded from it keeps its own settings and loses only the link
+ * (`stress_runs.source_backtest_id … ON DELETE SET NULL`). A stress WINDOW is
+ * refused, because its analysis reads it and would wait for it forever.
+ *
+ * Returns the deleted row's id, or null when nothing was deleted — the route
+ * reads the row to say why.
+ */
+export async function deleteBacktest(id: string, runQuery: typeof query = query): Promise<string | null> {
+  const { rows } = await runQuery<{ id: string }>(
+    `DELETE FROM backtests
+     WHERE id = $1 AND status <> 'running' AND stress_run_id IS NULL
+     RETURNING id`,
+    [id]
+  );
+  return rows[0]?.id ?? null;
+}
+
 export async function failBacktest(id: string, error: string): Promise<void> {
   await query(
     "UPDATE backtests SET status = 'error', error = $2, finished_at = now() WHERE id = $1",

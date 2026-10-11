@@ -325,6 +325,22 @@ test("each window shows what the TRADED symbol did, beside what the strategy did
   assert.ok(screen.getByText("Target %"), "the column is named");
 });
 
+test("C-09 each window counts the entries the account could not afford", async () => {
+  const detail = stressRun();
+  const first = detail.results[0]!.backtest!;
+  detail.results[0]!.backtest = {
+    ...first,
+    executionTruth: { ...first.executionTruth!, skippedEntries: { count: 17, cash: 930, equity: 842, firstMs: T0 } },
+  };
+  await mountRun(detail);
+  assert.ok(screen.getByText("Skipped"), "the column is named");
+  const cells = [...document.querySelectorAll("[data-stress-skipped]")];
+  assert.equal(cells.length, 2);
+  assert.equal(cells[0]!.textContent, "17");
+  assert.match(cells[0]!.getAttribute("title") ?? "", /17 entries skipped — the first would have spent 930 while the account held 842/);
+  assert.equal(cells[1]!.textContent, "0", "a window that afforded every entry says zero, not blank");
+});
+
 test("each window says why it qualified, its benchmark and its rank", async () => {
   await mountRun();
   assert.ok(screen.getByText("Rank"));

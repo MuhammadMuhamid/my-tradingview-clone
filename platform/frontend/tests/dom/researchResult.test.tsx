@@ -19,7 +19,7 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ReactNode } from "react";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import {
   PathParamsContext, PathnameContext, SearchParamsContext,
@@ -383,4 +383,218 @@ test("'Edit and re-run' fills the form from the earlier run", async () => {
   } finally {
     window.history.pushState({}, "", "/");
   }
+});
+
+// ── Product-readiness reviewer: engine, legacy settings, export, the list ──
+
+const KEYS = ["executableCloseFills", "netAvgTrade", "exchangeFilters", "leanWarmupFloor",
+  "zeroPnlIsScratch", "assertSegmentValidity", "entryBarBrackets", "barMagnifier", "lotDustExit", "affordableEntries"];
+const ACTIVE_FP = `engine:v2-corrected:${KEYS.join("+")}`;
+const PRE_DUST_FP = `engine:v2-corrected:${KEYS.filter((k) => k !== "lotDustExit" && k !== "affordableEntries").join("+")}`;
+const OLDER = { activeFingerprint: ACTIVE_FP, current: false, missing: ["lotDustExit", "affordableEntries"], extra: [] };
+const CURRENT = { activeFingerprint: ACTIVE_FP, current: true, missing: [], extra: [] };
+
+test("C-01 a run compared with its re-run names the engine corrections only one of them applied", async () => {
+  serve([
+    run({ engineFingerprint: PRE_DUST_FP, engineCurrency: OLDER, metrics: metrics({ netProfitPct: -44 }) }),
+    run({ id: ID2, engineFingerprint: ACTIVE_FP, engineCurrency: CURRENT, metrics: metrics({ netProfitPct: -7.26 }) }),
+  ]);
+  render(<Route path="/research"><BacktestsPage /></Route>);
+  await settle(6);
+  const boxes = screen.getAllByRole("checkbox", { name: /^Compare/ });
+  fireEvent.click(boxes[0]!);
+  fireEvent.click(boxes[1]!);
+  await settle();
+  const cmp = screen.getByRole("table", { name: "Two runs compared" });
+  const row = within(cmp).getByRole("rowheader", { name: "Engine corrections — only in B" }).closest("tr")!;
+  assert.equal(row.getAttribute("data-differs"), "true");
+  assert.match(row.textContent ?? "", /not applied.*Sub-lot remainder closes the position/);
+  assert.equal(within(cmp).getByRole("rowheader", { name: "Engine corrections" }).closest("tr")!
+    .getAttribute("data-differs"), "true", "the settings no longer all read 'same'");
+});
+
+test("C-02 a run from an older engine says so on its page and in the list, and is not 'Reproducible'", async () => {
+  serve([run({ engineFingerprint: PRE_DUST_FP, engineCurrency: OLDER })]);
+  render(<Route path={`/research/${ID}`} params={{ id: ID }}><BacktestDetail /></Route>);
+  await settle(6);
+  const notice = document.querySelector("[data-older-engine]");
+  assertPresent(notice, "the page leads with the older-engine notice");
+  assert.match(notice!.textContent ?? "",
+    /^This run used an older engine \(missing: Sub-lot remainder closes the position; Entries the account cannot pay for are skipped\)\. Re-run to get figures from the current engine\.$/);
+  const card = screen.getByRole("heading", { name: "Run settings" }).closest(".rounded-md") as HTMLElement;
+  assertAbsent(within(card).queryByText(/^Reproducible/), "it is not reproducible as the current engine");
+  assertPresent(within(card).queryByText(/Older engine/), "the provenance row says older engine");
+  assertPresent(within(card).queryByText(/Bar magnifier/), "the corrections it did apply are named in words");
+  cleanupAndList();
+  await settle(6);
+  const badge = document.querySelector("[data-older-engine-badge]");
+  assertPresent(badge, "the list row carries a badge");
+  assert.match(badge!.getAttribute("title") ?? "", /missing: Sub-lot remainder/);
+});
+
+/** Unmount the result page and mount the list against the same fixture. */
+function cleanupAndList(): void {
+  cleanup();
+  render(<Route path="/research"><BacktestsPage /></Route>);
+}
+
+test("C-07 a run with settings the engine now refuses leads with why, and offers no re-run or stress", async () => {
+  const reason = "Initial capital must be a number greater than 0.";
+  serve([run({
+    initialCapital: -5, commissionPct: -1, slippageTicks: -50, refusedSettings: reason,
+    metrics: metrics({ netProfitPct: -320, entries: 4, entryWinRatePct: 100, winningEntries: 4, losingEntries: 0, entryProfitFactor: null }),
+  })]);
+  render(<Route path={`/research/${ID}`} params={{ id: ID }}><BacktestDetail /></Route>);
+  await settle(6);
+  const notice = document.querySelector("[data-refused-settings-notice]");
+  assertPresent(notice, "the page leads with the refusal");
+  assert.match(notice!.textContent ?? "", /^Settings this engine now refuses: Initial capital must be a number greater than 0\./);
+  const figures = screen.getByText("Show the recorded figures anyway").closest("details")!;
+  assert.equal(figures.open, false, "the impossible figures are behind a deliberate click");
+  assert.ok(figures.textContent?.includes("-320"), "and kept, not discarded");
+  const card = screen.getByRole("heading", { name: "Run settings" }).closest(".rounded-md") as HTMLElement;
+  const rerun = within(card).getByRole("button", { name: "Re-run with these settings" }) as HTMLButtonElement;
+  assert.equal(rerun.disabled, true, "re-running would only be refused");
+  assert.match(rerun.getAttribute("title") ?? "", /Initial capital must be/);
+  assertAbsent(within(card).queryByRole("link", { name: "Stress this run" }), "stress is not offered as a link");
+  assert.match(card.querySelector("[data-refused-settings]")?.textContent ?? "", /Re-run and stress are unavailable/);
+  assertPresent(within(card).queryByRole("link", { name: "Edit and re-run" }), "the way forward stays");
+
+  cleanupAndList();
+  await settle(6);
+  const table = screen.getAllByRole("table")[0]!;
+  assertPresent(table.querySelector("[data-refused-badge]"), "the list row says so");
+  assertAbsent(within(table).queryByText(/-320/), "and does not print the impossible headline");
+  assertAbsent(within(table).queryByText("100.0%"), "nor its win rate");
+});
+
+test("C-08 a queued run's settings say it has not finished, not that it predates provenance", async () => {
+  serve([run({ status: "queued", metrics: null, segments: null, engineFingerprint: null, resultProvenance: null,
+    semanticsStatus: "historical_unversioned" })]);
+  render(<Route path={`/research/${ID}`} params={{ id: ID }}><BacktestDetail /></Route>);
+  await settle(4);
+  const card = screen.getByRole("heading", { name: "Run settings" }).closest(".rounded-md") as HTMLElement;
+  assert.equal(within(card).getAllByText("Not finished yet").length, 3, "data source, engine and provenance");
+  assertAbsent(within(card).queryByText(/Recorded before results carried/), "a queued run is not an old one");
+  assertAbsent(within(card).queryByText(/Not recorded on this run/), "nor unrecorded");
+});
+
+test("C-09 the form hints when one entry is most of the account, and stops when it is not", async () => {
+  serve([]);
+  render(<Route path="/research"><BacktestsPage /></Route>);
+  await settle(6);
+  const hint = () => document.querySelector("[data-order-size-hint]");
+  assertPresent(hint(), "the defaults (930 of 1,000) are hinted");
+  assert.match(hint()!.textContent ?? "", /After a loss the account may not afford the next entry; skipped entries are counted/);
+  fireEvent.change(screen.getByLabelText("Initial capital"), { target: { value: "5000" } });
+  await settle();
+  assertAbsent(hint(), "a capital the order size is a small share of needs no hint");
+});
+
+test("HVBO-3 the result page exports its trades as CSV and copies its link", async () => {
+  const trades = [{
+    tradeNo: 1, direction: "long" as const, entryTime: T0, entryPrice: 100, exitTime: T0 + DAY, exitPrice: 102,
+    qty: 9.3, pnl: 16.5, pnlPct: 2, exitReason: "TP", runUpPct: null, drawdownPct: null, cumProfit: 16.5,
+  }];
+  serve([run()]);
+  server.routes.set(`GET /api/backtests/${ID}/trades`, () => trades);
+  const saved: { name: string; blob: Blob | null }[] = [];
+  let lastBlob: Blob | null = null;
+  const urlApi = URL as unknown as { createObjectURL?: (b: Blob) => string; revokeObjectURL?: () => void };
+  const originalCreate = urlApi.createObjectURL;
+  const originalRevoke = urlApi.revokeObjectURL;
+  const originalClick = HTMLAnchorElement.prototype.click;
+  urlApi.createObjectURL = (b: Blob) => { lastBlob = b; return "blob:fixture"; };
+  urlApi.revokeObjectURL = () => {};
+  HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) { saved.push({ name: this.download, blob: lastBlob }); };
+  const copied: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true, value: { writeText: (t: string) => { copied.push(t); return Promise.resolve(); } },
+  });
+  try {
+    render(<Route path={`/research/${ID}`} params={{ id: ID }}><BacktestDetail /></Route>);
+    await settle(6);
+    fireEvent.click(screen.getByRole("button", { name: "Export trades (CSV)" }));
+    await settle();
+    assert.equal(saved.length, 1, "one file is handed over");
+    assert.equal(saved[0]!.name, "SOLUSDT-1h-trades-8f6d2c1e.csv");
+    const text = await saved[0]!.blob!.text();
+    assert.match(text, /^trade,side,entry_time_utc,exit_time_utc,qty,entry_price,exit_price,pnl,pnl_pct_net,fees,exit_reason\r\n/);
+    assert.match(text, /\r\n1,long,2026-01-01T00:00:00\.000Z,2026-01-02T00:00:00\.000Z,9\.3,100,102,16\.5,/);
+    assertPresent(screen.queryByText("Exported 1 trade."), "the export is acknowledged");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await settle();
+    assert.deepEqual(copied, [window.location.href]);
+    assertPresent(screen.queryByText("Link copied."), "the copy is acknowledged");
+  } finally {
+    urlApi.createObjectURL = originalCreate;
+    urlApi.revokeObjectURL = originalRevoke;
+    HTMLAnchorElement.prototype.click = originalClick;
+  }
+});
+
+test("HVBO-4 the list filters by symbol, strategy and status", async () => {
+  serve([
+    run(),
+    run({ id: ID2, symbol: "BTCUSDT" }),
+    run({ id: "33333333-3333-4333-8333-333333333333", status: "error", metrics: null, error: "boom" }),
+  ]);
+  render(<Route path="/research"><BacktestsPage /></Route>);
+  await settle(6);
+  const rowsShown = () => screen.getAllByRole("table")[0]!.querySelectorAll("tbody tr").length;
+  assert.equal(rowsShown(), 3);
+  fireEvent.change(screen.getByLabelText("Filter runs"), { target: { value: "btc" } });
+  await settle();
+  assert.equal(rowsShown(), 1);
+  assertPresent(screen.queryByText("1 of 3 runs"), "the count says the list is filtered");
+  fireEvent.change(screen.getByLabelText("Filter runs"), { target: { value: "sr trend" } });
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "error" } });
+  await settle();
+  assert.equal(rowsShown(), 1, "the strategy name and the status narrow together");
+  fireEvent.change(screen.getByLabelText("Filter runs"), { target: { value: "nothing-like-this" } });
+  await settle();
+  assertPresent(screen.queryByText("No run matches this filter."), "an empty filter result is not 'no backtests yet'");
+  fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+  await settle();
+  assert.equal(rowsShown(), 3);
+});
+
+test("HVBO-4 a run is deleted after a confirmation; a running run cannot be, and a refusal is said", async () => {
+  const running = "55555555-5555-4555-8555-555555555555";
+  serve([run(), run({ id: ID2 }), run({ id: running, status: "running", metrics: null })]);
+  server.routes.set(`DELETE /api/backtests/${ID}`, () => new Response(null, { status: 204 }));
+  server.routes.set(`DELETE /api/backtests/${ID2}`, () => new Response(
+    JSON.stringify({ error: "This run is still running. It can be deleted once it has finished." }),
+    { status: 409, headers: { "content-type": "application/json" } }));
+  render(<Route path="/research"><BacktestsPage /></Route>);
+  await settle(6);
+  const deletes = () => screen.getAllByRole("button", { name: /^Delete .* run from/ }) as HTMLButtonElement[];
+  assert.equal(deletes().length, 3);
+  assert.equal(deletes()[2]!.disabled, true, "a running run's delete is unavailable");
+  assert.match(deletes()[2]!.getAttribute("title") ?? "", /running/);
+
+  // Cancelling sends nothing.
+  fireEvent.click(deletes()[0]!);
+  await settle();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+  await settle();
+  assert.equal(server.callsTo("/api/backtests").filter((c) => c.method === "DELETE").length, 0);
+
+  fireEvent.click(deletes()[0]!);
+  await settle();
+  const dialog = screen.getByRole("dialog");
+  assert.match(dialog.textContent ?? "", /This cannot be undone/);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete run" }));
+  await settle(4);
+  assert.equal(server.callsTo(`/api/backtests/${ID}`).filter((c) => c.method === "DELETE").length, 1);
+  assert.equal(deletes().length, 2, "the deleted run leaves the list");
+
+  fireEvent.click(deletes()[0]!);
+  await settle();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete run" }));
+  await settle(4);
+  const alert = screen.getByRole("alert");
+  assert.match(alert.textContent ?? "", /^Could not delete the run\. This run is still running/);
+  assert.equal(deletes().length, 2, "a refused delete keeps the row");
 });

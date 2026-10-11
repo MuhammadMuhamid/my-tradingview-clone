@@ -220,9 +220,32 @@ export interface Backtest {
   resultProvenance?: Record<string, unknown> | null;
   /** Read-time label for how much of this result's meaning was recorded. */
   semanticsStatus?: "historical_unversioned" | "engine_only_legacy" | "reproducible";
+  /**
+   * C-02: this run's engine corrections against the set the server runs now.
+   * Null when the run recorded nothing comparable; absent from an older API.
+   */
+  engineCurrency?: EngineCurrency | null;
+  /**
+   * C-07: the sentence the server would refuse this run's settings with as a
+   * new request — a run queued before the request rules existed. Null when
+   * they are accepted; absent from an older API.
+   */
+  refusedSettings?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
   createdAt: string;
+}
+
+/** A stored run's engine, judged against the one the server runs now. */
+export interface EngineCurrency {
+  /** The fingerprint new runs on this server are recorded with. */
+  activeFingerprint: string;
+  /** True when the run's correction set is exactly the server's. */
+  current: boolean;
+  /** Corrections the server applies now that this run did not. */
+  missing: string[];
+  /** Corrections this run applied that the server does not apply now. */
+  extra: string[];
 }
 
 /** One of the three windows a run divides into. */

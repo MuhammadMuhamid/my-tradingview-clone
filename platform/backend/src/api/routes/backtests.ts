@@ -9,6 +9,8 @@ import * as alertRepo from "../../repositories/alerts";
 import { compareParity, type ParitySignal } from "../../engine/parityReport";
 import { isBacktestId, paramsProblem, runSettingsProblem, sizingProblem } from "../backtestRequest";
 import { engineDefaultParams } from "../../engine/backtester";
+import { correctionsFingerprint } from "../../engine/corrections";
+import { deleteRefusal, withReadTruth } from "../backtestReadTruth";
 
 /**
  * Cost model applied when the caller does not state one.
@@ -126,12 +128,25 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(created);
   });
 
+  /*
+   * C-02 / C-07: every read carries what the stored row means TODAY — whether
+   * the engine that produced it is the one this server runs, and whether this
+   * server would accept its settings as a new request. See
+   * `api/backtestReadTruth.ts`; nothing is written back.
+   */
   app.get("/api/backtests", async (req) => {
     const q = req.query as { symbol?: string; limit?: string };
-    return backtests.listBacktests({
-      symbol: q.symbol?.toUpperCase(),
-      limit: q.limit !== undefined ? Number(q.limit) : undefined,
-    });
+    const [rows, registered] = await Promise.all([
+      backtests.listBacktests({
+        symbol: q.symbol?.toUpperCase(),
+        limit: q.limit !== undefined ? Number(q.limit) : undefined,
+      }),
+      strategies.listStrategies(),
+    ]);
+    const keyOf = new Map(registered.map((s) => [s.id, s.key]));
+    const nowMs = Date.now();
+    const activeFingerprint = correctionsFingerprint();
+    return rows.map((row) => withReadTruth(row, keyOf.get(row.strategyId) ?? null, { nowMs, activeFingerprint }));
   });
 
   app.get("/api/backtests/:id", async (req, reply) => {
@@ -139,7 +154,28 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
     if (!isBacktestId(id)) return reply.code(404).send({ error: "backtest not found" });
     const row = await backtests.getBacktest(id);
     if (!row) return reply.code(404).send({ error: "backtest not found" });
-    return row;
+    const strategy = await strategies.getStrategyById(row.strategyId);
+    return withReadTruth(row, strategy?.key ?? null);
+  });
+
+  /**
+   * HVBO-4: delete one run.
+   *
+   * 204 when it is gone; 404 for no such run; 409, with the sentence, for a
+   * run that is running (the worker would write its result to nothing) or
+   * one window of a stress analysis (the analysis reads it). The delete and
+   * the refusal are one statement — see `repositories/backtests.deleteBacktest`.
+   */
+  app.delete("/api/backtests/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!isBacktestId(id)) return reply.code(404).send({ error: "backtest not found" });
+    const deleted = await backtests.deleteBacktest(id);
+    if (deleted !== null) return reply.code(204).send();
+    const refusal = deleteRefusal(await backtests.getBacktest(id));
+    if (refusal) return reply.code(refusal.code).send({ error: refusal.error });
+    // Neither deleted nor refusable: the row changed under us (a queued run
+    // the worker claimed). Say so rather than claim a delete that did not happen.
+    return reply.code(409).send({ error: "This run changed state while it was being deleted. Try again." });
   });
 
   app.get("/api/backtests/:id/trades", async (req, reply) => {

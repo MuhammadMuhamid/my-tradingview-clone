@@ -6,7 +6,7 @@ import { ApiError, api } from "@/lib/api";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 import { defaultParamsFor } from "@/lib/paramSchema";
 import {
-  DEFAULT_VALIDATION_FRACTION, RUN_LIMITS, VALIDATION_FRACTIONS, runFormProblem, strategyFor,
+  DEFAULT_VALIDATION_FRACTION, RUN_LIMITS, VALIDATION_FRACTIONS, orderSizeHint, runFormProblem, strategyFor,
 } from "@/lib/backtestFigures";
 import type { Backtest, Interval, Strategy, StrategyParams, SymbolInfo } from "@/lib/types";
 import { displaySymbol } from "@/lib/instrument";
@@ -104,6 +104,7 @@ export function BacktestForm({
   };
 
   const num = (raw: string): number => (raw.trim() === "" ? Number.NaN : Number(raw));
+  const hint = orderSizeHint(params, capital, strategyKey);
 
   return (
     <Card>
@@ -198,6 +199,13 @@ export function BacktestForm({
           </p>
           <p className="mt-1 text-[11px] text-ink-faint">Unsupported session, adjustment, funding, roll or execution semantics fail before a run is queued.</p>
         </section>
+
+        {/* C-09: affordable once, perhaps not after a loss — said before running. */}
+        {hint && (
+          <p data-order-size-hint className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+            {hint}
+          </p>
+        )}
 
         {/* REV-UX-01: the cause is the tooltip; the sentence is the reader's. */}
         {err && <div role="alert" title={err.detail || undefined} className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">

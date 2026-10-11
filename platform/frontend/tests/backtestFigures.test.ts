@@ -10,7 +10,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compareRuns, profitFactorText, profitFactorTone, rerunRequest, runFailure, runFormProblem,
+  compareRuns, deleteBlocked, olderEngineNotice, olderEngineTitle, orderSizeHint, profitFactorText,
+  profitFactorTone, refusedSettingsNotice, rerunRequest, runFailure, runFormProblem, runMatches,
   runSettings, tradeFigures, tradeNetPct, validationFractionOf, winRateText,
 } from "../lib/backtestFigures";
 import type { Backtest, BacktestMetrics, Strategy } from "../lib/types";
@@ -248,4 +249,112 @@ test("C-07 a setting or a window one run did not record says so, rather than a b
   assert.equal(validation.a, "not recorded for this run");
   assert.ok(![...cmp.settings, ...cmp.headline, ...cmp.windows].some((r) => r.a === "—" || r.b === "—"),
     "no comparison cell is a bare dash");
+});
+
+// ── Product-readiness reviewer: the engine, legacy settings, the list ──────
+
+const ALL_KEYS = ["executableCloseFills", "netAvgTrade", "exchangeFilters", "leanWarmupFloor",
+  "zeroPnlIsScratch", "assertSegmentValidity", "entryBarBrackets", "barMagnifier", "lotDustExit", "affordableEntries"];
+const fp = (keys: readonly string[]) => `engine:v2-corrected:${keys.join("+")}`;
+const ACTIVE_FP = fp(ALL_KEYS);
+const PRE_DUST_FP = fp(ALL_KEYS.filter((k) => k !== "lotDustExit" && k !== "affordableEntries"));
+
+test("C-01 a run and its re-run that differ only by engine corrections say which, row by row", () => {
+  // The reviewer's pair: every settings row "same", Net -44.00 % against -7.26 %.
+  const parent = run({ engineFingerprint: PRE_DUST_FP, metrics: metrics({ netProfitPct: -44 }) });
+  const child = run({ id: "child", engineFingerprint: ACTIVE_FP, metrics: metrics({ netProfitPct: -7.26 }) });
+  const cmp = compareRuns(parent, child, STRATEGIES);
+  const summary = cmp.settings.find((r) => r.label === "Engine corrections")!;
+  assert.equal(summary.differs, true, "the engine row no longer reads 'same'");
+  const onlyB = cmp.settings.find((r) => r.label === "Engine corrections — only in B")!;
+  assert.equal(onlyB.a, "not applied");
+  assert.match(onlyB.b, /Sub-lot remainder closes the position/);
+  assert.match(onlyB.b, /Entries the account cannot pay for are skipped/);
+  assert.equal(cmp.settings.find((r) => r.label === "Engine corrections — only in A"), undefined);
+
+  const reversed = compareRuns(child, parent, STRATEGIES);
+  assert.ok(reversed.settings.some((r) => r.label === "Engine corrections — only in A"));
+
+  const twins = compareRuns(child, run({ id: "twin", engineFingerprint: ACTIVE_FP }), STRATEGIES);
+  assert.deepEqual(twins.settings.filter((r) => r.label.startsWith("Engine corrections")).map((r) => [r.a, r.differs]),
+    [["same", false]]);
+  // An unparseable stored fingerprint is not compared by guesswork.
+  const opaque = compareRuns(run(), run({ id: "x" }), STRATEGIES);
+  assert.equal(opaque.settings.find((r) => r.label === "Engine corrections")!.differs, false);
+});
+
+test("C-01 the result page names the run's corrections in words", () => {
+  const rows = new Map(runSettings(run({ engineFingerprint: PRE_DUST_FP }), STRATEGIES).map((r) => [r.label, r]));
+  const corrections = rows.get("Engine corrections")!;
+  assert.match(corrections.value, /Bar magnifier/);
+  assert.doesNotMatch(corrections.value, /Sub-lot/);
+  assert.match(corrections.title ?? "", /barMagnifier/, "the keys stay one hover away");
+  assert.equal(rows.get("Engine")?.value, "v2-corrected", "the family is still stated");
+});
+
+test("C-02 a run from an older engine is not called reproducible, and says what it lacks", () => {
+  const older = run({
+    engineFingerprint: PRE_DUST_FP,
+    engineCurrency: { activeFingerprint: ACTIVE_FP, current: false, missing: ["lotDustExit", "affordableEntries"], extra: [] },
+  });
+  const provenance = runSettings(older, STRATEGIES).find((r) => r.label === "Result provenance")!;
+  assert.doesNotMatch(provenance.value, /^Reproducible/);
+  assert.match(provenance.value, /Older engine/);
+  const notice = olderEngineNotice(older)!;
+  assert.match(notice, /^This run used an older engine \(missing: Sub-lot remainder closes the position; Entries the account cannot pay for are skipped\)\./);
+  assert.match(notice, /Re-run to get figures from the current engine\.$/);
+  assert.match(olderEngineTitle(older) ?? "", /older engine/);
+
+  const current = run({ engineCurrency: { activeFingerprint: ACTIVE_FP, current: true, missing: [], extra: [] } });
+  assert.equal(olderEngineNotice(current), null);
+  assert.match(runSettings(current, STRATEGIES).find((r) => r.label === "Result provenance")!.value, /^Reproducible/);
+  // An older API that sends no judgement keeps the stored label.
+  assert.equal(olderEngineNotice(run()), null);
+});
+
+test("C-07 settings the server now refuses are said on the result, not called reproducible", () => {
+  const legacy = run({ initialCapital: -5, refusedSettings: "Initial capital must be a number greater than 0." });
+  assert.equal(refusedSettingsNotice(legacy), "Settings this engine now refuses: Initial capital must be a number greater than 0.");
+  const provenance = runSettings(legacy, STRATEGIES).find((r) => r.label === "Result provenance")!;
+  assert.match(provenance.value, /^Settings this engine now refuses/);
+  assert.equal(refusedSettingsNotice(run({ refusedSettings: null })), null);
+});
+
+test("C-08 a queued or running run is 'not finished yet', not an old unversioned result", () => {
+  for (const status of ["queued", "running"] as const) {
+    const rows = runSettings(run({
+      status, metrics: null, engineFingerprint: null, resultProvenance: null, semanticsStatus: "historical_unversioned",
+    }), STRATEGIES);
+    for (const label of ["Data source", "Engine", "Result provenance"]) {
+      assert.equal(rows.find((r) => r.label === label)?.value, "Not finished yet", `${status} ${label}`);
+    }
+    assert.ok(!rows.some((r) => /Recorded before results carried/.test(r.value)));
+  }
+});
+
+test("C-09 an order size at 90 % or more of the capital is hinted, not refused", () => {
+  assert.match(orderSizeHint({}, 1000, "ma_rr_v9") ?? "", /Each entry spends 930 of the 1,000 initial capital \(93%\)\. After a loss the account may not afford the next entry; skipped entries are counted/);
+  assert.equal(orderSizeHint({ qty_cash: 899 }, 1000, "ma_rr_v9"), null, "below 90 % is no hint");
+  assert.notEqual(orderSizeHint({ qty_cash: 900 }, 1000, "ma_rr_v9"), null, "90 % exactly is");
+  assert.equal(orderSizeHint({ qty_cash: 1200 }, 1000, "ma_rr_v9"), null, "above the capital is the form's refusal instead");
+  assert.equal(orderSizeHint({ qty_pct_equity: 95 }, 1000, "ma_rr_v9"), null, "a share of equity always fits");
+  assert.equal(orderSizeHint({}, 5000, "ma_rr_v9"), null);
+});
+
+test("HVBO-4 the list filter matches symbol, strategy and status; delete is refused where the server would", () => {
+  const strategy = STRATEGIES[0]!;
+  const r = run();
+  assert.equal(runMatches(r, strategy, "", "all"), true);
+  assert.equal(runMatches(r, strategy, "sol", "all"), true);
+  assert.equal(runMatches(r, strategy, "SR trend", "all"), true, "the strategy name, case-insensitive");
+  assert.equal(runMatches(r, strategy, "srtrend_v10", "all"), true, "or its key");
+  assert.equal(runMatches(r, strategy, "sol done", "all"), true, "every word must match somewhere");
+  assert.equal(runMatches(r, strategy, "btc", "all"), false);
+  assert.equal(runMatches(r, strategy, "", "error"), false, "the status choice narrows too");
+  assert.equal(runMatches(run({ status: "error" }), strategy, "", "error"), true);
+
+  assert.equal(deleteBlocked(run()), null);
+  assert.match(deleteBlocked(run({ status: "running" })) ?? "", /running/);
+  assert.match(deleteBlocked(run({ stressRunId: "s1" })) ?? "", /stress analysis/);
+  assert.equal(deleteBlocked(run({ status: "queued" })), null, "a queued run may be withdrawn");
 });

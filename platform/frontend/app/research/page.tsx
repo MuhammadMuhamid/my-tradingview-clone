@@ -2,19 +2,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardHeader, Checkbox, Empty, PageHeader, PageShell, StatusBadge } from "@/components/ui";
-import { shortReason } from "@/lib/errorCopy";
+import {
+  Button, Card, CardHeader, Checkbox, Empty, Notice, PageHeader, PageShell, Select, StatusBadge, TextInput,
+} from "@/components/ui";
+import { useAsk } from "@/components/AskDialog";
+import { describeAction, shortReason, type FailureCopy } from "@/lib/errorCopy";
+import { ApiError } from "@/lib/api";
 import { BacktestForm } from "@/components/BacktestForm";
 import { CompareRuns } from "@/components/CompareRuns";
 import { api } from "@/lib/api";
 import type { Backtest, Strategy, SymbolInfo } from "@/lib/types";
 import { fmtPct, fmtDate, fmtAgo, signClass, UTC_DATE_NOTE } from "@/lib/format";
 import {
-  profitFactorText, profitFactorTone, runFailure, strategyFor, tradeFigures, winRateText,
+  deleteBlocked, olderEngineTitle, profitFactorText, profitFactorTone, refusedSettingsNotice, runFailure,
+  runMatches, strategyFor, tradeFigures, winRateText,
 } from "@/lib/backtestFigures";
 
 /** At most this many runs are compared at once — a side-by-side, not a table. */
 const COMPARE_MAX = 2;
+
+const STATUSES = ["done", "error", "running", "queued"] as const;
 
 export default function BacktestsPage() {
   const router = useRouter();
@@ -39,6 +46,41 @@ export default function BacktestsPage() {
    * oblige a Suspense boundary around the whole page for one optional value.
    */
   const [preset, setPreset] = useState<Backtest | null>(null);
+  /** HVBO-4: the list's filter — words over symbol/strategy/status, and one status. */
+  const [filterText, setFilterText] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  /** The run a delete is in flight for, and what the last one failed with. */
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteErr, setDeleteErr] = useState<FailureCopy | null>(null);
+  const ask = useAsk();
+
+  const remove = async (r: Backtest): Promise<void> => {
+    const strategy = strategyFor(r, strategies);
+    const ok = await ask.confirm({
+      title: "Delete this backtest?",
+      body: `${r.symbol} · ${r.timeframe}${strategy ? ` · ${strategy.name}` : ""}, created ${fmtDate(r.createdAt)}. `
+        + "Its result and every trade it recorded are removed. This cannot be undone.",
+      confirmLabel: "Delete run",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setDeleting(r.id);
+    setDeleteErr(null);
+    try {
+      await api.deleteBacktest(r.id);
+      setRows((all) => all.filter((x) => x.id !== r.id));
+      setPicked((p) => p.filter((x) => x !== r.id));
+    } catch (e) {
+      // A 409 is the server's sentence about this run (running, or a stress
+      // window) and is the thing to say; anything else is a cause for the tooltip.
+      setDeleteErr(e instanceof ApiError && (e.status === 409 || e.status === 404)
+        ? { headline: `Could not delete the run. ${e.status === 404 ? "It no longer exists." : e.detail}`, detail: e.detail }
+        : describeAction(e, "delete the run"));
+      if (e instanceof ApiError && e.status === 404) setRows((all) => all.filter((x) => x.id !== r.id));
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   const refresh = () => api.listBacktests()
     .then((r) => { setRows(r); setError(null); })
@@ -62,6 +104,8 @@ export default function BacktestsPage() {
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
   }, [rows]);
+
+  const shown = rows.filter((r) => runMatches(r, strategyFor(r, strategies), filterText, filterStatus));
 
   return (
     <PageShell>
@@ -89,7 +133,31 @@ export default function BacktestsPage() {
         onQueued={(id) => router.push(`/research/${id}`)} />
 
       <Card>
-        <CardHeader title="Recent runs" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
+        <CardHeader title="Recent runs" right={
+          <span className="text-xs text-ink-faint">
+            {shown.length === rows.length ? `${rows.length} runs` : `${shown.length} of ${rows.length} runs`}
+          </span>
+        } />
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+            <TextInput type="search" aria-label="Filter runs" placeholder="Filter by symbol, strategy or status"
+              value={filterText} onChange={(e) => setFilterText(e.target.value)} className="w-72 max-w-full" />
+            <Select aria-label="Status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <option value="all">All statuses</option>
+              {STATUSES.map((s) => <option key={s} value={s}>{s[0]!.toUpperCase() + s.slice(1)}</option>)}
+            </Select>
+            {(filterText !== "" || filterStatus !== "all") && (
+              <Button variant="ghost" onClick={() => { setFilterText(""); setFilterStatus("all"); }}>Clear filter</Button>
+            )}
+          </div>
+        )}
+        {deleteErr && (
+          <div className="px-4 pt-3">
+            <Notice tone="error" role="alert" onDismiss={() => setDeleteErr(null)}>
+              <span title={deleteErr.detail || undefined}>{deleteErr.headline}</span>
+            </Notice>
+          </div>
+        )}
         {error && rows.length === 0 ? (
           <div role="alert" className="px-4 py-8 text-center text-sm text-down">
             The backtest list could not be loaded, so this is not a statement that you have none.
@@ -100,9 +168,11 @@ export default function BacktestsPage() {
           <div role="status" className="px-4 py-8 text-center text-sm text-ink-faint">Loading backtests…</div>
         ) : rows.length === 0 ? (
           <Empty>No backtests yet. Configure one above and hit “Run backtest”.</Empty>
+        ) : shown.length === 0 ? (
+          <Empty>No run matches this filter.</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm tabular">
+            <table className="w-full min-w-[940px] text-sm tabular">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-ink-muted">
                   <th className="w-8 py-2 pl-4 font-medium"><span className="sr-only">Compare</span></th>
@@ -117,17 +187,26 @@ export default function BacktestsPage() {
                     title="Entries. A run recorded before entries were counted separately shows exit legs, and says so.">Trades</th>
                   <th className="px-4 py-2 font-medium text-right">Win %</th>
                   <th className="px-4 py-2 font-medium">When</th>
+                  <th className="px-4 py-2 font-medium"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
-                  const m = r.metrics;
+                {shown.map((r) => {
+                  /*
+                   * C-07: settings the server now refuses produced figures
+                   * about no market (Net −320 %, PF ∞, Win 100 %). They are
+                   * not printed in the list; the badge says why.
+                   */
+                  const refused = refusedSettingsNotice(r);
+                  const m = refused ? null : r.metrics;
                   const f = m ? tradeFigures(m) : null;
                   const pfTone = f ? profitFactorTone(f) : "none";
                   const clickable = r.status === "done";
                   const strategy = strategyFor(r, strategies);
                   const isPicked = picked.includes(r.id);
                   const failure = r.status === "error" ? runFailure(r.error) : null;
+                  const older = r.status === "done" ? olderEngineTitle(r) : null;
+                  const blocked = deleteBlocked(r);
                   return (
                     <tr
                       key={r.id}
@@ -169,6 +248,21 @@ export default function BacktestsPage() {
                             Stress
                           </span>
                         )}
+                        {/* C-02: produced by a correction set the server no longer runs. */}
+                        {older && !refused && (
+                          <span data-older-engine-badge
+                            className="ml-2 rounded border border-warn/40 px-1.5 py-0.5 text-[11px] font-normal text-warn"
+                            title={older}>
+                            Older engine
+                          </span>
+                        )}
+                        {refused && (
+                          <span data-refused-badge
+                            className="ml-2 rounded border border-down/40 px-1.5 py-0.5 text-[11px] font-normal text-down"
+                            title={refused}>
+                            Refused settings
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-ink-muted" title={strategy ? `key ${strategy.key}` : undefined}>
                         {strategy ? strategy.name : strategies.length === 0 ? "—" : `#${r.strategyId}`}
@@ -194,6 +288,14 @@ export default function BacktestsPage() {
                       </td>
                       <td className="px-4 py-2 text-right">{f ? winRateText(f) : "—"}</td>
                       <td className="px-4 py-2 text-ink-faint">{fmtAgo(r.createdAt)}</td>
+                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" disabled={blocked !== null || deleting === r.id}
+                          label={`Delete ${r.symbol} ${r.timeframe} run from ${fmtDate(r.createdAt)}`}
+                          title={blocked ?? "Delete this run and its trades"}
+                          onClick={() => void remove(r)}>
+                          {deleting === r.id ? "Deleting…" : "Delete"}
+                        </Button>
+                      </td>
                     </tr>
                   );
                 })}

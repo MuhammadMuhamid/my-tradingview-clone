@@ -171,6 +171,22 @@ export interface BacktestRow {
   stressRunId: string | null;
   /** Read-time label; it never mutates or guesses historical meaning. */
   semanticsStatus: "historical_unversioned" | "engine_only_legacy" | "reproducible";
+  /**
+   * C-02: the run's correction set against the one this server runs now, or
+   * null when the run recorded no comparable fingerprint. Set by the read
+   * routes (`api/backtestReadTruth.ts`), never stored.
+   */
+  engineCurrency?: {
+    activeFingerprint: string;
+    current: boolean;
+    missing: string[];
+    extra: string[];
+  } | null;
+  /**
+   * C-07: the sentence this server would refuse the run's settings with as a
+   * new request, or null. Set by the read routes, never stored.
+   */
+  refusedSettings?: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;

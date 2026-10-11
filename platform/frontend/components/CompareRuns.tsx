@@ -42,10 +42,11 @@ export function CompareRuns({ a, b, strategies, onClear }: {
   a: Backtest; b: Backtest; strategies: readonly Strategy[]; onClear: () => void;
 }) {
   const cmp = compareRuns(a, b, strategies);
-  const head = (bt: Backtest) => (
+  // "A" and "B" are what the "only in A / only in B" rows refer to.
+  const head = (bt: Backtest, letter: "A" | "B") => (
     <Link href={`/research/${bt.id}`}
       className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-      {bt.symbol} · {bt.timeframe}
+      <span className="text-ink-faint">{letter} · </span>{bt.symbol} · {bt.timeframe}
       <span className="block text-xs font-normal text-ink-faint">{fmtDate(bt.createdAt)}</span>
     </Link>
   );
@@ -57,8 +58,8 @@ export function CompareRuns({ a, b, strategies, onClear }: {
           <thead>
             <tr className="border-b border-border text-xs text-ink-muted">
               <th className="px-4 py-2 text-left font-medium">&nbsp;</th>
-              <th className="px-4 py-2 text-right font-medium">{head(a)}</th>
-              <th className="px-4 py-2 text-right font-medium">{head(b)}</th>
+              <th className="px-4 py-2 text-right font-medium">{head(a, "A")}</th>
+              <th className="px-4 py-2 text-right font-medium">{head(b, "B")}</th>
             </tr>
           </thead>
           <tbody>

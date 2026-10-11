@@ -2,7 +2,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Card, CardHeader, Notice } from "@/components/ui";
-import { paramRows, runSettings, strategyFor, rerunRequest } from "@/lib/backtestFigures";
+import {
+  paramRows, refusedSettingsNotice, runSettings, strategyFor, rerunRequest,
+} from "@/lib/backtestFigures";
 import { ApiError } from "@/lib/api";
 import { describeAction } from "@/lib/errorCopy";
 import type { Backtest, Strategy } from "@/lib/types";
@@ -30,11 +32,12 @@ export function RunSettings({ bt, strategies, onRerun }: {
   const rows = runSettings(bt, strategies);
   const params = paramRows(bt.params);
   const strategy = strategyFor(bt, strategies);
+  const refused = refusedSettingsNotice(bt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ headline: string; detail: string } | null>(null);
 
   const rerun = async (): Promise<void> => {
-    if (!strategy) return;
+    if (!strategy || refused) return;
     setBusy(true);
     setErr(null);
     try {
@@ -61,24 +64,38 @@ export function RunSettings({ bt, strategies, onRerun }: {
         right={
           <div className="flex flex-wrap items-center justify-end gap-2">
             {/* A stress window is already one; stressing it again means nothing. */}
-            {bt.stressRunId === null && bt.status === "done" && (
+            {bt.stressRunId === null && bt.status === "done" && (refused ? (
+              <span aria-disabled="true" title={refused} className="cursor-not-allowed text-sm text-ink-faint">
+                Stress this run
+              </span>
+            ) : (
               // accent-is-meaning: a link to another page, not a selection
               <Link href={`/stress?from=${encodeURIComponent(bt.id)}`}
                 className="rounded text-sm text-accent underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                 Stress this run
               </Link>
-            )}
+            ))}
             <Link href={`/research?from=${encodeURIComponent(bt.id)}`}
               className="rounded text-sm text-accent underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
               Edit and re-run
             </Link>
-            <Button onClick={() => void rerun()} disabled={busy || !strategy}
-              title={strategy ? "Queue a new run with exactly these settings" : "This run's strategy is no longer registered"}>
+            <Button onClick={() => void rerun()} disabled={busy || !strategy || refused !== null}
+              title={refused ?? (strategy ? "Queue a new run with exactly these settings" : "This run's strategy is no longer registered")}>
               {busy ? "Queuing…" : "Re-run with these settings"}
             </Button>
           </div>
         }
       />
+      {/*
+        C-07: the server refuses these settings as a new request, so Re-run
+        and Stress would only fail. Said here in words — a disabled control's
+        tooltip is not reachable by everyone — with the way forward.
+      */}
+      {refused && (
+        <p className="px-4 pt-3 text-sm text-ink-muted" data-refused-settings>
+          Re-run and stress are unavailable: {bt.refusedSettings} Use Edit and re-run to change the settings.
+        </p>
+      )}
       {err && (
         <div className="px-4 pt-3">
           <Notice tone="error" role="alert"><span title={err.detail}>{err.headline}</span></Notice>

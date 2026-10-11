@@ -70,6 +70,11 @@ export function stressSourceFromBacktest(
   if (!strategy) {
     return { reason: "The strategy that run used is not available here, so its settings cannot be stressed." };
   }
+  // C-07: a run queued before the request rules existed carries settings the
+  // server refuses; every window it queued would be refused the same way.
+  if (backtest.refusedSettings) {
+    return { reason: `That run's settings cannot be stressed — this engine now refuses them: ${backtest.refusedSettings}` };
+  }
   return {
     backtestId: backtest.id,
     strategyKey: strategy.key,
