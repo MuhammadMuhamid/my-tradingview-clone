@@ -81,7 +81,9 @@ import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
 import {
   api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript,
 } from "@/lib/api";
-import { currentMaValues, defaultMaLines, type MaType } from "@/lib/movingAverages";
+import {
+  currentMaValues, defaultMaLines, MA_INSTANCE_ID, MA_INSTANCE_TITLE, type MaType,
+} from "@/lib/movingAverages";
 import { defaultParamsFor } from "@/lib/paramSchema";
 import * as layoutStore from "@/lib/layouts";
 import type { WorkspaceState } from "@/lib/layouts";
@@ -116,7 +118,7 @@ import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
   setPanePriceScale, paneChartSettings, setPaneChartSettings,
-  setPreset, setWorkspaceBars, togglePaneMa, toggleMaximize, updatePane,
+  setPreset, setWorkspaceBars, togglePaneMa, togglePaneMaSet, removePaneMaSet, toggleMaximize, updatePane,
   type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
 } from "@/lib/workspace";
 import { MAX_PANES } from "@/lib/layoutPresets";
@@ -999,6 +1001,37 @@ export default function TvWorkspace() {
     setWorkspace((ws) => setPaneMaVisibility(ws, ws.activePaneId, visible));
   }, []);
 
+  /**
+   * A1: the price legend's `Moving averages` row, acted on like any study row.
+   *
+   * Hide is the legend's eye (it remembers which lines were on, and the dimmed
+   * row it leaves brings exactly those back); Settings is the panel where the
+   * lines are chosen; Remove is that panel's `Hide all`, which its `Show all`
+   * undoes — the same reversibility the panel has always had, no confirmation
+   * because the panel asks for none either.
+   */
+  const maAction = useCallback((paneId: string, action: "hide" | "settings" | "remove") => {
+    if (action === "settings") {
+      setWorkspace((ws) => setActivePane(ws, paneId));
+      setPanel("ma");
+      return;
+    }
+    setWorkspace((ws) => (action === "hide"
+      ? togglePaneMaSet(ws, paneId) : removePaneMaSet(ws, paneId)));
+  }, []);
+
+  /** A5: `Add alert on RSI…` from a study's legend, through the same gate as the MA panel's rows. */
+  const latestWorkspace = useRef(workspace);
+  latestWorkspace.current = workspace;
+  const studyAlert = useCallback((paneId: string, kind: IndicatorKind) => {
+    // Read through a ref so the callback the panes hold stays stable.
+    const target = paneById(latestWorkspace.current, paneId)?.symbol;
+    setWorkspace((ws) => setActivePane(ws, paneId));
+    if (!target) return;
+    if (!alertCapability(target).supported) { setToast(alertCapability(target).reason); return; }
+    setOscillatorKind(kind);
+  }, []);
+
   const maValues = useMemo(
     () => currentMaValues(visibleCandles, maLines), [visibleCandles, maLines]);
 
@@ -1692,6 +1725,19 @@ export default function TvWorkspace() {
 
   /** D-03: one real model shared by the Objects and Data window tabs. */
   const objectStudies = [
+    /*
+     * A1: the moving-average set is on the chart, so it is in the Object
+     * tree, as every study row is on the reference. Listed while any line is
+     * drawn or the legend's eye is holding a set to bring back; its eye and
+     * trash are the legend row's own.
+     */
+    ...(active.maLines.some((line) => line.visible) || (active.maHiddenSet?.length ?? 0) > 0 ? [{
+      id: MA_INSTANCE_ID,
+      label: MA_INSTANCE_TITLE,
+      visible: active.maLines.some((line) => line.visible),
+      onToggleVisible: () => maAction(active.id, "hide"),
+      onRemove: () => maAction(active.id, "remove"),
+    }] : []),
     ...(activeNativeStudies?.rows ?? []).map((row) => ({
       id: row.study.key,
       label: row.name,
@@ -2461,6 +2507,8 @@ export default function TvWorkspace() {
         onOpenObjectTree={() => setPanel("objects")}
         onEditNative={setEditingNativeKey}
         onEditPine={editPine}
+        onMaAction={maAction}
+        onStudyAlert={studyAlert}
         compact={isMobile}
         rangeRowTarget={sharedRangeRow ? (isActive ? rangeRowHost : null) : undefined}
       />
@@ -2470,7 +2518,7 @@ export default function TvWorkspace() {
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
-    registerIndicatorList, focusIndicator, editPine, isMobile, overlays.select, overlays.setViewport,
+    registerIndicatorList, focusIndicator, editPine, maAction, studyAlert, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,
     replayActive, candles, setReplayPlaying, setReplaySpeed, changeBars,

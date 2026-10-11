@@ -25,7 +25,7 @@ import {
   activePane, applyPaneInterval, applyPaneSymbol, clonePane, createWorkspace, feedKeys,
   maximizePane, paneById, parseWorkspace, removePane, restoreLayout, restoreWorkspace,
   setActivePane, setPaneCount, setPaneMaVisibility, setPreset, setWorkspaceBars,
-  togglePaneMa, toggleMaximize, updatePane, visiblePanes,
+  togglePaneMa, togglePaneMaSet, removePaneMaSet, toggleMaximize, updatePane, visiblePanes,
   type ChartWorkspace, type PaneSeed,
 } from "../lib/workspace";
 import {
@@ -413,6 +413,41 @@ test("toggling a moving average affects one pane only", () => {
   const hidden = setPaneMaVisibility(next, "p3", false);
   assert.ok(paneById(hidden, "p3")!.maLines.every((l) => !l.visible));
   assert.ok(paneById(hidden, "p1")!.maLines.every((l) => l.visible));
+});
+
+test("A1 — the legend's eye on the MA set brings back exactly the lines it hid", () => {
+  /*
+   * The set is one legend row over many lines. Hiding switches every line off
+   * and remembers which were on; showing must restore those two, not all
+   * twenty and not none.
+   */
+  let ws = togglePaneMa(togglePaneMa(seeded(), "p1", "sma", 100), "p1", "ema", 50);
+  const on = (w: ChartWorkspace) => paneById(w, "p1")!.maLines.filter((l) => l.visible)
+    .map((l) => `${l.type}${l.length}`).sort();
+  const before = on(ws);
+  assert.ok(before.length >= 2, "the fixture needs more than one line on");
+
+  ws = togglePaneMaSet(ws, "p1");
+  assert.deepEqual(on(ws), [], "Hide switched nothing off");
+  assert.equal(paneById(ws, "p1")!.maHiddenSet?.length, before.length);
+  // It survives a reload, or the dimmed row's eye would restore nothing.
+  const restored = parseWorkspace(JSON.parse(JSON.stringify(ws)))!;
+  assert.deepEqual(paneById(restored, "p1")!.maHiddenSet, paneById(ws, "p1")!.maHiddenSet);
+
+  ws = togglePaneMaSet(restored, "p1");
+  assert.deepEqual(on(ws), before, "Show must put back exactly the lines that were on");
+  assert.ok(!("maHiddenSet" in paneById(ws, "p1")!), "nothing left to restore means absent");
+});
+
+test("A1 — Remove on the MA set is the panel's Hide all, and remembers nothing", () => {
+  let ws = togglePaneMaSet(togglePaneMa(seeded(), "p1", "ema", 50), "p1");
+  ws = removePaneMaSet(ws, "p1");
+  assert.ok(paneById(ws, "p1")!.maLines.every((l) => !l.visible));
+  assert.ok(!("maHiddenSet" in paneById(ws, "p1")!),
+    "a removed set must not leave a dimmed row offering to bring it back");
+  // And the panel's own toggles take over from a remembered set.
+  const hidden = togglePaneMaSet(togglePaneMa(seeded(), "p1", "ema", 50), "p1");
+  assert.ok(!("maHiddenSet" in paneById(togglePaneMa(hidden, "p1", "sma", 21), "p1")!));
 });
 
 test("a cloned pane copies its source's moving averages instead of sharing them", () => {

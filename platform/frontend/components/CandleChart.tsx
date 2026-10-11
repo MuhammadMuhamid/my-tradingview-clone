@@ -831,7 +831,7 @@ export function CandleChart({
   onOpenObjectTree,
   replayAnchorTime = null,
   compareFitKey = null,
-  canIndicatorAction,
+  canIndicatorAction, indicatorAlertFor,
   hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
   chartSettings,
@@ -1007,6 +1007,8 @@ export function CandleChart({
    * no actions at all rather than three that do nothing.
    */
   canIndicatorAction?: (key: string) => boolean;
+  /** Whether a study offers `Add alert on …` — see `IndicatorLegend`'s `alertFor`. */
+  indicatorAlertFor?: (key: string) => { replayActive: boolean } | null;
   /** Applied but switched off — see `IndicatorLegend`'s `hidden`. */
   hiddenStudies?: { id: string; title: string }[];
   /**
@@ -4438,6 +4440,7 @@ export function CandleChart({
             && ((key, action) => onIndicatorPaneAction(`indicator:${key}`, action))}
           onOpenObjectTree={onOpenObjectTree}
           canAction={canIndicatorAction}
+          alertFor={indicatorAlertFor}
           hidden={hiddenStudies}
         />
       ) : (groupedOverlays.price.length > 0 || groupedOverlays.panes.length > 0
@@ -4660,6 +4663,7 @@ export function CandleChart({
                 onRangeChange={indicatorPaneRange}
                 onAction={onIndicatorPaneAction}
                 onOpenObjectTree={onOpenObjectTree}
+                studyAlert={indicatorAlertFor?.(pane.id.replace(/^indicator:/, "")) ?? null}
                 /* R6 SC-3: one answer for every study on this chart. */
                 lastValue={settings.indicatorLastValue}
                 /* R6 SC-5(d): and the axis under the lowest pane is THE axis. */

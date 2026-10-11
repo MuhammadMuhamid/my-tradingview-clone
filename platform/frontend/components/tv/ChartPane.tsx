@@ -36,7 +36,19 @@ import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies"
 import type { Viewport } from "@/lib/native/compute";
 import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
-import { buildMaOverlays } from "@/lib/movingAverages";
+import { buildMaOverlays, MA_INSTANCE_ID, MA_INSTANCE_TITLE } from "@/lib/movingAverages";
+import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+
+/**
+ * The built-in studies whose family the alert engine evaluates, and which
+ * family that is. Only these offer `Add alert on …` on their legend (A5): the
+ * indicator alert dialog arms exactly these six, and a row for any other
+ * study would open a dialog about something else.
+ */
+const NATIVE_ALERT_KIND: Readonly<Record<string, IndicatorKind>> = {
+  rsi: "rsi", macd: "macd", bb: "bollinger", supertrend: "supertrend",
+  stoch: "stochastic", adx: "adx",
+};
 import { drawingStore } from "@/lib/drawingStore";
 import { drawingVisibleOnTimeframe, type Drawing, type DrawingTool } from "@/lib/drawings";
 import { useCandleHistory } from "@/lib/useCandleHistory";
@@ -209,6 +221,15 @@ export interface ChartPaneProps {
    * that owns the instance, not whichever pane is focused.
    */
   onEditPine?: (paneId: string, key: string) => void;
+  /**
+   * A1: the moving-average set's legend row, acted on. The set is the MA
+   * panel's state, not a study, so the workspace that owns that state answers:
+   * `hide` toggles the set (restoring exactly the lines that were on),
+   * `settings` opens the panel, `remove` switches every line off.
+   */
+  onMaAction?: (paneId: string, action: "hide" | "settings" | "remove") => void;
+  /** A5: `Add alert on …` from a study's legend menu, by alert family. */
+  onStudyAlert?: (paneId: string, kind: IndicatorKind) => void;
   /** Open the objects panel — the legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
 
@@ -625,7 +646,29 @@ function ChartPaneImpl(props: ChartPaneProps) {
    */
   const paneAction = useCallback((subPaneId: string, action: PaneAction) => {
     const key = subPaneId.replace(/^indicator:/, "");
+    /*
+     * A1: the moving-average set is not a study, and none of the APIs below
+     * owns it. Its legend row was a label with no verbs — hover offered
+     * nothing and a click did nothing — while every other row on the same
+     * legend could be hidden, tuned and removed. The workspace owns the MA
+     * state, so it answers.
+     */
+    if (key === MA_INSTANCE_ID) {
+      if (action !== "alert") props.onMaAction?.(paneId, action);
+      return;
+    }
     const isNative = nativeRef.current.list.some((study) => study.key === key);
+    /*
+     * A5: `Add alert on …`, for the built-ins whose family the alert engine
+     * evaluates. `studyAlertFor` is what offered the row, so this cannot be
+     * reached for a study it would not resolve.
+     */
+    if (action === "alert") {
+      const study = nativeRef.current.list.find((s) => s.key === key);
+      const kind = study ? NATIVE_ALERT_KIND[study.defId] : undefined;
+      if (kind) props.onStudyAlert?.(paneId, kind);
+      return;
+    }
     const api = isNative ? nativeRef.current : indicatorsRef.current;
     if (action === "hide") { api.toggleVisible(key); return; }
     if (action === "remove") { api.remove(key); return; }
@@ -640,21 +683,32 @@ function ChartPaneImpl(props: ChartPaneProps) {
     if (isNative && props.onEditNative) { props.onEditNative(key); return; }
     if (!isNative && props.onEditPine) { props.onEditPine(paneId, key); return; }
     props.onFocusIndicator(paneId, key);
-    // `props.onFocusIndicator`, `props.onEditNative` and `props.onEditPine`
-    // are stable in the workspace.
+    // `props.onFocusIndicator`, `props.onEditNative`, `props.onEditPine`,
+    // `props.onMaAction` and `props.onStudyAlert` are stable in the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, props.onFocusIndicator, props.onEditNative, props.onEditPine]);
+  }, [paneId, props.onFocusIndicator, props.onEditNative, props.onEditPine,
+    props.onMaAction, props.onStudyAlert]);
 
   /*
    * The other half of `paneAction`: whether a key names a study at all.
    *
    * `paneAction` assumes it has been handed one, which is safe for an
    * indicator PANE — a pane exists because a study made it. The price pane's
-   * legend has no such guarantee, so it asks first.
+   * legend has no such guarantee, so it asks first. The MA set answers yes
+   * only where the workspace has wired something to act with.
    */
+  const hasMaAction = props.onMaAction !== undefined;
   const studyActionable = useCallback((key: string) =>
-    nativeRef.current.list.some((study) => study.key === key)
-    || indicatorsRef.current.list.some((study) => study.key === key), []);
+    (key === MA_INSTANCE_ID && hasMaAction)
+    || nativeRef.current.list.some((study) => study.key === key)
+    || indicatorsRef.current.list.some((study) => study.key === key), [hasMaAction]);
+
+  /** A5: whether a study's menu offers `Add alert on …`. */
+  const studyAlertFor = useCallback((key: string) => {
+    if (!props.onStudyAlert) return null;
+    const study = nativeRef.current.list.find((s) => s.key === key);
+    return study && NATIVE_ALERT_KIND[study.defId] ? { replayActive } : null;
+  }, [props.onStudyAlert, replayActive]);
 
   /*
    * Everything applied to this pane that is currently switched off.
@@ -670,7 +724,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
       .map((row) => ({ id: row.study.key, title: row.name })),
     ...indicators.list.filter((instance) => !instance.visible)
       .map((instance) => ({ id: instance.key, title: instance.name })),
-  ], [nativeStudies.rows, indicators.list]);
+    /*
+     * A1: the MA set, after the legend's eye switched it off — dimmed, with
+     * its eye closed, exactly like a hidden study, so the eye is not a
+     * one-way door. Not after `Remove` or the panel's `Hide all`: those leave
+     * nothing remembered to bring back from here.
+     */
+    ...((pane.maHiddenSet?.length ?? 0) > 0 && hasMaAction
+      && !pane.maLines.some((line) => line.visible)
+      ? [{ id: MA_INSTANCE_ID, title: MA_INSTANCE_TITLE }] : []),
+  ], [nativeStudies.rows, indicators.list, pane.maHiddenSet, pane.maLines, hasMaAction]);
 
   const { onCrosshairMove, onVisibleRangeChange, onViewportChange } = props;
   const emitCrosshair = useMemo(
@@ -1146,6 +1209,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             onIndicatorPaneAction={paneAction}
             onOpenObjectTree={props.onOpenObjectTree}
             canIndicatorAction={studyActionable}
+            indicatorAlertFor={studyAlertFor}
             hiddenStudies={hiddenStudies}
           />
           {/*

@@ -159,8 +159,10 @@ test("R3b-19 — `⋯` opens the product's own menu, and every row in it acts", 
 
   /*
    * Not one row is disabled, and that is the point: the reference's indicator
-   * menu carries `Move to`, `Pin to scale`, `Visual order`, `Copy` and
-   * `Add alert on …` as well, and none of them is written here as a greyed
+   * menu carries `Move to`, `Pin to scale`, `Visual order` and `Copy` as
+   * well (and `Add alert on …`, which appears only when the owner says the
+   * alert engine evaluates the study — `legendStudyActions.test.tsx` — and
+   * this render passes no `alertFor`), and none of them is written here as a greyed
    * row, because a legend cannot reach a resolver for them yet. A menu of
    * mostly-dead rows teaches nothing — see `lib/menuPayloads`. `Object tree`
    * joined because it is the one of them this product CAN hand somewhere: the

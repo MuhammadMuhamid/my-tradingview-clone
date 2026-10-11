@@ -137,6 +137,16 @@ export function pricePrecision(price: number): number {
   return abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
 }
 
+/**
+ * The one legend row every moving-average line is grouped under.
+ *
+ * Exported because the row is ACTED on now (A1): the pane recognises this key
+ * as the MA set rather than as a study, and routes its hide, settings and
+ * remove to the moving-average panel's own state.
+ */
+export const MA_INSTANCE_ID = "moving-averages";
+export const MA_INSTANCE_TITLE = "Moving averages";
+
 /** Turn the visible lines into chart overlays for the given candles. */
 export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverlay[] {
   if (candles.length === 0) return [];
@@ -160,8 +170,8 @@ export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverla
         id: maId(l.type, l.length),
         title: maLabel(l.type, l.length),
         paneId: "price",
-        instanceId: "moving-averages",
-        instanceTitle: "Moving averages",
+        instanceId: MA_INSTANCE_ID,
+        instanceTitle: MA_INSTANCE_TITLE,
         color: maColor(l.length),
         width: l.length >= 100 ? 2 : 1,
         dashed: l.type === "ema",

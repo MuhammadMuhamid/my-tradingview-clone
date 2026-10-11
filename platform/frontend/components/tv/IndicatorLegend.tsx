@@ -18,7 +18,7 @@ import { legendStudyMenu, type LegendStudyMenuId } from "@/lib/menuPayloads";
  */
 export function IndicatorLegend({
   overlays, time, className = "", startCollapsed = false, collapsible = true,
-  title, onAction, onOpenObjectTree, canAction, hidden = [],
+  title, onAction, onOpenObjectTree, canAction, alertFor, hidden = [],
   showTitles = true, showInputs = true, showValues = true,
   background = true, backgroundOpacity = 60,
 }: {
@@ -55,7 +55,13 @@ export function IndicatorLegend({
    * `ChartPane.paneAction` already resolves against the native and Pine study
    * lists — no second lookup, and no second definition of what a study is.
    */
-  onAction?: (instanceId: string, action: "hide" | "settings" | "remove") => void;
+  onAction?: (instanceId: string, action: "hide" | "settings" | "remove" | "alert") => void;
+  /**
+   * Whether this instance's `⋯` menu offers `Add alert on …` (and whether a
+   * Replay disables it), or null when the alert engine watches no family it
+   * belongs to. `alert` reaches `onAction` like the other verbs.
+   */
+  alertFor?: (instanceId: string) => { replayActive: boolean } | null;
   /**
    * Open the objects panel, for the menu's `Object tree` row.
    *
@@ -74,6 +80,11 @@ export function IndicatorLegend({
    * can to them would put three dead controls on the most-used surface in the
    * product, which is the exact defect this campaign already fixed once on the
    * indicator panes. Without this predicate the row stays a label.
+   *
+   * The moving-average set is the exception that proves the rule (A1): it is
+   * not a study, but its owner — the workspace's MA state — CAN hide, open
+   * and remove it, so `ChartPane` answers yes for it and routes its verbs
+   * there. Anchored VWAPs and profile drawings still have no such owner here.
    */
   canAction?: (instanceId: string) => boolean;
   /**
@@ -253,6 +264,19 @@ export function IndicatorLegend({
                 className="pointer-events-auto -mx-1 flex h-6 min-w-0 shrink items-center gap-x-2
                   overflow-hidden rounded-sm border border-transparent px-1
                   group-hover/study:border-state-active group-hover/study:bg-surface"
+                /*
+                  A16: a right-click on the study's row is the study's `⋯`
+                  menu, at the pointer — as on the reference — rather than the
+                  CHART's menu for the candles underneath, which is about
+                  something else entirely. A row with no actions keeps the
+                  browser's default, so nothing here claims a gesture it
+                  cannot answer.
+                */
+                onContextMenu={onAction && canAction?.(group.id) ? (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMoreMenu({ id: group.id, title: group.title, at: { x: event.clientX, y: event.clientY } });
+                } : undefined}
               >
                 <span
                   title={group.params ? `${group.title} ${group.params}` : group.title}
@@ -314,10 +338,12 @@ export function IndicatorLegend({
                       row can actually resolve — the same three
                       `ChartPane.paneAction` owns — because a menu row that
                       cannot act is the defect this campaign has removed twice
-                      already. `Move to`, `Pin to scale`, `Visual order`,
-                      `Copy` and `Add alert on …` are the reference's other
-                      rows and are NOT invented here: each needs a resolver the
-                      legend cannot reach yet (see `lib/menuPayloads`).
+                      already — plus `Add alert on …` where `alertFor` says the
+                      alert engine evaluates the study. `Move to`, `Pin to
+                      scale`, `Visual order` and `Copy` are the reference's
+                      other rows and are NOT invented here: each needs a
+                      resolver the legend cannot reach yet (see
+                      `lib/menuPayloads`).
                     */}
                     <StudyButton
                       label={`More for ${group.title}`}
@@ -480,15 +506,18 @@ export function IndicatorLegend({
       <ContextMenu
         at={moreMenu?.at ?? null}
         label={moreMenu?.title ?? ""}
-        entries={moreMenu ? legendStudyMenu({ title: moreMenu.title }) : []}
+        entries={moreMenu
+          ? legendStudyMenu({ title: moreMenu.title, alert: alertFor?.(moreMenu.id) ?? null })
+          : []}
         onSelect={(id) => {
           if (!moreMenu) return;
           if (id === "study-legend:object-tree") { onOpenObjectTree?.(); return; }
           if (!onAction) return;
           const action: Record<
             Exclude<LegendStudyMenuId, "study-legend:object-tree">,
-            "hide" | "settings" | "remove"
+            "hide" | "settings" | "remove" | "alert"
           > = {
+            "study-legend:add-alert": "alert",
             "study-legend:settings": "settings",
             "study-legend:toggle-visible": "hide",
             "study-legend:remove": "remove",

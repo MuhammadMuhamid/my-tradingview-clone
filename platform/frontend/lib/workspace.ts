@@ -36,7 +36,7 @@ import {
   type LayoutPreset,
 } from "./layoutPresets";
 import { isChartType, type ChartType } from "./chartType";
-import { defaultMaLines, type MaLine, type MaType } from "./movingAverages";
+import { defaultMaLines, maId, type MaLine, type MaType } from "./movingAverages";
 import type { SyncOptions } from "./paneSync";
 import { isResolution, type Resolution } from "./resolution";
 import {
@@ -60,6 +60,18 @@ export interface PaneState {
   bars: number;
   /** Which SMA/EMA lines this pane draws. Copied, never shared. */
   maLines: MaLine[];
+  /**
+   * The lines a legend `Hide` switched off, by `maId`, so its eye can put back
+   * exactly those (A1).
+   *
+   * The moving-average set is ONE row on the price legend and many lines in
+   * the panel. Hiding the row switches every line off; showing it must not
+   * switch on all twenty, only the ones that were on. Present only while the
+   * set is hidden from the legend, which is also what keeps the dimmed row
+   * there. The panel's own toggles clear it: once the user picks lines by
+   * hand, there is nothing left to restore.
+   */
+  maHiddenSet?: string[];
   /**
    * A second instrument this pane compares against, or null.
    *
@@ -280,9 +292,16 @@ export function updatePane(
   if (!ws.panes.some((p) => p.id === id)) return ws;
   return {
     ...ws,
-    panes: ws.panes.map((p) => (p.id === id
-      ? { ...p, ...patch, ...(patch.maLines ? { maLines: copyMaLines(patch.maLines) } : {}) }
-      : p)),
+    panes: ws.panes.map((p) => {
+      if (p.id !== id) return p;
+      const next: PaneState = {
+        ...p, ...patch, ...(patch.maLines ? { maLines: copyMaLines(patch.maLines) } : {}),
+      };
+      // Cleared means ABSENT, so a pane with nothing to restore is the same
+      // record it was before the field existed.
+      if (next.maHiddenSet === undefined) delete next.maHiddenSet;
+      return next;
+    }),
   };
 }
 
@@ -295,6 +314,7 @@ export function togglePaneMa(
   return updatePane(ws, id, {
     maLines: pane.maLines.map((l) =>
       l.type === type && l.length === length ? { ...l, visible: !l.visible } : l),
+    maHiddenSet: undefined,
   });
 }
 
@@ -303,7 +323,39 @@ export function setPaneMaVisibility(
 ): ChartWorkspace {
   const pane = paneById(ws, id);
   if (!pane) return ws;
-  return updatePane(ws, id, { maLines: pane.maLines.map((l) => ({ ...l, visible })) });
+  return updatePane(ws, id, {
+    maLines: pane.maLines.map((l) => ({ ...l, visible })), maHiddenSet: undefined,
+  });
+}
+
+/**
+ * The legend's eye on the moving-average set (A1): hide the lines that are
+ * on and remember them, or put exactly those back.
+ */
+export function togglePaneMaSet(ws: ChartWorkspace, id: PaneId): ChartWorkspace {
+  const pane = paneById(ws, id);
+  if (!pane) return ws;
+  if (pane.maHiddenSet && pane.maHiddenSet.length > 0) {
+    const restore = new Set(pane.maHiddenSet);
+    return updatePane(ws, id, {
+      maLines: pane.maLines.map((l) => ({ ...l, visible: l.visible || restore.has(maId(l.type, l.length)) })),
+      maHiddenSet: undefined,
+    });
+  }
+  const on = pane.maLines.filter((l) => l.visible).map((l) => maId(l.type, l.length));
+  if (on.length === 0) return ws;
+  return updatePane(ws, id, {
+    maLines: pane.maLines.map((l) => ({ ...l, visible: false })), maHiddenSet: on,
+  });
+}
+
+/**
+ * The legend's trash on the moving-average set: every line off and nothing
+ * remembered — the panel's `Hide all`, which `Show all` there undoes. It is
+ * the same reversibility the panel itself has always offered, and no more.
+ */
+export function removePaneMaSet(ws: ChartWorkspace, id: PaneId): ChartWorkspace {
+  return setPaneMaVisibility(ws, id, false);
 }
 
 /**
@@ -524,10 +576,15 @@ function validPane(value: unknown): PaneState | null {
     ? null : normalizePriceScale(raw.priceScale);
   const chartSettings = raw.chartSettings === undefined
     ? null : normalizeChartSettings(raw.chartSettings);
+  // A1: the legend's remembered MA set. Anything unreadable is dropped — the
+  // worst case is that its eye restores nothing, never a lost pane.
+  const maHiddenSet = Array.isArray(raw.maHiddenSet)
+    ? raw.maHiddenSet.filter((v): v is string => typeof v === "string") : [];
 
   return {
     id: raw.id, symbol: canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase(), interval: raw.interval,
     chartType: raw.chartType, bars: raw.bars, maLines,
+    ...(maHiddenSet.length > 0 ? { maHiddenSet } : {}),
     ...(compare ? { compare } : {}),
     ...(priceScale && !isDefaultPriceScale(priceScale) ? { priceScale } : {}),
     ...(chartSettings && !isDefaultChartSettings(chartSettings) ? { chartSettings } : {}),

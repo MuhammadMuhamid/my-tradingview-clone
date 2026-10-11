@@ -140,12 +140,12 @@ export function updateData(entry: SeriesEntry, points: ChartPoint[]): void {
 }
 
 /** What a pane header control asks the owner of the indicator list to do. */
-export type PaneAction = "hide" | "settings" | "remove";
+export type PaneAction = "hide" | "settings" | "remove" | "alert";
 
 export function IndicatorPane({
   id, title, params, overlays, decorations, hoverTime, onHover, onReady, onRangeChange,
   onAction,
-  onOpenObjectTree,
+  onOpenObjectTree, studyAlert = null,
   collapsed = false, onToggleCollapsed,
   maximized = false, canMaximize = false, onToggleMaximized,
   canMoveUp = false, canMoveDown = false, onMove,
@@ -198,6 +198,12 @@ export function IndicatorPane({
   onAction?: (paneId: string, action: PaneAction) => void;
   /** The legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
+  /**
+   * Whether this study's legend menu offers `Add alert on …`, and whether it
+   * can be taken right now — see `IndicatorLegend`'s `alertFor`. Null when the
+   * alert engine watches no family this study belongs to.
+   */
+  studyAlert?: { replayActive: boolean } | null;
   /**
    * Show only the header, keeping the pane in the stack.
    *
@@ -849,6 +855,7 @@ export function IndicatorPane({
           onAction={onAction && ((_instanceId, action) => onAction(id, action))}
           onOpenObjectTree={onOpenObjectTree}
           canAction={onAction ? () => true : undefined}
+          alertFor={studyAlert ? () => studyAlert : undefined}
         />
       </div>
       {/*

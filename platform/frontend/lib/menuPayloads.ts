@@ -415,8 +415,11 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
  * `ChartPane.paneAction`, which owns hide, settings and remove — so those are
  * the three rows here.
  *
+ * `Add alert on …` joined once the legend could hand it somewhere: the
+ * indicator alert dialog, for the six families the alert engine evaluates.
+ *
  * The reference's own indicator menu (`measurements/tv-study-context-menu-
- * 20260914.md`) also carries `Add alert on …`, `Visual order ›`,
+ * 20260914.md`) also carries `Visual order ›`,
  * `Visibility on intervals ›`, `Move to ›`, `Pin to scale ›`, `Source code…`,
  * `Copy` and `Object tree`. Not one of them is written here as a disabled row,
  * and that is deliberate: this file's own rule — an action that cannot be
@@ -428,13 +431,37 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
  * `ChartPane.paneAction`.
  */
 export const LEGEND_STUDY_MENU_IDS = [
+  "study-legend:add-alert",
   "study-legend:settings", "study-legend:toggle-visible",
   "study-legend:object-tree", "study-legend:remove",
 ] as const;
 export type LegendStudyMenuId = (typeof LEGEND_STUDY_MENU_IDS)[number];
 
-export function legendStudyMenu(_ctx: { title: string }): MenuEntry[] {
+export interface LegendStudyMenuContext {
+  title: string;
+  /**
+   * `Add alert on {title}…`, when the alert engine watches this study's
+   * family — RSI, MACD, Bollinger, Supertrend, Stochastic, ADX — and null when
+   * it does not. During a Replay the row is DISABLED with the reason every
+   * other alert row gives (the price is not the market); null is ABSENCE,
+   * because an alert on a study the engine cannot evaluate is not a state, it
+   * is a row with no route (see above).
+   */
+  alert?: { replayActive: boolean } | null;
+}
+
+export function legendStudyMenu(ctx: LegendStudyMenuContext): MenuEntry[] {
   return [
+    /*
+     * Premium leads its indicator menu with `Add alert on RSI…`, as the drawing
+     * menu leads with its own alert (R8-21): the first row is the one the eye
+     * lands on, and on a study the thing a trader does is arm it.
+     */
+    ...(ctx.alert ? [{
+      id: "study-legend:add-alert", label: `Add alert on ${ctx.title}…`, glyph: "alarm" as const,
+      disabled: ctx.alert.replayActive,
+      disabledReason: REPLAY_REASON,
+    }, { id: "sep-alert", separator: true as const }] : []),
     { id: "study-legend:settings", label: "Settings…", glyph: "gear" },
     // The legend only ever draws a study that is currently drawn, so this row
     // hides; the row for a hidden study lives on the legend's own hidden list.
