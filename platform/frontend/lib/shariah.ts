@@ -87,6 +87,24 @@ export interface ShariahPublication {
   publishedAt: string;
   publishedBy: string;
   evidenceIds: string[];
+  /**
+   * How the decision reached the product. `null` on decisions published before
+   * the backend recorded it — unknown, not "manual". Optional so an older
+   * backend that omits the field reads the same way.
+   */
+  source?: ShariahPublicationSource | null;
+}
+
+export type ShariahPublicationSource = "manual" | "review_import";
+
+/**
+ * The history chip's words. The operator's name is on both kinds of decision,
+ * so without this the history could not say which came out of a research pack.
+ */
+export function publicationSourceLabel(source: ShariahPublicationSource | null | undefined): string {
+  if (source === "review_import") return "Imported from review pack";
+  if (source === "manual") return "Entered by hand";
+  return "Source not recorded";
 }
 
 export interface ShariahAssetDetail {
@@ -103,6 +121,65 @@ export interface ShariahSnapshotMeta {
   createdAt: string;
   createdBy: string | null;
 }
+
+/** A frozen snapshot with its membership — the Research-facing read contract. */
+export interface ShariahSnapshot extends ShariahSnapshotMeta {
+  entries: Array<{
+    assetId: string;
+    baseAsset: string;
+    effectiveStatus: ShariahClassification;
+    classification: ShariahClassification;
+    lifecycle: ShariahLifecycle;
+    binanceAvailable: boolean;
+    policyVersion: string;
+    publicationId: string | null;
+  }>;
+}
+
+// ── The universe list's filters ─────────────────────────────────────────────
+
+export type ShariahUniverseFilter = "needs-review" | "stale" | "due" | "all";
+
+export const UNIVERSE_FILTERS: ReadonlyArray<{ value: ShariahUniverseFilter; label: string }> = [
+  { value: "needs-review", label: "Needs review" },
+  { value: "stale", label: "Stale" },
+  { value: "due", label: "Due for re-review" },
+  { value: "all", label: "All assets" },
+];
+
+/**
+ * Which assets each filter shows.
+ *
+ * "Needs review" is the BACKEND's definition (`needsReview` in
+ * `shariah/reviewPack.ts`, and the universe's `counts.review`): an active asset
+ * whose effective status is REVIEW — never screened, STALE, or deliberately
+ * published as REVIEW. It used to be "not yet screened" only, so an asset a
+ * reviewer had published as REVIEW vanished from the list while still being
+ * counted under Review beside it, and the two numbers on one card disagreed.
+ *
+ * "Due for re-review" matches `counts.dueForReReview`: active and settled, but
+ * researched longer ago than the advisory policy. Age demotes nothing; this
+ * only finds them.
+ */
+export function filterUniverse(
+  assets: readonly ShariahAssetState[],
+  filter: ShariahUniverseFilter
+): ShariahAssetState[] {
+  switch (filter) {
+    case "needs-review": return assets.filter((a) => a.binanceAvailable && a.effectiveStatus === "REVIEW");
+    case "stale": return assets.filter((a) => a.lifecycle === "STALE");
+    case "due": return assets.filter((a) => a.binanceAvailable && a.dueForReReview === true);
+    case "all": return [...assets];
+  }
+}
+
+/** What an empty list means under each filter, so "none" is never misread as "unread". */
+export const UNIVERSE_FILTER_EMPTY: Record<ShariahUniverseFilter, string> = {
+  "needs-review": "Nothing needs review — every active asset carries a settled classification.",
+  stale: "No asset is STALE.",
+  due: "No settled decision is due for re-review under the current policy.",
+  all: "The registry holds no assets yet.",
+};
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
@@ -153,21 +230,111 @@ export interface ShariahImportIssue {
   assetId: string | null;
   baseAsset: string | null;
   message: string;
+  /** The field to act on, when the problem is one field (e.g. `unresolvedUncertainties`). */
+  field?: string;
+}
+
+/** The six researched answers, keyed as the results contract keys them. */
+export const SHARIAH_ANSWER_LABELS: ReadonlyArray<readonly [string, string]> = [
+  ["project", "Project"],
+  ["tokenFunction", "Token function"],
+  ["rightsExposure", "Rights / economic exposure"],
+  ["coreActivities", "Core / material activities"],
+  ["prohibitedEvidence", "Prohibited-category evidence"],
+  ["evidenceSufficiency", "Evidence sufficiency"],
+];
+
+export interface ShariahImportPreviewResult {
+  assetId: string;
+  baseAsset: string;
+  classification: ShariahClassification;
+  /** The researcher's own grounds. Shown, never interpreted. */
+  reason: string;
+  answers: Record<string, string>;
+  prohibitedCategories: string[];
+  evidenceCount: number;
+  evidence: Array<{ url: string; title: string; publisher: string; retrievedAt: string; note: string }>;
+  unresolvedUncertainties: string[];
+  /**
+   * ELIGIBLE while listing unresolved uncertainties. The backend refuses the
+   * import unless the operator acknowledges this asset by id; the browser only
+   * collects that acknowledgement, it does not decide that one is needed.
+   */
+  requiresAcknowledgement: boolean;
 }
 
 export interface ShariahImportPreview {
   policyVersion: string;
   researchCompletedAt: string;
+  /** The pack the file says it answers, when it echoes one. */
+  packGeneratedAt?: string | null;
   assetCount: number;
   counts: Record<ShariahClassification, number>;
-  results: Array<{
-    assetId: string;
-    baseAsset: string;
-    classification: ShariahClassification;
-    prohibitedCategories: string[];
-    evidenceCount: number;
-    unresolvedUncertainties: string[];
-  }>;
+  /** Asset ids the import request must acknowledge, in file order. */
+  acknowledgementRequired?: string[];
+  results: ShariahImportPreviewResult[];
+}
+
+/** The last pack downloaded in this page session — what an import is checked against. */
+export interface ShariahLastPack {
+  generatedAt: string;
+  assetIds: readonly string[];
+}
+
+/**
+ * Whether a results file answers the pack the operator last downloaded.
+ *
+ * Advisory, and deliberately browser-side: the backend validates every result
+ * against the live registry whatever pack it came from, so this cannot make
+ * anything publishable that would not be. What it catches is the human
+ * mistake — pasting last week's file, or one researched from a colleague's
+ * pack — that the registry check cannot see because the assets are all real.
+ *
+ * Held in page memory only (the Shariah surface keeps no browser storage), so
+ * after a reload there is nothing to compare against and it says so.
+ */
+export function comparePreviewToPack(
+  preview: Pick<ShariahImportPreview, "packGeneratedAt" | "results">,
+  lastPack: ShariahLastPack | null
+): { known: boolean; notInPack: string[]; differentPack: boolean } {
+  if (!lastPack) return { known: false, notInPack: [], differentPack: false };
+  const inPack = new Set(lastPack.assetIds);
+  const notInPack = preview.results.filter((r) => !inPack.has(r.assetId)).map((r) => r.assetId);
+  const echoed = preview.packGeneratedAt ?? null;
+  const differentPack = echoed !== null && Date.parse(echoed) !== Date.parse(lastPack.generatedAt);
+  return { known: true, notInPack, differentPack };
+}
+
+/** How the next pack is chosen: the queue (optionally sized / widened), or by hand. */
+export type ShariahReviewPackRequest =
+  | { size?: number; includeSettled?: boolean }
+  | { assetIds: readonly string[] };
+
+/** The most assets one pack (and one import) can carry — `MAX_REVIEW_BATCH_SIZE`. */
+export const MAX_REVIEW_PACK_ASSETS = 100;
+
+/**
+ * The review-pack URL for a request. An explicit selection sends ONLY
+ * `assetIds`: the backend refuses `size` beside it, because a size smaller than
+ * the selection would silently drop assets chosen by name.
+ */
+export function reviewPackPath(request: ShariahReviewPackRequest = {}): string {
+  const params = new URLSearchParams();
+  if ("assetIds" in request) {
+    params.set("assetIds", request.assetIds.join(","));
+  } else {
+    if (request.size) params.set("size", String(request.size));
+    if (request.includeSettled) params.set("includeSettled", "true");
+  }
+  const query = params.toString();
+  return `/api/shariah/review-pack${query ? `?${query}` : ""}`;
+}
+
+/** The import URL, carrying the operator's per-asset acknowledgements beside the document. */
+export function importResultsPath(acknowledgedAssetIds: readonly string[] = []): string {
+  return acknowledgedAssetIds.length === 0
+    ? "/api/shariah/review-results/import"
+    : `/api/shariah/review-results/import?acknowledgedAssetIds=${acknowledgedAssetIds.map(encodeURIComponent).join(",")}`;
 }
 
 export interface ShariahImportSummary {
@@ -441,15 +608,18 @@ export const shariahApi = {
       method: "POST", body: JSON.stringify(body),
     }),
   snapshots: () => req<{ snapshots: ShariahSnapshotMeta[] }>("/api/shariah/snapshots"),
+  /** One frozen snapshot with its full membership — what Research consumes. */
+  snapshot: (snapshotId: string) =>
+    req<ShariahSnapshot>(`/api/shariah/snapshots/${encodeURIComponent(snapshotId)}`),
   createSnapshot: () => req<ShariahSnapshotMeta>("/api/shariah/snapshots", { method: "POST" }),
 
-  /** The next batch to research. Defaults to 20 server-side; `size` is an override. */
-  reviewPack: (size?: number) =>
-    req<ShariahReviewPack>(`/api/shariah/review-pack${size ? `?size=${size}` : ""}`),
+  /** The next batch to research (20 by default, server-side), or exactly the assets chosen. */
+  reviewPack: (request: ShariahReviewPackRequest = {}) =>
+    req<ShariahReviewPack>(reviewPackPath(request)),
   previewResults: (document: unknown) =>
     reqWithIssues<ShariahImportPreview>("/api/shariah/review-results/preview", document),
-  importResults: (document: unknown) =>
-    reqWithIssues<ShariahImportSummary>("/api/shariah/review-results/import", document),
+  importResults: (document: unknown, acknowledgedAssetIds: readonly string[] = []) =>
+    reqWithIssues<ShariahImportSummary>(importResultsPath(acknowledgedAssetIds), document),
 
   mode: () => req<ShariahModeResponse>("/api/shariah/mode"),
   /* Append-only: who changed the mode, when, and whether the Bot floor moved. */
@@ -475,14 +645,32 @@ export const shariahApi = {
  * without branching on it.
  */
 export function downloadReviewPack(pack: ShariahReviewPack): boolean {
+  return downloadJsonFile(`shariah-review-pack-${pack.generatedAt.replace(/[:.]/g, "-")}.json`, pack);
+}
+
+/**
+ * Saves a frozen universe snapshot as JSON, for Research.
+ *
+ * The read contract existed (`GET /api/shariah/snapshots/:id`) and nothing in
+ * the product reached it, so getting the one artefact Research runs are meant
+ * to cite meant curl. The file is the backend's answer byte-for-byte —
+ * content hash included — so a run that records the snapshot id and hash can
+ * be checked against it.
+ */
+export function downloadSnapshot(snapshot: ShariahSnapshot): boolean {
+  return downloadJsonFile(
+    `shariah-snapshot-${snapshot.snapshotId}-${snapshot.contentHash.slice(0, 12)}.json`, snapshot);
+}
+
+/** The one Blob-download path both files use. False without a DOM (SSR). */
+export function downloadJsonFile(filename: string, data: unknown): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
-  const stamp = pack.generatedAt.replace(/[:.]/g, "-");
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" })
+    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
   );
   const link = document.createElement("a");
   link.href = url;
-  link.download = `shariah-review-pack-${stamp}.json`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();

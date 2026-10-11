@@ -334,7 +334,8 @@ test("the not-found page and the chart's product menu offer every destination th
 
 test("controls that speak, and failures that are announced", () => {
   assert.match(read("app/shariah/page.tsx"), /aria-label="Load a ChatGPT review results JSON file"/);
-  assert.match(read("app/shariah/page.tsx"), /aria-label="Filter the screening universe"/);
+  // A shared `Dropdown` now, whose `label` IS its accessible name.
+  assert.match(read("app/shariah/page.tsx"), /label="Filter the screening universe"/);
   assert.match(read("app/login/page.tsx"), /\{err && <p role="alert"/);
   /*
    * The intent here is "a failure is ANNOUNCED", not "a failure has these

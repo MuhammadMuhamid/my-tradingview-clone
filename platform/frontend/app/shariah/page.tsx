@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ShariahImportError, describeShariahSync, downloadReviewPack, normalizeShariahMode,
-  parseResultsFile, shariahApi,
+  MAX_REVIEW_PACK_ASSETS, SHARIAH_ANSWER_LABELS, ShariahImportError, UNIVERSE_FILTERS,
+  UNIVERSE_FILTER_EMPTY, comparePreviewToPack, describeShariahSync, downloadReviewPack,
+  downloadSnapshot, filterUniverse, normalizeShariahMode, parseResultsFile,
+  publicationSourceLabel, shariahApi,
   type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
-  type ShariahImportPreview, type ShariahMode, type ShariahModeChange,
-  type ShariahModeState, type ShariahSnapshotMeta,
-  type ShariahSyncLevel, type ShariahUniverse,
+  type ShariahImportPreview, type ShariahImportPreviewResult, type ShariahLastPack,
+  type ShariahMode, type ShariahModeChange, type ShariahModeState, type ShariahReviewPackRequest,
+  type ShariahSnapshotMeta, type ShariahSyncLevel, type ShariahUniverse, type ShariahUniverseFilter,
 } from "@/lib/shariah";
-import { Button, Card, CardHeader, Empty, Field, Notice, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
+import {
+  Button, Card, CardHeader, Checkbox, Dropdown, Empty, Field, Notice, PageShell, Select,
+  TextInput, PageHeader,
+} from "@/components/ui";
 
 /**
  * The private Shariah review console.
@@ -165,7 +170,17 @@ export default function ShariahPage() {
   const [snapshots, setSnapshots] = useState<ShariahSnapshotMeta[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<ShariahAssetDetail | null>(null);
-  const [filter, setFilter] = useState<"needs-review" | "all">("needs-review");
+  const [filter, setFilter] = useState<ShariahUniverseFilter>("needs-review");
+  /*
+   * The assets the operator has chosen to research, by id.
+   *
+   * The only way to get a pack used to be "the next 20", in queue order. An
+   * operator who wanted to re-research one project they had read news about,
+   * or finish a particular sector, could not say so. Kept apart from
+   * `selected` (the asset open in the review panel): choosing an asset for a
+   * pack and opening it to read are different acts.
+   */
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -248,12 +263,40 @@ export default function ShariahPage() {
   useEffect(() => { void loadUniverse(); }, [loadUniverse]);
   useEffect(() => { if (selected) void loadDetail(selected); else setDetail(null); }, [selected, loadDetail]);
 
-  const assets = useMemo(() => {
-    const all = universe?.assets ?? [];
-    return filter === "all"
-      ? all
-      : all.filter((a) => a.binanceAvailable && a.lifecycle !== "SCREENED");
-  }, [universe, filter]);
+  const assets = useMemo(() => filterUniverse(universe?.assets ?? [], filter), [universe, filter]);
+
+  const toggleChosen = (assetId: string, on: boolean) => {
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(assetId); else next.delete(assetId);
+      return next;
+    });
+  };
+  /** Adds what the current filter shows; it never silently drops an earlier choice. */
+  const chooseAllVisible = () => {
+    setChosen((prev) => new Set([...prev, ...assets.map((a) => a.assetId)]));
+  };
+
+  /**
+   * A snapshot, as the file Research cites.
+   *
+   * `GET /api/shariah/snapshots/:id` is the Research-facing contract and had
+   * no caller in the product: the list showed an id and a hash, and getting
+   * the membership those describe meant curl.
+   */
+  const downloadSnapshotJson = async (snapshotId: string) => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const snapshot = await shariahApi.snapshot(snapshotId);
+      downloadSnapshot(snapshot);
+      setNotice(`Downloaded snapshot ${snapshot.snapshotId} — ${snapshot.entries.length} assets, `
+        + `content hash ${snapshot.contentHash.slice(0, 12)}…`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   /**
    * The toggle writes to the server and then renders what the server reports
@@ -537,6 +580,8 @@ export default function ShariahPage() {
       <BatchReviewCard
         needsReview={universe ? universe.counts.review : null}
         universeLoaded={loaded}
+        chosenIds={[...chosen]}
+        onClearChosen={() => setChosen(new Set())}
         onError={setError}
         onNotice={setNotice}
         onImported={loadUniverse}
@@ -550,11 +595,9 @@ export default function ShariahPage() {
             <CardHeader
               title="Universe"
               right={
-                <Select aria-label="Filter the screening universe"
-                  value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
-                  <option value="needs-review">Needs review</option>
-                  <option value="all">All assets</option>
-                </Select>
+                <Dropdown label="Filter the screening universe" width={180}
+                  value={filter} options={UNIVERSE_FILTERS}
+                  onChange={(next) => setFilter(next as ShariahUniverseFilter)} />
               }
             />
             {universe && (
@@ -569,36 +612,73 @@ export default function ShariahPage() {
                   ))}
               </div>
             )}
+            {universe && (
+              /*
+               * Choosing what to research. "Select all" adds what this filter
+               * shows — so "Stale" then "Select all" is one way to ask for
+               * every STALE asset — and never clears an earlier choice behind
+               * the operator's back.
+               */
+              <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-ink-muted">
+                <span aria-live="polite">
+                  <span className="font-semibold text-ink">{chosen.size}</span> chosen for a pack
+                </span>
+                <Button variant="ghost" className="h-7 px-2 text-xs" onClick={chooseAllVisible}
+                  disabled={assets.length === 0}>
+                  Select all shown
+                </Button>
+                <Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => setChosen(new Set())}
+                  disabled={chosen.size === 0}>
+                  Clear
+                </Button>
+              </div>
+            )}
             <div className="max-h-[520px] overflow-y-auto">
               {assets.length === 0 && (universe
-                ? <Empty>Nothing to review.</Empty>
+                ? <Empty>{UNIVERSE_FILTER_EMPTY[filter]}</Empty>
                 : <Empty>{loaded
                     ? "The screening universe could not be read, so this is not a statement that it is empty."
                     : "Loading the screening universe…"}</Empty>)}
               {assets.map((asset) => (
-                <button
-                  key={asset.assetId}
-                  onClick={() => setSelected(asset.assetId)}
-                  aria-current={selected === asset.assetId ? "true" : undefined}
-                  /*
-                   * Selected and hover used to be the same value —
-                   * `bg-surface-2` both — so running the pointer down this
-                   * list made every row look like the chosen one. They are now
-                   * the product's two state neutrals, one step apart.
-                   */
-                  className={`flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm ${
-                    selected === asset.assetId ? "bg-state-active text-ink" : "hover:bg-state-hover"
-                  }`}
-                >
-                  <span className="min-w-0">
-                    <span className="font-medium text-ink">{asset.baseAsset}</span>
-                    {!asset.binanceAvailable && (
-                      <span className="ml-2 text-[11px] text-ink-faint">delisted</span>
-                    )}
-                    <span className="block text-[11px] text-ink-faint">{asset.lifecycle}</span>
-                  </span>
-                  <StatusPill status={asset.effectiveStatus} />
-                </button>
+                /*
+                 * A checkbox beside the row's button, not inside it: an input
+                 * nested in a button is invalid markup and is announced as
+                 * neither. Opening an asset and choosing it for a pack stay two
+                 * separate controls with two separate names.
+                 */
+                <div key={asset.assetId}
+                  className={`flex items-center gap-2 border-b border-border pl-3 ${
+                    selected === asset.assetId ? "bg-state-active" : "hover:bg-state-hover"
+                  }`}>
+                  <Checkbox
+                    checked={chosen.has(asset.assetId)}
+                    onChange={(on) => toggleChosen(asset.assetId, on)}
+                    label={`Choose ${asset.baseAsset} for the next review pack`}
+                  />
+                  <button
+                    onClick={() => setSelected(asset.assetId)}
+                    aria-current={selected === asset.assetId ? "true" : undefined}
+                    /*
+                     * Selected and hover used to be the same value —
+                     * `bg-surface-2` both — so running the pointer down this
+                     * list made every row look like the chosen one. They are now
+                     * the product's two state neutrals, one step apart, on the
+                     * row that holds both controls.
+                     */
+                    className="flex min-w-0 flex-1 items-center justify-between gap-2 py-2 pr-3 text-left text-sm text-ink"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium text-ink">{asset.baseAsset}</span>
+                      {!asset.binanceAvailable && (
+                        <span className="ml-2 text-[11px] text-ink-faint">delisted</span>
+                      )}
+                      <span className="block text-[11px] text-ink-faint">
+                        {asset.lifecycle}{asset.dueForReReview ? " · due for re-review" : ""}
+                      </span>
+                    </span>
+                    <StatusPill status={asset.effectiveStatus} />
+                  </button>
+                </div>
               ))}
             </div>
           </Card>
@@ -614,7 +694,15 @@ export default function ShariahPage() {
               <div key={s.snapshotId} className="border-b border-border px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-ink">#{s.snapshotId}</span>
-                  <span className="text-ink-faint">{s.entryCount} assets</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-ink-faint">{s.entryCount} assets</span>
+                    <Button variant="ghost" className="h-7 px-2 text-xs" disabled={busy}
+                      onClick={() => void downloadSnapshotJson(s.snapshotId)}
+                      label={`Download snapshot ${s.snapshotId} as JSON`}
+                      title="The frozen membership with its content hash — the file a Research run cites.">
+                      Download JSON
+                    </Button>
+                  </span>
                 </div>
                 <div className="truncate font-mono text-[11px] text-ink-muted" title={s.contentHash}>
                   {s.contentHash}
@@ -656,12 +744,27 @@ export default function ShariahPage() {
  * Importing IS the approval. One "Import & publish" click publishes the whole
  * researched batch, rather than making the operator approve twenty assets one
  * at a time — which is why the preview above it exists: it is the last look
- * before a batch of real, immutable publications.
+ * before a batch of real, immutable publications. So it shows each decision
+ * whole (reason, answers, evidence, open questions) one expandable row per
+ * asset, and an ELIGIBLE that lists unresolved uncertainties must be
+ * acknowledged row by row before the button will publish — a rule the backend
+ * enforces too, so this card collects the acknowledgement and decides nothing.
  */
-function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImported }: {
+const PACK_SIZES = [
+  { value: "10", label: "10 assets" },
+  { value: "20", label: "20 assets" },
+  { value: "50", label: "50 assets" },
+] as const;
+
+function BatchReviewCard({
+  needsReview, universeLoaded, chosenIds, onClearChosen, onError, onNotice, onImported,
+}: {
   needsReview: number | null;
   /** The universe read has come back — so a null count is unknown, not pending. */
   universeLoaded: boolean;
+  /** Assets the operator ticked in the universe list, for "Download pack for selected". */
+  chosenIds: readonly string[];
+  onClearChosen: () => void;
   onError: (message: string | null) => void;
   onNotice: (message: string | null) => void;
   onImported: () => Promise<void>;
@@ -670,23 +773,39 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
   const [resultsText, setResultsText] = useState("");
   const [preview, setPreview] = useState<ShariahImportPreview | null>(null);
   const [issues, setIssues] = useState<ShariahImportIssue[]>([]);
+  const [size, setSize] = useState("20");
+  const [includeSettled, setIncludeSettled] = useState(false);
+  /*
+   * The last pack downloaded on this page, so a pasted file can be checked
+   * against it. Memory only: the Shariah surface keeps no browser storage, so
+   * after a reload this is null and the preview says it cannot compare.
+   */
+  const [lastPack, setLastPack] = useState<ShariahLastPack | null>(null);
+  /** Per-asset acknowledgements of ELIGIBLE-with-uncertainties rows. Never bulk-set. */
+  const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(() => new Set());
 
   /** Any edit invalidates a checked preview: you cannot approve text you did not check. */
   const editResults = (text: string) => {
     setResultsText(text);
     setPreview(null);
     setIssues([]);
+    setAcknowledged(new Set());
   };
 
-  const download = async () => {
+  const download = async (request: ShariahReviewPackRequest, chosen: boolean) => {
     setBusy(true); onError(null); onNotice(null);
     try {
-      const pack = await shariahApi.reviewPack();
+      const pack = await shariahApi.reviewPack(request);
       if (pack.assetCount === 0) {
-        onNotice("Nothing needs review — every active asset carries a settled classification.");
+        onNotice(includeSettled
+          ? "The registry has no active asset to put in a pack."
+          : "Nothing needs review — every active asset carries a settled classification. "
+            + "Tick “Include settled decisions” to re-research one anyway.");
         return;
       }
       downloadReviewPack(pack);
+      setLastPack({ generatedAt: pack.generatedAt, assetIds: pack.assets.map((a) => a.assetId) });
+      if (chosen) onClearChosen();
       onNotice(`Downloaded ${pack.assetCount} asset${pack.assetCount === 1 ? "" : "s"} `
         + `(${pack.needsReviewTotal} still need review). Upload the file to ChatGPT and ask it to `
         + "follow the instructions inside, then paste the JSON it returns below.");
@@ -704,6 +823,7 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
 
   const check = async () => {
     setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]);
+    setAcknowledged(new Set());
     try {
       setPreview(await shariahApi.previewResults(parseResultsFile(resultsText)));
     } catch (e) {
@@ -714,10 +834,17 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
     }
   };
 
+  const needingAck = preview ? preview.results.filter((r) => r.requiresAcknowledgement) : [];
+  const unacknowledged = needingAck.filter((r) => !acknowledged.has(r.assetId));
+
   const publish = async () => {
+    if (!preview) return;
     setBusy(true); onError(null); onNotice(null); setIssues([]);
     try {
-      const summary = await shariahApi.importResults(parseResultsFile(resultsText));
+      // Only the rows that need one, so a stale tick from an earlier preview
+      // can never ride along — the backend refuses a surplus acknowledgement.
+      const acks = needingAck.map((r) => r.assetId).filter((id) => acknowledged.has(id));
+      const summary = await shariahApi.importResults(parseResultsFile(resultsText), acks);
       onNotice(`Published ${summary.importedCount} decision${summary.importedCount === 1 ? "" : "s"} `
         + `— ${summary.counts.ELIGIBLE} ELIGIBLE, ${summary.counts.EXCLUDED} EXCLUDED, `
         + `${summary.counts.REVIEW} REVIEW. Each one is an immutable publication with its own evidence. `
@@ -732,6 +859,10 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
     }
   };
 
+  const packCheck = preview ? comparePreviewToPack(preview, lastPack) : null;
+  const notInPack = new Set(packCheck?.notInPack ?? []);
+  const tooManyChosen = chosenIds.length > MAX_REVIEW_PACK_ASSETS;
+
   return (
     <Card className="mb-3">
       <CardHeader
@@ -744,15 +875,39 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
       />
       <div className="px-3 py-3">
         <ol className="mb-3 grid gap-1 text-xs text-ink-muted sm:grid-cols-3">
-          <li><span className="font-semibold text-ink">1.</span> Download the next 20 assets.</li>
+          <li><span className="font-semibold text-ink">1.</span> Download a pack — the next assets in the queue, or the ones you ticked below.</li>
           <li><span className="font-semibold text-ink">2.</span> Upload that file to ChatGPT and let it research.</li>
-          <li><span className="font-semibold text-ink">3.</span> Paste the JSON back here and publish.</li>
+          <li><span className="font-semibold text-ink">3.</span> Paste the JSON back here, read each decision, and publish.</li>
         </ol>
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={download} disabled={busy}>
-            Download next 20 for ChatGPT
+          <Dropdown label="Assets per pack" width={100} value={size} options={PACK_SIZES}
+            onChange={setSize} disabled={busy} />
+          <label className="flex items-center gap-2 text-xs text-ink-muted"
+            title="Settled ELIGIBLE/EXCLUDED decisions join the queue after everything unsettled. Nothing is demoted by being researched again.">
+            <Checkbox checked={includeSettled} onChange={setIncludeSettled} disabled={busy}
+              label="Include settled decisions" />
+            Include settled decisions
+          </label>
+          <Button variant="primary" disabled={busy}
+            onClick={() => void download({ size: Number(size), includeSettled }, false)}>
+            Download next {size} for ChatGPT
           </Button>
+          <Button disabled={busy || chosenIds.length === 0 || tooManyChosen}
+            onClick={() => void download({ assetIds: chosenIds }, true)}
+            title={tooManyChosen
+              ? `One pack carries at most ${MAX_REVIEW_PACK_ASSETS} assets.`
+              : "Exactly the assets ticked in the universe list, whatever their state."}>
+            Download pack for selected ({chosenIds.length})
+          </Button>
+          {tooManyChosen && (
+            <span className="text-[11px] text-warn">
+              {chosenIds.length} ticked — one pack carries at most {MAX_REVIEW_PACK_ASSETS}.
+            </span>
+          )}
+        </div>
+
+        <div className="mb-3">
           {/* Announced as a bare "file upload button" until it was named. */}
           <input
             id="shariah-results-file"
@@ -787,15 +942,54 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
               <span className="text-down">{preview.counts.EXCLUDED} EXCLUDED</span>
               <span className="text-warn">{preview.counts.REVIEW} REVIEW</span>
             </div>
-            <div className="mt-2 max-h-40 overflow-y-auto text-[11px] text-ink-muted">
+
+            {/*
+              Which pack this answers. Advisory: the backend checks every
+              result against the live registry whatever pack it came from. What
+              this catches is the human slip — last week's file, a colleague's
+              pack — that a registry check cannot, because the assets are real.
+            */}
+            {packCheck && !packCheck.known && (
+              <p className="mt-1 text-[11px] text-ink-faint">
+                No pack was downloaded on this page since it loaded, so these results cannot be
+                matched to one.
+              </p>
+            )}
+            {packCheck?.differentPack && (
+              <p role="status" className="mt-1 text-[11px] text-warn">
+                This file says it answers the pack generated{" "}
+                {new Date(preview.packGeneratedAt ?? "").toLocaleString()}, not the one you last
+                downloaded ({new Date(lastPack?.generatedAt ?? "").toLocaleString()}).
+              </p>
+            )}
+            {packCheck && packCheck.notInPack.length > 0 && (
+              <p role="status" className="mt-1 text-[11px] text-warn">
+                {packCheck.notInPack.length} result{packCheck.notInPack.length === 1 ? " is" : "s are"} for
+                an asset that was not in the pack you last downloaded. Check the file is the one you meant.
+              </p>
+            )}
+            {needingAck.length > 0 && (
+              <p role="status" className="mt-1 text-[11px] text-warn">
+                {needingAck.length} ELIGIBLE result{needingAck.length === 1 ? " lists" : "s list"} unresolved
+                uncertainties. TS_SHARIAH_V1 resolves unclear materiality to REVIEW, so each one must be
+                read and acknowledged below before this batch can publish.
+              </p>
+            )}
+
+            <ul aria-label="Researched decisions" className="mt-2 max-h-[420px] overflow-y-auto text-[11px] text-ink-muted">
               {preview.results.map((r) => (
-                <div key={r.assetId} className="flex items-center justify-between gap-2 border-t border-border py-1">
-                  <span className="font-medium text-ink">{r.baseAsset}</span>
-                  <span>{r.evidenceCount} evidence</span>
-                  <StatusPill status={r.classification} />
-                </div>
+                <PreviewRow key={r.assetId} result={r}
+                  notInLastPack={notInPack.has(r.assetId)}
+                  acknowledged={acknowledged.has(r.assetId)}
+                  onAcknowledge={(on) => setAcknowledged((prev) => {
+                    const next = new Set(prev);
+                    if (on) next.add(r.assetId); else next.delete(r.assetId);
+                    return next;
+                  })}
+                  disabled={busy}
+                />
               ))}
-            </div>
+            </ul>
           </div>
         )}
 
@@ -819,7 +1013,11 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
           <Button onClick={check} disabled={busy || resultsText.trim().length === 0}>
             Check results
           </Button>
-          <Button variant="primary" onClick={publish} disabled={busy || preview === null}>
+          <Button variant="primary" onClick={publish}
+            disabled={busy || preview === null || unacknowledged.length > 0}
+            title={unacknowledged.length > 0
+              ? `Acknowledge the open questions on ${unacknowledged.map((r) => r.baseAsset).join(", ")} first.`
+              : undefined}>
             Import &amp; publish {preview ? `${preview.assetCount} decisions` : ""}
           </Button>
           <span className="text-[11px] text-ink-faint">
@@ -829,6 +1027,100 @@ function BatchReviewCard({ needsReview, universeLoaded, onError, onNotice, onImp
         </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * One researched decision, expandable to its full grounds.
+ *
+ * Collapsed it is the line the preview always had — symbol, evidence count,
+ * verdict — plus any warning that needs the operator's eye. Expanded it is
+ * everything the researcher said: reason, the six answers, each citation and
+ * the open questions. Text only; nothing in it is interpreted, and an evidence
+ * link is rendered only for an http(s) URL (the backend refuses anything else,
+ * this is the belt to that brace).
+ */
+function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, disabled }: {
+  result: ShariahImportPreviewResult;
+  notInLastPack: boolean;
+  acknowledged: boolean;
+  onAcknowledge: (on: boolean) => void;
+  disabled: boolean;
+}) {
+  const needsAck = r.requiresAcknowledgement;
+  return (
+    <li className="border-t border-border py-1">
+      {/* A row that needs acknowledging starts open: its open questions are the point. */}
+      <details open={needsAck}>
+        <summary className="flex cursor-pointer select-none items-center justify-between gap-2">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2">
+            <span className="font-medium text-ink">{r.baseAsset}</span>
+            {needsAck && (
+              <span className={acknowledged ? "text-ink-faint" : "text-warn"}>
+                {acknowledged ? "uncertainties acknowledged" : `ELIGIBLE with ${r.unresolvedUncertainties.length} open question${r.unresolvedUncertainties.length === 1 ? "" : "s"}`}
+              </span>
+            )}
+            {notInLastPack && <span className="text-warn">not in the last pack</span>}
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            <span>{r.evidenceCount} evidence</span>
+            <StatusPill status={r.classification} />
+          </span>
+        </summary>
+        <div className="mt-1 grid gap-2 pb-1 pl-2">
+          <p className="whitespace-pre-wrap text-ink">{r.reason}</p>
+          <dl className="grid gap-x-3 gap-y-0.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
+            {SHARIAH_ANSWER_LABELS.map(([key, label]) => (
+              <div key={key} className="contents">
+                <dt className="text-ink-faint">{label}</dt>
+                <dd className="whitespace-pre-wrap">{r.answers[key] ?? "—"}</dd>
+              </div>
+            ))}
+          </dl>
+          {r.prohibitedCategories.length > 0 && (
+            <p>Categories: {r.prohibitedCategories.join(", ")}</p>
+          )}
+          <div>
+            <div className="text-ink-faint">Evidence</div>
+            {r.evidence.length === 0 && <p>None cited.</p>}
+            <ul className="grid gap-1">
+              {r.evidence.map((e, i) => (
+                <li key={i}>
+                  {/^https?:\/\//i.test(e.url)
+                    ? <a href={e.url} target="_blank" rel="noopener noreferrer nofollow"
+                        className="font-medium text-ink underline decoration-border underline-offset-2 hover:decoration-ink">
+                        {e.title}
+                      </a>
+                    : <span className="font-medium text-ink">{e.title}</span>}
+                  <span className="text-ink-faint"> · {e.publisher} · retrieved {new Date(e.retrievedAt).toLocaleString()}</span>
+                  <span className="block break-all text-ink-faint">{e.url}</span>
+                  {e.note && <span className="block">{e.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {r.unresolvedUncertainties.length > 0 && (
+            <div>
+              <div className={needsAck ? "text-warn" : "text-ink-faint"}>Unresolved uncertainties</div>
+              <ul className="list-disc pl-4">
+                {r.unresolvedUncertainties.map((u, i) => <li key={i}>{u}</li>)}
+              </ul>
+            </div>
+          )}
+          {needsAck && (
+            <label className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-2 py-1.5 text-warn">
+              <Checkbox checked={acknowledged} onChange={onAcknowledge} disabled={disabled}
+                label={`Acknowledge ${r.baseAsset}'s unresolved uncertainties and publish it as ELIGIBLE`} />
+              <span>
+                I have read {r.baseAsset}&apos;s unresolved uncertainties and judge that none of them is
+                unclear materiality under TS_SHARIAH_V1. Publish it as ELIGIBLE. This acknowledgement is
+                recorded with the decision.
+              </span>
+            </label>
+          )}
+        </div>
+      </details>
+    </li>
   );
 }
 
@@ -1010,6 +1302,15 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               <StatusPill status={p.classification} />
               <span className="text-ink-faint">
                 {new Date(p.publishedAt).toLocaleString()} · {p.publishedBy} · {p.policyVersion}
+              </span>
+              {/*
+                How the decision got here. The operator's name is on a typed
+                decision and an imported one alike, and the backend recorded
+                which was which on every publication — and nothing read it.
+                A neutral chip: it is provenance, not a verdict.
+              */}
+              <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-ink-muted">
+                {publicationSourceLabel(p.source)}
               </span>
               {p.baseAssetAtPublication && p.baseAssetAtPublication !== asset.baseAsset && (
                 <span className="text-warn">ticker then: {p.baseAssetAtPublication}</span>

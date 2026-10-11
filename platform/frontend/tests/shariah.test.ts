@@ -11,7 +11,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { parseResultsFile, downloadReviewPack, type ShariahReviewPack } from "../lib/shariah";
+import {
+  comparePreviewToPack, downloadReviewPack, downloadSnapshot, filterUniverse, importResultsPath,
+  parseResultsFile, publicationSourceLabel, reviewPackPath,
+  type ShariahAssetState, type ShariahReviewPack, type ShariahSnapshot,
+} from "../lib/shariah";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -40,6 +44,67 @@ test("downloading a pack is a no-op without a DOM rather than a crash", () => {
   assert.equal(downloadReviewPack(pack), false);
 });
 
+test("a snapshot download is a no-op without a DOM rather than a crash", () => {
+  const snapshot = { snapshotId: "7", contentHash: "abc", entries: [] } as unknown as ShariahSnapshot;
+  assert.equal(downloadSnapshot(snapshot), false);
+});
+
+test("'Needs review' is the backend's definition, and agrees with counts.review", () => {
+  const a = (over: Partial<ShariahAssetState>): ShariahAssetState => ({
+    assetId: "1", baseAsset: "A", projectName: null, binanceAvailable: true, classification: "REVIEW",
+    lifecycle: "UNSCREENED", effectiveStatus: "REVIEW", policyVersion: "TS_SHARIAH_V1", reason: null,
+    prohibitedCategories: [], reviewedAt: null, publishedAt: null, ...over,
+  });
+  const assets = [
+    a({ assetId: "1" }),
+    a({ assetId: "2", lifecycle: "SCREENED" }), // a deliberately published REVIEW
+    a({ assetId: "3", lifecycle: "STALE" }),
+    a({ assetId: "4", lifecycle: "SCREENED", classification: "ELIGIBLE", effectiveStatus: "ELIGIBLE", dueForReReview: true }),
+    a({ assetId: "5", binanceAvailable: false }), // delisted: not counted as active work
+    a({ assetId: "6", lifecycle: "SCREENED", classification: "ELIGIBLE", effectiveStatus: "ELIGIBLE",
+      dueForReReview: true, binanceAvailable: false }),
+  ];
+  const ids = (f: Parameters<typeof filterUniverse>[1]) => filterUniverse(assets, f).map((x) => x.assetId);
+  assert.deepEqual(ids("needs-review"), ["1", "2", "3"]);
+  // `counts.review` on the backend is: active and effectively REVIEW.
+  assert.equal(ids("needs-review").length,
+    assets.filter((x) => x.binanceAvailable && x.effectiveStatus === "REVIEW").length);
+  assert.deepEqual(ids("stale"), ["3"]);
+  assert.deepEqual(ids("due"), ["4"]);
+  assert.deepEqual(ids("all"), ["1", "2", "3", "4", "5", "6"]);
+});
+
+test("an explicit selection sends only assetIds; the queue sends only size/includeSettled", () => {
+  assert.equal(reviewPackPath(), "/api/shariah/review-pack");
+  assert.equal(reviewPackPath({ size: 50, includeSettled: true }),
+    "/api/shariah/review-pack?size=50&includeSettled=true");
+  assert.equal(reviewPackPath({ assetIds: ["3", "1"] }), "/api/shariah/review-pack?assetIds=3%2C1");
+  assert.equal(importResultsPath(), "/api/shariah/review-results/import");
+  assert.equal(importResultsPath(["1", "4"]), "/api/shariah/review-results/import?acknowledgedAssetIds=1,4");
+});
+
+test("a preview is compared with the last pack, and says when it cannot be", () => {
+  const preview = {
+    packGeneratedAt: "2026-09-01T08:00:00Z",
+    results: [{ assetId: "1" }, { assetId: "9" }],
+  } as unknown as Parameters<typeof comparePreviewToPack>[0];
+  assert.deepEqual(comparePreviewToPack(preview, null), { known: false, notInPack: [], differentPack: false });
+  assert.deepEqual(comparePreviewToPack(preview, { generatedAt: "2026-09-01T08:00:00.000Z", assetIds: ["1", "2"] }),
+    { known: true, notInPack: ["9"], differentPack: false });
+  assert.equal(comparePreviewToPack(preview, { generatedAt: "2026-09-02T08:00:00.000Z", assetIds: ["1", "9"] })
+    .differentPack, true);
+  // No echo in the file: no claim either way about which pack it answers.
+  assert.equal(comparePreviewToPack({ ...preview, packGeneratedAt: null },
+    { generatedAt: "2026-09-02T08:00:00.000Z", assetIds: ["1", "9"] }).differentPack, false);
+});
+
+test("a decision's source reads as what is known, and unknown is never 'manual'", () => {
+  assert.equal(publicationSourceLabel("review_import"), "Imported from review pack");
+  assert.equal(publicationSourceLabel("manual"), "Entered by hand");
+  assert.equal(publicationSourceLabel(null), "Source not recorded");
+  assert.equal(publicationSourceLabel(undefined), "Source not recorded");
+});
+
 test("the browser never re-derives the exposure rule", () => {
   const panel = read("components/tv/ManualTradingPanel.tsx");
   // It asks the backend and renders the answer.
@@ -53,7 +118,9 @@ test("the browser never re-derives the exposure rule", () => {
 
 test("the review console treats importing as the batch approval, and says so", () => {
   const page = read("app/shariah/page.tsx");
-  assert.match(page, /Download next 20 for ChatGPT/);
+  // The queue download is sized by a picker now (10/20/50, 20 by default).
+  assert.match(page, /Download next \{size\} for ChatGPT/);
+  assert.match(page, /useState\("20"\)/);
   assert.match(page, /Import &amp; publish/);
   assert.match(page, /This one action is your approval for the whole batch/);
   assert.match(page, /STALE asset always needs a full\s*\n?\s*fresh screening/);
