@@ -103,6 +103,32 @@ test("R2c-01 — a cell's tooltip pill is a SIBLING of its button, never a child
   }
 });
 
+test("A18 — no tooltip pill is revealed over an open flyout", async () => {
+  /*
+   * The flyout opens at the pill's own `left-full`, and the pointer that
+   * opened it is still over the cell, so the `z-[60]` pill stayed lit over the
+   * flyout's header. While a flyout is open no pill has a hover reveal; it
+   * stays in the tree (R2c-01's structure) and gets it back on close.
+   */
+  const chart = await mountChart();
+  const rail = railOf(chart.container);
+  const pills = (): HTMLElement[] => [...rail.querySelectorAll<HTMLElement>("[data-rail-tip]")];
+  const revealable = (pill: HTMLElement): boolean => /(peer-hover\/cell|group-hover\/tip):flex/.test(pill.className);
+  assert.ok(pills().length >= 15 && pills().every(revealable), "at rest every pill reveals on hover");
+
+  const strip = await openFlyout(rail, "trend-line");
+  assert.ok(menuOf(rail), "the flyout opened");
+  assert.equal(pills().filter(revealable).length, 0,
+    "with a flyout open, no pill may reveal itself over it");
+  assert.ok(pills().length >= 15, "and the pills are still in the tree beside their cells");
+
+  strip.focus();
+  fireEvent.keyDown(strip, { key: "Escape", bubbles: true });
+  await settle();
+  assert.equal(menuOf(rail), null);
+  assert.ok(pills().every(revealable), "closing the flyout gives every pill its hover back");
+});
+
 test("R2c-05 — Escape closes an open flyout and hands focus back to its strip", async () => {
   /*
    * Escape used to reach `useShortcuts` untouched, where it is bound to

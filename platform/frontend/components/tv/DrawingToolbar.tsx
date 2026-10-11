@@ -1272,14 +1272,24 @@ export function DrawingToolbar({
    * right edge is the rail's, so "the rail's width plus 1" is `ml-[1px]` in
    * both. `aria-hidden`, because the control it belongs to already has a NAME
    * — a tooltip that also announced itself would say it twice.
+   *
+   * ── No pill while a flyout is open (A18) ──────────────────────────────────
+   *
+   * The flyout opens at the same `left-full`, so the pointer that just opened
+   * it is still over the cell or its strip and the pill stayed lit ON TOP of
+   * the flyout's header (`z-[60]` over the menu). The reference shows no
+   * tooltip while a flyout is open: the flyout names itself. While any flyout
+   * is open every pill loses its hover reveal — it stays in the tree, so the
+   * structure above is unchanged — and comes back when the flyout closes.
    */
   const tip = (label: string, trigger: "peer" | "group" = "peer") => (
     <span aria-hidden="true" data-rail-tip
+      data-suppressed={flyout !== null ? "true" : undefined}
       className={
         "pointer-events-none absolute left-full top-[7px] z-[60] ml-[1px] hidden h-[24px] "
         + "items-center whitespace-nowrap rounded-[4px] px-[7px] "
         + "bg-[var(--ts-tooltip-bg)] text-[14px] leading-none text-white "
-        + (trigger === "peer" ? "peer-hover/cell:flex" : "group-hover/tip:flex")
+        + (flyout !== null ? "" : trigger === "peer" ? "peer-hover/cell:flex" : "group-hover/tip:flex")
       }
     >{label}</span>
   );
