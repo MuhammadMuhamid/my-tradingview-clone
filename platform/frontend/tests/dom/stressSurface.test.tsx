@@ -64,6 +64,36 @@ test("discovery names no strategy — the ordering is the whole point", async ()
   }
 });
 
+test("C-02 a refused search says what to change, in the page copy and not only on hover", async () => {
+  const SENTENCE = "the benchmark has 540 bars, which cannot contain a 900-bar window. Widen the "
+    + "benchmark period, shorten the window, or choose a finer benchmark interval.";
+  server.routes.set("POST /api/stress/windows", () => new Response(JSON.stringify({ error: SENTENCE }), {
+    status: 400, headers: { "content-type": "application/json" },
+  }));
+  await mountStress();
+  fireEvent.click(screen.getByRole("button", { name: /Find the windows/ }));
+  await settle();
+
+  const alert = screen.getByRole("alert");
+  const said = (alert.textContent ?? "").replace(/\s+/g, " ");
+  assert.match(said, /^Could not find the windows\. The benchmark has 540 bars, which cannot contain a 900-bar window\./,
+    `the server's own sentence is the reason, not "The request was refused."; got: ${said}`);
+  assert.ok(!/request was refused/.test(said), "the generic line must not stand in for the reason");
+});
+
+test("C-02 a provider's failure on the same search stays out of the page copy", async () => {
+  server.routes.set("POST /api/stress/windows", () => new Response(
+    JSON.stringify({ error: "invalid BTCUSDT 1d backfill: empty_series" }),
+    { status: 502, headers: { "content-type": "application/json" } }));
+  await mountStress();
+  fireEvent.click(screen.getByRole("button", { name: /Find the windows/ }));
+  await settle();
+
+  const said = screen.getByRole("alert").textContent ?? "";
+  assert.ok(!/backfill|empty_series/.test(said), `a provider string reached the page copy: ${said}`);
+  assert.match(said, /did not answer/);
+});
+
 test("the page says the windows were chosen with hindsight, before any number", async () => {
   await mountStress();
 

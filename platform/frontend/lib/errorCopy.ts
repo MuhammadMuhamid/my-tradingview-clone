@@ -77,10 +77,62 @@ export function causeText(cause: unknown): string {
 }
 
 /**
+ * The refusal sentence OUR server wrote for a request it judged, or null.
+ *
+ * ── Why a 4xx sentence may be page copy when a provider's words may not ────
+ *
+ * The stress page refused a 900-bar window over 540 bars as "Could not find
+ * the windows. The request was refused. ·", with the one actionable sentence
+ * — "the benchmark has 540 bars, which cannot contain a 900-bar window. Widen
+ * the benchmark period, shorten the window, or choose a finer benchmark
+ * interval." — only in the hover title of the dot. That sentence is not a
+ * provider string; it is this product telling the reader what to change.
+ *
+ * Which is which is decided by who wrote it, and the status says that:
+ *
+ *   - 400 / 409 / 422 with an `error` field is a route of ours judging the
+ *     request — validation and conflict copy written for the form that sent
+ *     it (`api/backtestRequest.ts`, `engine/stress.ts`, the Shariah
+ *     validators). Our routes map an upstream failure to 502 and an internal
+ *     one to a masked 500, so a provider's text does not arrive as one of
+ *     these.
+ *   - 401 / 403 / 404 / 429 keep their own reader sentences: the cause there
+ *     is about the session, the environment or the rate, not the request.
+ *   - 5xx is never inlined: it is a provider's or the stack's words.
+ *
+ * And within those statuses, what is NOT a sentence of ours stays in the
+ * tooltip: the status-line fallback `lib/api.ts` uses when there is no body
+ * ("400 Bad Request"), the HTTP framework's own validation text ("body must
+ * have required property …", "Body is not valid JSON …"), anything naming a
+ * route or the test fixture, and anything long or multi-line enough to be a
+ * dump rather than a sentence.
+ */
+const OWN_REFUSAL_STATUSES = new Set([400, 409, 422]);
+const NOT_OUR_SENTENCE = [
+  /^\d{3}(\s|$)/, // status-line fallback
+  /^(body|querystring|params|headers)\b/i, // the framework's schema validation
+  /not valid JSON|content-type|FST_[A-Z_]+|Unsupported Media Type/i,
+  /\/api\/|no route for|fixture server/i,
+  /\n|\s{2,}at\s/, // a stack, or a dump
+];
+
+export function ownRefusal(cause: unknown): string | null {
+  const status = statusOf(cause);
+  if (status === null || !OWN_REFUSAL_STATUSES.has(status)) return null;
+  const detail = String((cause as { detail?: unknown }).detail ?? "").trim();
+  if (!detail || detail.length > 320) return null;
+  if (NOT_OUR_SENTENCE.some((re) => re.test(detail))) return null;
+  const sentence = detail[0]!.toUpperCase() + detail.slice(1);
+  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+}
+
+/**
  * One short sentence saying what the reader can do about this, and nothing
  * about how the request was plumbed.
  */
 export function failureReason(cause: unknown): string {
+  const own = ownRefusal(cause);
+  if (own) return own;
   const status = statusOf(cause);
   return status === null ? shortReason(causeText(cause)) : reasonForStatus(status);
 }
