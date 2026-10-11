@@ -15,6 +15,26 @@ export function shortRunId(id: string): string {
   return id.slice(0, 8);
 }
 
+/**
+ * One row of "Start from a run": which run, over what window, and how it did.
+ *
+ * The row used to end on the day the run was CREATED, so five runs of the
+ * same strategy on the same symbol made that afternoon read as five identical
+ * lines — and the two things that tell them apart, the dates they covered and
+ * their result, were not on the row. Dates are UTC days, like every other
+ * window on this page.
+ */
+export function startableRunLabel(b: Backtest, strategyName: string | null): string {
+  const utcDay = (iso: string): string => {
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : "—";
+  };
+  const window = `${utcDay(b.startTime)} → ${utcDay(b.endTime)}`;
+  const net = b.metrics ? ` · ${fmtPct(b.metrics.netProfitPct)}` : "";
+  return `${shortRunId(b.id)} · ${strategyName ?? "strategy"} · ${displayTicker(b.symbol)} · `
+    + `${b.timeframe} · ${window}${net}`;
+}
+
 /** A finished backtest's configuration, as a stress run will re-send it. */
 export interface StressSource {
   backtestId: string;

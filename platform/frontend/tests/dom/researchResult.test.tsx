@@ -275,7 +275,8 @@ test("two ticked runs are compared side by side, and a third cannot be ticked", 
 
 test("the form refuses a negative capital before sending, and sends the validation share", async () => {
   serve([]);
-  server.routes.set("POST /api/backtests", () => ({ ...run(), status: "queued" }));
+  server.routes.set("POST /api/backtests", () => ({ ...run(), id: ID2, status: "queued" }));
+  pushes.length = 0;
   render(<Route path="/research"><BacktestsPage /></Route>);
   await settle(6);
 
@@ -295,6 +296,9 @@ test("the form refuses a negative capital before sending, and sends the validati
   const posts = server.callsTo("/api/backtests").filter((c) => c.method === "POST");
   assert.equal(posts.length, 1);
   assert.equal((posts[0]!.body as Record<string, unknown>).holdoutFraction, 0.3);
+  // Run lands on the run it queued, exactly as Re-run on a result page does,
+  // rather than leaving the reader to find it in the list (C-04).
+  assert.deepEqual(pushes, [`/research/${ID2}`], "a queued run opens its own page");
 });
 
 test("'Edit and re-run' fills the form from the earlier run", async () => {

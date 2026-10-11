@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   benchmarkSource, exposureNote, qualifiedBy, shortRunId, stressSourceDetail,
-  stressSourceFromBacktest, stressSourceHeadline,
+  startableRunLabel, stressSourceFromBacktest, stressSourceHeadline,
 } from "../lib/stress";
 import type { Backtest, StressWindow } from "../lib/types";
 
@@ -88,4 +88,20 @@ test("compounding sizing and an unknown sizing are said as what they are", () =>
 
 test("a short run id is the first eight characters", () => {
   assert.equal(shortRunId("3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13"), "3f1c2a9e");
+});
+
+test("a run to start from is told apart by its window and its result", () => {
+  // Five runs of one strategy on one symbol made the same afternoon used to
+  // read as five identical rows ending on the day they were created (C-03).
+  const done = backtest({
+    startTime: "2025-01-01T00:00:00.000Z", endTime: "2025-06-01T00:00:00.000Z",
+    createdAt: "2025-06-02T09:00:00.000Z",
+    metrics: { netProfitPct: -3.456 } as Backtest["metrics"],
+  });
+  assert.equal(startableRunLabel(done, "MA RR v9"),
+    "3f1c2a9e · MA RR v9 · SOLUSDT · 4h · 2025-01-01 → 2025-06-01 · -3.46%");
+  // A run with no figures says nothing about a result rather than inventing one.
+  assert.equal(startableRunLabel(backtest({
+    startTime: "2025-01-01T00:00:00.000Z", endTime: "2025-06-01T00:00:00.000Z",
+  }), null), "3f1c2a9e · strategy · SOLUSDT · 4h · 2025-01-01 → 2025-06-01");
 });

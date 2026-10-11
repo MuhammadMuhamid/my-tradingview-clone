@@ -354,6 +354,56 @@ test("a finished run stops saying Running in the list without a reload", async (
   assert.doesNotMatch(list(), /running/i);
 });
 
+// ── A shown run has an address (C-03) ───────────────────────────────────────
+
+/*
+ * Opening a run from the list, or starting one, changed only state: the
+ * address stayed `/stress`, so a reload lost the result and there was nothing
+ * to send anyone. `?run=` already opened a run; every way of showing one now
+ * writes it.
+ */
+function withAddress(path: string, body: () => Promise<void>): Promise<void> {
+  window.history.replaceState({}, "", path);
+  return body().finally(() => window.history.replaceState({}, "", "/"));
+}
+
+test("opening a previous run puts it in the address, and keeps the source", () => withAddress(
+  `/stress?from=${SOURCE_ID}`, async () => {
+    serveSource();
+    server.routes.set("GET /api/stress/runs", () => [stressRun()]);
+    server.routes.set(`GET /api/stress/runs/${RUN_ID}`, () => stressRun());
+    server.routes.set(`GET /api/stress/runs/${RUN_ID}/benchmark`, () => ({ symbol: "BTCUSDT", interval: "1d", path: [] }));
+    await mountFrom();
+    const row = screen.getByText("Previous stress runs").closest("div")!.parentElement!
+      .querySelector("button") as HTMLButtonElement;
+    fireEvent.click(row);
+    await settle(4);
+    const query = new URLSearchParams(window.location.search);
+    assert.equal(window.location.pathname, "/stress");
+    assert.equal(query.get("run"), RUN_ID, "the run being read must be the one a reload opens");
+    assert.equal(query.get("from"), SOURCE_ID, "and showing it must not drop whose settings are loaded");
+  }));
+
+test("starting a run puts the new run in the address", () => withAddress("/stress", async () => {
+  server.routes.set("POST /api/stress/runs", () => stressRun("running"));
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}`, () => stressRun("running"));
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}/benchmark`, () => ({ symbol: "BTCUSDT", interval: "1d", path: [] }));
+  await mountStress();
+  fireEvent.click(screen.getByRole("button", { name: /Run the strategy through them/ }));
+  await settle(4);
+  assert.equal(new URLSearchParams(window.location.search).get("run"), RUN_ID);
+}));
+
+test("a run to start from is listed with its window and its result", async () => {
+  serveSource();
+  server.routes.set("GET /api/backtests", () => [sourceBacktest()]);
+  await mountStress();
+  const picker = screen.getByLabelText(/Start from a run/) as HTMLSelectElement;
+  const labels = [...picker.options].map((o) => o.textContent ?? "");
+  assert.ok(labels.includes("3f1c2a9e · MA RR v9 · SOLUSDT · 4h · 2025-01-01 → 2025-06-01 · +12.00%"),
+    `the dates covered and the net result tell two runs apart: ${JSON.stringify(labels)}`);
+});
+
 // ── The windows panel on a backtest ─────────────────────────────────────────
 
 test("a compounding run is told WHY it has no split, not shown a blank", () => {

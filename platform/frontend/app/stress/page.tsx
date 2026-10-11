@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -16,7 +16,7 @@ import type {
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { fmtNum, fmtPct, signClass, UTC_DATE_NOTE } from "@/lib/format";
 import {
-  benchmarkSource, exposureNote, qualifiedBy, shortRunId, stressSourceDetail,
+  benchmarkSource, exposureNote, qualifiedBy, shortRunId, startableRunLabel, stressSourceDetail,
   stressSourceFromBacktest, stressSourceHeadline, type StressSource,
 } from "@/lib/stress";
 
@@ -51,6 +51,23 @@ function day(ms: number): string {
 
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+}
+
+/**
+ * Rewrite this page's address, keeping whatever the change does not name.
+ *
+ * `?from=` (whose settings) and `?run=` (which result is shown) are
+ * independent, so changing one must not drop the other. The native history
+ * call is the one Next integrates with `useSearchParams`, and a replace, not a
+ * push: opening a run is looking at the page, not navigating away from it.
+ */
+function writeAddress(change: { from?: string | null; run?: string | null }): void {
+  const query = new URLSearchParams(window.location.search);
+  for (const [key, value] of Object.entries(change)) {
+    if (value) query.set(key, value); else query.delete(key);
+  }
+  const search = query.toString();
+  window.history.replaceState({}, "", search ? `/stress?${search}` : "/stress");
 }
 
 /** The sentence that has to travel with every number on this page. */
@@ -328,11 +345,30 @@ function StressWorkspace() {
     api.listBacktests().then(setRecent).catch(() => {});
   }, []);
 
-  // `?run=<id>` opens that stress run, so a window's result page can link back to it.
+  /*
+   * Show a run AND give it an address.
+   *
+   * Opening a run from the list, or starting one, used to change only state:
+   * the address stayed `/stress`, so a reload lost the result being read and
+   * there was nothing to paste to anyone. `?run=` already opened a run; now
+   * every way of showing one writes it.
+   */
+  const openIdRef = useRef<string | null>(null);
+  const showRun = useCallback((detail: StressRunDetail): void => {
+    openIdRef.current = detail.id;
+    setOpen(detail);
+    writeAddress({ run: detail.id });
+  }, []);
+
+  // `?run=<id>` opens that stress run, so a window's result page can link back
+  // to it. The address `showRun` just wrote is the run already on screen, and
+  // is not fetched a second time.
   useEffect(() => {
-    if (!runParam) return;
-    api.getStressRun(runParam).then(setOpen)
-      .catch((e) => setErr(describeFailure(e, "That stress run")));
+    if (!runParam || runParam === openIdRef.current) return;
+    let live = true;
+    api.getStressRun(runParam).then((d) => { if (live) { openIdRef.current = d.id; setOpen(d); } })
+      .catch((e) => { if (live) setErr(describeFailure(e, "That stress run")); });
+    return () => { live = false; };
   }, [runParam]);
 
   /*
@@ -367,8 +403,7 @@ function StressWorkspace() {
   const source = sourceState?.status === "ready" ? sourceState.source : null;
 
   const chooseSource = (backtestId: string | null): void => {
-    window.history.replaceState({}, "",
-      backtestId ? `/stress?from=${encodeURIComponent(backtestId)}` : "/stress");
+    writeAddress({ from: backtestId });
     setOverride({ id: backtestId });
     if (backtestId === null) {
       // Back to what an unconfigured page offers, so nothing of the run lingers.
@@ -442,7 +477,7 @@ function StressWorkspace() {
           }
           : { strategyKey, symbol, timeframe, initialCapital: capital }),
       });
-      setOpen(await api.getStressRun(created.id));
+      showRun(await api.getStressRun(created.id));
       refreshRuns();
     } catch (e) { setErr(describeAction(e, "start the stress run")); }
     finally { setBusy(false); }
@@ -615,7 +650,7 @@ function StressWorkspace() {
                 )}
                 {startable.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {shortRunId(b.id)} · {strategyNameById(b.strategyId) ?? "strategy"} · {displayTicker(b.symbol)} · {b.timeframe} · {day(Date.parse(b.createdAt))}
+                    {startableRunLabel(b, strategyNameById(b.strategyId))}
                   </option>
                 ))}
               </Select>
@@ -680,7 +715,7 @@ function StressWorkspace() {
           <div className="divide-y divide-border/50">
             {runs.map((r) => (
               <button key={r.id} type="button"
-                onClick={() => void api.getStressRun(r.id).then(setOpen)
+                onClick={() => void api.getStressRun(r.id).then(showRun)
                   .catch((e) => setErr(describeFailure(e, "That stress run")))}
                 className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-left text-sm hover:bg-state-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                 <span className="font-medium text-ink">

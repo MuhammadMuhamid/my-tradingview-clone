@@ -78,9 +78,15 @@ export default function BacktestsPage() {
         arrived: the form reads both into its initial state, and a strategy key
         resolved against an empty list would fall back to the default strategy.
         A blank form is never remounted, so nothing a reader has typed is lost.
+
+        A queued run opens its own page, as Re-run on a result page already
+        does. Refreshing the list instead left the reader to find the run they
+        had just started among the others; the result page waits for a queued
+        run itself, and the list is one Back away.
       */}
       <BacktestForm key={preset ? `${preset.id}:${strategies.length > 0}` : "new"}
-        symbols={symbols} strategies={strategies} preset={preset} onQueued={() => refresh()} />
+        symbols={symbols} strategies={strategies} preset={preset}
+        onQueued={(id) => router.push(`/research/${id}`)} />
 
       <Card>
         <CardHeader title="Recent runs" right={<span className="text-xs text-ink-faint">{rows.length} runs</span>} />
