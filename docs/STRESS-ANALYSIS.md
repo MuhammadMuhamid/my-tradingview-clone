@@ -79,10 +79,27 @@ where they came from.
 
 | Method | Ranks on |
 |---|---|
-| `worst_return` | most negative close-to-close move over the window |
-| `deepest_drawdown` | largest peak-to-trough fall inside the window |
-| `highest_volatility` | realised volatility of bar returns |
+| `worst_return` | most negative move from the window's first OPEN to its last close |
+| `deepest_drawdown` | largest fall below a price printed before the low, inside the window |
+| `highest_volatility` | realised volatility of bar-to-bar close returns |
 | `manual` | windows the user named; ranked by date |
+
+**A window is `[first bar's open, last bar's close]`** (`stress-discovery.v2`).
+That is the span the window's backtest can act in — its first possible fill is
+the first bar's open. v1 measured return and drawdown from the first bar's
+CLOSE, which left a one-bar crash out of the benchmark column while the
+strategy was exposed to it. The drawdown's peak is the window's open, each
+bar's open and the closes of EARLIER bars: v1 raised the peak to a bar's close
+before comparing that bar's low, recording falls from prices that printed only
+after the low. A stored v1 run says `stress-discovery.v1` and was measured the
+old way.
+
+**Bounds.** Discovery runs on the request thread. `worst_return` is linear in
+the series; `deepest_drawdown` and `highest_volatility` stay exact (a rolling
+sum would drift in the last bits and a stored run must replay to the same
+windows) and are bounded at positions × window length ≤ 20,000,000. `topN` ≤ 10
+and at most 10 manual windows (each queues a backtest); a window ≤ 20,000 bars.
+The route refuses on an estimate of the period before downloading it.
 
 Every window reports **all three** benchmark statistics whichever one it was
 ranked on, so "worst" is never taken on trust, and `selectedBy` names the metric
@@ -116,11 +133,27 @@ compared against.
 A partial failure stays `done`: a report over four of five windows is a real
 report, and the per-window status is on each child.
 
+**Which configuration runs.** `/stress?from=<backtestId>` (or the page's
+*Start from a run* picker) re-sends that run's strategy, symbol, interval,
+params snapshot, capital, commission and slippage, and the page names the run
+above the controls. Without one, the page says it runs the strategy's
+defaults. `POST /api/stress/runs` validates those settings as the request's
+shape (`api/routes/stressRequest.ts`) — they never reach discovery, which has
+already been handed everything it sees.
+
+**What the numbers are numbers of.** Each window also reports `target`: the
+TRADED symbol's buy-and-hold over the window, first open to last close
+(`engine/stressTarget.ts`, computed after discovery, from two candles, no run
+output). Strategy % is net profit over the initial capital while each entry
+commits the strategy's own cash size (`qty_cash`) or a percentage of equity,
+so the page states that ratio for the run; a window's Strategy % compares with
+another run's only where capital, sizing and costs match.
+
 ---
 
 ## Reproducibility
 
-`StressProvenance` (`stress-discovery.v1`) is stored with every run:
+`StressProvenance` (`stress-discovery.v2`; older rows `v1`) is stored with every run:
 
 - benchmark symbol, canonical instrument, interval, provider id, feed id —
   *"BTC's worst week" is a different week on a different venue's series*
@@ -136,10 +169,11 @@ Replaying the stored config reproduces the stored windows; a test asserts it.
 
 | Route | Purpose |
 |---|---|
-| `POST /api/stress/windows` | discovery only. Names no strategy, and cannot. |
+| `POST /api/stress/windows` | discovery only. Names no strategy, and cannot. Also returns the searched series, thinned (`path`) |
 | `POST /api/stress/runs` | discovers, then queues one ordinary backtest per window |
-| `GET /api/stress/runs` | previous runs |
-| `GET /api/stress/runs/:id` | a run, its windows, and whatever the worker has made of them |
+| `GET /api/stress/runs` | previous runs, each settled from its children |
+| `GET /api/stress/runs/:id` | a run, its windows, each window's `target`, and whatever the worker has made of them; a non-uuid id is 404 |
+| `GET /api/stress/runs/:id/benchmark` | the searched benchmark series thinned to ~600 points by bucket min/max, for the chart |
 
 Storage: `stress_runs` (migration 042). Per-window results live in `backtests`.
 
@@ -147,12 +181,18 @@ Storage: `stress_runs` (migration 042). Per-window results live in `backtests`.
 
 ## Evidence
 
-17 unit tests in `platform/backend/tests/stressWindows.test.ts` cover ranking,
+24 unit tests in `platform/backend/tests/stressWindows.test.ts` cover ranking,
 ties, overlap suppression, separation, insufficient history, the empty
 benchmark, invalid configuration, manual windows, bar alignment,
-reproducibility, benchmark independence and the epistemic note. Six DOM tests in
-`platform/frontend/tests/dom/stressSurface.test.tsx` cover the discovery
-request's contents, the caveat's presence and placement, and the windows panel.
+reproducibility, benchmark independence, the epistemic note, the open→close
+and drawdown definitions, the bounds, and agreement with the exhaustive
+implementation (kept in the test as an oracle) across 783 configurations.
+`platform/backend/tests/stressRun.test.ts` covers request validation, the
+non-uuid 404s, the target return and the chart series.
+`platform/frontend/tests/dom/stressSurface.test.tsx` covers the discovery
+request's contents (with and without a source run), the caveat, `?from=`,
+the run request's settings, Target %, the sizing note, the provider label, the
+chart and the list settling; `tests/stressCopy.test.ts` the page's sentences.
 
 Runtime, on this install: BTC 1d 2025-01-01→2026-09-01, 609 bars searched, worst
 21-bar windows by return — 2026-01-16 (−34.16 %), 2025-11-02 (−23.34 %),
