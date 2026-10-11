@@ -16,11 +16,12 @@ import type { PineDrawings } from "@/lib/api";
 import type { Trade } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
 import {
-  NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
-  pineRunStatus, runIndicator, saveStored, storable,
+  NO_DRAWINGS, PINE_RUN_LOADING, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput,
+  loadStored, newKey, pineRunStatus, runIndicator, saveStored, storable,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 import { pushPanePine, syncPanePine } from "@/lib/chartStateSync";
+import { isAbortError } from "@/lib/requestGuard";
 
 export interface IndicatorContext {
   symbol: string;
@@ -143,11 +144,50 @@ export function useIndicators(ctx: IndicatorContext) {
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
+  /*
+   * ── W2D-01: one request in flight per study, and a superseded one cancelled
+   *
+   * A run whose answer would be discarded — another context, a newer version
+   * of the same study — used to be left running. Each interval switch queued
+   * another full Pine run in the server's two-worker pool, so a few quick
+   * switches put the run the chart was actually waiting for behind thirty
+   * seconds of work nobody wanted, and the Next proxy's 30-second ceiling cut
+   * it off with a 500. Now the superseded request is aborted, the server
+   * drops it (`runPineInWorker`'s `signal`), and an abort is never mistaken
+   * for an outcome: the study stays listed, loading, until the run that
+   * replaced it lands.
+   */
+  const runControllers = useRef(new Map<string, AbortController>());
+  const startRun = useCallback((key: string): AbortSignal => {
+    runControllers.current.get(key)?.abort();
+    const controller = new AbortController();
+    runControllers.current.set(key, controller);
+    return controller.signal;
+  }, []);
+  const finishRun = useCallback((key: string, signal: AbortSignal) => {
+    const held = runControllers.current.get(key);
+    if (held?.signal === signal) runControllers.current.delete(key);
+  }, []);
+  const abortRuns = useCallback((key?: string) => {
+    const controllers = runControllers.current;
+    for (const [id, controller] of [...controllers]) {
+      if (key !== undefined && id !== key) continue;
+      controller.abort();
+      controllers.delete(id);
+    }
+  }, []);
+  useEffect(() => () => abortRuns(), [abortRuns]);
+
   const runOne = useCallback((ind: AppliedIndicator, token: number) => {
     const version = (runVersions.current.get(ind.key) ?? 0) + 1;
     runVersions.current.set(ind.key, version);
-    void runIndicator(ind, ctxRef.current).then((res) => settle(res, token, version));
-  }, [settle]);
+    const signal = startRun(ind.key);
+    void runIndicator(ind, ctxRef.current, signal).then(
+      (res) => settle(res, token, version),
+      // Superseded: the run that replaced it settles the row instead.
+      (cause) => { if (!isAbortError(cause)) throw cause; },
+    ).finally(() => finishRun(ind.key, signal));
+  }, [settle, startRun, finishRun]);
 
   /*
    * B-04: a Replay playing forward runs each study at most once at a time.
@@ -170,15 +210,21 @@ export function useIndicators(ctx: IndicatorContext) {
     const token = runToken.current;
     const version = (runVersions.current.get(ind.key) ?? 0) + 1;
     runVersions.current.set(ind.key, version);
-    void runIndicator(ind, ctxRef.current).then((res) => {
+    const signal = startRun(ind.key);
+    void runIndicator(ind, ctxRef.current, signal).then((res) => {
+      finishRun(ind.key, signal);
       settle(res, token, version);
       const again = forwardRuns.current.get(ind.key) === true;
       forwardRuns.current.delete(ind.key);
       if (!again || token !== runToken.current) return;
       const latest = listRef.current.find((i) => i.key === ind.key);
       if (latest) runForward(latest);
+    }, (cause) => {
+      finishRun(ind.key, signal);
+      // A rewind or a context change cancelled it, and cleared the queue.
+      if (!isAbortError(cause)) throw cause;
     });
-  }, [settle]);
+  }, [settle, startRun, finishRun]);
 
   // A ref mirror of the list, so the run effects can read the current
   // instances without taking `list` as a dependency (which would re-run them
@@ -222,7 +268,11 @@ export function useIndicators(ctx: IndicatorContext) {
     // (`runForward`); every other change supersedes them.
     const coalesce = forwardStep && !blank;
     const token = coalesce ? runToken.current : ++runToken.current;
-    if (!coalesce) forwardRuns.current.clear();
+    if (!coalesce) {
+      forwardRuns.current.clear();
+      // Everything in flight was computed for a context the chart has left.
+      abortRuns();
+    }
     shownCtxRef.current = ctx;
     setPreparedContextKey(ctxKey);
     if (pending.length === 0) return;
@@ -242,7 +292,9 @@ export function useIndicators(ctx: IndicatorContext) {
   // and only then: a forward step keeps what it has until the rerun lands.
   const suppress = preparedContextKey !== ctxKey
     && ((ctx.replay && !forwardStep) || leavingReplay || contextMoved);
-  const outputList = useMemo(() => suppress ? [] : list, [suppress, list]);
+  // Suppressed output is not a removed study: each row stays, loading (W2D-01).
+  const outputList = useMemo(
+    () => suppress ? list.map(invalidateReplayOutput) : list, [suppress, list]);
 
   // Inputs changed on specific instances: re-run just those.
   useEffect(() => {
@@ -285,13 +337,15 @@ export function useIndicators(ctx: IndicatorContext) {
 
   const remove = useCallback((key: string) => {
     runVersions.current.delete(key);
+    abortRuns(key);
     setList((cur) => cur.filter((i) => i.key !== key));
-  }, []);
+  }, [abortRuns]);
 
   const clear = useCallback(() => {
     runVersions.current.clear();
+    abortRuns();
     setList([]);
-  }, []);
+  }, [abortRuns]);
 
   const toggleVisible = useCallback((key: string) => {
     setList((cur) => cur.map((i) => (i.key === key ? { ...i, visible: !i.visible } : i)));
@@ -347,7 +401,14 @@ export function useIndicators(ctx: IndicatorContext) {
    */
   const overlays = useMemo<ChartOverlay[]>(
     () => outputList.filter((i) => i.visible).flatMap((i) => {
-      const status = !i.loading && i.overlays.length === 0 ? pineRunStatus(i.error) : null;
+      /*
+       * W2D-01: and a study whose run is IN FLIGHT has a row too. A context
+       * switch clears the old output and the row went with it, so for as long
+       * as the rerun took — tens of seconds behind a busy queue — the strategy
+       * was simply gone from a chart whose toolbar still counted it.
+       */
+      const status = i.overlays.length > 0 ? null
+        : i.loading ? PINE_RUN_LOADING : pineRunStatus(i.error);
       return status === null ? i.overlays : [{
         id: `${i.key}:status`, title: "", color: "#9c9c9c", data: [], paneId: PRICE_PANE_ID,
         instanceId: i.key, instanceTitle: i.name || "Script", instanceParams: status,

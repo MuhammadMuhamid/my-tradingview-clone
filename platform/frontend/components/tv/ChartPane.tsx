@@ -33,7 +33,7 @@ import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components
 import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
-import type { Viewport } from "@/lib/native/compute";
+import { viewportForWindow, type MeasuredViewport } from "@/lib/native/compute";
 import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
 import type { ChartOverlay } from "@/lib/chartSeries";
@@ -324,7 +324,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * It starts generous and unanchored — `null` means "the newest bars" — and is
    * corrected on the first range report, so the first paint is never short.
    */
-  const [viewport, setViewport] = useState<Viewport | null>(null);
+  const [viewport, setViewport] = useState<MeasuredViewport | null>(null);
   /*
    * The same fact at full resolution, for the one kind of study whose answer
    * IS the range.
@@ -407,10 +407,40 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * few hundred bars of arithmetic rather than a network round trip — see
    * `lib/native/compute` for the two bounds that make that true.
    */
+  /*
+   * ── W2D-01: a study is computed over the window it belongs to, or not ─────
+   *
+   * Two ways a study pane used to be fed bars that were not the chart's:
+   *
+   * - The VIEWPORT is an index into one particular array. It was kept across
+   *   a symbol or interval switch, so a window measured on 1D's 2,252 bars
+   *   (`firstVisibleIndex` 2000) was applied to 5m's 10,000 — the study was
+   *   computed over bars two days back from what the price pane showed, and
+   *   the pane, aligned to the price chart's range, drew the last two or three
+   *   points of it stretched across its width: an ATR that is one diagonal,
+   *   an RSI that is only its levels. It stayed that way until something
+   *   happened to move the range. A viewport now names the window it was
+   *   measured on, and a different window gets the default — the newest bars,
+   *   which is where a switched chart opens.
+   * - The INTERVAL was the requested one while the bars were still the held
+   *   previous one. The held window's own resolution is what the bars are, so
+   *   the study keeps exactly its previous output until the new window lands.
+   *
+   * While another instrument's window is held nothing is computed at all (the
+   * chart draws nothing either, B-03), and every study keeps its row and its
+   * pane with a loading status instead of vanishing — so the workspace does
+   * not collapse to one empty canvas and rebuild itself when the bars arrive.
+   */
+  const studyDatasetKey = heldForeign ? null : datasetKey(history.dataset);
+  const studyViewport = viewportForWindow(
+    viewport, studyDatasetKey, visibleCandles[0]?.openTime ?? null);
   const nativeStudies = useNativeStudies({
-    candles: visibleCandles, interval: pane.interval, scope: pane.id,
-    viewport: viewport ?? undefined,
+    candles: visibleCandles,
+    interval: heldForeign ? pane.interval : history.dataset.interval,
+    scope: pane.id,
+    viewport: studyViewport,
     visibleRange: visibleRange ?? undefined,
+    pending: heldForeign && history.loading,
   });
 
   // ── this pane's own applied studies ──
@@ -839,18 +869,25 @@ function ChartPaneImpl(props: ChartPaneProps) {
     [onCrosshairMove, paneId]);
   const barsRef = useRef(visibleCandles);
   barsRef.current = visibleCandles;
+  /** Which window `barsRef` holds, so a measured viewport can say so (W2D-01). */
+  const barsKeyRef = useRef<string | null>(null);
+  barsKeyRef.current = heldForeign ? null : datasetKey(history.dataset);
   const emitRange = useMemo(() => {
-    const step = resolutionMs(pane.interval) / 1000;
     return (range: { from: number; to: number }) => {
+      const bars = barsRef.current;
+      const barsKey = barsKeyRef.current;
+      // Measured in the held window's own bars: that is the array the index
+      // below points into, whatever the pane has been asked to switch to.
+      const held = bars[bars.length - 1]?.interval ?? pane.interval;
+      const step = resolutionMs(held) / 1000;
       const span = Math.ceil((range.to - range.from) / step);
-      if (Number.isFinite(span) && span > 0) {
+      if (Number.isFinite(span) && span > 0 && bars.length > 0 && barsKey !== null) {
         /*
          * Both halves are rounded to a coarse step so an ordinary pan does not
          * invalidate every study's memoised result on every frame — a drag
          * emits a range per frame, and a per-bar key would recompute
          * everything sixty times a second.
          */
-        const bars = barsRef.current;
         const fromMs = range.from * 1000;
         let first = bars.length - Math.max(200, Math.ceil(span / 200) * 200);
         for (let i = 0; i < bars.length; i++) {
@@ -864,10 +901,14 @@ function ChartPaneImpl(props: ChartPaneProps) {
          * across a pane whose candles carried on to the edge.
          */
         const visibleBars = Math.max(200, Math.ceil((first - anchored + span) / 200) * 200);
+        const firstOpenTime = bars[0]!.openTime;
         setViewport((current) => (
-          current && current.visibleBars === visibleBars
-            && current.firstVisibleIndex === anchored
-            ? current : { visibleBars, firstVisibleIndex: anchored }));
+          current && current.viewport.visibleBars === visibleBars
+            && current.viewport.firstVisibleIndex === anchored
+            && current.datasetKey === barsKey && current.firstOpenTime === firstOpenTime
+            ? current
+            : { datasetKey: barsKey, firstOpenTime,
+              viewport: { visibleBars, firstVisibleIndex: anchored } }));
       }
       /*
        * Snapped to the bar grid, so an identical set of visible bars produces

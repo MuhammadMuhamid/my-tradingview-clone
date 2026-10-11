@@ -56,7 +56,7 @@ import {
   type SourceIssue, type SourceOption,
 } from "./native/graph";
 import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
-import type { ChartDecoration, ChartOverlay } from "./chartSeries";
+import { PRICE_PANE_ID, type ChartDecoration, type ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
 import type { Resolution } from "./resolution";
 import { resolutionMs } from "./resolution";
@@ -154,7 +154,17 @@ export interface NativeStudiesContext {
    */
   visibleRange?: { fromMs: number; toMs: number };
   scope?: string;
+  /**
+   * W2D-01: the pane's window is still on its way and there are no bars to
+   * compute over. Every drawn study keeps its legend row — and a separate-pane
+   * study its pane — with a loading status, rather than vanishing and being
+   * rebuilt when the bars land.
+   */
+  pending?: boolean;
 }
+
+/** The legend's words for a study whose bars have not arrived yet. */
+export const NATIVE_STUDY_LOADING = "Loading…";
 
 /**
  * The window assumed before the chart has reported one.
@@ -423,9 +433,22 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const drawn = useCallback(
     (s: AppliedNativeStudy) => s.visible && onThisTimeframe(s, ctx.interval),
     [ctx.interval]);
+  const pending = ctx.pending === true && ctx.candles.length === 0;
   const overlays = useMemo<ChartOverlay[]>(
-    () => list.filter(drawn).flatMap((s) => outputs.get(s.key)?.overlays ?? []),
-    [list, outputs, drawn]);
+    () => list.filter(drawn).flatMap((s) => {
+      if (!pending) return outputs.get(s.key)?.overlays ?? [];
+      const def = studyById(s.defId);
+      if (!def) return [];
+      // No data, so nothing is drawn and no value is read — but the row, and
+      // the pane it names, are the study's and stay where they were.
+      return [{
+        id: `${s.key}:pending`, title: "", color: def.plots[0]?.color ?? "#9c9c9c", data: [],
+        paneId: def.overlay ? PRICE_PANE_ID : `indicator:${s.key}`,
+        instanceId: s.key, instanceTitle: def.name, instanceParams: NATIVE_STUDY_LOADING,
+        statusValueVisible: false, priceScaleLabelVisible: false,
+      }];
+    }),
+    [list, outputs, drawn, pending]);
   const decorations = useMemo<ChartDecoration[]>(
     () => list.filter(drawn).flatMap((s) => outputs.get(s.key)?.decorations ?? []),
     [list, outputs, drawn]);

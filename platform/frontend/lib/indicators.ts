@@ -18,6 +18,7 @@ import {
 import type { Trade } from "@/lib/types";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { legacyBinanceSpotTicker } from "@/lib/instrument";
+import { isAbortError } from "@/lib/requestGuard";
 
 export type PineParams = Record<string, number | string | boolean>;
 
@@ -99,6 +100,9 @@ export function pineRunRange(ctx: { startTime: string; endTime: string }, timefr
  * the study, never in the server's words (the contract's rule for failure
  * copy — the raw cause stays on `error` for the Indicators panel).
  */
+/** The legend's words for a study whose run is in flight (W2D-01). */
+export const PINE_RUN_LOADING = "Loading…";
+
 export function pineRunStatus(error: string | null | undefined): string | null {
   if (!error) return null;
   const line = /^line (\d+):/.exec(error);
@@ -371,7 +375,18 @@ export function toChartOutput(
 /** Run one instance against the current chart context. */
 export async function runIndicator(
   ind: AppliedIndicator,
-  ctx: { symbol: string; timeframe: Resolution; startTime: string; endTime: string }
+  ctx: { symbol: string; timeframe: Resolution; startTime: string; endTime: string },
+  /**
+   * W2D-01: a run the chart has moved on from is CANCELLED, not left to finish.
+   *
+   * Every interval or symbol switch starts a fresh run of every applied study,
+   * and the superseded ones used to run to completion in the server's
+   * two-worker Pine pool, so five quick switches queued five long runs ahead
+   * of the one the chart was waiting for. An abort REJECTS with the abort
+   * error rather than resolving to a failed study: the caller superseded this
+   * run, and a cancelled run is not news about the study.
+   */
+  signal?: AbortSignal,
 ): Promise<AppliedIndicator> {
   /*
    * `/api/pine/run` is a TICKER contract; `ctx.symbol` is the pane's CANONICAL
@@ -400,7 +415,7 @@ export async function runIndicator(
       timeframe: ctx.timeframe,
       ...pineRunRange(ctx, ctx.timeframe),
       params: ind.params,
-    });
+    }, signal);
     if (!r.ok) {
       const e = r.errors[0];
       return {
@@ -426,6 +441,7 @@ export async function runIndicator(
       ...toChartOutput(ind.key, r, ind.params),
     };
   } catch (e) {
+    if (isAbortError(e)) throw e;
     return {
       ...ind, loading: false, error: (e as Error).message,
       overlays: [], decorations: [], barColors: [], markers: [], drawings: NO_DRAWINGS, trades: [],

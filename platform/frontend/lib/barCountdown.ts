@@ -125,6 +125,29 @@ import {
  * chip's own tests read, and F-03 is about WHERE the countdown is drawn, not
  * what it says.
  */
+/**
+ * Time until the CURRENT bar closes, from the clock and the interval.
+ *
+ * W2D-01: the plate read `last.closeTime - now`, and the newest bar a window
+ * holds is often one that has already closed — a provider history that ends
+ * on the last completed bar, a cold load, the first second of a new bar before
+ * its first frame. The plate then sat at `00:00:00` for as long as it took the
+ * forming bar to arrive. The bar boundary is not data; it is the interval's
+ * grid, so a close that has passed is rolled forward by whole intervals to the
+ * slot the clock is in now. Every resolution this product offers is a fixed
+ * length (`lib/resolution`), so the roll is exact.
+ *
+ * A close still in the future is returned as it is: that IS the forming bar.
+ */
+export function barCloseCountdownMs(
+  lastCloseTime: number, intervalMs: number, nowMs: number,
+): number {
+  const remaining = lastCloseTime - nowMs;
+  if (remaining > 0 || !(intervalMs > 0) || !Number.isFinite(lastCloseTime)) return remaining;
+  const slots = Math.floor((nowMs - lastCloseTime) / intervalMs) + 1;
+  return lastCloseTime + slots * intervalMs - nowMs;
+}
+
 export function countdownText(ms: number): string {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   const hours = Math.floor(seconds / 3600);

@@ -198,6 +198,10 @@ export class CandleHistoryCache {
     const upper = symbol.toUpperCase();
     for (const entry of this.entries.values()) {
       if (entry.symbol !== upper || entry.interval !== interval) continue;
+      // An empty window is a load that found nothing, not a history a live
+      // bar can start: two bars appended here would be served by `peek` as a
+      // complete window to the next pane that asks (W2D-01).
+      if (entry.candles.length === 0) continue;
       const next = entry.candles.slice();
       const index = next.findIndex((c) => c.openTime === bar.openTime);
       if (index >= 0) next[index] = bar;

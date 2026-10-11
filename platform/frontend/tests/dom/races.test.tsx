@@ -24,6 +24,13 @@ import type { Candle, Interval } from "@/lib/types";
 const SOURCE = '//@version=5\nindicator("Probe")\nplot(close)';
 
 /**
+ * The overlays that DRAW something. W2D-01: a study whose run is in flight, or
+ * whose output was blanked, keeps its legend row — an overlay with no data and
+ * a loading status — so "blank" means nothing drawn, not no row.
+ */
+const drawn = (api: IndicatorsApi) => api.overlays.filter((o) => o.data.length > 0);
+
+/**
  * The base chart's bars, on the SAME grid the fixture serves.
  *
  * Compare aligns by open time and never by index — deliberately, because two
@@ -141,7 +148,7 @@ test("a Pine run for the old symbol cannot settle over the new one's output", as
   await settle();
   await act(async () => { api!.add({ scriptId: null, name: "Probe", source: SOURCE }); });
   await settle();
-  assert.equal(api!.overlays.length, 0, "the first run is still in flight");
+  assert.equal(drawn(api!).length, 0, "the first run is still in flight");
 
   // The user switches instrument. That re-runs everything under a fresh token.
   await act(async () => { view.rerender(<Harness symbol="BTCUSDT" />); });
@@ -265,7 +272,7 @@ test("C8/C9 — a forward replay step keeps the study; a rewind and leaving repl
   release = server.hold((r) => r.path === "/api/pine/run");
   await act(async () => { view.rerender(<Harness end="2026-01-01T09:00:00.000Z" replay />); });
   await settle();
-  assert.equal(api!.overlays.length, 0, "a rewind kept output from a later horizon");
+  assert.equal(drawn(api!).length, 0, "a rewind kept output from a later horizon");
   release();
   await settle();
   assert.equal(api!.overlays.length, 1);
@@ -274,7 +281,7 @@ test("C8/C9 — a forward replay step keeps the study; a rewind and leaving repl
   release = server.hold((r) => r.path === "/api/pine/run");
   await act(async () => { view.rerender(<Harness end="2026-01-02T00:00:00.000Z" replay={false} />); });
   await settle();
-  assert.equal(api!.overlays.length, 0, "leaving replay kept the replayed series on the live chart");
+  assert.equal(drawn(api!).length, 0, "leaving replay kept the replayed series on the live chart");
   release();
   await settle();
   assert.equal(api!.overlays.length, 1);

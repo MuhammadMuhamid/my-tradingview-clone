@@ -183,6 +183,25 @@ export function setPriceScaleAuto(
   return state.autoScale === autoScale ? state : { ...state, autoScale };
 }
 
+/**
+ * W2D-06: ask every mounted chart to read its scale back from the library.
+ *
+ * A price-axis drag switches the library's `autoScale` off without an event,
+ * and the chart used to notice only on the next crosshair move over a pane —
+ * so a drag that ended on the axis left `Linear · Auto` on the badge, and a
+ * settings dialog opened right after showed `Auto scale` ticked, for as long
+ * as the pointer stayed off the plot. Charts reconcile on any pointer release
+ * by themselves; this is for a surface that is about to SHOW the scale and
+ * must not show it stale. A window event, because the asker (the page) does
+ * not hold the charts and the charts already listen on the window.
+ */
+export const PRICE_SCALE_RECONCILE_EVENT = "tv:price-scale-reconcile";
+
+export function requestPriceScaleReconcile(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new window.Event(PRICE_SCALE_RECONCILE_EVENT));
+}
+
 export function togglePriceScaleAuto(state: PriceScaleState): PriceScaleState {
   return setPriceScaleAuto(state, !state.autoScale);
 }

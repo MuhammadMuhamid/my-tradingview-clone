@@ -135,6 +135,37 @@ export interface Viewport {
  * declare `unbounded` and are handed the whole series, because for them a
  * window is a different indicator rather than a cheaper one.
  */
+/**
+ * A viewport and the window it was measured on (W2D-01).
+ *
+ * `firstVisibleIndex` is an index into ONE array. Carried to another — a new
+ * symbol, a new interval, a reload that came back a different depth — it
+ * points at bars the user is not looking at: a viewport measured on 1D's 90
+ * bars (`firstVisibleIndex` 0) applied to 5m's 800 computed every study over
+ * the OLDEST 200 bars of a pane showing the newest, and the study pane, held
+ * to the price chart's range, drew the last two or three of them stretched
+ * across its width until something moved the range again.
+ */
+export interface MeasuredViewport {
+  /** `datasetKey` of the window the index was measured in. */
+  datasetKey: string;
+  /** That window's first bar — a reload of the same dataset can start elsewhere. */
+  firstOpenTime: number;
+  viewport: Viewport;
+}
+
+/**
+ * The viewport to compute over, or `undefined` — "the newest bars", which is
+ * where a switched chart opens — when it was measured on another window.
+ */
+export function viewportForWindow(
+  measured: MeasuredViewport | null, datasetKey: string | null, firstOpenTime: number | null,
+): Viewport | undefined {
+  if (!measured || datasetKey === null || firstOpenTime === null) return undefined;
+  return measured.datasetKey === datasetKey && measured.firstOpenTime === firstOpenTime
+    ? measured.viewport : undefined;
+}
+
 export function computeWindow(
   candles: readonly Candle[], warmup: number, viewport: Viewport, unbounded: boolean
 ): readonly Candle[] {

@@ -107,7 +107,7 @@ import { fmtPrice } from "@/lib/format";
 import type { ChartOverlay } from "@/lib/chartSeries";
 import { dataWindowSeriesRows, dataWindowStudies } from "@/lib/dataWindow";
 import {
-  DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode,
+  DEFAULT_PRICE_SCALE, requestPriceScaleReconcile, resetPriceScale, setPriceScaleMode,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
   type PriceScaleState,
 } from "@/lib/priceScale";
@@ -137,8 +137,8 @@ import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
 import { usePaneCandleOverlays } from "@/lib/useCandleOverlay";
 import { usePaneClassicalOverlays } from "@/lib/useClassicalPatterns";
 import {
-  activeReplayQuote, liveActionsDisabled, reconcileReplay, replayCandles, replayDelayMs,
-  replayTick, startReplay, stepReplay,
+  activeReplayQuote, advanceReplay, liveActionsDisabled, reconcileReplay, replayCandles,
+  replayClockDelay, replayClockTick, startReplay, startReplayClock, stepReplay,
   type ReplaySession, type ReplaySpeed,
 } from "@/lib/replay";
 import { useTradingOverlays } from "@/lib/useTradingOverlays";
@@ -590,6 +590,15 @@ export default function TvWorkspace() {
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   // W2A-11: the tab it opens on, for a caller that names one; cleared on close.
   const [chartSettingsTab, setChartSettingsTab] = useState<ChartSettingsTab | undefined>(undefined);
+  /*
+   * W2D-06: the dialog shows the price scale, so the charts read theirs back
+   * from the library first — in the same event, so the dialog's first render
+   * already has it rather than `Auto scale` ticked over a dragged axis.
+   */
+  const openChartSettings = useCallback(() => {
+    requestPriceScaleReconcile();
+    setChartSettingsOpen(true);
+  }, []);
   /*
    * R6 SC-4: whether the Scales tab may offer a `Bid and ask` row.
    *
@@ -1582,13 +1591,32 @@ export default function TvWorkspace() {
    * their reruns (`useIndicators`'s `runForward`), so the clock runs at the
    * speed chosen and the studies catch up — never ahead of the horizon.
    */
+  /*
+   * W2D-10: and it keeps TIME. A chain of fixed delays, each scheduled after
+   * the last step rendered, ran slow by every render — 10× measured about 6×.
+   * The clock counts bars owed since Play started (`replayClockTick`), so a
+   * late tick is made up rather than lost; it restarts only when Play or the
+   * speed changes, never because a step moved the horizon.
+   */
+  const replayPlaying = replay?.playing === true;
+  const replaySpeed = replay?.speed;
   useEffect(() => {
-    if (!replay?.playing) return;
-    const timer = window.setTimeout(() => {
-      setReplay((current) => current ? replayTick(current, replayCandlesRef.current) : null);
-    }, replayDelayMs(replay.speed));
+    if (!replayPlaying || replaySpeed === undefined) return;
+    const now = (): number => performance.now();
+    let clock = startReplayClock(now(), replaySpeed);
+    let timer = 0;
+    const tick = (): void => {
+      const paid = replayClockTick(clock, now());
+      clock = paid.clock;
+      if (paid.steps > 0) {
+        setReplay((current) => current
+          ? advanceReplay(current, replayCandlesRef.current, paid.steps) : null);
+      }
+      timer = window.setTimeout(tick, replayClockDelay(clock, now()));
+    };
+    timer = window.setTimeout(tick, replayClockDelay(clock, now()));
     return () => window.clearTimeout(timer);
-  }, [replay?.playing, replay?.speed, replay?.horizonCloseTime]);
+  }, [replayPlaying, replaySpeed]);
 
   /**
    * Armed price alerts, drawn as horizontal levels on the chart.
@@ -2205,7 +2233,7 @@ export default function TvWorkspace() {
         setToast("Click the chart to place the note");
         return;
       case "chart:chart-settings":
-      case "series:chart-settings": setChartSettingsOpen(true); return;
+      case "series:chart-settings": openChartSettings(); return;
       /*
        * W2A-11: the legend menu's rows are the Status line tab's own keys,
        * written to the pane the menu was opened on, and its `Settings…` opens
@@ -2226,7 +2254,7 @@ export default function TvWorkspace() {
       }
       case "legend:settings":
         setChartSettingsTab("status");
-        setChartSettingsOpen(true);
+        openChartSettings();
         return;
       case "chart:object-tree": setPanel("objects"); return;
       case "chart:table-view":
@@ -2240,7 +2268,7 @@ export default function TvWorkspace() {
       case "chart:toggle-classical-patterns":
         classicalOverlays[paneId]?.setEnabled(!classicalOverlays[paneId]?.enabled);
         return;
-      case "time:chart-settings": setChartSettingsOpen(true); return;
+      case "time:chart-settings": openChartSettings(); return;
       case "time:go-to": setGoToOpen(true); return;
       case "chart:reset-view":
       case "time:reset-view":
@@ -2303,7 +2331,7 @@ export default function TvWorkspace() {
       case "axis:toggle-plus-button":
         writeSettings({ plusButton: !chartSettings.plusButton });
         return;
-      case "axis:more-settings": setChartSettingsOpen(true); return;
+      case "axis:more-settings": openChartSettings(); return;
       default: break;
     }
     if (menu.kind !== "drawing" || !menu.drawingId) return;
@@ -2384,7 +2412,7 @@ export default function TvWorkspace() {
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
     copyPrice, candleOverlays, classicalOverlays, workspace, symbol, watchlists,
-    refreshWatchlists, setTool, activeIndicators, activeNativeStudies, ask]);
+    refreshWatchlists, setTool, activeIndicators, activeNativeStudies, ask, openChartSettings]);
 
   /*
    * What the palette can reach. Every one of these is the SAME handler the
@@ -2476,7 +2504,7 @@ export default function TvWorkspace() {
         case "hide-drawings": setDrawHidden((v) => !v); return true;
         case "symbol-search": setSearchPaneId(workspace.activePaneId); return true;
         case "indicators": setIndicatorBrowserOpen(true); return true;
-        case "chart-settings": setChartSettingsOpen(true); return true;
+        case "chart-settings": openChartSettings(); return true;
         case "shortcuts-sheet": setShortcutsOpen(true); return true;
         case "command-palette": setPaletteOpen(true); return true;
         case "snapshot-save": void snapshot("save"); return true;
@@ -2861,7 +2889,7 @@ export default function TvWorkspace() {
           fullscreen={fullscreen.active}
           fullscreenSupported={fullscreen.supported}
           onToggleFullscreen={fullscreen.toggle}
-          onOpenChartSettings={() => setChartSettingsOpen(true)}
+          onOpenChartSettings={() => openChartSettings()}
           onOpenCommandPalette={() => setPaletteOpen(true)}
           onSnapshot={snapshot}
           overlayMenuOpen={overlays.menuOpen}

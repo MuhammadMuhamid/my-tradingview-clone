@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { createPortal } from "react-dom";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
-  BarCountdownPrimitive, countdownText,
+  BarCountdownPrimitive, barCloseCountdownMs, countdownText,
 } from "@/lib/barCountdown";
 import { PointFigurePrimitive } from "@/lib/pointFigurePrimitive";
 import { VolumeCandlePrimitive } from "@/lib/volumeCandlePrimitive";
@@ -129,7 +129,8 @@ const AXIS_CHIP = "flex h-5 min-w-5 items-center justify-center rounded border b
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
-  axisPlusButtonOffset, DEFAULT_PRICE_SCALE, pointerOnPriceAxis, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
+  axisPlusButtonOffset, DEFAULT_PRICE_SCALE, pointerOnPriceAxis, PRICE_SCALE_RECONCILE_EVENT, priceScaleLabel,
+  priceScaleModeLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -1552,6 +1553,26 @@ export function CandleChart({
       applyScaleRef.current(setPriceScaleAuto(scaleRef.current, auto));
     }
   };
+  /*
+   * W2D-06: and on the gestures that END an axis drag or reset, wherever the
+   * pointer is when they end. The crosshair subscription above only fires over
+   * a PANE, so a drag released on the price axis — where every axis drag ends —
+   * left the badge and the settings dialog saying `Auto` over a scale the
+   * library had already switched to manual, until the pointer happened to
+   * cross the plot. Listened for on the window in the capture phase so a drag
+   * that ends outside this chart's box still counts, and nothing a child does
+   * with the event can hide it. Reading one option is all this costs.
+   */
+  useEffect(() => {
+    const reconcile = (): void => reconcileScaleRef.current();
+    const events = ["pointerup", "mouseup", "touchend", "dblclick"] as const;
+    for (const type of events) window.addEventListener(type, reconcile, true);
+    window.addEventListener(PRICE_SCALE_RECONCILE_EVENT, reconcile);
+    return () => {
+      for (const type of events) window.removeEventListener(type, reconcile, true);
+      window.removeEventListener(PRICE_SCALE_RECONCILE_EVENT, reconcile);
+    };
+  }, []);
 
   /*
    * Apply the scale to the chart.
@@ -4272,6 +4293,17 @@ export function CandleChart({
 
   const countdownRef = useRef<BarCountdownPrimitive | null>(null);
   /*
+   * W2D-01: clock-derived — the interval's grid and now, not the last bar's
+   * own close, which has often already passed when a window lands. A Replay
+   * horizon is history, so its bar is not rolled onto the live clock.
+   */
+  const countdownIntervalMs = useMemo(() => {
+    try { return resolutionMs(heldInterval); } catch { return 0; }
+  }, [heldInterval]);
+  const countdownUntilClose = useCallback((closeTime: number): number => (replaying
+    ? closeTime - nowMs : barCloseCountdownMs(closeTime, countdownIntervalMs, nowMs)),
+  [replaying, nowMs, countdownIntervalMs]);
+  /*
    * The plate, then E2's tick clearance, attached in ONE effect so their order
    * is stated rather than inherited from where two effects happen to sit.
    *
@@ -4318,7 +4350,7 @@ export function CandleChart({
        * time, so a live tick moves the plate in the frame it is drawn in.
        */
       price: shown ? last.close : null,
-      text: counting ? countdownText(last.closeTime - nowMs) : null,
+      text: counting ? countdownText(countdownUntilClose(last.closeTime)) : null,
       /*
        * A8: the SERIES' colours, from which the primitive picks the last
        * bar's at draw time — up or down for a bar with an open, the line's
@@ -4329,7 +4361,7 @@ export function CandleChart({
       ownsPriceRow: shown && settings.lastValueLabel,
     });
   }, [
-    nowMs, candles, settings.countdownToBarClose,
+    nowMs, candles, settings.countdownToBarClose, countdownUntilClose,
     settings.lastValueLabel, priceHidden, upColor, downColor,
     // Re-stated after a re-attach: a rebuilt primitive starts empty, and
     // waiting for the next second to fill it is a second with no plate.
@@ -4418,7 +4450,7 @@ export function CandleChart({
       */}
       {settings.countdownToBarClose && candles.length > 0 && !priceHidden && (
         <span data-bar-close-countdown className="sr-only">
-          {countdownText(candles[candles.length - 1]!.closeTime - nowMs)}
+          {countdownText(countdownUntilClose(candles[candles.length - 1]!.closeTime))}
         </span>
       )}
       {barPickX !== null && (

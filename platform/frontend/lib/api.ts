@@ -1614,7 +1614,9 @@ export const api = {
     params?: Record<string, number | string | boolean>;
     initialCapital?: number; commissionPct?: number; slippageTicks?: number;
     qtyCash?: number; qtyPctEquity?: number;
-  }) => req<PineRunResult>("/api/pine/run", { method: "POST", body: JSON.stringify(body) }),
+  }, signal?: AbortSignal) => req<PineRunResult>("/api/pine/run", {
+    method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}),
+  }),
 
   // deployments + alerts
   listDeployments: () => req<Deployment[]>("/api/deployments"),

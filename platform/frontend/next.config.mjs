@@ -96,6 +96,25 @@ const nextConfig = {
   poweredByHeader: false,
   // Produce a minimal self-contained Node server for the production container.
   output: "standalone",
+  /*
+   * W2D-01: how long the `/api` rewrite waits for the backend.
+   *
+   * Next's proxy (`server/lib/router-utils/proxy-request.js`) defaults to 30 s
+   * and, when it expires, destroys the upstream request and answers 500 —
+   * logging `Failed to proxy … Error: socket hang up ECONNRESET`. That is
+   * exactly the signature seen on `POST /api/pine/run`: the backend's own
+   * budget for an editor/chart run is 45 s plus its data load
+   * (`PINE_EDITOR_TIME_BUDGET_MS`, `backend/src/api/routes/pine.ts`), and a run
+   * queued behind others in its two-worker pool waits longer still, so the
+   * proxy was cutting off runs the backend was still entitled to finish. The
+   * ceiling now sits above the backend's own, which remains the real bound:
+   * a run that overruns is stopped THERE and answered with a reason. (Not the
+   * backend's keep-alive: Fastify already sets 72 s, and a client abort is
+   * reported as `econnreset` without this log line.)
+   */
+  experimental: {
+    proxyTimeout: 120_000,
+  },
   // Proxy API calls to the backend so the browser talks to one origin (no CORS).
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${BACKEND}/api/:path*` }];

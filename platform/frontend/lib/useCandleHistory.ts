@@ -238,6 +238,18 @@ export function mergeLiveBarsInto(
   held: HeldWindow, closed: Candle | null, current: Candle
 ): HeldWindow {
   if (datasetKey(current) !== datasetKey(held.dataset)) return held;
+  /*
+   * W2D-01: a live bar is news about a HISTORY, never a history of its own.
+   *
+   * A window with no bars is a load that has not landed (a pane that has just
+   * mounted, a market family cleared at its identity transition). Appending
+   * here turned the first one to three frames of the feed — or the canonical
+   * tail refresh's `limit=3` — into a "dataset" that every reader then drew
+   * and every study computed over: an ATR of two points, an RSI with nothing
+   * but its levels. The bars arrive with the load; until then there is
+   * nothing to extend.
+   */
+  if (held.candles.length === 0) return held;
   const next = held.candles.slice();
   let changed = false;
   for (const bar of [closed, current]) {

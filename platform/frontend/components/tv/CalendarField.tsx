@@ -2,6 +2,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
+import { fmtChartMinute, instantOfWallClock, wallClockOf } from "@/lib/chartClock";
+import type { ChartTimeZone } from "@/lib/chartSettings";
 
 /*
  * ── A date and time the product draws itself ───────────────────────────────
@@ -23,40 +25,56 @@ import { useExclusivePopover } from "@/lib/useExclusivePopover";
  * have grown its own.
  */
 
-const DAY_MS = 86_400_000;
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] as const;
 
-/** Local midnight of the day `time` falls in. */
-function startOfDay(time: number): number {
-  const d = new Date(time);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+/*
+ * ── W2D-08: every date here is read in ONE zone ─────────────────────────────
+ *
+ * The grid, the chosen day, the time field and the trigger's label all used
+ * the browser's zone, while the surface Replay shows them beside — its clock,
+ * the time axis — uses the chart's. `timeZone` is that zone, and every helper
+ * below reads and writes wall clocks in it; omitted, it is the browser's own,
+ * which is what Go to… has always used.
+ */
+
+/** Midnight, in `timeZone`, of the day `time` falls in. */
+function startOfDay(time: number, timeZone?: string): number {
+  const w = wallClockOf(time, timeZone);
+  return instantOfWallClock({ ...w, hour: 0, minute: 0 }, timeZone);
+}
+
+/** The midnight `days` calendar days after the day `day` falls in. */
+function addDays(day: number, days: number, timeZone?: string): number {
+  const w = wallClockOf(day, timeZone);
+  return instantOfWallClock({ ...w, day: w.day + days, hour: 0, minute: 0 }, timeZone);
 }
 
 /** `Monday = 0`, which is the column order above. */
-function mondayIndex(date: Date): number {
-  return (date.getDay() + 6) % 7;
+function mondayIndex(day: number, timeZone?: string): number {
+  const w = wallClockOf(day, timeZone);
+  return (new Date(Date.UTC(w.year, w.month, w.day)).getUTCDay() + 6) % 7;
 }
 
-function sameDay(a: number, b: number): boolean {
-  return startOfDay(a) === startOfDay(b);
+function sameDay(a: number, b: number, timeZone?: string): boolean {
+  return startOfDay(a, timeZone) === startOfDay(b, timeZone);
 }
 
-/** `HH:MM` in local time, for the time field beside the grid. */
-function timeValue(time: number): string {
-  const d = new Date(time);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** `HH:MM` in `timeZone`, for the time field beside the grid. */
+function timeValue(time: number, timeZone?: string): string {
+  const w = wallClockOf(time, timeZone);
+  return `${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`;
 }
 
 /** The days a month grid covers, padded to whole weeks. */
-export function monthGrid(monthAnchor: number): number[] {
-  const anchor = new Date(monthAnchor);
-  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const start = first.getTime() - mondayIndex(first) * DAY_MS;
-  const next = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1).getTime();
+export function monthGrid(monthAnchor: number, timeZone?: string): number[] {
+  const anchor = wallClockOf(monthAnchor, timeZone);
+  const first = instantOfWallClock({ ...anchor, day: 1, hour: 0, minute: 0 }, timeZone);
+  const start = addDays(first, -mondayIndex(first, timeZone), timeZone);
+  const next = instantOfWallClock(
+    { ...anchor, month: anchor.month + 1, day: 1, hour: 0, minute: 0 }, timeZone);
   const cells: number[] = [];
-  for (let t = start; t < next || cells.length % 7 !== 0; t += DAY_MS) {
-    cells.push(startOfDay(t));
+  for (let t = start; t < next || cells.length % 7 !== 0; t = addDays(t, 1, timeZone)) {
+    cells.push(t);
     // A month can need six rows; nothing needs seven, and an unbounded loop
     // here would hang the tab rather than draw a wrong calendar.
     if (cells.length >= 42) break;
@@ -65,7 +83,7 @@ export function monthGrid(monthAnchor: number): number[] {
 }
 
 export function CalendarField({
-  value, onChange, min, max, id, label, disabled = false, className = "",
+  value, onChange, min, max, id, label, disabled = false, className = "", timeZone,
 }: {
   /** Epoch ms, or null for "nothing chosen yet". */
   value: number | null;
@@ -78,6 +96,12 @@ export function CalendarField({
   label: string;
   disabled?: boolean;
   className?: string;
+  /**
+   * The zone the calendar, the time field and the label read and write in —
+   * the chart's display zone where there is one (W2D-08). Omitted, the
+   * browser's own.
+   */
+  timeZone?: ChartTimeZone;
 }) {
   const [open, setOpen] = useExclusivePopover(`calendar:${id}`);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -155,25 +179,28 @@ export function CalendarField({
     };
   }, [open, setOpen]);
 
-  const cells = useMemo(() => monthGrid(month), [month]);
-  const monthLabel = new Date(month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const cells = useMemo(() => monthGrid(month, timeZone), [month, timeZone]);
+  const monthWall = wallClockOf(month, timeZone);
+  const monthLabel = new Date(month).toLocaleDateString(undefined, {
+    month: "long", year: "numeric", ...(timeZone ? { timeZone } : {}),
+  });
   const inRange = (day: number): boolean =>
-    (min === undefined || day >= startOfDay(min)) && (max === undefined || day <= startOfDay(max));
+    (min === undefined || day >= startOfDay(min, timeZone))
+    && (max === undefined || day <= startOfDay(max, timeZone));
 
   /** Keep the time of day when the day changes, so picking a date is one click. */
   const chooseDay = (day: number): void => {
-    const base = value ?? max ?? Date.now();
-    const d = new Date(day);
-    const keep = new Date(base);
-    d.setHours(keep.getHours(), keep.getMinutes(), 0, 0);
-    const clamped = Math.min(Math.max(d.getTime(), min ?? -Infinity), max ?? Infinity);
+    const keep = wallClockOf(value ?? max ?? Date.now(), timeZone);
+    const picked = instantOfWallClock(
+      { ...wallClockOf(day, timeZone), hour: keep.hour, minute: keep.minute }, timeZone);
+    const clamped = Math.min(Math.max(picked, min ?? -Infinity), max ?? Infinity);
     onChange(clamped);
     setOpen(false);
   };
 
   const shiftMonth = (by: number): void => {
-    const d = new Date(month);
-    setMonth(new Date(d.getFullYear(), d.getMonth() + by, 1).getTime());
+    setMonth(instantOfWallClock(
+      { ...monthWall, month: monthWall.month + by, day: 1, hour: 0, minute: 0 }, timeZone));
   };
 
   return (
@@ -192,10 +219,13 @@ export function CalendarField({
           <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" />
         </svg>
         <span className="tabular">
-          {value === null ? "Pick a date" : new Date(value).toLocaleString(undefined, {
-            year: "numeric", month: "short", day: "numeric",
-            hour: "2-digit", minute: "2-digit",
-          })}
+          {value === null ? "Pick a date" : timeZone
+            // The chart's own form, so it reads exactly as the replay clock does.
+            ? fmtChartMinute(value, timeZone)
+            : new Date(value).toLocaleString(undefined, {
+              year: "numeric", month: "short", day: "numeric",
+              hour: "2-digit", minute: "2-digit",
+            })}
         </span>
       </button>
 
@@ -226,9 +256,10 @@ export function CalendarField({
               <span key={d} className="py-0.5 text-center text-[10px] text-ink-faint">{d}</span>
             ))}
             {cells.map((day) => {
-              const outside = new Date(day).getMonth() !== new Date(month).getMonth();
+              const dayWall = wallClockOf(day, timeZone);
+              const outside = dayWall.month !== monthWall.month;
               const pickable = inRange(day);
-              const chosen = value !== null && sameDay(day, value);
+              const chosen = value !== null && sameDay(day, value, timeZone);
               return (
                 <button
                   key={day}
@@ -242,10 +273,10 @@ export function CalendarField({
                     chosen ? "bg-state-active text-ink"
                       : outside ? "text-ink-faint" : "text-ink-muted"
                   } ${pickable ? "hover:bg-state-hover hover:text-ink" : "cursor-not-allowed opacity-30"} ${
-                    sameDay(day, Date.now()) && !chosen ? "border border-border-strong" : ""
+                    sameDay(day, Date.now(), timeZone) && !chosen ? "border border-border-strong" : ""
                   }`}
                 >
-                  {new Date(day).getDate()}
+                  {dayWall.day}
                 </button>
               );
             })}
@@ -255,13 +286,14 @@ export function CalendarField({
             <span className="text-[11px] text-ink-muted">Time</span>
             <input
               type="time"
-              value={value === null ? "" : timeValue(value)}
+              value={value === null ? "" : timeValue(value, timeZone)}
               onChange={(e) => {
                 const [h, m] = e.target.value.split(":").map(Number);
                 if (h === undefined || m === undefined || Number.isNaN(h) || Number.isNaN(m)) return;
-                const d = new Date(value ?? max ?? Date.now());
-                d.setHours(h, m, 0, 0);
-                onChange(Math.min(Math.max(d.getTime(), min ?? -Infinity), max ?? Infinity));
+                // The hour and minute TYPED are the chart zone's, on the day shown.
+                const base = wallClockOf(value ?? max ?? Date.now(), timeZone);
+                const picked = instantOfWallClock({ ...base, hour: h, minute: m }, timeZone);
+                onChange(Math.min(Math.max(picked, min ?? -Infinity), max ?? Infinity));
               }}
               className="h-[26px] flex-1 rounded border border-control-border bg-transparent px-1.5 text-[13px] tabular text-ink outline-none focus:border-accent"
             />

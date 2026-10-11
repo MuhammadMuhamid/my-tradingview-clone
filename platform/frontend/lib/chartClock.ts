@@ -226,3 +226,79 @@ export function axisTickFormatter(
     return null;
   };
 }
+
+/**
+ * A calendar date and minute, as a wall clock in one zone reads it.
+ *
+ * W2D-08: the Replay picker built its calendar and its time field from the
+ * BROWSER's zone, beside a replay clock and a time axis printed in the
+ * chart's — so in New York, on a UTC chart, the field said `03:59 AM` for the
+ * bar the clock called `07:59:59`, and a time typed into it landed four hours
+ * from where the user meant. These two functions are the conversion both
+ * directions go through. `timeZone` omitted means the browser's own zone,
+ * which is what a surface with no chart zone of its own (Go to…) still uses.
+ */
+export interface WallClock {
+  year: number;
+  /** 0–11, as `Date` counts them. */
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+}
+
+const wallFormatters = new Map<string, Intl.DateTimeFormat>();
+
+export function wallClockOf(ms: number, timeZone?: string): WallClock {
+  const d = new Date(ms);
+  if (timeZone === undefined) {
+    return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate(),
+      hour: d.getHours(), minute: d.getMinutes() };
+  }
+  if (timeZone === "UTC") {
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth(), day: d.getUTCDate(),
+      hour: d.getUTCHours(), minute: d.getUTCMinutes() };
+  }
+  let format = wallFormatters.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone, year: "numeric", month: "numeric", day: "numeric",
+      hour: "numeric", minute: "numeric", hourCycle: "h23",
+    });
+    wallFormatters.set(timeZone, format);
+  }
+  const parts = format.formatToParts(d);
+  const value = (kind: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((part) => part.type === kind)?.value ?? NaN);
+  return { year: value("year"), month: value("month") - 1, day: value("day"),
+    hour: value("hour") % 24, minute: value("minute") };
+}
+
+/**
+ * The instant a wall clock in `timeZone` names.
+ *
+ * Fields out of range roll over as `Date.UTC` rolls them (day 32 is the next
+ * month's first), which is what lets a calendar step a day or a month by
+ * adding one. Two offset passes, so a time just across a DST change resolves
+ * against the offset in force AT that time rather than the guess's.
+ */
+export function instantOfWallClock(wall: WallClock, timeZone?: string): number {
+  if (timeZone === undefined) {
+    return new Date(wall.year, wall.month, wall.day, wall.hour, wall.minute, 0, 0).getTime();
+  }
+  const asUtc = Date.UTC(wall.year, wall.month, wall.day, wall.hour, wall.minute);
+  if (timeZone === "UTC") return asUtc;
+  const offset = (ms: number): number => {
+    const w = wallClockOf(ms, timeZone);
+    return Date.UTC(w.year, w.month, w.day, w.hour, w.minute) - Math.floor(ms / 60_000) * 60_000;
+  };
+  const first = asUtc - offset(asUtc);
+  return asUtc - offset(first);
+}
+
+/** `YYYY-MM-DD HH:MM` in `timeZone` — the replay clock's own form, to the minute. */
+export function fmtChartMinute(ms: number, timeZone: ChartTimeZone = "UTC"): string {
+  if (Number.isNaN(new Date(ms).getTime())) return "—";
+  const w = wallClockOf(ms, timeZone);
+  return `${w.year}-${pad(w.month + 1)}-${pad(w.day)} ${pad(w.hour)}:${pad(w.minute)}`;
+}

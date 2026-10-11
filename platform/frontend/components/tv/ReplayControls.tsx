@@ -170,6 +170,8 @@ export function ReplayControls({
           onChange={setRequested}
           min={first?.closeTime}
           max={last?.closeTime}
+          /* W2D-08: the zone the replay clock and the axis are printed in. */
+          timeZone={timeZone}
         />
         <button
           className="flex h-[26px] shrink-0 items-center rounded bg-accent px-2.5 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40"

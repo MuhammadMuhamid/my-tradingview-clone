@@ -286,3 +286,58 @@ export function liveActionsDisabled(session: ReplaySession | null): boolean {
 export function replayDelayMs(speed: ReplaySpeed): number {
   return 1000 / speed;
 }
+
+/*
+ * ── W2D-10: a clock that keeps time, rather than a delay that drifts ───────
+ *
+ * Play was a chain of `setTimeout(step, 1000 / speed)`, each one scheduled
+ * after the previous step had rendered. Every step's render cost was added to
+ * every interval, so the measured speed was `1000 / (delay + render)`: 1× ran
+ * at five bars in six seconds and 10× at thirty-five, not sixty. A faster
+ * button bought less and less of what it said.
+ *
+ * The clock below counts from the moment Play (or a speed change) started:
+ * after `elapsed` milliseconds exactly `floor(elapsed × speed / 1000)` bars are
+ * owed, whatever any one render cost, and a step that was late is made up on
+ * the next tick instead of being lost. What it will NOT do is replay a stall:
+ * a tab that was in the background for a minute owes six hundred bars at 10×,
+ * and jumping them would be a lurch nobody can read — so a debt larger than
+ * one second's worth is paid one second's worth and the clock re-anchored.
+ */
+export interface ReplayClock {
+  /** When this run of Play started, in the caller's clock (ms). */
+  startedAt: number;
+  /** Bars already stepped since `startedAt`. */
+  taken: number;
+  speed: ReplaySpeed;
+}
+
+export function startReplayClock(now: number, speed: ReplaySpeed): ReplayClock {
+  return { startedAt: now, taken: 0, speed };
+}
+
+/** Bars owed at `now`, and the clock after paying them. */
+export function replayClockTick(
+  clock: ReplayClock, now: number,
+): { steps: number; clock: ReplayClock } {
+  const owed = Math.max(0,
+    Math.floor(((now - clock.startedAt) * clock.speed) / 1000) - clock.taken);
+  if (owed <= clock.speed) return { steps: owed, clock: { ...clock, taken: clock.taken + owed } };
+  // A stall: pay one second's worth and count from now.
+  return { steps: clock.speed, clock: startReplayClock(now, clock.speed) };
+}
+
+/** How long until the next bar is owed — never negative. */
+export function replayClockDelay(clock: ReplayClock, now: number): number {
+  const dueAt = clock.startedAt + ((clock.taken + 1) * 1000) / clock.speed;
+  return Math.max(0, dueAt - now);
+}
+
+/** Step forward `steps` bars at once, stopping where a single step would. */
+export function advanceReplay(
+  session: ReplaySession, candles: readonly Candle[], steps: number,
+): ReplaySession {
+  let next = session;
+  for (let i = 0; i < steps && next.playing; i++) next = stepReplay(next, candles, 1);
+  return next;
+}
