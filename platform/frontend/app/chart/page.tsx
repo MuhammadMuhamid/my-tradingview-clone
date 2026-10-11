@@ -2315,6 +2315,21 @@ export default function TvWorkspace() {
   const publishCrosshair = emitCrosshair;
   const publishRange = paneCount > 1 && rangeSyncActive(sync) ? emitRange : undefined;
 
+  /*
+   * ── C11: one range row for the whole layout ──────────────────────────────
+   *
+   * Every pane at `large` density drew its own 38px `1D 5D 1M …` row and its
+   * own clock, so a 2×2 showed four of each. The reference draws ONE row under
+   * the whole layout, acting on the focused chart. While more than one pane
+   * is on screen this host is that row's place: the focused pane renders its
+   * row into it (`CandleChart`'s `rangeRowTarget`) and the others draw none.
+   * The host keeps its 38px whichever pane is focused, so moving focus moves
+   * no chart. A maximised pane is one chart again and draws its own; phones
+   * keep the rule they had, because a compact pane draws no row at all.
+   */
+  const [rangeRowHost, setRangeRowHost] = useState<HTMLDivElement | null>(null);
+  const sharedRangeRow = paneCount > 1 && workspace.maximizedPaneId === null && !isMobile;
+
   const renderPane = useCallback((pane: PaneState, context: { maximized: boolean }) => {
     const decorations = paneDecorations.get(pane.id);
     const isActive = pane.id === workspace.activePaneId;
@@ -2400,9 +2415,10 @@ export default function TvWorkspace() {
         onOpenObjectTree={() => setPanel("objects")}
         onEditNative={setEditingNativeKey}
         compact={isMobile}
+        rangeRowTarget={sharedRangeRow ? (isActive ? rangeRowHost : null) : undefined}
       />
     );
-  }, [comparePaneId, paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
+  }, [sharedRangeRow, rangeRowHost, comparePaneId, paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
@@ -2677,6 +2693,9 @@ export default function TvWorkspace() {
         {/* the panes */}
         <div className="relative flex min-h-0 flex-1 flex-col">
           <ChartWorkspace workspace={workspace} renderPane={renderPane} />
+          {sharedRangeRow && (
+            <div ref={setRangeRowHost} data-shared-range-row="" className="flex min-h-[38px] shrink-0 flex-col" />
+          )}
           {overlays.selected && <TradingOverlayDetails item={overlays.selected}
             onClose={() => overlays.select(null)} />}
         </div>

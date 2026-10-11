@@ -615,7 +615,11 @@ test("SHORTCUTS — the row always offers all nine, and disables what it cannot 
   // different question — it is about price, which every presentation has — so
   // it lives on the axis and is gated separately.
   assert.match(CHART, /const showRanges = timeAnchored;/);
-  assert.match(CHART, /const showBottomBar = !compact;/);
+  // A chart alone draws its row only at `large` density; one of several draws
+  // the workspace's single row only while focused (C11).
+  assert.match(CHART,
+    /const showBottomBar = rangeRowTarget === undefined \? !compact : rangeRowTarget !== null;/);
+  assert.match(CHART, /rangeRowTarget \? createPortal\(row, rangeRowTarget\) : row/);
 });
 
 test("SHORTCUTS — the bottom row is time only; the scale controls sit on the axis", () => {

@@ -479,7 +479,10 @@ recorded below in §7c once finalised, and are not to be "tidied" back.
   row carries the stream/health truth — never a paragraph.
 - The bottom row is `1D 5D 1M 3M 6M YTD 1Y 5Y All` — all nine, always, the
   unreachable ones DISABLED — then a hairline and a one-click go-to-date
-  button, with the clock (13px muted, `hh:mm:ss UTC`) at the right. The price
+  button, with the clock (13px muted, `hh:mm:ss UTC`) at the right. With more
+  than one chart on screen there is ONE such row under the whole layout,
+  acting on the focused chart (the focused pane renders its own row into the
+  workspace's host), never one per pane (C11). The price
   scale's `auto / log / % / reset` live at the foot of the price axis and
   reveal on hover; a non-price scale mode still declares itself.
 

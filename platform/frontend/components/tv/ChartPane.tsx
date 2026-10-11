@@ -208,6 +208,12 @@ export interface ChartPaneProps {
 
   /** Force the smallest chrome regardless of measured size (phones). */
   compact?: boolean;
+  /**
+   * The workspace's single range row (C11): undefined when this pane draws its
+   * own, the host element while this pane is the focused one of several, and
+   * `null` while another pane holds it. See `CandleChart`'s `showBottomBar`.
+   */
+  rangeRowTarget?: HTMLElement | null;
 
   /**
    * The browser's favourite / recent / custom resolutions.
@@ -1079,6 +1085,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             replaying={replayActive}
             fill
             compact={density !== "large"}
+            rangeRowTarget={props.rangeRowTarget}
             onLiveBarBoundary={replayActive ? undefined : liveBarBoundary}
             onPriceSelect={props.onPriceSelect}
             onBarSelect={props.onBarSelect}

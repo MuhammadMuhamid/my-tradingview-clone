@@ -1,6 +1,7 @@
 "use client";
 import { AxisTickClearancePrimitive } from "@/lib/axisTickClearance";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
   BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText,
@@ -822,6 +823,7 @@ export function CandleChart({
   replayStrip,
   onAnnotationSelect,
   compact = false,
+  rangeRowTarget,
   identity,
   onLiveBarBoundary,
   onCrosshairMove, crosshairTime,
@@ -1055,6 +1057,16 @@ export function CandleChart({
    * 390px screen covers most of the price column.
    */
   compact?: boolean;
+  /**
+   * The workspace's ONE range row, when it has one (C11).
+   *
+   * Undefined: this chart is the only one on screen and draws its own row
+   * under its plot, as it always has. Defined: the workspace draws a single
+   * row under the whole layout, as the reference does, and this chart fills
+   * it only while it is the focused pane — the element is the row's host, and
+   * `null` means another pane holds it. See `showBottomBar`.
+   */
+  rangeRowTarget?: HTMLElement | null;
   /**
    * What this chart IS, rendered at the top of the chart's own legend column.
    *
@@ -3674,8 +3686,23 @@ export function CandleChart({
    * workspace would spend a tenth of its height on chrome. The library's own
    * axis drag and double-click-to-reset still work on those panes, and
    * maximising one brings the bar back.
+   *
+   * C11: with more than one pane on screen the row is the WORKSPACE's, not
+   * every large pane's. A 2×2 used to draw four range rows and four clocks,
+   * where the reference draws one row and one clock under the whole layout,
+   * acting on the focused chart. So the focused pane renders its row into the
+   * workspace's host through a portal — its own chips, its own pressed state,
+   * its own loaded window, acting on its own chart, which is exactly "the
+   * focused chart" — and every other pane draws none. Range sync is
+   * untouched: a shortcut moves the focused chart, and the existing
+   * visible-range sync carries that to the synced panes. The row is drawn
+   * whatever the focused pane's density, because it no longer costs that
+   * pane any height.
    */
-  const showBottomBar = !compact;
+  const showBottomBar = rangeRowTarget === undefined ? !compact : rangeRowTarget !== null;
+  /** In a multi-pane workspace the row lives in the workspace's host. */
+  const portalled = (row: ReactNode): ReactNode =>
+    rangeRowTarget ? createPortal(row, rangeRowTarget) : row;
 
   const applyRangeShortcut = useCallback((id: RangeShortcutId) => {
     const chart = chartRef.current;
@@ -4698,6 +4725,7 @@ export function CandleChart({
           `All` fifteen pixels right of where the reference has it, which is
           what moved the separator and the go-to-date button off their marks.
         */
+        portalled(
         <div className="flex h-[38px] shrink-0 items-center border-t border-border bg-surface pl-[9px] pr-1.5">
           {showRanges && (
           <div role="group" aria-label="Visible range" className="flex items-center">
@@ -4793,6 +4821,7 @@ export function CandleChart({
             </span>
           )}
         </div>
+        )
       )}
     </div>
   );
