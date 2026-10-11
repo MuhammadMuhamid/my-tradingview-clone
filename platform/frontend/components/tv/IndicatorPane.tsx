@@ -1,4 +1,5 @@
 "use client";
+import { AxisTickClearancePrimitive } from "@/lib/axisTickClearance";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ColorType, createChart, CrosshairMode, LineStyle, LineType,
@@ -492,6 +493,9 @@ export function IndicatorPane({
           }), data: [] };
         }
         seriesRef.current.set(overlay.id, entry);
+        // E2: no tick label on this pane's axis is left half-covered by a
+        // pill. Idempotent, so one per series costs nothing when two agree.
+        try { entry.api.attachPrimitive(new AxisTickClearancePrimitive()); } catch { /* disposed */ }
       }
       if (entry.kind === "Line") entry.api.applyOptions({
         color: overlay.color,

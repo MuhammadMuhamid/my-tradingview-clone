@@ -7,6 +7,7 @@ import {
   ALL_QUOTES, ALL_TYPES, ALL_VENUES, ASSET_CLASS_CHIPS, EXPIRY_LABELS, EXPIRY_OPTIONS, LIVE_EXPIRIES,
   NO_INTENT, SEARCH_MARKET, SEARCH_VENUE, TYPE_LABELS, chipById, chipDegradedTitle, chipForInstrument,
   chipTypeDefault, currentFirst, dialogClosed, matchParts, moveCursor,
+  isInstrument, readRecentSymbols, recentRowsFor, rememberRecentSymbol, trackedRows,
   pressEnter, queryChanged, quoteFilters, reasonForSource, responseArrived, rowAtCursor, rowDescription,
   rowTicker, rowTitle, rowTypeWords, searchKey, showsExpiry, typeOptionsFor, venueOptions,
   type SearchAssetClass, type SearchExpiry, type SearchInstrumentType, type SearchIntent,
@@ -208,6 +209,10 @@ export function SymbolSearch({
   /** The instrument on the chart, readable from an in-flight promise. */
   const currentRef = useRef(current);
   currentRef.current = current;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  /** What the rows on screen are when they answer no query (E7). */
+  const [startList, setStartList] = useState<null | "recent" | "tracked">(null);
   /** Runs the debounced search immediately, cancelling the timer. */
   const flushSearch = useRef<(() => void) | null>(null);
   /** The open menu and its cursor, for the window key handler. */
@@ -296,32 +301,65 @@ export function SymbolSearch({
     const id = ++reqId.current;
     setBusy(true);
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // E7: an empty box with no venue or quote narrowing lists what the user
+    // has picked before — or, with no history yet, this installation's own
+    // instruments — never the whole catalogue in alphabetical order. The
+    // search still runs: it is what fills the venue and quote filters.
+    const starting = term.trim().length === 0 && quote === ALL_QUOTES && venue === ALL_VENUES;
     const run = () => {
       timer = null;
+      /** Put `answered` on screen, and settle an Enter that was waiting for it. */
+      let shown = false;
+      const show = (answered: SymbolSearchResult[], list: null | "recent" | "tracked"): void => {
+        shown = true;
+        setStartList(list);
+        // The chart's own instrument leads the list, so the keyboard cursor
+        // opens on it and "open, Enter" is the no-op it looks like.
+        const ordered = currentFirst(answered, currentRef.current);
+        setRows(ordered);
+        setCursor(ordered.length > 0 ? 0 : -1);
+        setErr(null);
+        // Enter was pressed while this query was still in flight. It meant
+        // "take the best match for what I typed" — honoured only if the
+        // dialog is still open.
+        const settled = responseArrived(intent.current, key, openRef.current);
+        intent.current = settled.intent;
+        bumpIntent();
+        const row = ordered[0];
+        if (settled.action === "select-top" && row) void chooseRef.current(row);
+      };
+      /*
+       * The starting list does not wait for the catalogue. An empty query asks
+       * every provider for everything and takes seconds; the recent list is
+       * already on this device and the tracked list is one local read, so they
+       * are shown as soon as they exist and the search, when it lands, only
+       * fills the venue and quote filters.
+       */
+      const recent = starting ? recentRowsFor(readRecentSymbols(), currentRef.current, modeRef.current) : [];
+      if (recent.length > 0) show(recent, "recent");
+      else if (starting) {
+        void api.listSymbols(true).then(trackedRows).catch(() => [] as SymbolSearchResult[]).then((list) => {
+          if (reqId.current !== id || shown) return;
+          const own = list.filter((row) =>
+            modeRef.current !== "compare" || !isInstrument(row, currentRef.current));
+          if (own.length > 0) { show(own, "tracked"); setBusy(false); }
+        });
+      }
       api.searchMarket(term, quote === ALL_QUOTES ? "" : quote, venue === ALL_VENUES ? "" : venue, 60, type,
         expiry, "", chipById(chip).query.assetClass ?? "")
         .then((res) => {
           if (reqId.current !== id) return;
-          // The chart's own instrument leads the list, so the keyboard cursor
-          // opens on it and "open, Enter" is the no-op it looks like.
-          const ordered = currentFirst(res.results, currentRef.current);
-          setRows(ordered);
           setQuotes(res.quotes);
           setVenues(res.venues ?? []);
           setErrors(res.errors ?? []);
-          setCursor(ordered.length > 0 ? 0 : -1);
-          setErr(null);
-          // Enter was pressed while this query was still in flight. It meant
-          // "take the best match for what I typed" — honoured only if the
-          // dialog is still open.
-          const settled = responseArrived(intent.current, key, openRef.current);
-          intent.current = settled.intent;
-          bumpIntent();
-          const row = ordered[0];
-          if (settled.action === "select-top" && row) void chooseRef.current(row);
+          // An empty box with nothing to start from falls back to the answer.
+          if (!shown) show(res.results, null);
         })
         .catch((e) => {
           if (reqId.current !== id) return;
+          // The starting list answered no query, so a catalogue that failed to
+          // load takes nothing away from it — only the filters stay empty.
+          if (shown && starting) return;
           // A failed search must not leave the previous instrument list on
           // screen under an error: those rows are no longer an answer to what
           // was typed, and picking one would look like a successful search.
@@ -358,6 +396,7 @@ export function SymbolSearch({
       // follows receive the bare stored ticker — see `lib/instrument`. In
       // compare mode the same value means "overlay this", and the caller is
       // the one that knows the pane's comparison is not its symbol.
+      rememberRecentSymbol(row);
       onSelect(row.canonicalId ?? storedSymbol(row.symbol));
       onClose();
     } catch (e) {
@@ -755,6 +794,11 @@ export function SymbolSearch({
               {term.trim().length === 0
                 ? `Type to search crypto, U.S. stocks/ETFs, FX, futures and indices across supported venues.`
                 : <>No market instrument matches “{term}”</>}
+            </div>
+          )}
+          {startList !== null && rows.length > 0 && !err && (
+            <div className="px-5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+              {startList === "recent" ? "Recent symbols" : "Your symbols"}
             </div>
           )}
           {rows.map((r, i) => {

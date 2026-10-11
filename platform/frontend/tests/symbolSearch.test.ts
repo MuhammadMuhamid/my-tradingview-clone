@@ -15,6 +15,7 @@ import path from "node:path";
 import {
   ALL_QUOTES, ALL_TYPES, ASSET_CLASS_CHIPS, EXPIRY_LABELS, EXPIRY_OPTIONS, NO_INTENT, SEARCH_MARKET,
   SEARCH_VENUE, TYPE_LABELS, chipDegradedTitle, chipForInstrument, chipTypeDefault, currentFirst,
+  RECENT_SYMBOL_LIMIT, isInstrument, recentRowsFor, withRecentSymbol,
   degradedSources, degradedSummary, describeResult, dialogClosed, matchParts, moveCursor, pressEnter,
   queryChanged, quoteFilters, responseArrived, rowAtCursor, rowDescription, rowTicker, rowTitle,
   rowTypeWords, searchKey, searchSummary, showsExpiry, sourceLabel, typeOptionsFor, venueFilters,
@@ -182,7 +183,10 @@ test("the box opens on the chart's TICKER and the chart's instrument leads the l
     "the box opens on the ticker, not the base asset");
   assert.doesNotMatch(source, /setTerm\(current\.baseAsset|setTerm\(baseAsset/,
     "pre-filling the BASE asset is the defect R4-04 found");
-  assert.match(source, /currentFirst\(res\.results, currentRef\.current\)/);
+  // E7: the rows are the server's answer, or the recent list for an empty
+  // box — and whichever they are, the chart's own instrument leads them.
+  assert.match(source, /if \(!shown\) show\(res\.results, null\);/);
+  assert.match(source, /currentFirst\(answered, currentRef\.current\)/);
   assert.match(source, /const row = ordered\[0\];/,
     "an armed Enter must select from the ORDERED rows, or it re-introduces the defect");
   assert.doesNotMatch(source, /on this chart<|border-l-accent/,
@@ -647,4 +651,26 @@ test("an instrument's name is a fact from a table, or its code", () => {
   assert.equal(assetName("WBTC"), "Wrapped Bitcoin");
   assert.equal(assetName("ZZZ"), "ZZZ", "an unknown asset keeps its code");
   assert.equal(assetName(""), "");
+});
+
+test("E7 — an empty box lists recent picks, newest first, once each, never the chart itself in compare", () => {
+  const row = (symbol: string): SymbolSearchResult => ({
+    symbol, canonicalId: `id:${symbol}`, baseAsset: symbol.slice(0, 3), quoteAsset: "USDT", tracked: true,
+  });
+  let recents: SymbolSearchResult[] = [];
+  for (const s of ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ETHUSDT"]) recents = withRecentSymbol(recents, row(s));
+  assert.deepEqual(recents.map((r) => r.symbol), ["ETHUSDT", "SOLUSDT", "BTCUSDT"]);
+  for (let i = 0; i < 20; i++) recents = withRecentSymbol(recents, row(`X${i}USDT`));
+  assert.equal(recents.length, RECENT_SYMBOL_LIMIT);
+  const list = [row("BTCUSDT"), row("ETHUSDT")];
+  assert.deepEqual(recentRowsFor(list, "id:BTCUSDT", "compare").map((r) => r.symbol), ["ETHUSDT"]);
+  assert.deepEqual(recentRowsFor(list, "id:BTCUSDT", "symbol").map((r) => r.symbol), ["BTCUSDT", "ETHUSDT"]);
+  // The chart may name itself by ticker or by canonical id; either is itself.
+  const btc: SymbolSearchResult = {
+    symbol: "BTCUSDT", canonicalId: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+    venueId: "BINANCE", baseAsset: "BTC", quoteAsset: "USDT", tracked: true,
+  };
+  assert.equal(isInstrument(btc, "BTCUSDT"), true);
+  assert.equal(isInstrument(btc, "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot"), true);
+  assert.equal(isInstrument({ ...btc, symbol: "ETHUSDT", canonicalId: "x" }, "BTCUSDT"), false);
 });

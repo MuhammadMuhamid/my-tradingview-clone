@@ -524,13 +524,13 @@
   /*
    * A menu is the menu grammar's size wherever it is mounted.
    *
-   * `ContextMenu` is positioned `fixed` but is NOT portalled, so it stays a DOM
-   * descendant of whatever opened it and inherits that caller's type. The study
-   * legend sets `text-[13px]`, and the `button { font-size: inherit }` rule
-   * below outranks a utility class on the row, so the indicator menu rendered a
-   * point smaller than every other menu in the product — including the chart
-   * menu opened two seconds earlier. Stated here rather than fixed at one call
-   * site, because the next caller inside sized type would inherit it too.
+   * A menu that is not portalled stays a DOM descendant of whatever opened it
+   * and inherits that caller's type. The study legend sets `text-[13px]`, and
+   * the `button { font-size: inherit }` rule below outranks a utility class on
+   * the row, so the indicator menu once rendered a point smaller than every
+   * other menu in the product. `ContextMenu` now portals, but this is stated
+   * here rather than relied on there, because the next in-place caller inside
+   * sized type would inherit it too.
    */
   font-size: var(--ts-workstation-font-size);
 }
@@ -776,6 +776,21 @@ body {
  */
 :is(.tv-workstation, .ts-app) :focus-visible {
   outline-offset: 1px;
+}
+
+/*
+ * A menu PANEL is never a ring target; its rows say where the keyboard is.
+ *
+ * `ContextMenu` focuses its panel on open so arrow keys reach it at once, and
+ * that programmatic focus matched `:focus-visible` — so every right-click menu
+ * wore a 2px accent rectangle round its whole body. The reference computes
+ * `outline: none` there. Nothing is lost for a keyboard user: the cursor is the
+ * highlighted row (`data-highlighted`, mirrored to `aria-activedescendant`),
+ * which is how a menu shows focus. Only the panel loses the ring — a focusable
+ * control INSIDE a menu keeps the rule above.
+ */
+:is(.tv-workstation, .ts-app) [role="menu"]:focus-visible {
+  outline: none;
 }
 
 /*

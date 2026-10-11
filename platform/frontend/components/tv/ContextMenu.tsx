@@ -40,6 +40,7 @@
 import {
   useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   initialMenuCursor, isSeparator, isSwatches, moveMenuCursor, placeMenu, swatchId, tidyEntries,
   type MenuEntry, type MenuGlyph, type MenuItem, type MenuKey, type MenuPlacement,
@@ -395,13 +396,16 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
           }
           choose(entry.id);
         }}
-        data-highlighted={focused && !entry.disabled && !entry.destructive ? "true" : undefined}
+        data-highlighted={focused && !entry.disabled ? "true" : undefined}
+        /*
+          A destructive row is NOT tinted. Measured on the reference's indicator
+          and drawing menus, `Remove` is the same rgb(219,219,219) ink as every
+          other row: the trash glyph says what it does, and chromatic colour in
+          this product means direction, never danger (§2). The flag still keeps
+          the keyboard cursor from LANDING on it when the menu opens.
+        */
         className={`tvc-menu-row w-full gap-2 px-2 text-left text-sm ${
-          entry.disabled
-            ? "cursor-not-allowed text-ink-faint"
-            : entry.destructive
-              ? focused ? "bg-down/15 text-down" : "text-down"
-              : "text-ink"
+          entry.disabled ? "cursor-not-allowed text-ink-faint" : "text-ink"
         }`}
       >
         {/*
@@ -446,8 +450,19 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
     );
   };
 
-  return (
-    <>
+  /*
+   * Portalled to <body>, inside its own `tv-workstation` root.
+   *
+   * Rendered in place, the panel sat inside whatever stacking context opened
+   * it: the indicator legend's `z-[3]` capped the menu's `z-[91]`, so the NEXT
+   * pane's legend painted over it, and the panel inherited the legend's 13px
+   * type. A menu belongs to the viewport, not to the row that summoned it. The
+   * scope class keeps the menu grammar matching outside the chart's subtree,
+   * exactly as `Modal` does for dialogs. React still bubbles its events through
+   * the component tree, so Escape stopping here behaves as before.
+   */
+  return createPortal(
+    <div className="tv-workstation" data-context-menu-root="">
       {/*
         The outside-click catcher. `onPointerDown` rather than `onClick` so the
         menu closes on the press, before the element underneath can act on the
@@ -513,6 +528,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
             renderRow(entry, index, index === subCursor, true))}
         </div>
       )}
-    </>
+    </div>,
+    document.body,
   );
 }

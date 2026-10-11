@@ -13,7 +13,7 @@ import {
   watchlistMenu, watchlistSettingsMenu, type WatchlistPanelEntry, type WatchlistViewPrefs,
 } from "@/lib/menuPayloads";
 import {
-  FLAG_COLOURS, clearFlags, flagHex, readFlags, setFlag,
+  FLAG_COLOURS, FLAGS_CHANGED_EVENT, clearFlags, flagHex, readFlags, setFlag,
   type FlagColour, type FlagMap,
 } from "@/lib/watchlistFlags";
 import {
@@ -528,6 +528,12 @@ export function Watchlist({
   const [flags, setFlags] = useState<FlagMap>({});
   const [sections, setSections] = useState<SectionMap>({});
   const [notes, setNotes] = useState<NoteMap>({});
+  // A flag set from the chart legend (E6) lands here without a reload.
+  useEffect(() => {
+    const sync = (): void => setFlags(readFlags());
+    window.addEventListener(FLAGS_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(FLAGS_CHANGED_EVENT, sync);
+  }, []);
   useEffect(() => {
     setPrefs(readPrefs());
     setWidth(readWidth());

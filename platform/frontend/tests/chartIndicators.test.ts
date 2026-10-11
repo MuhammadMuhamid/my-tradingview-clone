@@ -60,6 +60,18 @@ test("crosshair values restore the latest finite plot value when it leaves", () 
   assert.equal(plotValueAt(points, null), 12);
 });
 
+test("E9 — a crosshair past the newest bar holds the last reading instead of ∅", () => {
+  const points = [
+    { time: 1, value: 10 }, { time: 2, value: 11 }, { time: 3, value: null },
+  ];
+  // Right-hand whitespace: no bar there, so the newest finite reading stands.
+  assert.equal(plotValueAt(points, 9), 11);
+  // A real bar whose value is absent is still absent.
+  assert.equal(plotValueAt(points, 3), null);
+  // Before the series starts there is nothing to hold.
+  assert.equal(plotValueAt(points, 0), null);
+});
+
 test("offsets shift onto chart bars and extrapolate only at the outer boundary", () => {
   assert.equal(shiftedPlotTime([60, 120, 180], 0, 1), 120);
   assert.equal(shiftedPlotTime([60, 120, 180], 2, 1), 240);

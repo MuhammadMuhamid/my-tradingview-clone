@@ -275,9 +275,23 @@ export function IndicatorLegend({
                   cluster ran at a 30px pitch against the reference's 28. The
                   button IS the pitch; the space belongs inside it.
                 */}
+                {/*
+                  ── E3: the cluster takes NO room until it is wanted ─────────
+
+                  It was a 112px flex child at `opacity:0`, permanently in flow,
+                  so every resting row carried 112px of blank between its title
+                  and its reading. The reference's buttons wrapper is `width:0`
+                  at rest and the buttons cover the reading while hovered. So
+                  this is zero-width and clipped at rest — still focusable, which
+                  is what lets `focus-within` open it for a keyboard user — and
+                  the values below hide while it shows, so it reads as one box
+                  holding the study's verbs, not buttons stacked on numbers.
+                */}
                 {onAction && canAction?.(group.id) && (
-                  <span className="flex shrink-0 items-center
-                    opacity-0 transition-opacity focus-within:opacity-100 group-hover/study:opacity-100">
+                  <span data-study-actions=""
+                    className="flex w-0 shrink-0 items-center overflow-hidden opacity-0 transition-opacity
+                    focus-within:w-auto focus-within:opacity-100
+                    group-hover/study:w-auto group-hover/study:opacity-100">
                     <StudyButton label={`Hide ${group.title}`}
                       onClick={() => onAction(group.id, "hide")}>
                       <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
@@ -380,11 +394,13 @@ export function IndicatorLegend({
                   still answerable.
                 */
                 const absent = value === null || !Number.isFinite(value);
+                const covered = onAction && canAction?.(group.id);
                 return (
                   <span
                     key={plot.id}
                     title={plot.title}
-                    className={`pointer-events-auto shrink-0 tabular ${absent ? "text-ink-muted" : ""}`}
+                    className={`pointer-events-auto shrink-0 tabular ${absent ? "text-ink-muted" : ""} ${
+                      covered ? "group-hover/study:invisible group-focus-within/study:invisible" : ""}`}
                     style={{
                       ...(absent ? {} : { color: plot.color }),
                       ...(plate ? { backgroundColor: plate } : {}),

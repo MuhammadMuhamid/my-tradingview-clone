@@ -1,4 +1,5 @@
 "use client";
+import { AxisTickClearancePrimitive } from "@/lib/axisTickClearance";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
@@ -1175,6 +1176,8 @@ export function CandleChart({
   /** Internal price/indicator-pane range propagation, throttled to one frame. */
   const syncingPaneRangeRef = useRef(false);
   const syncPaneRangesRef = useRef<(source: string, range: { from: number; to: number }) => void>(() => {});
+  /** The newest range that arrived while a sync was in flight: the trailing edge. */
+  const pendingPaneRangeRef = useRef<{ source: string; range: { from: number; to: number } } | null>(null);
   const [legend, setLegend] = useState<LegendBar | null>(null);
   /**
    * The price scale, when nothing outside owns it.
@@ -1938,22 +1941,67 @@ export function CandleChart({
     resetView();
   }, [resetSignal, resetView]);
 
+  /*
+   * ── One time axis for every pane ───────────────────────────────────────
+   *
+   * Two defects lived here, and together they let the price pane and its
+   * study panes come apart after an ordinary pan:
+   *
+   * 1. The sync ran at most once a frame and DROPPED everything else. A drag
+   *    emits several range changes per frame, so the last position of a drag
+   *    was usually one that never reached the other panes — they stopped where
+   *    the drag was a frame or two before it ended. A throttle needs a
+   *    trailing edge; this one now keeps the latest range and applies it when
+   *    the frame releases.
+   * 2. It sent a TIME range. A time range can only name bars that exist, so a
+   *    pan into the empty space right of the last bar was clamped by every
+   *    target: the price pane showed whitespace, the RSI under it did not, and
+   *    the crosshair line across the panes stopped being one line. The panes
+   *    share a bar timeline (a study's missing values are whitespace points,
+   *    not absent ones), so the LOGICAL range — bar offsets, including the
+   *    empty slots past the end — is what is copied, anchored on a bar both
+   *    panes hold. The time range remains the fallback for a target that
+   *    does not hold the anchor yet.
+   */
   syncPaneRangesRef.current = (source, range) => {
-    if (syncingPaneRangeRef.current || disposalRef.current.disposed) return;
+    if (disposalRef.current.disposed) return;
+    if (syncingPaneRangeRef.current) { pendingPaneRangeRef.current = { source, range }; return; }
     syncingPaneRangeRef.current = true;
     const targets: Array<[string, IChartApi]> = [
       ...(chartRef.current ? [["price", chartRef.current] as [string, IChartApi]] : []),
       ...paneChartRefs.current,
     ];
+    const from = targets.find(([id]) => id === source)?.[1];
+    const logical = from?.timeScale().getVisibleLogicalRange() ?? null;
+    const anchor = range.to as UTCTimestamp;
+    const indexOf = (chart: IChartApi): number | null => {
+      const scale = chart.timeScale();
+      const x = scale.timeToCoordinate(anchor);
+      return x === null ? null : scale.coordinateToLogical(x);
+    };
+    const sourceIndex = from ? indexOf(from) : null;
     for (const [id, chart] of targets) {
       if (id === source) continue;
       try {
-        chart.timeScale().setVisibleRange({
-          from: range.from as UTCTimestamp, to: range.to as UTCTimestamp,
-        });
+        const targetIndex = logical && sourceIndex !== null ? indexOf(chart) : null;
+        if (logical && sourceIndex !== null && targetIndex !== null) {
+          const shift = targetIndex - sourceIndex;
+          chart.timeScale().setVisibleLogicalRange({
+            from: logical.from + shift, to: logical.to + shift,
+          });
+        } else {
+          chart.timeScale().setVisibleRange({
+            from: range.from as UTCTimestamp, to: range.to as UTCTimestamp,
+          });
+        }
       } catch { /* the target has not loaded this range yet */ }
     }
-    requestAnimationFrame(() => { syncingPaneRangeRef.current = false; });
+    requestAnimationFrame(() => {
+      syncingPaneRangeRef.current = false;
+      const pending = pendingPaneRangeRef.current;
+      pendingPaneRangeRef.current = null;
+      if (pending) syncPaneRangesRef.current(pending.source, pending.range);
+    });
   };
 
   /** Publish a span upwards, unless it is the one already published. */
@@ -2632,7 +2680,17 @@ export function CandleChart({
     }
     // Refreshed only now: a transform's legend reads the bars it just drew,
     // so it cannot be computed before `displayRef` has been brought up to date.
-    setLegend(latestLegend());
+    //
+    // And it refreshes the bar under the CROSSHAIR, not the newest one. This
+    // effect re-runs on every data refresh — the trade tape and the live
+    // candle land several times a second — and it used to reset the status
+    // line to the newest bar each time, so `O H L C` never followed the
+    // pointer for longer than a frame: the price pane was the one pane on the
+    // chart whose legend ignored the crosshair while the studies under it
+    // read the hovered bar.
+    const hover = hoverTimeRef.current;
+    const hovered = hover === null ? undefined : timeIndexRef.current.get(hover);
+    setLegend(hovered === undefined ? latestLegend() : legendAtCanonical(hovered));
     // `mainKindRef` is the type the SERIES was built from, which is how the
     // rest of this effect reads it — the effect re-runs on `chartReady`, which
     // the series-creating effect bumps.
@@ -2666,7 +2724,7 @@ export function CandleChart({
     const pending = tickGateRef.current.adopt(
       { symbol: heldSymbol, interval: heldInterval }, last ? last.openTime : null);
     if (pending) applyTickRef.current?.(pending);
-  }, [candles, heldSymbol, heldInterval, latestLegend, barColors, chartReady,
+  }, [candles, heldSymbol, heldInterval, latestLegend, legendAtCanonical, barColors, chartReady,
     marketTrades, priceTick, interval, settings.rangeTicks, settings.rangeAuto, transformSettings,
     volumeBarColor, settings.colorBarsBasedOnPreviousClose, settings.upColor, settings.downColor,
     chartType]);
@@ -3734,6 +3792,21 @@ export function CandleChart({
       catch { /* the series went away first; the primitive went with it */ }
     };
   }, [chartReady, chartType]);
+  /*
+   * E2: a pill on the price axis never leaves half a tick label showing. See
+   * `lib/axisTickClearance` — it reads what the axis drew and removes any tick
+   * run a label box touched.
+   */
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    const primitive = new AxisTickClearancePrimitive();
+    try { series.attachPrimitive(primitive); } catch { return; }
+    return () => {
+      try { series.detachPrimitive(primitive); }
+      catch { /* the series went away first; the primitive went with it */ }
+    };
+  }, [chartReady, chartType]);
   useEffect(() => {
     const primitive = countdownRef.current;
     if (!primitive) return;
@@ -3961,14 +4034,19 @@ export function CandleChart({
         </>
       )}
       {/*
-        One stacked column, not two independently positioned overlays. The OHLC
-        readout is width-capped so it cannot run underneath the feed-state badge
-        opposite — "feed stalled — price is not current" is the one message on
-        this chart that must never be half-covered — and capping it means it can
-        wrap, which is exactly when a second overlay pinned to a fixed offset
-        would have been drawn straight through it.
+        One stacked column, not two independently positioned overlays: a second
+        overlay pinned to a fixed offset would be drawn straight through the
+        readout the moment it wraps.
+
+        E8: the column is capped only to clear the price scale. It was capped at
+        68% so it could not run under a feed-state badge OPPOSITE it — but that
+        badge has since moved to the foot of this column (see below), and the
+        stale cap was what broke the status line onto two lines at 1440 with the
+        side panel open, in a 1034px pane where the reference keeps one. The
+        reference does wrap its values under the title in a genuinely narrow
+        pane, as a group; the row below does the same.
       */}
-      <div className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[min(68%,880px)] flex-col items-start gap-0.5">
+      <div className="pointer-events-none absolute left-2 top-1.5 z-20 flex max-w-[calc(100%-96px)] flex-col items-start gap-0.5">
       {/*
         The pane's identity and its own controls, when a pane supplied them.
 
@@ -4034,7 +4112,14 @@ export function CandleChart({
         {settings.showStatusLine && legend && (
           <div
             style={legendPlate ? { backgroundColor: legendPlate } : undefined}
-            className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-[20px] tabular text-ink-muted">
+            /*
+              E8: the values are ONE unit. When the pane is too narrow for the
+              identity and the values together, the row above wraps this whole
+              group under the title, as the reference does; the group itself
+              never breaks between `H` and `L`, and clips if even its own line
+              is too short (contract §9).
+            */
+            className="flex max-w-full flex-nowrap items-baseline gap-x-2 overflow-hidden whitespace-nowrap text-[13px] leading-[20px] tabular text-ink-muted">
             {/*
               Named here only when nothing above named them. A pane passes an
               `identity` slot whose whole job is to say which instrument and

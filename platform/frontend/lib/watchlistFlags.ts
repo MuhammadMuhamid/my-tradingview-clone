@@ -62,8 +62,22 @@ export function readFlags(): FlagMap {
   } catch { return {}; }
 }
 
+/**
+ * Announced on every write, so each surface that draws flags redraws.
+ *
+ * A flag can now be set from two places — the watchlist row and the chart's
+ * own legend (`Flag symbol`, E6) — and a flag set in one that the other did not
+ * show until a reload would be two answers to one question.
+ */
+export const FLAGS_CHANGED_EVENT = "ts:watchlist-flags";
+
 function write(next: FlagMap): FlagMap {
   remember(KEY, JSON.stringify(next));
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    // The window's own `Event`, which is not the runtime's global one in
+    // every host that has a window.
+    window.dispatchEvent(new window.Event(FLAGS_CHANGED_EVENT));
+  }
   return next;
 }
 

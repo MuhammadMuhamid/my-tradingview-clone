@@ -1097,6 +1097,11 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 onOpenSymbolSearch={props.onOpenSymbolSearch}
                 onInterval={props.onInterval}
                 onOpenCompareSettings={() => setCompareSettingsOpen(true)}
+                onOpenSeriesMenu={props.onChartContextMenu
+                  ? (at) => props.onChartContextMenu?.(paneId, {
+                    ...at, drawingId: null, region: "plot",
+                    price: visibleCandles[visibleCandles.length - 1]?.close ?? null,
+                  }) : undefined}
                 resolutions={props.resolutions}
                 canMaximize={props.canMaximize}
                 canClose={props.canClose}

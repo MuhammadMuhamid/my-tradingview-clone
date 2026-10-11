@@ -401,9 +401,20 @@ export function mergeBarColorLayers(layers: ChartBarColor[][]): ChartBarColor[] 
   return [...merged].map(([time, color]) => ({ time, color }));
 }
 
-/** Exact crosshair value, or the newest finite value when the crosshair left. */
+/**
+ * Exact crosshair value, or the newest finite value when the crosshair left —
+ * or went PAST the last bar.
+ *
+ * E9: a crosshair in the empty space right of the newest bar carries a time no
+ * point has, and the exact-match search returned null, so every study printed
+ * `∅` while the pointer sat in that space. The reference holds the last value
+ * there: nothing newer exists, so the newest reading IS the reading. A time
+ * inside the series that matches a bar whose value is genuinely absent (an
+ * SMA's warm-up) still answers null — that `∅` is true.
+ */
 export function plotValueAt(points: ChartPoint[], time: number | null): number | null {
-  if (time === null) {
+  const last = points[points.length - 1];
+  if (time === null || (last !== undefined && time > last.time)) {
     for (let i = points.length - 1; i >= 0; i--) {
       const value = points[i]!.value;
       if (value !== null && Number.isFinite(value)) return value;

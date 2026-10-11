@@ -27,7 +27,9 @@
  * filter from a deleted one.
  */
 import type { SymbolSearchResult } from "./api";
-import { canonicalDisplayParts, displaySymbol, displayTicker } from "./instrument";
+import type { SymbolInfo } from "./types";
+import { canonicalDisplayParts, displaySymbol, displayTicker, legacyBinanceSpotTicker } from "./instrument";
+import { recallJson, rememberJson } from "./browserStorage";
 
 /** Search is provider-aggregated and can return several canonical venues. */
 export const SEARCH_VENUE = "All venues";
@@ -655,4 +657,104 @@ export function venueOptions(input: {
     return { id: venue.id, label: venue.label, unavailable: error !== undefined,
       title: error === undefined ? "" : `${venue.label} did not answer — ${input.reason(error)}` };
   });
+}
+
+/*
+ * ── E7: what an EMPTY box lists — the user's recent symbols ───────────────
+ *
+ * Compare opens with nothing typed (it must not compare the chart with
+ * itself), and an empty query asked the server for EVERYTHING: the panel
+ * opened on `00USD`, `0GUSDT`, `0GTRY` — nine thousand instruments in
+ * alphabetical order, none of them anything the user had ever looked at. The
+ * reference opens that box on RECENT SYMBOLS. So does this: the rows the user
+ * actually picked, newest first, kept on the device like the rest of the
+ * search panel's state. With no history the panel says what to type instead
+ * of pretending an alphabet is a suggestion.
+ */
+const RECENTS_KEY = "tv.symbolSearch.recents.v1";
+export const RECENT_SYMBOL_LIMIT = 10;
+
+const rowKey = (row: SymbolSearchResult): string => row.canonicalId ?? `${row.venueId ?? ""}:${row.symbol}`;
+
+export function readRecentSymbols(): SymbolSearchResult[] {
+  const stored = recallJson<unknown>(RECENTS_KEY, []);
+  if (!Array.isArray(stored)) return [];
+  return stored.filter((row): row is SymbolSearchResult =>
+    !!row && typeof row === "object"
+    && typeof (row as SymbolSearchResult).symbol === "string"
+    && typeof (row as SymbolSearchResult).baseAsset === "string"
+    && typeof (row as SymbolSearchResult).quoteAsset === "string").slice(0, RECENT_SYMBOL_LIMIT);
+}
+
+/** Put `row` at the front, once, and keep the newest `RECENT_SYMBOL_LIMIT`. */
+export function withRecentSymbol(
+  recents: readonly SymbolSearchResult[], row: SymbolSearchResult,
+): SymbolSearchResult[] {
+  const key = rowKey(row);
+  return [row, ...recents.filter((r) => rowKey(r) !== key)].slice(0, RECENT_SYMBOL_LIMIT);
+}
+
+export function rememberRecentSymbol(row: SymbolSearchResult): void {
+  // A chosen row becomes tracked once it is charted; store it as such so a
+  // later pick from the recents list does not re-register the pair.
+  rememberJson(RECENTS_KEY, withRecentSymbol(readRecentSymbols(), { ...row, tracked: true }));
+}
+
+/**
+ * The rows an empty box shows. In compare mode the chart's own instrument is
+ * left out — comparing a chart with itself is the one pick that is never
+ * meant.
+ */
+export function recentRowsFor(
+  recents: readonly SymbolSearchResult[], current: string, mode: "symbol" | "compare",
+): SymbolSearchResult[] {
+  return mode === "compare" ? recents.filter((row) => !isInstrument(row, current)) : [...recents];
+}
+
+/**
+ * Whether `row` IS the instrument `current` names.
+ *
+ * The chart may hold either form — the canonical `instrument:v1:…` id or the
+ * stored Binance ticker — and a row carries both, so comparing one field
+ * missed the chart's own instrument whenever the forms differed.
+ */
+export function isInstrument(row: SymbolSearchResult, current: string): boolean {
+  if (row.canonicalId !== undefined && row.canonicalId === current) return true;
+  if (row.symbol === current) return true;
+  const ticker = legacyBinanceSpotTicker(current);
+  return ticker !== null && row.symbol === ticker
+    && (row.venueId === undefined || row.venueId === "BINANCE");
+}
+
+/** The majors a trading desk expects first, when nothing is more recent. */
+const LEADING_TRACKED = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"];
+
+/**
+ * The installation's own instruments, as rows — what an empty box offers a
+ * user with no history yet.
+ *
+ * Without it a first visit to Compare opened on an empty panel: no recents to
+ * show, and the whole-catalogue alphabet is no answer. The tracked table is
+ * exactly the instruments this installation has candles for — the ones a
+ * comparison can actually draw — so they are a truthful starting list. Majors
+ * first, then by ticker.
+ */
+export function trackedRows(symbols: readonly SymbolInfo[]): SymbolSearchResult[] {
+  const rank = (s: string): number => {
+    const at = LEADING_TRACKED.indexOf(s);
+    return at < 0 ? LEADING_TRACKED.length : at;
+  };
+  return symbols
+    .filter((info) => info.isActive !== false)
+    .map((info): SymbolSearchResult => ({
+      symbol: info.symbol,
+      ...(info.canonicalId ? { canonicalId: info.canonicalId } : {}),
+      ...(info.venue ? { venueId: info.venue } : {}),
+      baseAsset: info.baseAsset,
+      quoteAsset: info.quoteAsset,
+      instrumentType: "spot",
+      tracked: true,
+    }))
+    .sort((a, b) => rank(a.symbol) - rank(b.symbol) || a.symbol.localeCompare(b.symbol))
+    .slice(0, 30);
 }

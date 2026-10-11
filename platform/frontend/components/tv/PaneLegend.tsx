@@ -35,14 +35,18 @@
  * that swallowed a drag would break trend lines drawn near the top-left corner
  * — which is where most of them start.
  */
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fmtPrice } from "@/lib/format";
 import { LegendTimeframe, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { Resolution } from "@/lib/resolution";
 import type { PaneCompare } from "@/lib/workspace";
 import {
   displayDescription, displayName, displaySymbol, displayTicker, displayVenue,
+  legacyBinanceSpotTicker,
 } from "@/lib/instrument";
+import {
+  FLAG_COLOURS, FLAGS_CHANGED_EVENT, flagHex, readFlags, setFlag, type FlagColour,
+} from "@/lib/watchlistFlags";
 import type { StatusTitleForm } from "@/lib/chartSettings";
 import { DerivativeIdentity } from "@/components/tv/DerivativeIdentity";
 import { EquityIdentity } from "@/components/tv/EquityIdentity";
@@ -101,6 +105,14 @@ export interface PaneLegendProps {
   onOpenSymbolSearch: (paneId: string) => void;
   onInterval: (paneId: string, interval: Resolution) => void;
   onOpenCompareSettings?: () => void;
+  /**
+   * E6: the series' own `More`, opened at the button.
+   *
+   * On the reference this is the chart's context menu — the same rows a
+   * right-click on the plot offers — anchored under the control. So it is
+   * handed the anchor and nothing else; the menu is the chart's.
+   */
+  onOpenSeriesMenu?: (at: { x: number; y: number }) => void;
   resolutions: ResolutionPreferences;
 
   /** Both false in a one-pane workspace, where neither would mean anything. */
@@ -168,6 +180,23 @@ export function PaneLegend(props: PaneLegendProps) {
   const pickInterval = useCallback((next: Resolution) => {
     props.onInterval(paneId, next);
   }, [props, paneId]);
+  /*
+   * E6: `Flag symbol`, the same marking the watchlist row sets.
+   *
+   * Keyed exactly as the watchlist keys it (the listing ticker where there is
+   * one), so flagging BTCUSDT here puts the stub on its watchlist row and the
+   * row's `Unflag` clears this. Read after mount — storage does not exist on
+   * the server render — and again whenever any surface writes a flag.
+   */
+  const flagSymbol = legacyBinanceSpotTicker(symbol) ?? symbol;
+  const [flag, setFlagState] = useState<FlagColour | null>(null);
+  useEffect(() => {
+    const sync = (): void => setFlagState(readFlags()[flagSymbol] ?? null);
+    sync();
+    window.addEventListener(FLAGS_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(FLAGS_CHANGED_EVENT, sync);
+  }, [flagSymbol]);
+  const flagFill = flagHex(flag);
 
   return (
     <>
@@ -188,7 +217,7 @@ export function PaneLegend(props: PaneLegendProps) {
       */}
       <div
         data-pane-legend={paneId}
-        className="pointer-events-none flex max-w-full flex-wrap items-center gap-x-[5px] gap-y-0.5"
+        className="pointer-events-none group/series flex max-w-full flex-wrap items-center gap-x-[5px] gap-y-0.5"
       >
         <button
           {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 !text-[16px] leading-6 text-ink` }}
@@ -234,6 +263,53 @@ export function PaneLegend(props: PaneLegendProps) {
         {venueLabel && !dense && (
           <span className="shrink-0 text-[16px] text-ink" title={symbolLabel}>
             &middot; {venueLabel}
+          </span>
+        )}
+
+        {/*
+          ── E6: the series' hover cluster — `Flag symbol` and `More` ─────────
+
+          The reference reveals 28x22 actions after the venue when the pointer
+          is on the series' title, exactly as a study row does; this row
+          revealed nothing. Zero-width at rest, like the study cluster (E3), so
+          the resting line is unchanged; still focusable, so `focus-within`
+          opens it for the keyboard.
+        */}
+        {!dense && (
+          <span data-series-actions=""
+            className="flex w-0 shrink-0 items-center overflow-hidden opacity-0 transition-opacity
+              focus-within:w-auto focus-within:opacity-100
+              group-hover/series:w-auto group-hover/series:opacity-100">
+            <button
+              type="button"
+              {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
+              aria-label={flag ? `Unflag ${tickerLabel}` : `Flag ${tickerLabel}`}
+              aria-pressed={flag !== null}
+              onClick={() => { setFlag(readFlags(), flagSymbol, flag ? null : FLAG_COLOURS[0].id); }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 21V4M6 4.5h11l-2.2 3.8L17 12H6"
+                  fill={flagFill ?? "none"} stroke={flagFill ?? "currentColor"} />
+              </svg>
+            </button>
+            {props.onOpenSeriesMenu && (
+              <button
+                type="button"
+                {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
+                aria-label={`More for ${tickerLabel}`}
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  props.onOpenSeriesMenu?.({ x: Math.round(box.left), y: Math.round(box.bottom + 4) });
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                  <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+                </svg>
+              </button>
+            )}
           </span>
         )}
 
