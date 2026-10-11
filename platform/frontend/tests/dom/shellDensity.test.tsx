@@ -70,8 +70,10 @@ async function useLayout(container: HTMLElement, label: string): Promise<void> {
   const button = layout.querySelector<HTMLElement>("button") ?? layout;
   fireEvent.click(button);
   await settle();
-  const option = [...document.querySelectorAll<HTMLElement>("button")]
-    .find((b) => (b.getAttribute("aria-label") ?? b.getAttribute("title") ?? "").includes(label));
+  // C12: the menu is one row per count (a group named "N charts"), each
+  // holding that count's arrangements; the row's first is its default shape.
+  const option = document.querySelector<HTMLElement>(
+    `[role="group"][aria-label="${label}"] [role="menuitemradio"]`);
   assert.ok(option, `no layout option matching ${JSON.stringify(label)}`);
   fireEvent.click(option);
   await settle();
