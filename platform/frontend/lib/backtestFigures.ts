@@ -296,6 +296,7 @@ export const CORRECTION_LABELS: Readonly<Record<string, string>> = {
   barMagnifier: "Bar magnifier",
   lotDustExit: "Sub-lot remainder closes the position",
   affordableEntries: "Entries the account cannot pay for are skipped",
+  feeInclusiveAffordability: "Entry affordability includes commission",
 };
 
 export function correctionLabel(key: string): string {
