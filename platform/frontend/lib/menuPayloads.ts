@@ -27,6 +27,8 @@
 import type { MenuEntry } from "./contextMenu";
 import { displayTicker } from "./instrument";
 import { BINDINGS, type ShortcutAction } from "./shortcuts";
+import { CHART_TIME_ZONES } from "./chartClock";
+import type { ChartTimeZone } from "./chartSettings";
 
 /**
  * The key cap a row prints, read from the table that implements the chord.
@@ -471,6 +473,12 @@ export interface AxisMenuContext {
   labels: { lastValue: boolean; indicatorValue: boolean; dayOfWeek: boolean };
   /** The two axis LINES it owns. `bidAsk` is null where the feed has no book. */
   lines: { lastValue: boolean; bidAsk: boolean | null };
+  /**
+   * The `Plus button` setting — the axis's hover `+` that arms an alert at
+   * the price under the pointer (Chart settings → Scales). Optional so a
+   * caller that predates it reads as "on", the setting's own default.
+   */
+  plusButton?: boolean;
 }
 
 export const AXIS_MENU_IDS = [
@@ -479,6 +487,7 @@ export const AXIS_MENU_IDS = [
   "axis:move-left",
   "axis:label-last-value", "axis:label-indicator-value", "axis:label-day-of-week",
   "axis:line-last-value", "axis:line-bid-ask",
+  "axis:toggle-plus-button",
   "axis:reset", "axis:more-settings",
 ] as const;
 export type AxisMenuId = (typeof AXIS_MENU_IDS)[number];
@@ -498,11 +507,15 @@ export type AxisMenuId = (typeof AXIS_MENU_IDS)[number];
  *
  * `Labels ›` and `Lines ›` are the reference's submenus over settings this
  * product already has in Chart settings → Scales; `More settings…` opens that
- * tab. `Lock price to bar ratio` and `Plus button` stay recorded omissions
- * (contract §6): lightweight-charts 4.2 exposes no bar-ratio lock, and the
- * plus button is not a thing the axis menu switches — it is R8-08's own
- * hover affordance, and a switch for something that is always on would be a
- * switch that does nothing.
+ * tab.
+ *
+ * A6: `Plus button` is here now. It was left out when the `+` was always on;
+ * since then Chart settings → Scales gained a real `Plus button` setting that
+ * `CandleChart` honours, so the reference's row has something to switch.
+ * `Lock price to bar ratio` and `Scale price chart only` stay recorded
+ * omissions (contract §6): lightweight-charts 4.2 exposes no bar-ratio lock,
+ * and nothing in this product keeps the studies out of the price scale's
+ * autoscale, so either row would be a switch that does nothing.
  */
 export function priceAxisMenu(ctx: AxisMenuContext): MenuEntry[] {
   const regular = !ctx.logScale && !ctx.percentScale && !ctx.indexedScale;
@@ -564,6 +577,7 @@ export function priceAxisMenu(ctx: AxisMenuContext): MenuEntry[] {
         },
       ],
     },
+    { id: "axis:toggle-plus-button", label: "Plus button", checked: ctx.plusButton !== false },
     { id: "sep-reset", separator: true },
     {
       id: "axis:reset", label: "Reset scale", glyph: "reset",
@@ -620,9 +634,12 @@ export interface WatchlistMenuContext {
  * which is the single loudest tell a copy can have.
  */
 export const TIME_AXIS_MENU_IDS = [
-  "time:reset-view", "time:go-to", "time:chart-settings",
+  "time:reset-view", "time:time-zone", "time:go-to", "time:chart-settings",
 ] as const;
 export type TimeAxisMenuId = (typeof TIME_AXIS_MENU_IDS)[number];
+
+/** `Time zone ›`'s rows emit this prefix plus the zone, e.g. `time:time-zone:Asia/Tokyo`. */
+export const TIME_ZONE_MENU_PREFIX = "time:time-zone:";
 
 /**
  * The reference also offers "Lock price to bar ratio" here. It is absent for
@@ -630,7 +647,12 @@ export type TimeAxisMenuId = (typeof TIME_AXIS_MENU_IDS)[number];
  * settings model: lightweight-charts 4.2 exposes no equivalent, and this
  * product does not ship switches that do nothing.
  */
-export function timeAxisMenu(ctx: { mac: boolean }): MenuEntry[] {
+export function timeAxisMenu(ctx: {
+  mac: boolean;
+  /** The pane's display zone; omitted reads as UTC, the setting's default. */
+  timeZone?: ChartTimeZone;
+}): MenuEntry[] {
+  const zone = ctx.timeZone ?? "UTC";
   return [
     {
       /*
@@ -644,11 +666,23 @@ export function timeAxisMenu(ctx: { mac: boolean }): MenuEntry[] {
     },
     { id: "sep-goto", separator: true },
     /*
-     * `Time zone ›` is the reference's and is NOT applicable: every Trading
-     * Scene chart is UTC by contract, so the submenu would have one row.
-     * `Session breaks` is a recorded omission — there is no session primitive
-     * on a 24/7 venue. `Go to…` is this product's and has no reference row.
+     * A6: `Time zone ›`, the reference's, over the pane's `timeZone` setting
+     * (Chart settings → Symbol → Timezone). It was left out when every chart
+     * was UTC and the submenu would have had one row; the setting has five
+     * zones now and relabels the axis, the crosshair and the clock. The
+     * candles never move — only how their instants are written.
+     *
+     * `Session breaks` stays a recorded omission: there is no session
+     * primitive on a 24/7 venue. `Go to…` is this product's and has no
+     * reference row.
      */
+    {
+      id: "time:time-zone", label: "Time zone",
+      children: CHART_TIME_ZONES.map((item) => ({
+        id: `${TIME_ZONE_MENU_PREFIX}${item.value}`, label: item.label,
+        radio: true, checked: item.value === zone,
+      })),
+    },
     { id: "time:go-to", label: "Go to…", glyph: "calendar" },
     { id: "sep-settings", separator: true },
     { id: "time:chart-settings", label: "More settings…", glyph: "gear" },

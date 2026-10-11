@@ -918,6 +918,11 @@ test("every id a menu can emit is answered by a handler", () => {
       assert.match(sources, /id\.startsWith\("watchlist:add-to-list:"\)/);
       continue;
     }
+    // A6: `Time zone ›` is a submenu parent too; its rows share one prefix branch.
+    if (id === "time:time-zone") {
+      assert.match(sources, /id\.startsWith\(TIME_ZONE_MENU_PREFIX\)/);
+      continue;
+    }
     assert.ok(sources.includes(`case "${id}"`),
       `${id} is offered by a menu and reaches no handler — the menu closes and nothing happens`);
   }

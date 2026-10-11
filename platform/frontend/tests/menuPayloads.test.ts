@@ -27,8 +27,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  WATCHLIST_VIEW_DEFAULTS, watchlistAddToListMenu, watchlistListsMenu, watchlistMenu,
-  watchlistSettingsMenu,
+  TIME_ZONE_MENU_PREFIX, WATCHLIST_VIEW_DEFAULTS, priceAxisMenu, timeAxisMenu,
+  watchlistAddToListMenu, watchlistListsMenu, watchlistMenu, watchlistSettingsMenu,
 } from "../lib/menuPayloads";
 import { FLAG_COLOURS } from "../lib/watchlistFlags";
 import { isSeparator, isSwatches, type MenuEntry } from "../lib/contextMenu";
@@ -217,4 +217,55 @@ test("R7b-08 — the settings menu reports the state it is looking at", () => {
   assert.equal(checked(on, "view:display:name"), true);
   assert.equal(checked(on, "view:display:symbol"), false,
     "Symbol and Name are one choice, not two switches");
+});
+
+/* ── A6: the axes' menus offer the rows this product can honour ──────────── */
+
+const AXIS = {
+  autoScale: true, logScale: false, percentScale: false, indexedScale: false, inverted: false,
+  mac: true, onLeft: false,
+  labels: { lastValue: true, indicatorValue: true, dayOfWeek: true },
+  lines: { lastValue: true, bidAsk: null },
+};
+
+function flat(entries: readonly MenuEntry[]): MenuEntry[] {
+  return entries.flatMap((entry) => [entry, ...flat((entry as { children?: MenuEntry[] }).children ?? [])]);
+}
+const labelled = (entries: readonly MenuEntry[]): string[] =>
+  flat(entries).map((entry) => (entry as { label?: string }).label ?? "").filter(Boolean);
+
+test("A6 — the price axis offers `Plus button`, checked as the setting is", () => {
+  const on = flat(priceAxisMenu({ ...AXIS, plusButton: true }));
+  const off = flat(priceAxisMenu({ ...AXIS, plusButton: false }));
+  const row = (menu: MenuEntry[]) => menu.find((e) => e.id === "axis:toggle-plus-button") as
+    { label?: string; checked?: boolean } | undefined;
+  assert.equal(row(on)?.label, "Plus button");
+  assert.equal(row(on)?.checked, true);
+  assert.equal(row(off)?.checked, false);
+});
+
+test("A6 — no row for what the engine cannot do: bar-ratio lock, price-only scaling, session breaks", () => {
+  const rows = [
+    ...labelled(priceAxisMenu(AXIS)),
+    ...labelled(timeAxisMenu({ mac: true, timeZone: "UTC" })),
+  ];
+  for (const absent of [/lock price to bar ratio/i, /scale price chart only/i, /session breaks/i]) {
+    assert.ok(!rows.some((label) => absent.test(label)), `${absent} is a switch that would do nothing`);
+  }
+});
+
+test("A6 — the time axis offers `Time zone ›`, one radio row per zone, the pane's checked", () => {
+  const menu = timeAxisMenu({ mac: true, timeZone: "Asia/Tokyo" });
+  const parent = menu.find((e) => e.id === "time:time-zone") as
+    { label?: string; children?: { id: string; label: string; radio?: boolean; checked?: boolean }[] };
+  assert.equal(parent?.label, "Time zone");
+  const zones = parent.children ?? [];
+  assert.equal(zones.length, 5);
+  assert.ok(zones.every((zone) => zone.radio === true && zone.id.startsWith(TIME_ZONE_MENU_PREFIX)));
+  assert.deepEqual(zones.filter((zone) => zone.checked).map((zone) => zone.id),
+    [`${TIME_ZONE_MENU_PREFIX}Asia/Tokyo`]);
+  // A caller that does not say reads as the setting's default.
+  const utc = (timeAxisMenu({ mac: true }).find((e) => e.id === "time:time-zone") as
+    { children?: { id: string; checked?: boolean }[] }).children!;
+  assert.deepEqual(utc.filter((zone) => zone.checked).map((zone) => zone.id), [`${TIME_ZONE_MENU_PREFIX}UTC`]);
 });

@@ -70,8 +70,9 @@ import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
 import {
   CHART_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu, drawingToolName, priceAxisMenu,
-  timeAxisMenu,
+  TIME_ZONE_MENU_PREFIX, timeAxisMenu,
 } from "@/lib/menuPayloads";
+import { CHART_TIME_ZONES } from "@/lib/chartClock";
 import { useShortcuts } from "@/lib/useShortcuts";
 import { ChromeTooltip } from "@/components/ui";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
@@ -1752,7 +1753,10 @@ export default function TvWorkspace() {
         paneId,
         price: null,
         drawingId: null,
-        entries: timeAxisMenu({ mac: isMacPlatform() }),
+        entries: timeAxisMenu({
+          mac: isMacPlatform(),
+          timeZone: paneChartSettings(workspace, paneId).timeZone,
+        }),
       });
       return;
     }
@@ -1786,6 +1790,7 @@ export default function TvWorkspace() {
             lastValue: paneChartSettings(workspace, paneId).lastValueLine,
             bidAsk: paneChartSettings(workspace, paneId).bidAskLines !== "hidden",
           },
+          plusButton: paneChartSettings(workspace, paneId).plusButton,
         }),
       });
       return;
@@ -1880,6 +1885,16 @@ export default function TvWorkspace() {
       setWorkspace((ws) => setPaneChartSettings(
         ws, paneId, { ...paneChartSettings(ws, paneId), ...next }));
     };
+    /*
+     * A6: the time axis's `Time zone ›` rows, one per zone the setting offers.
+     * Anything else after the prefix is not a zone this product can label in,
+     * and is ignored rather than written.
+     */
+    if (id.startsWith(TIME_ZONE_MENU_PREFIX)) {
+      const zone = CHART_TIME_ZONES.find((item) => item.value === id.slice(TIME_ZONE_MENU_PREFIX.length));
+      if (zone) writeSettings({ timeZone: zone.value });
+      return;
+    }
     /*
      * R8-17: `Add {TICKER} to watchlist ›`. With one list the parent row is
      * the action, so it carries the list's own id here.
@@ -2018,6 +2033,9 @@ export default function TvWorkspace() {
         writeSettings({
           bidAskLines: chartSettings.bidAskLines === "hidden" ? "line" : "hidden",
         });
+        return;
+      case "axis:toggle-plus-button":
+        writeSettings({ plusButton: !chartSettings.plusButton });
         return;
       case "axis:more-settings": setChartSettingsOpen(true); return;
       default: break;

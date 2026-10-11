@@ -72,6 +72,8 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
     [
       "Auto (fits data to screen)⌘⇧A", "Invert scale", "Regular", "Percent",
       "Indexed to 100", "Logarithmic⌥L", "Move scale to left", "Labels", "Lines",
+      // A6: the reference's `Plus button`, over the Scales-tab setting.
+      "Plus button",
       "Reset scale⌥R", "More settings…",
     ]);
   await press("Escape");
@@ -88,7 +90,8 @@ test("each strip of the chart opens its own menu, and the time axis opens none",
   assert.equal(menuLabel(), "Time scale");
   assert.deepEqual(
     menuItems().map((i) => i.label.replace(/\s+/g, " ").trim()),
-    ["Reset time scale⌥R", "Go to…", "More settings…"]);
+    // A6: `Time zone ›`, over the pane's display-zone setting.
+    ["Reset time scale⌥R", "Time zone", "Go to…", "More settings…"]);
   await press("Escape");
 });
 
