@@ -157,12 +157,32 @@ export function useIndicators(ctx: IndicatorContext) {
 
   // Chart context changed: re-run everything under a fresh token.
   const ctxKey = `${ctx.symbol}|${ctx.timeframe}|${ctx.startTime}|${ctx.endTime}|${ctx.replay ? "replay" : "live"}`;
+  /*
+   * ── C8/C9: which context changes must blank the old output ───────────────
+   *
+   * A Replay REWIND must: output computed to a later horizon shows bars the
+   * replayed moment has not reached — lookahead with a plausible picture. A
+   * forward STEP must not: the old output ends earlier than the new horizon,
+   * so it can only be incomplete, never prescient, and blanking it made every
+   * study vanish and reappear on every step of the one workflow replay exists
+   * for. Leaving Replay must blank too: what is on screen was computed for a
+   * truncated window, and the live run is a different series.
+   */
+  const shownCtxRef = useRef(ctx);
+  const forwardStep = ctx.replay && shownCtxRef.current.replay
+    && shownCtxRef.current.symbol === ctx.symbol
+    && shownCtxRef.current.timeframe === ctx.timeframe
+    && shownCtxRef.current.startTime === ctx.startTime
+    && Date.parse(ctx.endTime) >= Date.parse(shownCtxRef.current.endTime);
+  const leavingReplay = !ctx.replay && shownCtxRef.current.replay;
   useEffect(() => {
     const pending = listRef.current;
     const token = ++runToken.current;
+    const blank = (ctx.replay && !forwardStep) || leavingReplay;
+    shownCtxRef.current = ctx;
     setPreparedContextKey(ctxKey);
     if (pending.length === 0) return;
-    setList((cur) => cur.map((i) => ctx.replay
+    setList((cur) => cur.map((i) => blank
       ? invalidateReplayOutput(i)
       : { ...i, loading: true, error: null }));
     for (const ind of pending) runOne(ind, token);
@@ -171,11 +191,10 @@ export function useIndicators(ctx: IndicatorContext) {
   }, [ctxKey]);
 
   // React paints once before effects clear stale state. Suppress the old
-  // output synchronously on that render so rewind has no later-horizon flash.
-  const outputList = useMemo(
-    () => ctx.replay && preparedContextKey !== ctxKey ? [] : list,
-    [ctx.replay, preparedContextKey, ctxKey, list]
-  );
+  // output synchronously on that render so rewind has no later-horizon flash —
+  // and only then: a forward step keeps what it has until the rerun lands.
+  const suppress = preparedContextKey !== ctxKey && ((ctx.replay && !forwardStep) || leavingReplay);
+  const outputList = useMemo(() => suppress ? [] : list, [suppress, list]);
 
   // Inputs changed on specific instances: re-run just those.
   useEffect(() => {

@@ -297,9 +297,17 @@ export default function TvWorkspace() {
     historyClose: holdingRequested ? candles[candles.length - 1]?.close ?? null : null,
     historyStale: holdingRequested && activeHistory.stale,
   }), [replayActive, replayLast, livePrice.price, candles, holdingRequested, activeHistory.stale]);
-  const pineStartTime = replayActive && replayFirst
+  /*
+   * C8: Replay runs Pine from the same start as the live chart, so a study
+   * replayed is the study traded — warmed up over the same history — rather
+   * than one that starts cold at the first replayed bar and ramps. Only the
+   * END guards against lookahead, and it stays the replay horizon. A replay
+   * window that begins before that start keeps its own first bar.
+   */
+  const pineStart = `${BACKTEST_START}T00:00:00.000Z`;
+  const pineStartTime = replayActive && replayFirst && replayFirst.openTime < Date.parse(pineStart)
     ? new Date(replayFirst.openTime).toISOString()
-    : `${BACKTEST_START}T00:00:00.000Z`;
+    : pineStart;
   const pineEndTime = replay
     ? new Date(replay.horizonCloseTime).toISOString()
     : endOfTodayISO();

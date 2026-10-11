@@ -220,3 +220,62 @@ test("two runs of the same instance settle in the order they were asked for", as
     "the study must show the inputs the user last chose, not the answer that " +
     "happened to arrive last");
 });
+
+test("C8/C9 — a forward replay step keeps the study; a rewind and leaving replay blank it", async () => {
+  /*
+   * A forward step's old output ends EARLIER than the new horizon, so it can
+   * only be incomplete, never prescient; blanking it made every Pine study
+   * vanish and reappear on every step. A rewind's old output reaches PAST the
+   * new horizon — lookahead — and leaving Replay replaces a truncated series
+   * with a different one; both must blank until their rerun lands.
+   */
+  let api: IndicatorsApi | null = null;
+  function Harness({ end, replay }: { end: string; replay: boolean }) {
+    api = useIndicators({
+      symbol: "SOLUSDT", timeframe: "15m",
+      startTime: "2026-01-01T00:00:00.000Z", endTime: end, replay, scope: "p1",
+    });
+    return null;
+  }
+  server.routes.set("POST /api/pine/run", () => ({
+    ok: true, errors: [],
+    meta: {
+      kind: "indicator", title: "Probe", shortTitle: "PRB", overlay: true,
+      format: "price", precision: 2, inputs: [], warnings: [],
+    },
+    times: [1_767_225_600],
+    plots: [{ id: "p0", title: "Probe", color: "#4f8cff", width: 1, style: "line", data: [1], renderable: true }],
+  }));
+
+  const view = render(<Harness end="2026-01-01T12:00:00.000Z" replay />);
+  await settle();
+  await act(async () => { api!.add({ scriptId: null, name: "Probe", source: SOURCE }); });
+  await settle();
+  assert.equal(api!.overlays.length, 1, "the study drew at the first horizon");
+
+  // Forward: the rerun is held, and the study must stay on screen meanwhile.
+  let release = server.hold((r) => r.path === "/api/pine/run");
+  await act(async () => { view.rerender(<Harness end="2026-01-01T13:00:00.000Z" replay />); });
+  await settle();
+  assert.equal(api!.overlays.length, 1, "a forward step blanked the study while it re-ran");
+  release();
+  await settle();
+
+  // Rewind: the old output would show bars the moment has not reached.
+  release = server.hold((r) => r.path === "/api/pine/run");
+  await act(async () => { view.rerender(<Harness end="2026-01-01T09:00:00.000Z" replay />); });
+  await settle();
+  assert.equal(api!.overlays.length, 0, "a rewind kept output from a later horizon");
+  release();
+  await settle();
+  assert.equal(api!.overlays.length, 1);
+
+  // Leaving replay: the replayed series is not the live one.
+  release = server.hold((r) => r.path === "/api/pine/run");
+  await act(async () => { view.rerender(<Harness end="2026-01-02T00:00:00.000Z" replay={false} />); });
+  await settle();
+  assert.equal(api!.overlays.length, 0, "leaving replay kept the replayed series on the live chart");
+  release();
+  await settle();
+  assert.equal(api!.overlays.length, 1);
+});
