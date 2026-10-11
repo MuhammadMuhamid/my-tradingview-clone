@@ -97,7 +97,8 @@ import {
   type SymbolInfo, type Trade,
 } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
-import { formatPlotValue, plotValueAt } from "@/lib/chartSeries";
+import type { ChartOverlay } from "@/lib/chartSeries";
+import { dataWindowSeriesRows, dataWindowStudies } from "@/lib/dataWindow";
 import {
   DEFAULT_PRICE_SCALE, resetPriceScale, setPriceScaleMode,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
@@ -1829,19 +1830,32 @@ export default function TvWorkspace() {
         currentDrawings.filter((item) => item.id !== drawing.id), "object-tree-remove"),
     };
   });
+  /** W2D-05: what the focused pane last reported drawing, for the Data window. */
+  const [dataWindowSource, setDataWindowSource] = useState<
+    { paneId: string; overlays: readonly ChartOverlay[] } | null>(null);
+  const reportDataWindowPlots = useCallback(
+    (paneId: string, overlays: readonly ChartOverlay[]) => setDataWindowSource({ paneId, overlays }),
+    []);
   const dataWindowTime = cross?.time ?? null;
   const dataWindowCandle = dataWindowTime === null
     ? visibleCandles[visibleCandles.length - 1] ?? null
     : visibleCandles.find((candle) => Math.floor(candle.openTime / 1000) === dataWindowTime) ?? null;
-  const dataWindowPlots = [
-    ...(activeNativeStudies?.overlays ?? []),
-    ...activeIndicatorList.filter((study) => study.visible).flatMap((study) => study.overlays),
-  ].map((plot, index) => ({
-    id: `${plot.instanceId ?? plot.paneId ?? "plot"}:${plot.id}:${index}`,
-    label: plot.instanceTitle ? `${plot.instanceTitle} · ${plot.title}` : plot.title,
-    value: formatPlotValue(
-      plot.constantValue ?? plotValueAt(plot.data, dataWindowTime), plot.precision),
-  }));
+  /*
+   * W2D-05: every study the focused pane DRAWS, read at the hovered bar.
+   *
+   * This was the page's own two lists — the built-in list's overlays as they
+   * stood when a study was added (before it had computed anything, so RSI and
+   * ATR were absent) and the Pine overlays — so the window showed Pine plots
+   * and nothing else. The pane reports the set its legends are built from
+   * (`onDataWindowPlots`) while this panel is open; until it has, the old two
+   * lists stand in rather than an empty window.
+   */
+  const dataWindowOverlays = dataWindowSource?.paneId === active.id
+    ? dataWindowSource.overlays
+    : [
+        ...(activeNativeStudies?.overlays ?? []),
+        ...activeIndicatorList.filter((study) => study.visible).flatMap((study) => study.overlays),
+      ];
   const objects = {
     seriesLabel: displayTicker(symbol),
     studies: objectStudies,
@@ -1860,7 +1874,8 @@ export default function TvWorkspace() {
         ["Open", dataWindowCandle?.open], ["High", dataWindowCandle?.high],
         ["Low", dataWindowCandle?.low], ["Close", dataWindowCandle?.close],
       ] as const).map(([label, value]) => ({ label, value: fmtPrice(value) })),
-      plots: dataWindowPlots,
+      series: dataWindowSeriesRows(visibleCandles, dataWindowCandle),
+      studies: dataWindowStudies(dataWindowOverlays, dataWindowTime),
     },
   };
 
@@ -2567,6 +2582,7 @@ export default function TvWorkspace() {
         onIndicatorsApi={registerIndicatorsApi}
         onNativeStudiesApi={registerNativeApi}
         onNativeStudiesChanged={registerNativeChanged}
+        onDataWindowPlots={isActive && panel === "objects" ? reportDataWindowPlots : undefined}
         onDrawingSelection={noteDrawingSelection}
         onChartContextMenu={openChartMenu}
         priceScale={paneScale(pane.id)}
@@ -2625,7 +2641,7 @@ export default function TvWorkspace() {
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
-    registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
+    registerNativeApi, registerNativeChanged, panel, reportDataWindowPlots, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, editPine, maAction, studyAlert, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, setPaneWindow, setPaneStack, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,

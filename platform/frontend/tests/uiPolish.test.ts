@@ -244,8 +244,15 @@ test("an oscillator pane spends no height on a header row", () => {
    * about is unchanged: the cluster is OVERLAID at the pane's own top-right
    * edge and costs the oscillator no height.
    */
-  assert.match(pane, /absolute right-1 top-1 z-\[?\d/,
-    "the pane actions are no longer overlaid at the pane's own edge");
+  /*
+   * W2D-11: and that edge is the PLOT's, not the section's. The section's
+   * chart spans the price axis too, so `right-1` put collapse and maximize on
+   * the scale over its top tick; the cluster now sits 4px left of the axis's
+   * measured width.
+   */
+  assert.match(pane, /style=\{\{ right: axisWidth \+ 4 \}\}\s*className=\{`absolute top-1 z-\[?\d/,
+    "the pane actions are no longer overlaid at the plot's own edge");
+  assert.match(pane, /priceScale\("right"\)\.width\(\)/, "the axis width is measured, not guessed");
   assert.match(pane, /items-center gap-1 transition-opacity focus-within:opacity-100/,
     "R3b-21: 4px between the boxes, as the reference has");
   assert.match(pane, /group-hover\/studypane:opacity-100/, "the controls are always-on, or gone");
@@ -261,7 +268,7 @@ test("an oscillator pane spends no height on a header row", () => {
   // Neither cluster reserves a row: both are absolutely positioned over the
   // plot, so a pane still spends zero height on chrome.
   assert.equal((pane.match(/absolute left-2 top-1 z-/g) ?? []).length, 1);
-  assert.equal((pane.match(/absolute right-1 top-1 z-/g) ?? []).length, 1);
+  assert.equal((pane.match(/absolute top-1 z-/g) ?? []).length, 1);
   /*
    * And neither paints a surface. Two `bg-surface/8x` boxes — one behind the
    * legend, one behind the cluster — were the "bordered mini-toolbar" the

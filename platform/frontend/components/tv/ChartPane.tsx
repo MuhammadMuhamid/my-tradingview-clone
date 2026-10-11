@@ -36,6 +36,7 @@ import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies"
 import type { Viewport } from "@/lib/native/compute";
 import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
+import type { ChartOverlay } from "@/lib/chartSeries";
 import { buildMaOverlays, MA_INSTANCE_ID, MA_INSTANCE_TITLE } from "@/lib/movingAverages";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 
@@ -216,6 +217,14 @@ export interface ChartPaneProps {
    * to observe it — otherwise the Indicators dialog would show a stale count.
    */
   onNativeStudiesChanged?: (paneId: string) => void;
+  /**
+   * W2D-05: every study this pane draws, for the Data window.
+   *
+   * Passed only while the window can be read — the focused pane, with the
+   * Objects / Data window panel open — because the overlays change on every
+   * forming bar and reporting them is a workspace render each time.
+   */
+  onDataWindowPlots?: (paneId: string, overlays: readonly ChartOverlay[]) => void;
   onIndicatorList: (paneId: string, list: AppliedIndicator[]) => void;
   /** The pane opens the workspace Indicators panel on one instance. */
   onFocusIndicator: (paneId: string, key: string) => void;
@@ -646,6 +655,22 @@ function ChartPaneImpl(props: ChartPaneProps) {
     ],
     [maOverlays, avwapOverlays, fixedProfileOverlays, hlcOverlays, compared.overlays,
       nativeStudies.overlays, indicators.overlays]);
+  /*
+   * W2D-05: the studies the Data window lists — everything above except the
+   * HLC-area outline, whose High / Low are the bar's own OHLC and are already
+   * the window's first rows.
+   */
+  const dataWindowOverlays = useMemo(
+    () => [
+      ...maOverlays, ...avwapOverlays, ...fixedProfileOverlays, ...compared.overlays,
+      ...nativeStudies.overlays, ...indicators.overlays,
+    ],
+    [maOverlays, avwapOverlays, fixedProfileOverlays, compared.overlays,
+      nativeStudies.overlays, indicators.overlays]);
+  const { onDataWindowPlots } = props;
+  useEffect(() => {
+    onDataWindowPlots?.(paneId, dataWindowOverlays);
+  }, [paneId, onDataWindowPlots, dataWindowOverlays]);
   const decorations = useMemo(
     () => [
       ...fixedProfileDecorations, ...sessionProfileDecorations, ...tpoDecorations, ...hlcDecorations,
@@ -1096,34 +1121,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
               : <>Loading {displayTicker(pane.symbol)} {pane.interval}… showing {displayTicker(history.dataset.symbol)} {history.dataset.interval} until it arrives</>}
           </div>
         )}
-        {compared.notice && (
-          /*
-           * Said out loud, on the chart.
-           *
-           * The alternative to saying it is forward-filling the second
-           * instrument's missing bars, and the alternative to forward-filling
-           * is a reader who does not know their correlation was computed over
-           * fewer bars than they asked for. Neither is acceptable, so the
-           * number is honest and the gap is disclosed.
-           */
-          <div
-            role="status"
-            aria-live="polite"
-            /*
-              ── and NOT over the legend ──────────────────────────────────────
-              This sat at `left-2 top-2`, which is where the pane legend lives.
-              Measured with a comparison applied: a 558x21 box across the mark,
-              the instrument name, `· 1h · Binance`, the `vs ETHUSDT` chip and
-              the O and H values — the legend row was illegible, which is a
-              steep price for a sentence about one missing bar. It goes at the
-              foot of the pane, where it is still said out loud and covers
-              nothing.
-            */
-            className="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[80%] rounded border border-border bg-surface/90 px-2 py-0.5 text-[10px] text-ink-muted sm:text-[11px]"
-          >
-            {compared.notice}
-          </div>
-        )}
+        {/*
+          W2D-04: a comparison's gap notice is NOT drawn here.
+
+          It was a `role="status"` box at `bottom-2 left-2` of this plot — the
+          band the range row (`1D 5D 1M … All`) occupies — so any comparison
+          with a missing bar covered the shortcuts for as long as it stayed
+          applied. It is said on the comparison's own legend row instead
+          (`ChartOverlay.instanceNote`, set by `compareOverlays`): an info
+          glyph whose tooltip and accessible name are the sentence.
+        */}
         {history.loading && history.candles.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-ink-faint">
             Loading {displayTicker(pane.symbol)} {pane.interval}…

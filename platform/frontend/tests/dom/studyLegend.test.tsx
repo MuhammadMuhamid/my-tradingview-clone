@@ -208,7 +208,9 @@ test("R3b-21 — a revealed pane control is a bordered box, and collapse is two 
   const cluster = [...view.container.querySelectorAll<HTMLElement>("span")]
     .find((el) => /group-hover\/studypane:opacity-100/.test(el.className));
   assert.ok(cluster, "the pane cluster is gone");
-  assert.match(cluster.className, /right-1/, "4px from the pane's content edge");
+  // W2D-11: 4px from the PLOT's edge — the price axis's width plus 4 (see
+  // `tests/dom/paneButtonsAxis.test.tsx`), not 4px from the section's.
+  assert.match(cluster.style.right, /^\d+px$/, "4px from the pane's content edge");
   assert.match(cluster.className, /gap-1/, "4px between the boxes");
 
   const buttons = [...cluster.querySelectorAll("button")];

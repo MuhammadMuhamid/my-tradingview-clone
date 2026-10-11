@@ -139,6 +139,20 @@ test("the toolbar shows six favourites and reaches thirty resolutions behind one
   for (const stored of ["1s", "3m", "8h", "12h"]) assert.ok(offered.includes(stored), stored);
 });
 
+test("W2D-17 adjudicated — the picker stays Premium's full-height column from the viewport top", async () => {
+  /*
+   * A reviewer read the ~900px list starting at y=0 as covering its own
+   * trigger. Premium's interval menu is exactly that box: re-measured on the
+   * Premium account on 2026-10-11 as menuWrap [454, 0, 196, 900] at 1440×900.
+   * This is the accepted surface; it is not to be hung under the caret.
+   */
+  const { container } = await mountChart();
+  const menu = await openPicker(container);
+  const classes = menu.className.split(/\s+/);
+  assert.ok(classes.includes("top-0"), "the menu no longer starts at the viewport's top");
+  assert.ok(classes.includes("max-h-[100vh]"), "the menu is no longer the viewport's height");
+});
+
 test("a derived row says what it is made of, on the row", async () => {
   const chart = await mountChart();
   const menu = await openPicker(chart.container);

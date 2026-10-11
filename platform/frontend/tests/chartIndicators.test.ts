@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   groupChartOverlays, mergeBarColorLayers, planCandleMutation,
   formatPlotValue, planColoredCandleMutation, planOhlcMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
-  type ChartOverlay,
+  formatStudyAxisValue, studyPriceFormat, type ChartOverlay,
 } from "../lib/chartSeries";
 import { toChartOutput } from "../lib/indicators";
 import type { PineRunResult } from "../lib/api";
@@ -278,4 +280,29 @@ test("B-27 — a value that rounds to zero prints without a sign", () => {
   assert.equal(formatPlotValue(-0, 2), "0");
   assert.equal(formatPlotValue(-0.004, 2), "0");
   assert.equal(formatPlotValue(-0.006, 2), "-0.01");
+});
+
+test("W2D-16 — a study's price AXIS prints no signed zero either", () => {
+  // ATR on XRPUSDT 15m put `−0.0000` on its own axis.
+  assert.equal(formatStudyAxisValue(-0.00001, 4), "0.0000");
+  assert.equal(formatStudyAxisValue(-0, 4), "0.0000");
+  assert.equal(formatStudyAxisValue(0, 2), "0.00");
+  // A real negative keeps the library's own U+2212 minus, at fixed decimals.
+  assert.equal(formatStudyAxisValue(-0.00006, 4), "\u22120.0001");
+  assert.equal(formatStudyAxisValue(-12.5, 2), "\u221212.50");
+  assert.equal(formatStudyAxisValue(80, 2), "80.00");
+
+  const format = studyPriceFormat(4);
+  assert.equal(format.type, "custom");
+  assert.equal(format.minMove, 0.0001);
+  assert.equal(format.formatter(-0.00001), "0.0000");
+  // Unset precision is the library's own default: two decimals, 0.01 steps.
+  const fallback = studyPriceFormat(null);
+  assert.equal(fallback.minMove, 0.01);
+  assert.equal(fallback.formatter(-0.001), "0.00");
+
+  // The study pane hands every series this format, not the library's `price` one.
+  const pane = fs.readFileSync(path.join(process.cwd(), "components", "tv", "IndicatorPane.tsx"), "utf8");
+  assert.match(pane, /const priceFormat = studyPriceFormat\(overlay\.precision\)/);
+  assert.doesNotMatch(pane, /type: "price" as const/, "a study series still takes the signed-zero formatter");
 });

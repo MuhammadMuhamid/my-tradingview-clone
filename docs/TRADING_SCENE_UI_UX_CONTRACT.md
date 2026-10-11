@@ -842,6 +842,11 @@ from being lost — §9 has the test:
 | failures are announced, toned, and never print the raw cause | `tests/renderedUx.test.ts` |
 | chart settings reach the pane; Cancel undoes the whole visit | `tests/dom/chartShell.test.tsx` |
 | the workstation's symbol/interval controls exist exactly once | `tests/dom/shellDensity.test.tsx` |
+| a comparison's gap notice is an info glyph on its own legend row, never a status over the range row | `tests/dom/compareGapNote.test.tsx` |
+| the Data window lists Change, Volume and every study in every pane, read at the hovered bar | `tests/dom/dataWindowStudies.test.tsx` |
+| a study settings dialog (built-in and Pine) is one fixed size on every tab; its tab panel scrolls | `tests/dom/studySettings.test.tsx`, `tests/dom/pineStudySettings.test.tsx` |
+| the interval menu is Premium's full-height column from the viewport top (re-measured on Premium 2026-10-11: 196×900 at y=0) — not a dropdown under the caret | `tests/dom/intervals.test.tsx` |
+| a study pane's buttons end 4px left of its price axis | `tests/dom/paneButtonsAxis.test.tsx` |
 | a backtest result counts one population (entries) per row and names it; the last window is "Validation", never "frozen"; a failed run leads with the reader's sentence and keeps the engine's words behind a disclosure; a run can be reproduced from its page | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts` |
 
 Add to this table when you add a rule worth protecting. Prefer semantic DOM

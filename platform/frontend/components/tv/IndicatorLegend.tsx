@@ -152,15 +152,18 @@ export function IndicatorLegend({
 
   const groups = useMemo(() => {
     const byInstance = new Map<string,
-      { id: string; title: string; params: string; plots: ChartOverlay[] }>();
+      { id: string; title: string; params: string; note: string; plots: ChartOverlay[] }>();
     for (const overlay of overlays) {
       const id = overlay.instanceId ?? overlay.id;
       const existing = byInstance.get(id);
-      if (existing) existing.plots.push(overlay);
-      else byInstance.set(id, {
+      if (existing) {
+        existing.plots.push(overlay);
+        if (!existing.note && overlay.instanceNote) existing.note = overlay.instanceNote;
+      } else byInstance.set(id, {
         id,
         title: overlay.instanceTitle || overlay.title,
         params: overlay.instanceParams ?? "",
+        note: overlay.instanceNote ?? "",
         plots: [overlay],
       });
     }
@@ -287,6 +290,29 @@ export function IndicatorLegend({
                   {showTitles && showInputs && group.plots[0]?.statusInputVisible !== false && group.params
                     && <span className="shrink-[5] truncate text-ink-faint">{group.params}</span>}
                 </span>
+                {/*
+                  W2D-04: what the reader is owed about this instance that is
+                  not a value — a comparison computed over fewer bars than the
+                  chart has. A muted 14px info glyph, the sentence as its
+                  tooltip and its accessible name. It was a status box laid
+                  over the foot of the pane, which is where the range row is.
+                */}
+                {group.note && (
+                  <span
+                    role="img"
+                    aria-label={group.note}
+                    title={group.note}
+                    data-legend-note=""
+                    className="pointer-events-auto flex h-6 shrink-0 cursor-help items-center text-ink-faint hover:text-ink"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v6" />
+                      <circle cx="12" cy="7.5" r="0.6" fill="currentColor" />
+                    </svg>
+                  </span>
+                )}
                 {/*
                   The actions sit BETWEEN the parameters and the values, which
                   is where the reference has them — not after the numbers,

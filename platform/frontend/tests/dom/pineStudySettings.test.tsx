@@ -87,6 +87,17 @@ test("the dialog edits the script's own inputs, live, under the study's name", a
   assert.equal(dialog.querySelectorAll("select").length, 0, "a native select is in the dialog");
 });
 
+test("W2D-09 — the Pine dialog takes the built-in dialog's one fixed box", async () => {
+  render(<PineStudySettings study={pine()} onClose={() => {}} onParam={() => {}} onReset={() => {}} />);
+  await settle();
+  const dialog = screen.getByRole("dialog");
+  assert.match(dialog.className, /!max-w-\[550px\]/);
+  assert.match(dialog.className, /!h-\[min\(489px,calc\(100vh-40px\)\)\]/,
+    "the same fixed height as every other study's dialog");
+  assert.match(within(dialog).getByRole("tabpanel").className, /overflow-y-auto/,
+    "the inputs scroll inside the box rather than growing it");
+});
+
 test("Cancel puts back exactly the overrides the study had when the dialog opened", async () => {
   const calls: string[] = [];
   render(

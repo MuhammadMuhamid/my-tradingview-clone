@@ -8,7 +8,7 @@ import {
   type WhitespaceData,
 } from "lightweight-charts";
 import {
-  canUpdateTail, planSeriesMutation, plotValueAt,
+  canUpdateTail, planSeriesMutation, plotValueAt, studyPriceFormat,
   type ChartDecoration, type ChartOverlay, type ChartPoint,
 } from "@/lib/chartSeries";
 import { baseChartOptions, subscribeChartTheme } from "@/lib/chartTheme";
@@ -459,10 +459,12 @@ export function IndicatorPane({
     for (const overlay of overlays) {
       const kind = seriesKind(overlay);
       let entry = seriesRef.current.get(overlay.id);
-      const precision = overlay.precision;
-      const priceFormat = precision === null || precision === undefined ? undefined : {
-        type: "price" as const, precision, minMove: 10 ** -precision,
-      };
+      /*
+       * W2D-16: through `studyPriceFormat`, so a reading that rounds to zero
+       * prints `0.0000` on this axis rather than the library's `−0.0000`. An
+       * unset precision is the library's own two decimals, as before.
+       */
+      const priceFormat = studyPriceFormat(overlay.precision);
       const overlayLastValue = lastValue && overlay.priceScaleLabelVisible !== false;
       if (!entry) {
         if (kind === "Histogram") {
@@ -571,6 +573,33 @@ export function IndicatorPane({
     }
     chart.clearCrosshairPosition();
   }, [hoverTime, overlays, ready, showCrosshair]);
+
+  /*
+   * W2D-11: the width of this pane's price axis, so the pane's own buttons end
+   * at the PLOT's right edge rather than over the axis.
+   *
+   * The cluster was `right-1` of the section, and the section's chart spans
+   * the axis too — so collapse and maximize sat on the scale and hid its top
+   * tick (`80.00` on an RSI). The reference ends the cluster 4px left of the
+   * axis. The axis width is only known once the library has laid out, and it
+   * moves whenever the widest label does; the time scale's size changes with
+   * it, which is the event the library offers for exactly that.
+   */
+  const [axisWidth, setAxisWidth] = useState(0);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const read = (): void => {
+      try { setAxisWidth(Math.max(0, Math.round(chart.priceScale("right").width()))); }
+      catch { /* the chart went away between layout and this read */ }
+    };
+    chart.timeScale().subscribeSizeChange(read);
+    read();
+    return () => {
+      try { chart.timeScale().unsubscribeSizeChange(read); }
+      catch { /* already removed with its chart */ }
+    };
+  }, [ready]);
 
   const priceToCoordinate = useCallback((overlayId: string, value: number): number | null => {
     const entry = seriesRef.current.get(overlayId);
@@ -875,7 +904,9 @@ export function IndicatorPane({
       */}
       {paneButtons !== "hidden" && <span
         data-pane-buttons={paneButtons}
-        className={`absolute right-1 top-1 z-[3] flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 ${
+        /* W2D-11: 4px left of the price axis, not over it — see `axisWidth`. */
+        style={{ right: axisWidth + 4 }}
+        className={`absolute top-1 z-[3] flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 ${
           paneButtons === "always" ? "opacity-100" : "opacity-0 group-hover/studypane:opacity-100"
         }`}
       >

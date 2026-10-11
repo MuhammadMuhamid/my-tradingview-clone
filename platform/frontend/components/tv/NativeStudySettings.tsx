@@ -21,8 +21,9 @@
  * selects, no Visibility tab at all, and a `Reset to defaults` / `Done` footer
  * with no Cancel — every keystroke committed, nothing revertible.
  *
- * It is now the same dialog as Chart settings with different rows: 550 wide
- * (459 on Visibility), text tabs in a 32px row, a 50px pitch at a 20px inset,
+ * It is now the same dialog as Chart settings with different rows: 550 × 489
+ * on every tab (W2D-09, `STUDY_DIALOG_PANEL`), text tabs in a 32px row, a
+ * 50px pitch at a 20px inset,
  * `NumberField` 70×28 / `Dropdown` 100×34 / `Swatch` 34×34 / `LineStyleButton`
  * 75×34 / `Checkbox` 18 from `components/ui`, and `Defaults ▾` / `Cancel` /
  * `Ok` in the footer with live apply and a real revert.
@@ -115,6 +116,22 @@ export interface NativeStudySettingsProps {
    */
   sourceOptions?: (key: string) => SourceOption[];
 }
+
+/**
+ * W2D-09: ONE size for every tab of every study dialog, and the tab panel scrolls.
+ *
+ * R6b-29 sized this to the active tab: RSI's Inputs measured 550×277 at
+ * (445,312), its Style 550×489 at (445,206) and its Visibility 459×377 at
+ * (491,262), so the dialog re-centred on every tab click and Cancel / Ok
+ * jumped out from under the pointer. Chart settings fixed the same defect
+ * (A10) the same way: a fixed panel, capped by the viewport, with only the
+ * tab panel scrolling (`scrollBody={false}` and the panel's own
+ * `overflow-y-auto`). 550 wide everywhere; 489 tall, which is the tallest tab
+ * the measurement saw, so RSI's Style still opens without a scrollbar.
+ * The Pine study dialog is the same family and takes the same box.
+ */
+const STUDY_DIALOG_PANEL =
+  "!max-w-[550px] !h-[min(489px,calc(100vh-40px))] !max-h-[calc(100vh-40px)]";
 
 export function NativeStudySettings(props: NativeStudySettingsProps) {
   const { study, onClose } = props;
@@ -267,11 +284,7 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
       open
       onClose={cancel}
       title={def.name}
-      /*
-       * R6b-29: 550 wide, 459 on Visibility — the reference's own two widths,
-       * content-sized per tab. `max-w-lg` is 512.
-       */
-      panelClassName={tab === "visibility" ? "!max-w-[459px]" : "!max-w-[550px]"}
+      panelClassName={STUDY_DIALOG_PANEL}
       headerClassName="!h-[54px]"
       contentClassName="!px-5 !pt-0 !pb-4"
       footerClassName="!py-4"
@@ -524,7 +537,7 @@ export function PineStudySettings(props: PineStudySettingsProps) {
       open
       onClose={cancel}
       title={study.name}
-      panelClassName="!max-w-[550px]"
+      panelClassName={STUDY_DIALOG_PANEL}
       headerClassName="!h-[54px]"
       contentClassName="!px-5 !pt-0 !pb-4"
       footerClassName="!py-4"

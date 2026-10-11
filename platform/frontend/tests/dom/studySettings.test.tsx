@@ -85,6 +85,35 @@ test("R6b-29 — the study dialog is Inputs / Style / Visibility at 550, with no
     "`Source` was a 310×34 native select — the OS popup, in this product's dialog");
 });
 
+test("W2D-09 — the dialog is ONE fixed size on every tab, and only the tab panel scrolls", async () => {
+  /*
+   * RSI's Inputs measured 550×277 at (445,312), Style 550×489 at (445,206),
+   * Visibility 459×377 at (491,262): the panel was sized to its tab, so it
+   * re-centred on every click and Cancel / Ok jumped. jsdom has no layout, so
+   * what is held is the declaration the size comes from — the panel's box is
+   * the same on every tab, it states a height (capped by the viewport) as
+   * well as a width, and the tab panel is the thing that scrolls.
+   */
+  const { dialog } = await openRsi();
+  const boxes: Record<string, string> = {};
+  for (const name of ["Inputs", "Style", "Visibility", "Inputs"]) {
+    fireEvent.click(within(dialog).getByRole("tab", { name }));
+    await settle();
+    const panel = screen.getByRole("dialog");
+    assert.equal(panel, dialog, "switching tab must not remount the dialog");
+    boxes[name] = panel.className;
+    const body = within(panel).getByRole("tabpanel");
+    assert.match(body.className, /overflow-y-auto/, `${name}: the tab panel does not scroll`);
+    assert.match(body.className, /min-h-0/, `${name}: the tab panel cannot shrink to scroll`);
+  }
+  assert.equal(new Set(Object.values(boxes)).size, 1,
+    `the dialog's box changed between tabs: ${JSON.stringify(boxes)}`);
+  assert.match(dialog.className, /!max-w-\[550px\]/, "550 wide on every tab, Visibility included");
+  assert.match(dialog.className, /!h-\[min\(489px,calc\(100vh-40px\)\)\]/,
+    "a fixed height, capped by the viewport");
+  assert.doesNotMatch(dialog.className, /459px/, "Visibility no longer narrows the dialog");
+});
+
 test("R6b-29 — Length is a 70×28 number field and Source a listbox", async () => {
   const { study } = await openRsi();
 

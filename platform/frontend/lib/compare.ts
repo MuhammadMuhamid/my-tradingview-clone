@@ -366,6 +366,19 @@ export function compareOverlays(
   const baseName = displayTicker(baseSymbol);
   const otherName = displayTicker(other.symbol);
 
+  /*
+   * W2D-04: the notice rides on the comparison's own legend row.
+   *
+   * It used to be a `role="status"` box at the foot of the pane, which is
+   * exactly where the bottom range row (`1D 5D … All`) sits: with any gap in
+   * the second instrument, the shortcuts were covered for as long as the
+   * comparison stayed applied, reloads included. The sentence is still said —
+   * as the tooltip and accessible name of an info glyph beside the pane's
+   * title — and the range row is never covered.
+   */
+  const note = (notice: string | null): { instanceNote?: string } =>
+    notice ? { instanceNote: notice } : {};
+
   if (mode === "percent") {
     const { plots, notice } = comparePercent(base, other);
     const paneId = instanceId;
@@ -376,14 +389,14 @@ export function compareOverlays(
           id: `${instanceId}:base`, title: `${baseName} %`, color: COMPARE_BASE_COLOR,
           width: 2, style: "line", paneId,
           instanceId, instanceTitle: `Percent change vs ${otherName}`,
-          instanceParams: "% from first shared bar",
+          instanceParams: "% from first shared bar", ...note(notice),
           precision: 2, data: point(plots.base!),
         },
         {
           id: `${instanceId}:other`, title: `${otherName} %`, color: COMPARE_OTHER_COLOR,
           width: 2, style: "line", paneId,
           instanceId, instanceTitle: `Percent change vs ${otherName}`,
-          instanceParams: "% from first shared bar",
+          instanceParams: "% from first shared bar", ...note(notice),
           precision: 2, data: point(plots.other!),
         },
       ],
@@ -440,6 +453,7 @@ export function compareOverlays(
     instanceId,
     instanceTitle: spec.instance,
     instanceParams: spec.params,
+    ...note(computed.notice),
     precision: spec.precision,
     data: point(series),
   }];

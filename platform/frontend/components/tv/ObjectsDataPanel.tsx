@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import type { DataWindowRow, DataWindowStudy } from "@/lib/dataWindow";
 
 export interface ObjectStudyRow {
   id: string;
@@ -18,7 +19,10 @@ export interface ObjectDrawingRow extends ObjectStudyRow {
 export interface DataWindowModel {
   time: string;
   ohlc: readonly { label: "Open" | "High" | "Low" | "Close"; value: string }[];
-  plots: readonly { id: string; label: string; value: string }[];
+  /** W2D-05: the bar's Change and Volume, under the OHLC. */
+  series: readonly DataWindowRow[];
+  /** W2D-05: every study on the pane, in every pane, grouped by study. */
+  studies: readonly DataWindowStudy[];
 }
 
 export interface ObjectsDataPanelProps {
@@ -127,18 +131,36 @@ export function ObjectsDataPanel({ seriesLabel, studies, drawings, data }: Objec
                 <dt className="text-ink-muted">{row.label}</dt><dd className="tabular text-ink">{row.value}</dd>
               </div>
             ))}
+            {data.series.map((row) => (
+              <div key={row.id} data-data-window-series={row.id}
+                className="flex h-7 items-center justify-between gap-3 px-3 text-[13px]">
+                <dt className="text-ink-muted">{row.label}</dt><dd className="tabular text-ink">{row.value}</dd>
+              </div>
+            ))}
           </dl>
-          {data.plots.length > 0 && <>
-            <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-faint">Study plots</p>
-            <dl>
-              {data.plots.map((row) => (
-                <div key={row.id} className="flex h-7 items-center justify-between gap-3 px-3 text-[13px]">
-                  <dt className="min-w-0 truncate text-ink-muted" title={row.label}>{row.label}</dt>
-                  <dd className="shrink-0 tabular text-ink">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </>}
+          {/*
+            W2D-05: one block per study, titled by the study, its plots under
+            it — as the reference lists them, every pane included. It was one
+            flat `STUDY PLOTS` list of the Pine overlays alone.
+          */}
+          {data.studies.map((study) => (
+            <section key={study.id} data-data-window-study={study.id}
+              aria-label={study.title} className="pt-3">
+              <p className="flex min-w-0 items-baseline gap-2 px-3 pb-1 text-[13px]"
+                title={study.params ? `${study.title} ${study.params}` : study.title}>
+                <span className="truncate text-ink">{study.title}</span>
+                {study.params && <span className="min-w-0 truncate text-ink-faint">{study.params}</span>}
+              </p>
+              <dl>
+                {study.rows.map((row) => (
+                  <div key={row.id} className="flex h-7 items-center justify-between gap-3 px-3 text-[13px]">
+                    <dt className="min-w-0 truncate text-ink-muted" title={row.label}>{row.label}</dt>
+                    <dd className="shrink-0 tabular text-ink">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
         </div>
       )}
     </aside>

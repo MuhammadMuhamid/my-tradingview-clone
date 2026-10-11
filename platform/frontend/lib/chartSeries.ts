@@ -33,6 +33,14 @@ export interface ChartOverlay {
   instanceId?: string;
   instanceTitle?: string;
   instanceParams?: string;
+  /**
+   * W2D-04: something the reader is owed about this instance that is not a
+   * value — a comparison computed over fewer bars than were asked for. The
+   * legend shows it as a muted info glyph on the instance's row, with the
+   * sentence as its tooltip and accessible name; it is never laid over the
+   * chart.
+   */
+  instanceNote?: string;
   precision?: number | null;
   /** Per-study display switches from the study's Style tab. */
   priceScaleLabelVisible?: boolean;
@@ -458,6 +466,40 @@ export function formatPlotValue(value: number | null, precision?: number | null)
   // B-27: a tiny negative that rounds to zero printed "-0" (a MACD histogram
   // near its cross). Zero has no sign on a readout.
   return /^-0([.,]0*)?$/.test(text) ? text.slice(1) : text;
+}
+
+/**
+ * W2D-16: a study's PRICE-AXIS text, at a fixed precision, with no signed zero.
+ *
+ * The library's `{ type: "price" }` formatter prints a tiny negative that
+ * rounds to nothing as `−0.0000` — an ATR on XRPUSDT 15m put that on its own
+ * axis while the legend beside it, through `formatPlotValue`, already said
+ * `0`. Same rule here: zero has no sign. Everything else is what the library
+ * would have printed — `toFixed` at the study's decimals, no grouping, and the
+ * library's own U+2212 minus on a real negative.
+ */
+export function formatStudyAxisValue(value: number, precision: number): string {
+  if (!Number.isFinite(value)) return "";
+  const digits = Math.max(0, Math.min(12, Math.trunc(precision)));
+  const text = Math.abs(value).toFixed(digits);
+  return value < 0 && Number(text) !== 0 ? `−${text}` : text;
+}
+
+/**
+ * The `priceFormat` a study series is given: the study's precision through
+ * `formatStudyAxisValue`. `null`/`undefined` keeps the library's default of two
+ * decimals, which is what an unset `priceFormat` already meant.
+ */
+export function studyPriceFormat(precision?: number | null): {
+  type: "custom"; minMove: number; formatter: (price: number) => string;
+} {
+  const digits = precision === null || precision === undefined
+    ? 2 : Math.max(0, Math.min(12, Math.trunc(precision)));
+  return {
+    type: "custom",
+    minMove: 10 ** -digits,
+    formatter: (price: number) => formatStudyAxisValue(price, digits),
+  };
 }
 
 /**
