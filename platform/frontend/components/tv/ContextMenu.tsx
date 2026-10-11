@@ -136,6 +136,22 @@ function roleOf(item: MenuItem): "menuitem" | "menuitemcheckbox" | "menuitemradi
   return item.checked === undefined ? "menuitem" : "menuitemcheckbox";
 }
 
+/*
+ * Whether the input that opened a menu was the keyboard.
+ *
+ * The reference opens a right-click or `⋯` menu with NO row highlighted — a
+ * highlighted first row under a pointer that is nowhere near it reads as a
+ * hover that did not happen. A menu opened from the keyboard still lands its
+ * cursor on the first safe row, because there a cursor is the only way to see
+ * where Enter will go. Tracked once per document, in the capture phase, so no
+ * caller has to say how its menu was summoned.
+ */
+let keyboardLast = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", () => { keyboardLast = true; }, true);
+  window.addEventListener("pointerdown", () => { keyboardLast = false; }, true);
+}
+
 export function ContextMenu({ at, entries, label, onSelect, onClose, width }: ContextMenuProps) {
   const items = tidyEntries(entries);
   /**
@@ -161,7 +177,7 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
 
   useEffect(() => {
     if (!open) { setPlacement(null); setSub(null); return; }
-    setCursor(initialMenuCursor(items));
+    setCursor(keyboardLast ? initialMenuCursor(items) : -1);
     restoreTo.current = typeof document === "undefined"
       ? null : (document.activeElement as HTMLElement | null);
     return () => {
@@ -250,7 +266,10 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       setSwatchCursor(0);
-      setCursor((current) => moveMenuCursor(items, current, event.key as MenuKey));
+      // From "no row yet", Down lands where a keyboard-opened menu would have
+      // started: the first SAFE row, never a destructive one.
+      setCursor((current) => current < 0 && event.key === "ArrowDown"
+        ? initialMenuCursor(items) : moveMenuCursor(items, current, event.key as MenuKey));
       return;
     }
     /*
