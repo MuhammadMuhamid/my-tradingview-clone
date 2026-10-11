@@ -226,6 +226,15 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
 
     const strategy = await strategies.getStrategyByKey(settings.strategyKey);
     if (!strategy) return reply.code(404).send({ error: "strategy not found" });
+    /*
+     * C-06: the run whose settings these are, recorded so the result can say
+     * so. It must name a run that exists — a dangling id would be a foreign-key
+     * 500 at the insert — and it is provenance only: `prepared` already holds
+     * everything discovery will see.
+     */
+    if (settings.sourceBacktestId && !(await backtests.getBacktest(settings.sourceBacktestId))) {
+      return reply.code(404).send({ error: "source backtest not found" });
+    }
 
     let baseParams: StrategyParams = {};
     let symbol = settings.symbol;
@@ -291,6 +300,7 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
     const coordinator = await stressRepo.createStressRun({
       strategyId: strategy.id,
       configId: settings.configId ?? null,
+      sourceBacktestId: settings.sourceBacktestId ?? null,
       symbol, timeframe, params,
       initialCapital, commissionPct, slippageTicks,
       benchmarkSymbol: benchmark.symbol,

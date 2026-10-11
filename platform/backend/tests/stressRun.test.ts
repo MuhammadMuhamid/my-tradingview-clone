@@ -89,6 +89,24 @@ test("a configId that is not a uuid cannot name a config: 404, not a database er
   assert.equal(isUuid("3f1c2a9e8d4b4c6f9a1e2b7d5c8e0f13"), false);
 });
 
+test("C-06 the run whose settings were copied is carried as provenance, and only a uuid names one", () => {
+  const SOURCE = "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13";
+  const parsed = parseStressRunSettings({ ...FROM_A_RUN, sourceBacktestId: SOURCE });
+  assert.ok(parsed.ok);
+  assert.equal(parsed.value.sourceBacktestId, SOURCE);
+  // Absent or null: the defaults or a hand-filled form, stated as nothing.
+  const none = parseStressRunSettings(FROM_A_RUN);
+  assert.ok(none.ok);
+  assert.equal("sourceBacktestId" in none.value, false);
+  const nul = parseStressRunSettings({ ...FROM_A_RUN, sourceBacktestId: null });
+  assert.ok(nul.ok);
+  assert.equal("sourceBacktestId" in nul.value, false);
+  // A value that cannot name a run is not a database cast error later.
+  const bad = parseStressRunSettings({ ...FROM_A_RUN, sourceBacktestId: "not-a-uuid" });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.equal(bad.code, 404);
+});
+
 test("a stress run id that is not a uuid is a 404, and asks the database nothing", async (t) => {
   const app = Fastify({ logger: false });
   await stressRoutes(app);

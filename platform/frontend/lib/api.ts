@@ -1568,6 +1568,8 @@ export const api = {
     strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
     params?: StrategyParams; initialCapital?: number;
     commissionPct?: number; slippageTicks?: number;
+    /** The finished run these settings were copied from — provenance, never discovery. */
+    sourceBacktestId?: string;
   }) => req<StressRun>("/api/stress/runs", { method: "POST", body: JSON.stringify(body) }),
   listStressRuns: () => req<StressRun[]>("/api/stress/runs"),
   getStressRun: (id: string) =>

@@ -384,6 +384,50 @@ test("a finished run stops saying Running in the list without a reload", async (
   assert.doesNotMatch(list(), /running/i);
 });
 
+// ── C-06: whose settings a result stressed ──────────────────────────────────
+
+test("C-06 a run started from a backtest records which one, and only on the run request", async () => {
+  serveSource();
+  await mountFrom();
+  fireEvent.click(screen.getByRole("button", { name: /Find the windows/ }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Run the strategy through them/ }));
+  await settle();
+  const [body] = runBodies();
+  assert.equal(body?.sourceBacktestId, SOURCE_ID, "the stress run must be told whose settings these are");
+  for (const call of server.callsTo("/api/stress/windows").filter((c) => c.method === "POST")) {
+    assert.ok(!("sourceBacktestId" in (call.body as Record<string, unknown>)),
+      "discovery must not learn which run is about to be stressed");
+  }
+});
+
+test("C-06 the result header and the history row say whose settings were stressed", async () => {
+  await mountRun({ ...stressRun(), sourceBacktestId: SOURCE_ID });
+  const header = document.querySelector("[data-stress-result] h2, [data-stress-result] h3")?.textContent ?? "";
+  assert.match(header, /settings of run 3f1c2a9e/, `the result does not say whose settings it ran: ${header}`);
+  const list = screen.getByText("Previous stress runs").closest("div")!.parentElement!.textContent ?? "";
+  assert.match(list, /settings of run 3f1c2a9e/);
+  assert.doesNotMatch(list, /explicit parameters/, "a copied run's settings are named, not called explicit");
+});
+
+test("C-06 changing the run to start from marks the shown result as not this choice", async () => {
+  serveSource();
+  const detail = { ...stressRun(), sourceBacktestId: SOURCE_ID };
+  server.routes.set("GET /api/stress/runs", () => [detail]);
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}`, () => detail);
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}/benchmark`, () => ({ symbol: "BTCUSDT", interval: "1d", path: [] }));
+  render(<AppRoute path="/stress" query={`from=${SOURCE_ID}&run=${RUN_ID}`}><StressPage /></AppRoute>);
+  await settle(6);
+  const result = (): HTMLElement => document.querySelector("[data-stress-result]") as HTMLElement;
+  assert.equal(result().getAttribute("data-stale"), "false", "the result matches the chosen source");
+
+  fireEvent.click(screen.getByRole("button", { name: /Use the strategy.s defaults instead/ }));
+  await settle();
+  assert.equal(result().getAttribute("data-stale"), "true",
+    "a result for run 3f1c2a9e's settings must not sit unmarked under a form that now says defaults");
+  assert.match(result().textContent ?? "", /This result stressed the settings of run 3f1c2a9e/);
+});
+
 // ── A shown run has an address (C-03) ───────────────────────────────────────
 
 /*

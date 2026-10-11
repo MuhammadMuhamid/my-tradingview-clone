@@ -22,6 +22,8 @@ export interface StressRunRow {
   id: string;
   strategyId: number;
   configId: string | null;
+  /** C-06: the finished run whose settings this copied, or null. Provenance only. */
+  sourceBacktestId: string | null;
   symbol: string;
   timeframe: Interval;
   params: StrategyParams;
@@ -42,6 +44,8 @@ interface DbStressRun {
   id: string;
   strategy_id: number;
   config_id: string | null;
+  /** Absent on a database that predates migration 046. */
+  source_backtest_id?: string | null;
   symbol: string;
   timeframe: Interval;
   params: StrategyParams;
@@ -63,6 +67,7 @@ function toRow(r: DbStressRun): StressRunRow {
     id: r.id,
     strategyId: r.strategy_id,
     configId: r.config_id,
+    sourceBacktestId: r.source_backtest_id ?? null,
     symbol: r.symbol,
     timeframe: r.timeframe,
     params: r.params,
@@ -83,6 +88,7 @@ function toRow(r: DbStressRun): StressRunRow {
 export async function createStressRun(input: {
   strategyId: number;
   configId: string | null;
+  sourceBacktestId: string | null;
   symbol: string;
   timeframe: Interval;
   params: StrategyParams;
@@ -98,14 +104,15 @@ export async function createStressRun(input: {
     `INSERT INTO stress_runs
        (strategy_id, config_id, symbol, timeframe, params, initial_capital,
         commission_pct, slippage_ticks, benchmark_symbol, benchmark_interval,
-        discovery, windows)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        discovery, windows, source_backtest_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [
       input.strategyId, input.configId, input.symbol, input.timeframe,
       JSON.stringify(input.params), input.initialCapital, input.commissionPct,
       input.slippageTicks, input.benchmarkSymbol, input.benchmarkInterval,
       JSON.stringify(input.discovery), JSON.stringify(input.windows),
+      input.sourceBacktestId,
     ],
   );
   return toRow(rows[0]!);

@@ -354,9 +354,17 @@ function StressWorkspace() {
    * every way of showing one writes it.
    */
   const openIdRef = useRef<string | null>(null);
+  /*
+   * C-06: whether the run to start from has been changed since the shown
+   * result was opened. A result for run A's settings used to sit unmarked
+   * under a form that now said run B, or the defaults, and read as the answer
+   * to the new choice.
+   */
+  const [sourceMoved, setSourceMoved] = useState(false);
   const showRun = useCallback((detail: StressRunDetail): void => {
     openIdRef.current = detail.id;
     setOpen(detail);
+    setSourceMoved(false);
     writeAddress({ run: detail.id });
   }, []);
 
@@ -405,6 +413,7 @@ function StressWorkspace() {
   const chooseSource = (backtestId: string | null): void => {
     writeAddress({ from: backtestId });
     setOverride({ id: backtestId });
+    setSourceMoved(true);
     if (backtestId === null) {
       // Back to what an unconfigured page offers, so nothing of the run lingers.
       setStrategyKey("mtf_lean");
@@ -474,6 +483,8 @@ function StressWorkspace() {
             strategyKey: source.strategyKey, symbol: source.symbol, timeframe: source.timeframe,
             params: source.params, initialCapital: source.initialCapital,
             commissionPct: source.commissionPct, slippageTicks: source.slippageTicks,
+            // Provenance for the result and the history row; discovery never sees it.
+            sourceBacktestId: source.backtestId,
           }
           : { strategyKey, symbol, timeframe, initialCapital: capital }),
       });
@@ -489,6 +500,7 @@ function StressWorkspace() {
   // Runs a reader can start from: finished, and not themselves a stress window.
   const startable = recent.filter((b) => b.status === "done" && b.stressRunId === null).slice(0, 50);
   const settingsLocked = sourceState !== null && sourceState.status !== "failed";
+  const staleResult = open !== null && sourceMoved && (open.sourceBacktestId ?? null) !== (fromId ?? null);
 
   return (
     <PageShell>
@@ -691,19 +703,35 @@ function StressWorkspace() {
       </Card>
 
       {open && (
+        <div data-stress-result data-stale={staleResult ? "true" : "false"}>
         <Card>
           <CardHeader
-            title={`${displayTicker(open.symbol)} · ${open.timeframe} through ${displayTicker(open.benchmarkSymbol)}'s worst ${open.discovery.config.lengthBars} ${open.benchmarkInterval} bars`}
+            title={`${displayTicker(open.symbol)} · ${open.timeframe} through ${displayTicker(open.benchmarkSymbol)}'s worst ${open.discovery.config.lengthBars} ${open.benchmarkInterval} bars`
+              + (open.sourceBacktestId ? ` · settings of run ${shortRunId(open.sourceBacktestId)}` : "")}
             right={<StatusBadge status={open.status} />}
           />
-          {openPath && openPath.id === open.id && (
-            <StressBenchmarkChart symbol={open.discovery.benchmark.symbol}
-              interval={open.discovery.benchmark.interval} path={openPath.path}
-              windows={open.windows} range={open.discovery.searched} />
+          {staleResult && (
+            <div className="px-4 pt-3">
+              <Notice tone="warn">
+                This result stressed {open.sourceBacktestId
+                  ? `the settings of run ${shortRunId(open.sourceBacktestId)}`
+                  : "the settings that were on the form"}, not the{" "}
+                {fromId ? `run ${shortRunId(fromId)}` : "defaults"} now chosen above. Run the
+                strategy through the windows again to stress the new choice.
+              </Notice>
+            </div>
           )}
-          <WindowTable detail={open} />
-          <DiscoveryLine discovery={open.discovery} />
+          <div className={staleResult ? "opacity-50" : undefined}>
+            {openPath && openPath.id === open.id && (
+              <StressBenchmarkChart symbol={open.discovery.benchmark.symbol}
+                interval={open.discovery.benchmark.interval} path={openPath.path}
+                windows={open.windows} range={open.discovery.searched} />
+            )}
+            <WindowTable detail={open} />
+            <DiscoveryLine discovery={open.discovery} />
+          </div>
         </Card>
+        </div>
       )}
 
       <Card>
@@ -726,8 +754,10 @@ function StressWorkspace() {
                   vs {displayTicker(r.benchmarkSymbol)} {r.benchmarkInterval} ·{" "}
                   {r.discovery.config.method.replace(/_/g, " ")} ·{" "}
                   {r.windows.length} window{r.windows.length === 1 ? "" : "s"} ·{" "}
-                  {Object.keys(r.params ?? {}).length === 0 && r.configId === null
-                    ? "defaults" : "explicit parameters"}
+                  {r.sourceBacktestId
+                    ? `settings of run ${shortRunId(r.sourceBacktestId)}`
+                    : Object.keys(r.params ?? {}).length === 0 && r.configId === null
+                      ? "defaults" : "explicit parameters"}
                 </span>
                 <StatusBadge status={r.status} />
                 <span className="ml-auto text-xs text-ink-faint">{day(Date.parse(r.createdAt))}</span>

@@ -42,6 +42,13 @@ export interface StressRunSettings {
   initialCapital?: number;
   commissionPct?: number;
   slippageTicks?: number;
+  /**
+   * C-06: the finished backtest whose settings these are, when the page was
+   * opened from one. Provenance only — recorded on the stress run so its
+   * result and history row can say whose settings it stressed; it reaches
+   * nothing that chooses the windows.
+   */
+  sourceBacktestId?: string;
 }
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; code: number; error: string };
@@ -57,12 +64,15 @@ const refuse = (error: string, code = 400): { ok: false; code: number; error: st
  * forbids a second copy of those numbers).
  */
 export function parseStressRunSettings(body: Record<string, unknown>): Parsed<StressRunSettings> {
-  const { strategyKey, configId, symbol, timeframe, params } = body;
+  const { strategyKey, configId, symbol, timeframe, params, sourceBacktestId } = body;
   if (typeof strategyKey !== "string" || strategyKey.length === 0) {
     return refuse("strategyKey is required");
   }
   if (configId !== undefined && configId !== null && !isUuid(configId)) {
     return refuse("config not found", 404);
+  }
+  if (sourceBacktestId !== undefined && sourceBacktestId !== null && !isUuid(sourceBacktestId)) {
+    return refuse("source backtest not found", 404);
   }
   if (symbol !== undefined && typeof symbol !== "string") return refuse("symbol must be a string");
   if (timeframe !== undefined && typeof timeframe !== "string") {
@@ -109,6 +119,7 @@ export function parseStressRunSettings(body: Record<string, unknown>): Parsed<St
     value: {
       strategyKey,
       ...(typeof configId === "string" ? { configId } : {}),
+      ...(typeof sourceBacktestId === "string" ? { sourceBacktestId } : {}),
       ...(symbol === undefined ? {} : { symbol: symbol.toUpperCase() }),
       ...(timeframe === undefined ? {} : { timeframe }),
       params: Object.fromEntries(entries) as StrategyParams,

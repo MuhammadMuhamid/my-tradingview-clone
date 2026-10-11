@@ -310,6 +310,11 @@ export interface StressRun {
   timeframe: Interval;
   /** The saved configuration this ran, when it ran one. */
   configId: string | null;
+  /**
+   * C-06: the finished run whose settings this copied, when it was started
+   * from one. Absent on rows recorded before the server kept it.
+   */
+  sourceBacktestId?: string | null;
   /** The parameters it ran. Empty means the strategy's own defaults. */
   params: Record<string, number | string | boolean>;
   /** The capital and cost model every window ran under. */
