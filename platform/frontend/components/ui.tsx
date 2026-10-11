@@ -932,41 +932,131 @@ export function LineStyleButton({
             allowTheme={allowTheme}
             onDone={close}
           />
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            {[1, 2, 3, 4].map((w) => (
-              <button
-                key={w}
-                type="button"
-                aria-label={`Width ${w}`}
-                aria-pressed={w === width}
-                onClick={() => onChange({ color, width: w, style })}
-                className="tvc-control flex h-8 flex-1 items-center justify-center rounded-md text-ink"
-              >
-                <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
-                  <path d="M0 6h22" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
-                </svg>
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            {(["solid", "dotted", "dashed"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-label={s[0]!.toUpperCase() + s.slice(1)}
-                aria-pressed={s === style}
-                onClick={() => onChange({ color, width, style: s })}
-                className="tvc-control flex h-8 flex-1 items-center justify-center rounded-md text-ink"
-              >
-                <svg width="42" height="12" viewBox="0 0 42 12" aria-hidden="true">
-                  <path
-                    d="M0 6h42" stroke="currentColor" strokeWidth={width}
-                    strokeDasharray={dashArray(s, width)} strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            ))}
-          </div>
+          <WidthPicker value={width} onChange={(w) => onChange({ color, width: w, style })} />
+          <DashPicker value={style} width={width} onChange={(s) => onChange({ color, width, style: s })} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The line-width row of `LineStyleButton`'s popover, on its own.
+ *
+ * Exported so a surface that offers width as its OWN control — the selected
+ * drawing's floating toolbar (B-11) — opens these same four buttons rather
+ * than a second picker that would drift from this one.
+ */
+export function WidthPicker({ value, onChange }: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-1.5 pb-1.5 first:pt-1.5">
+      {[1, 2, 3, 4].map((w) => (
+        <button
+          key={w}
+          type="button"
+          aria-label={`Width ${w}`}
+          aria-pressed={w === value}
+          onClick={() => onChange(w)}
+          className="tvc-control flex h-8 min-w-[44px] flex-1 items-center justify-center rounded-md text-ink"
+        >
+          <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
+            <path d="M0 6h22" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The dash-pattern row of `LineStyleButton`'s popover, on its own (see `WidthPicker`). */
+export function DashPicker({ value, width, onChange }: {
+  value: "solid" | "dotted" | "dashed";
+  width: number;
+  onChange: (next: "solid" | "dotted" | "dashed") => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-1.5 pb-1.5 first:pt-1.5">
+      {(["solid", "dotted", "dashed"] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          aria-label={s[0]!.toUpperCase() + s.slice(1)}
+          aria-pressed={s === value}
+          onClick={() => onChange(s)}
+          className="tvc-control flex h-8 min-w-[60px] flex-1 items-center justify-center rounded-md text-ink"
+        >
+          <svg width="42" height="12" viewBox="0 0 42 12" aria-hidden="true">
+            <path
+              d="M0 6h42" stroke="currentColor" strokeWidth={width}
+              strokeDasharray={dashArray(s, width)} strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The colour grid `Swatch` and `LineStyleButton` open, for a surface with its own trigger. */
+export function ColourPalette(props: {
+  value: string;
+  onChange: (next: string) => void;
+  onDone: () => void;
+}) {
+  return <Palette {...props} allowTheme={false} />;
+}
+
+/**
+ * A trigger that opens one of the pickers above, for a surface whose buttons
+ * are not dialog form controls — the selected drawing's floating toolbar.
+ *
+ * The popover machinery is the dialog's own — `useExclusivePopover`, so one
+ * popover is open at a time; `useDismiss`, so outside-click and Escape close
+ * it; `useAnchor`, so it is placed in viewport coordinates and flips above the
+ * trigger near the bottom of the screen. Only the trigger's shape is the
+ * caller's, because a toolbar button is 38px and borderless where a dialog's
+ * is 34px and outlined.
+ */
+export function PopoverButton({ label, title, className, children, popover, id, popoverClassName = "" }: {
+  label: string;
+  title?: string;
+  className: string;
+  children: ReactNode;
+  /** The popover's body; `close` dismisses it, for a pick that is final. */
+  popover: (close: () => void) => ReactNode;
+  /** See `Dropdown.id`. */
+  id?: string;
+  popoverClassName?: string;
+}) {
+  const [open, setOpen] = useExclusivePopover(`ui-popover-button:${id ?? label}`);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), [setOpen]);
+  useDismiss(open, close, boxRef, popRef);
+  const pos = useAnchor(open, boxRef, popRef);
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        aria-label={label}
+        title={title ?? label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={className}
+      >
+        {children}
+      </button>
+      {open && (
+        <div
+          ref={popRef}
+          style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
+          className={`tvc-popover ${popoverClassName}`}
+        >
+          {popover(close)}
         </div>
       )}
     </div>

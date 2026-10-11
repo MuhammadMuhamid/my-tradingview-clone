@@ -140,17 +140,14 @@ test("Middle point draws a handle at the midpoint, and only when asked", () => {
   assert.equal(arcs[0]!.y, 150, "midway between 100 and 200");
 });
 
-test("Price labels tag every anchor's price, once per row", () => {
+test("Price labels are not painted inside the plot — they are axis tags now (B-21)", () => {
+  /*
+   * The canvas covers the pane, not the axis, so it painted these as boxes
+   * 62px in from the pane's edge. They are `DrawingAxisLabelsPrimitive`'s
+   * axis labels now; `tests/drawingAnchoring.test.ts` holds what they say.
+   */
   assert.equal(render(drawing("trend", {})).texts.length, 0);
-  const tagged = render(drawing("trend", { priceLabels: true })).texts;
-  assert.equal(tagged.length, 2, "one per anchor");
-
-  // A horizontal line's two anchors share a row; two identical tags stacked on
-  // the same pixel is a smudge, not information.
-  const flat = render(drawing("trend", { priceLabels: true }, [
-    { time: 100, price: 150 }, { time: 300, price: 150 },
-  ])).texts;
-  assert.equal(flat.length, 1);
+  assert.equal(render(drawing("trend", { priceLabels: true })).texts.length, 0);
 });
 
 // ── the info block ────────────────────────────────────────────────────────

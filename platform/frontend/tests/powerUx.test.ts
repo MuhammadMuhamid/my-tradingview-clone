@@ -827,7 +827,8 @@ test("every toolbar popover goes through the registry rather than its own state"
     // TVP8: the camera's Save image / Copy image menu.
     // R6b-29: the study dialog's own `Defaults ▾`, for the same reason.
     "toolbar:snapshot", "trading-overlays",
-    "ui-dropdown:${popoverId}", "ui-line-style:${popoverId}", "ui-swatch:${popoverId}",
+    "ui-dropdown:${popoverId}", "ui-line-style:${popoverId}", "ui-popover-button:${id ?? label}",
+    "ui-swatch:${popoverId}",
     // TVP7: the watchlist's list switcher. It kept a private `useState(false)`
     // and escaped this inventory because it was a hand-rolled box with no
     // `role="menu"` for the rule below to catch.

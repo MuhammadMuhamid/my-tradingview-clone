@@ -7,7 +7,7 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
-  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, PALETTE, TEXT_TOOLS, TOOL_POINTS,
+  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, TEXT_TOOLS, TOOL_POINTS,
   currentIconGlyph, distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe,
   distToSegment, isCursorMode, newId,
   type Anchor, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTool, type Pt,
@@ -15,9 +15,31 @@ import {
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
 import { cloneDrawing } from "@/lib/drawingHistory";
 import {
-  chartInkMuted, chartNegative, chartPositive, chartSurface, readableOn,
+  CHART_FONT, chartInkMuted, chartNegative, chartPositive, chartSurface, readableOn,
 } from "@/lib/chartTheme";
 import { useAsk } from "@/components/AskDialog";
+import { CaretGlyph, ColourPalette, DashPicker, PopoverButton, WidthPicker } from "@/components/ui";
+import { toolbarPlacement } from "@/lib/drawingToolbarPlacement";
+import { DrawingAxisLabelsPrimitive, drawingAxisTags } from "@/lib/drawingAxisLabels";
+import { timeMap } from "@/lib/drawingTimeMap";
+
+/*
+ * A12: the floating toolbar's two control shapes, one height.
+ *
+ * The reference's bar is 38px of 38×38 controls. This one mixed 34px outlined
+ * buttons with 28px icon buttons, so its row of controls had two baselines.
+ * Both are `.tvc-control` — transparent, with the inset chip on hover — as
+ * every other toolbar button in the workstation is.
+ */
+const BAR_ICON_BUTTON =
+  "tvc-control flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink-muted hover:text-ink";
+const BAR_TEXT_BUTTON =
+  "tvc-control flex h-[38px] min-w-[38px] items-center justify-center gap-1 rounded-md px-1.5 text-[13px] text-ink-muted hover:text-ink";
+
+/** The dash pattern a drawing draws with, from the key that has it or the boolean before it. */
+function lineStyleOf(style: DrawingStyle): "solid" | "dotted" | "dashed" {
+  return style.lineStyle ?? (style.dashed ? "dashed" : "solid");
+}
 
 /** What the text dialog calls itself, per tool. */
 const TEXT_TOOL_TITLES: Partial<Record<DrawingTool, string>> = {
@@ -208,29 +230,24 @@ export function DrawingCanvas({
   // Chart times are seconds; a resolution's own step is in milliseconds.
   const stepSec = resolutionMs(interval) / 1000;
 
-  const timeToLogical = useCallback((t: number): number => {
-    const n = times.length;
-    if (n === 0) return 0;
-    if (t <= times[0]!) return (t - times[0]!) / stepSec;
-    if (t >= times[n - 1]!) return n - 1 + (t - times[n - 1]!) / stepSec;
-    let lo = 0, hi = n - 1;
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1;
-      if (times[mid]! <= t) lo = mid; else hi = mid;
-    }
-    const span = times[hi]! - times[lo]!;
-    return span > 0 ? lo + (t - times[lo]!) / span : lo;
-  }, [times, stepSec]);
-
-  const logicalToTime = useCallback((l: number): number => {
-    const n = times.length;
-    if (n === 0) return 0;
-    if (l <= 0) return times[0]! + l * stepSec;
-    if (l >= n - 1) return times[n - 1]! + (l - (n - 1)) * stepSec;
-    const lo = Math.floor(l);
-    const frac = l - lo;
-    return times[lo]! + (times[lo + 1]! - times[lo]!) * frac;
-  }, [times, stepSec]);
+  /*
+   * B-21: a candle's logical position is the CHART's answer, not its index in
+   * `candles` — the time scale also holds every other series' times, and an
+   * overlay off the candles' grid shifted every drawing. See
+   * `lib/drawingTimeMap`. Read at call time, so a time scale that changes
+   * under the layer (an overlay's data arriving) moves nothing stale.
+   */
+  const mapping = useMemo(() => timeMap(times, stepSec, (barTime) => {
+    try {
+      const scale = chart?.timeScale();
+      const x = scale?.timeToCoordinate(barTime as never);
+      if (x === null || x === undefined) return null;
+      const logical = scale?.coordinateToLogical(x);
+      return logical === null || logical === undefined ? null : Math.round(logical);
+    } catch { return null; }
+  }), [times, stepSec, chart]);
+  const timeToLogical = useCallback((t: number): number => mapping.timeToLogical(t), [mapping]);
+  const logicalToTime = useCallback((l: number): number => mapping.logicalToTime(l), [mapping]);
 
   const toPx = useCallback((a: Anchor): Pt => {
     const x = chart?.timeScale().logicalToCoordinate(timeToLogical(a.time) as Logical);
@@ -245,7 +262,9 @@ export function DrawingCanvas({
     const snappedLogical = Math.round(logical as number);
     const time = logicalToTime(snappedLogical);
     if (magnetRef.current === "off") return { time, price: Number(price) };
-    const bar = candles[snappedLogical];
+    // The bar AT that time, not `candles[logical]`: see `lib/drawingTimeMap`.
+    const index = mapping.barIndexAt(time);
+    const bar = index >= 0 && times[index] === time ? candles[index] : undefined;
     if (!bar) return { time, price: Number(price) };
     // Magnet: jump to whichever of O/H/L/C is nearest in pixels.
     let best = Number(price);
@@ -258,7 +277,7 @@ export function DrawingCanvas({
     }
     // Weak: only when the pointer is already near a level. Strong: always.
     return { time, price: magnetRef.current === "strong" || bestPx <= 24 ? best : Number(price) };
-  }, [chart, series, candles, logicalToTime]);
+  }, [chart, series, candles, logicalToTime, mapping, times]);
 
   // ── hit testing ───────────────────────────────────────────────────────────
   const hitTest = useCallback((p: Pt): { id: string; handle: number | null } | null => {
@@ -789,6 +808,27 @@ export function DrawingCanvas({
   }, [container, chart, series, hitTest, toAnchor, toPx, commit, onOpenSettings]);
 
   // Escape cancels, Delete removes the selection — in the FOCUSED pane only.
+  /*
+   * B-21: the drawings' price tags, on the axis. One primitive per series this
+   * layer draws against; the tag list is restated whenever what is drawn
+   * changes, and the primitive asks for a repaint only when it differs.
+   */
+  const axisTagsRef = useRef<DrawingAxisLabelsPrimitive | null>(null);
+  useEffect(() => {
+    if (!series) return;
+    const primitive = new DrawingAxisLabelsPrimitive();
+    try { series.attachPrimitive(primitive); } catch { return; }
+    axisTagsRef.current = primitive;
+    return () => {
+      axisTagsRef.current = null;
+      try { series.detachPrimitive(primitive); }
+      catch { /* the series went away first; the primitive went with it */ }
+    };
+  }, [series]);
+  useEffect(() => {
+    axisTagsRef.current?.update(drawingAxisTags(drawings, interval, hidden));
+  }, [drawings, interval, hidden, series]);
+
   const activeRef = useRef(active);
   activeRef.current = active;
   useEffect(() => {
@@ -953,14 +993,34 @@ export function DrawingCanvas({
    * `useLayoutEffect` runs before paint, and the equality guard means this
    * settles in one extra pass and then stops.
    */
-  const [styleBarWidth, setStyleBarWidth] = useState(0);
+  const [styleBarSize, setStyleBarSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const measured = styleBarRef.current?.offsetWidth ?? 0;
-    setStyleBarWidth((previous) => (previous === measured ? previous : measured));
+    const width = styleBarRef.current?.offsetWidth ?? 0;
+    const height = styleBarRef.current?.offsetHeight ?? 0;
+    setStyleBarSize((previous) => (previous.width === width && previous.height === height
+      ? previous : { width, height }));
     // Which controls the bar holds — and so how wide it is — is decided by
     // WHICH drawing is selected and what kind it is: the profile block, the
     // Anchored-VWAP band count and the fill toggle are all per-tool.
   }, [sel?.id, sel?.tool]);
+  /*
+   * A11: the bar never covers the drawing it belongs to.
+   *
+   * It sat 44px above the FIRST anchor, so a line rising to the right ran
+   * straight under it and the click or right-click meant for the line hit a
+   * button. `toolbarPlacement` takes the drawing's whole extent and the same
+   * distance function hit-testing uses, and returns the first box — above,
+   * below, beside, or docked at the top of the pane — that touches neither.
+   */
+  const styleBarAt = sel && selPx ? toolbarPlacement(
+    sel.points.map((point) => toPx(point)),
+    { width: styleBarSize.width || 300, height: styleBarSize.height || 38 },
+    {
+      width: (container?.clientWidth ?? 400) - (chart?.priceScale("right").width() ?? 0),
+      height: (container?.clientHeight ?? 300) - (chart?.timeScale().height() ?? 0),
+    },
+    (point) => distToDrawing(point, sel, toPx, candles),
+  ) : null;
   const styleFocusRef = useRef(styleFocusSignal);
   useEffect(() => {
     if (styleFocusSignal === styleFocusRef.current) return;
@@ -971,11 +1031,12 @@ export function DrawingCanvas({
   return (
     <>
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-10" />
-      {sel && selPx && !hidden && !sel.hidden && (
+      {sel && styleBarAt && !hidden && !sel.hidden && (
         <div
           ref={styleBarRef}
           role="toolbar"
           aria-label="Drawing style"
+          data-drawing-style-bar=""
           /*
            * The bar is measured, not assumed.
            *
@@ -985,32 +1046,66 @@ export function DrawingCanvas({
            * selecting a Fixed Range Volume Profile near the right edge pushed
            * its own controls off the pane.
            *
-           * The measurement comes from `styleBarWidth` — taken in a layout
+           * The measurement comes from `styleBarSize` — taken in a layout
            * effect — rather than from `styleBarRef.current` read during render,
            * which is null on the render that positions a newly selected bar.
+           *
+           * A12: `tvc-popover`, the surface without the menu grammar's 6px
+           * padding, so the bar is its 38px controls tall and no taller — the
+           * reference's measured 38px bar of 38×38 buttons. As a menu it was
+           * 46px of mixed 34px and 28px buttons.
            */
-          className="tvc-menu absolute z-20 flex items-center gap-1 px-1.5 py-1"
-          style={{
-            left: Math.max(4, Math.min(
-              selPx.x,
-              (container?.clientWidth ?? 400) - (styleBarWidth || 300) - 4,
-            )),
-            top: Math.max(4, selPx.y - 44),
+          className="tvc-popover absolute z-20 flex items-center gap-0.5 px-1"
+          style={{ left: styleBarAt.left, top: styleBarAt.top }}
+          /*
+           * A12: right-clicking the bar is right-clicking the selection. The
+           * bar sits outside the chart's own container, so the canvas never
+           * saw the event and the browser's menu — or the chart's — opened
+           * over a selected drawing.
+           */
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onContextMenuRef.current?.({
+              x: event.clientX, y: event.clientY,
+              drawingId: sel.id, price: null, region: "plot",
+            });
           }}
         >
-          <button
-            onClick={() => {
-              const index = Math.max(0, PALETTE.indexOf(sel.style.color));
-              applyStyle({ color: PALETTE[(index + 1) % PALETTE.length] });
-            }}
-            className="flex h-[34px] w-[34px] items-center justify-center gap-0.5 rounded border border-border"
-            title="Line color"
-            aria-label="Line color"
-          ><span className="h-4 w-4 rounded-full border border-white/30" style={{ background: sel.style.color }} /><span aria-hidden="true">⌄</span></button>
+          {/*
+            B-11: colour, width and style OPEN their pickers.
+
+            Each carried a caret and none opened anything: a click stepped the
+            value — red to yellow to purple, 3 to 4, Solid to Dashed — so the
+            only way to a particular colour was to click past every other one.
+            These are the drawing settings dialog's own pickers (`ColourPalette`,
+            `WidthPicker`, `DashPicker`, the pieces its `LineStyleButton`
+            opens), each behind its own toolbar trigger, as the reference has
+            them.
+          */}
+          <PopoverButton
+            label="Line color"
+            className={BAR_TEXT_BUTTON}
+            popover={(close) => (
+              <ColourPalette value={sel.style.color} onDone={close}
+                onChange={(color) => applyStyle({ color })} />
+            )}
+          >
+            <span className="h-4 w-4 rounded-full border border-white/30" style={{ background: sel.style.color }} />
+            <CaretGlyph size={8} />
+          </PopoverButton>
           <span className="mx-0.5 h-4 w-px bg-border" />
-          <button type="button" onClick={() => applyStyle({ width: ((sel.style.width ?? 1) % 4) + 1 })}
-            className="flex h-[34px] min-w-[38px] items-center justify-center gap-0.5 rounded border border-border px-2 text-[12px] text-ink-muted"
-            aria-label="Line width" title="Line width">{sel.style.width ?? 1}<span aria-hidden="true">⌄</span></button>
+          <PopoverButton
+            label="Line width"
+            className={BAR_TEXT_BUTTON}
+            popover={(close) => (
+              <WidthPicker value={sel.style.width ?? 1}
+                onChange={(width) => { applyStyle({ width }); close(); }} />
+            )}
+          >
+            {sel.style.width ?? 1}px
+            <CaretGlyph size={8} />
+          </PopoverButton>
           {/*
             Anchored VWAP's standard-deviation bands, on the tool that has
             them. A control here rather than in a dialog for the same reason
@@ -1024,7 +1119,7 @@ export function DrawingCanvas({
                 <button
                   key={n}
                   onClick={() => applyStyle({ bands: n })}
-                  className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
+                  className="tvc-control flex h-[38px] items-center rounded-md px-1.5 text-[11px] text-ink-muted hover:text-ink"
                   aria-pressed={(sel.style.bands ?? 0) === n}
                   aria-label={n === 0 ? "No deviation bands" : `${n} standard-deviation band${n === 1 ? "" : "s"}`}
                   title={n === 0 ? "No bands" : `±${n}σ`}
@@ -1075,7 +1170,7 @@ export function DrawingCanvas({
                 onClick={() => applyProfile({
                   split: profileStyle.split === "upDown" ? "total" : "upDown",
                 })}
-                className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
+                className="tvc-control flex h-[38px] items-center rounded-md px-1.5 text-[11px] text-ink-muted hover:text-ink"
                 aria-pressed={profileStyle.split === "upDown"}
                 aria-label={profileStyle.split === "upDown"
                   ? "Show total volume per row"
@@ -1088,7 +1183,7 @@ export function DrawingCanvas({
                 onClick={() => applyProfile({
                   side: profileStyle.side === "left" ? "right" : "left",
                 })}
-                className="px-1 text-[11px] text-ink-muted hover:text-ink"
+                className="tvc-control flex h-[38px] items-center rounded-md px-1.5 text-[11px] text-ink-muted hover:text-ink"
                 aria-label={profileStyle.side === "left"
                   ? "Draw the rows from the right of the range"
                   : "Draw the rows from the left of the range"}
@@ -1098,7 +1193,7 @@ export function DrawingCanvas({
               </button>
               <button
                 onClick={() => applyProfile({ showPoc: !profileStyle.showPoc })}
-                className="tvc-control rounded px-1 text-[11px] text-ink-muted hover:text-ink"
+                className="tvc-control flex h-[38px] items-center rounded-md px-1.5 text-[11px] text-ink-muted hover:text-ink"
                 aria-pressed={profileStyle.showPoc}
                 aria-label={profileStyle.showPoc
                   ? "Hide the point-of-control line" : "Show the point-of-control line"}
@@ -1108,16 +1203,33 @@ export function DrawingCanvas({
               </button>
             </>
           )}
-          <button type="button" onClick={() => applyStyle({ dashed: !sel.style.dashed })}
-            className="flex h-[34px] min-w-[50px] items-center justify-center gap-1 rounded border border-border px-2 text-[12px] text-ink-muted"
-            aria-pressed={Boolean(sel.style.dashed)} aria-label="Line style" title="Line style">{sel.style.dashed ? "Dashed" : "Solid"}<span aria-hidden="true">⌄</span></button>
+          <PopoverButton
+            label="Line style"
+            className={BAR_TEXT_BUTTON}
+            popover={(close) => (
+              <DashPicker value={lineStyleOf(sel.style)} width={sel.style.width ?? 1}
+                onChange={(next) => {
+                  // `dashed` kept in step, as the settings dialog keeps it:
+                  // every renderer here reads the boolean.
+                  applyStyle({ lineStyle: next, dashed: next !== "solid" });
+                  close();
+                }} />
+            )}
+          >
+            <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
+              <path d="M0 6h22" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeDasharray={lineStyleOf(sel.style) === "solid" ? undefined
+                  : lineStyleOf(sel.style) === "dotted" ? "2 4" : "8 4"} />
+            </svg>
+            <CaretGlyph size={8} />
+          </PopoverButton>
           <button type="button" onClick={() => onOpenSettings?.(sel.id)}
-            className="flex h-[34px] min-w-[62px] items-center justify-center gap-1 rounded border border-border px-2 text-[12px] text-ink-muted"
-            aria-label="Drawing template" title="Drawing template">Template <span aria-hidden="true">⌄</span></button>
+            className={BAR_TEXT_BUTTON}
+            aria-label="Drawing template" title="Drawing template">Template <CaretGlyph size={8} /></button>
           {FILLABLE_TOOLS.has(sel.tool) && (
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title="Fill"
             aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
             aria-pressed={Boolean(sel.style.filled)}
@@ -1153,7 +1265,7 @@ export function DrawingCanvas({
                 });
               }
             }}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title="Settings"
             aria-label="Settings for this drawing"
           >
@@ -1169,7 +1281,7 @@ export function DrawingCanvas({
               onChange([...drawings, copy]);
               setSelected(copy.id);
             }}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title="Clone (⌘D)"
             aria-label="Clone this drawing"
           >
@@ -1181,7 +1293,7 @@ export function DrawingCanvas({
           </button>
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title={sel.locked ? "Unlock" : "Lock"}
             aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
             aria-pressed={Boolean(sel.locked)}
@@ -1195,7 +1307,7 @@ export function DrawingCanvas({
             </svg>
           </button>
           <button type="button" onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, hidden: !d.hidden } : d)))}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title={sel.hidden ? "Show" : "Hide"} aria-label={sel.hidden ? "Show this drawing" : "Hide this drawing"}>
             {/*
               Drawn, not typed. `◉`/`◌` were text characters taking the font's
@@ -1213,7 +1325,7 @@ export function DrawingCanvas({
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
             disabled={locked || sel.locked}
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+            className="flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
             title={locked || sel.locked ? "Unlock this drawing to delete it" : "Delete (Del)"}
             aria-label="Delete this drawing"
           >
@@ -1251,7 +1363,7 @@ export function DrawingCanvas({
                 drawingId: sel.id, price: null, region: "plot",
               });
             }}
-            className="tvc-control flex h-7 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+            className={BAR_ICON_BUTTON}
             title="More drawing actions" aria-label="More drawing actions"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1303,17 +1415,19 @@ const PATTERN_TEMPLATE_TOOLS = new Set<DrawingTool>([
 /**
  * The face a drawing's own text asks for.
  *
- * Monospace throughout, because these labels sit against prices and a
- * proportional face makes two of them disagree about their own width. Size,
- * weight and slant come from the Text tab; everything unset keeps the 13px the
- * branch used to hardcode.
+ * In the product's UI face (B-21), the chart's own `CHART_FONT`. It was
+ * `ui-monospace`, on the argument that labels against prices should agree
+ * about their width — but a text drawing is prose a user typed, and a code
+ * face on it is the contract's §3 "prose in the costume of a stack trace":
+ * beside Premium it read as a different product. Size, weight and slant come
+ * from the Text tab; everything unset keeps the 13px the branch always had.
  */
 function textFont(style: DrawingStyle): string {
   const bits: string[] = [];
   if (style.italic === true) bits.push("italic");
   if (style.bold === true) bits.push("bold");
   bits.push(`${style.fontSize ?? 13}px`);
-  bits.push("ui-monospace, monospace");
+  bits.push(CHART_FONT);
   return bits.join(" ");
 }
 
@@ -1555,7 +1669,7 @@ export function drawOne(
   ctx.setLineDash(dashPattern(d.style));
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.font = "11px ui-monospace, monospace";
+  ctx.font = `11px ${CHART_FONT}`;
 
   const line = (p1: Pt, p2: Pt): void => {
     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
@@ -1714,13 +1828,13 @@ export function drawOne(
       ctx.fill();
       break;
     }
+    // B-21: the level's price is tagged on the price AXIS, by
+    // `DrawingAxisLabelsPrimitive` — not as a box over the plot.
     case "hline":
       line({ x: 0, y: a.y }, { x: w, y: a.y });
-      label(fmtPrice(d.points[0]!.price), w - 62, a.y - 3);
       break;
     case "hray":
       line(a, { x: w, y: a.y });
-      label(fmtPrice(d.points[0]!.price), w - 62, a.y - 3);
       break;
     case "vline": line({ x: a.x, y: 0 }, { x: a.x, y: h }); break;
     case "crossline":
@@ -2021,7 +2135,7 @@ export function drawOne(
     }
     case "callout": {
       const text = d.style.text ?? "";
-      ctx.font = "12px ui-monospace, monospace";
+      ctx.font = `12px ${CHART_FONT}`;
       const tw = ctx.measureText(text).width + 14;
       const bx = a.x + 26, by = a.y - 44;
       line(a, { x: bx, y: by + 22 });
@@ -2056,17 +2170,8 @@ export function drawOne(
   const anchors = TOOL_POINTS[d.tool] ?? d.points.length;
   ctx.setLineDash([]);
 
-  if (d.style.priceLabels === true) {
-    // Against the right edge, where `hline` already puts its price, because
-    // this canvas covers the pane and not the axis the reference tags.
-    const seen = new Set<number>();
-    for (let i = 0; i < q.length && i < d.points.length; i++) {
-      const y = Math.round(q[i]!.y);
-      if (seen.has(y)) continue; // a horizontal line would stack two identical tags
-      seen.add(y);
-      label(fmtPrice(d.points[i]!.price), w - 62, q[i]!.y - 3);
-    }
-  }
+  // `Price labels` are tagged on the price AXIS (B-21) — see
+  // `lib/drawingAxisLabels` — rather than painted here, 62px inside the plot.
 
   if (anchors >= 2 && d.style.middlePoint === true && q.length >= 2) {
     ctx.beginPath();
@@ -2095,7 +2200,7 @@ export function drawOne(
       `${change >= 0 ? "+" : ""}${fmtPrice(change)} (${pct.toFixed(2)}%) · ` +
       `${fmtDuration(Math.abs(p1.time - p0.time))} · ${degrees.toFixed(1)}°`;
 
-    ctx.font = "11px ui-monospace, monospace";
+    ctx.font = `11px ${CHART_FONT}`;
     const tw = ctx.measureText(text).width;
     const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x);
     const x = d.style.statsPosition === "left" ? left
