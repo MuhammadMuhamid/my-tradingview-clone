@@ -26,9 +26,11 @@ import * as symbols from "../../repositories/symbols";
 import * as candleRepo from "../../repositories/candles";
 import { ensureCandles } from "../../data/binanceRest";
 import {
-  discoverStressWindows, StressDiscoveryError, stressProvenance,
+  benchmarkPath, discoverStressWindows, StressDiscoveryError, stressProvenance,
   STRESS_EPISTEMIC_NOTE, validateStressConfig, type StressMethod, type StressWindowConfig,
 } from "../../engine/stress";
+import { targetReturn, type TargetReturn } from "../../engine/stressTarget";
+import { isUuid, parseStressRunSettings } from "./stressRequest";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import {
   DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
@@ -183,6 +185,8 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
         windows,
         discovery: stressProvenance(
           { ...benchmark, interval }, candles, config),
+        // The searched period to draw the windows over; the candles are in hand.
+        path: benchmarkPath(candles),
         epistemicNote: STRESS_EPISTEMIC_NOTE,
       };
     } catch (error) {
@@ -202,30 +206,30 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
    * scientific content of the feature.
    */
   app.post("/api/stress/runs", async (req, reply) => {
-    const body = req.body as DiscoveryBody & {
-      strategyKey?: string;
-      configId?: string;
-      symbol?: string;
-      timeframe?: string;
-      params?: StrategyParams;
-      initialCapital?: number;
-      commissionPct?: number;
-      slippageTicks?: number;
-    };
+    const body = (req.body ?? {}) as DiscoveryBody & Record<string, unknown>;
 
     const prepared = await prepareDiscovery(body);
     if (!prepared.ok) return reply.code(prepared.code).send({ error: prepared.error });
     const { benchmark, interval, config, startMs, endMs } = prepared;
 
-    if (!body.strategyKey) return reply.code(400).send({ error: "strategyKey is required" });
-    const strategy = await strategies.getStrategyByKey(body.strategyKey);
+    /*
+     * The run's own settings — a finished backtest's parameters, capital and
+     * costs when the page was opened from one — are checked here, as the
+     * request's shape. They cannot reach discovery: `discoverStressWindows`
+     * has already been handed everything it will ever see, by `prepared`.
+     */
+    const parsed = parseStressRunSettings(body);
+    if (!parsed.ok) return reply.code(parsed.code).send({ error: parsed.error });
+    const settings = parsed.value;
+
+    const strategy = await strategies.getStrategyByKey(settings.strategyKey);
     if (!strategy) return reply.code(404).send({ error: "strategy not found" });
 
     let baseParams: StrategyParams = {};
-    let symbol = body.symbol?.toUpperCase();
-    let timeframe = body.timeframe;
-    if (body.configId) {
-      const config_ = await strategies.getConfig(body.configId);
+    let symbol = settings.symbol;
+    let timeframe = settings.timeframe;
+    if (settings.configId) {
+      const config_ = await strategies.getConfig(settings.configId);
       if (!config_) return reply.code(404).send({ error: "config not found" });
       baseParams = config_.params;
       symbol = symbol ?? config_.symbol ?? undefined;
@@ -260,7 +264,10 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const params = { ...baseParams, ...(body.params ?? {}) };
+    const params = { ...baseParams, ...settings.params };
+    const initialCapital = settings.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
+    const commissionPct = settings.commissionPct ?? DEFAULT_COMMISSION_PCT;
+    const slippageTicks = settings.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS;
     /*
      * The coordinator row is created FIRST, empty, so each child can carry its
      * id. Without it a stress window's run is indistinguishable from an
@@ -270,11 +277,9 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
      */
     const coordinator = await stressRepo.createStressRun({
       strategyId: strategy.id,
-      configId: body.configId ?? null,
+      configId: settings.configId ?? null,
       symbol, timeframe, params,
-      initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
-      commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
-      slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
+      initialCapital, commissionPct, slippageTicks,
       benchmarkSymbol: benchmark.symbol,
       benchmarkInterval: interval,
       discovery: stressProvenance({ ...benchmark, interval }, candles, config),
@@ -285,14 +290,12 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       const run = await backtests.createBacktest({
         stressRunId: coordinator.id,
         strategyId: strategy.id,
-        configId: body.configId,
+        configId: settings.configId,
         symbol, timeframe,
         startTime: window.startMs,
         endTime: window.endMs,
         params,
-        initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
-        commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
-        slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
+        initialCapital, commissionPct, slippageTicks,
       });
       windows.push({ ...window, backtestId: run.id });
     }
@@ -300,22 +303,73 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(created);
   });
 
-  app.get("/api/stress/runs", async () => stressRepo.listStressRuns());
+  /*
+   * Previous runs, SETTLED. A coordinator's status is only ever moved by
+   * `settleStressRun`, and only `GET /:id` called it — so the list kept
+   * saying "Running" about runs whose every window had finished, until
+   * someone happened to open each one.
+   */
+  app.get("/api/stress/runs", async () => {
+    const rows = await stressRepo.listStressRuns();
+    return Promise.all(rows.map((row) => stressRepo.settleStressRun(row)));
+  });
 
   /** A stress run, its windows, and whatever the worker has made of them. */
   app.get("/api/stress/runs/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Not a uuid cannot name a row; asking Postgres anyway was a 500.
+    if (!isUuid(id)) return reply.code(404).send({ error: "stress run not found" });
     const found = await stressRepo.getStressRun(id);
     if (!found) return reply.code(404).send({ error: "stress run not found" });
     const run = await stressRepo.settleStressRun(found);
     const children = await stressRepo.stressRunBacktests(run);
+    const targets = await Promise.all(
+      run.windows.map((window) => tradedBuyAndHold(run.symbol, run.timeframe, window)));
     return {
       ...run,
-      results: run.windows.map((window) => ({
+      results: run.windows.map((window, i) => ({
         window,
         backtest: children.get(window.backtestId) ?? null,
+        target: targets[i] ?? null,
       })),
       epistemicNote: STRESS_EPISTEMIC_NOTE,
     };
   });
+
+  /**
+   * The benchmark over the period discovery searched, thinned for a chart.
+   *
+   * Its own route rather than a field on `GET /:id`, which the page polls
+   * while windows run: this is read once per opened run.
+   */
+  app.get("/api/stress/runs/:id/benchmark", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!isUuid(id)) return reply.code(404).send({ error: "stress run not found" });
+    const run = await stressRepo.getStressRun(id);
+    if (!run) return reply.code(404).send({ error: "stress run not found" });
+    const { benchmark, searched } = run.discovery;
+    const candles = await candleRepo.getCandles(
+      benchmark.symbol, benchmark.interval, { from: searched.startMs, to: searched.endMs });
+    return { symbol: benchmark.symbol, interval: benchmark.interval, path: benchmarkPath(candles) };
+  });
+}
+
+/**
+ * The traded symbol's own buy-and-hold over one window.
+ *
+ * Two indexed reads — the first bar opening in the window and the last bar
+ * CLOSING in it — rather than the window's every bar, because the page polls
+ * this route while the windows run. Read from the store the window's
+ * backtest loads from; it names no strategy and reads no result. Null until
+ * the store holds the traded symbol's bars for the window.
+ */
+async function tradedBuyAndHold(
+  symbol: string, timeframe: Interval, window: { startMs: number; endMs: number },
+): Promise<TargetReturn | null> {
+  const barMs = INTERVAL_MS[timeframe];
+  const [first] = await candleRepo.getCandles(symbol, timeframe,
+    { from: window.startMs, to: window.endMs, limit: 1 });
+  const [last] = await candleRepo.getCandles(symbol, timeframe,
+    { to: window.endMs - barMs + 1, limit: 1 });
+  return targetReturn(first, last, window, barMs);
 }

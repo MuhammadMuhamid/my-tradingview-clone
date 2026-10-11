@@ -505,6 +505,42 @@ export function stressProvenance(
   };
 }
 
+/**
+ * The benchmark's closes over the searched period, thinned for a chart.
+ *
+ * The page draws the period discovery searched with the chosen windows
+ * shaded over it, so a reader can see what "worst" was chosen FROM. A
+ * year of minute bars is half a million points for a 900-pixel line, so the
+ * series is cut into buckets and each keeps its lowest and highest close, in
+ * time order: a crash is a bucket minimum and survives the thinning, where
+ * taking every k-th bar could step straight over it. The first and last bars
+ * are always kept, so the line spans the whole period. At most
+ * `maxPoints + 2` points.
+ */
+export function benchmarkPath(
+  candles: readonly Candle[], maxPoints = 600,
+): [t: number, close: number][] {
+  const n = candles.length;
+  const point = (k: number): [number, number] => [candles[k]!.openTime, candles[k]!.close];
+  if (n <= maxPoints) return candles.map((_, k) => point(k));
+  const size = Math.ceil(n / Math.max(1, Math.floor(maxPoints / 2)));
+  const kept: number[] = [0];
+  for (let start = 0; start < n; start += size) {
+    const end = Math.min(n, start + size);
+    let lo = start;
+    let hi = start;
+    for (let k = start + 1; k < end; k += 1) {
+      if (candles[k]!.close < candles[lo]!.close) lo = k;
+      if (candles[k]!.close > candles[hi]!.close) hi = k;
+    }
+    for (const k of lo <= hi ? [lo, hi] : [hi, lo]) {
+      if (k !== kept[kept.length - 1]) kept.push(k);
+    }
+  }
+  if (kept[kept.length - 1] !== n - 1) kept.push(n - 1);
+  return kept.map(point);
+}
+
 /** How many benchmark bars a window length of `ms` is at `interval`. */
 export function barsForDuration(ms: number, interval: Interval): number {
   return Math.max(2, Math.round(ms / INTERVAL_MS[interval]));
