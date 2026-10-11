@@ -83,15 +83,23 @@ function candleCompleteness(rows: readonly Candle[], startMs: number, endMs: num
     ...(limitation ? { limitation } : {}) };
 }
 
-export function marketCatalogRoutesFor(registry: ProviderRegistry): (app: FastifyInstance) => Promise<void> {
-  return (app) => registerMarketCatalogRoutes(app, registry);
+/**
+ * `now` is injectable for the same reason every other clock-reading route
+ * here makes it so: search classifies a dated future as live, expiring or
+ * expired against the present, and a test that reads the real clock stops
+ * holding the day its fixture contract expires.
+ */
+export function marketCatalogRoutesFor(
+  registry: ProviderRegistry, options: { now?: () => number } = {},
+): (app: FastifyInstance) => Promise<void> {
+  return (app) => registerMarketCatalogRoutes(app, registry, options.now ?? Date.now);
 }
 
 export async function marketCatalogRoutes(app: FastifyInstance): Promise<void> {
   return registerMarketCatalogRoutes(app, providerRegistry);
 }
 
-async function registerMarketCatalogRoutes(app: FastifyInstance, registry: ProviderRegistry): Promise<void> {
+async function registerMarketCatalogRoutes(app: FastifyInstance, registry: ProviderRegistry, clock: () => number = Date.now): Promise<void> {
   app.get("/api/market/v1/providers", async () => ({
     contractVersion: MARKET_CONTRACT_VERSION,
     venues: venueRegistry.all(),
@@ -188,7 +196,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         return { providerId: provider.id, instruments: [] as never[], unavailable: safeError(error) };
       }
     }));
-    const now = Date.now();
+    const now = clock();
     const results = settled.flatMap((group) => group.instruments).filter((item) => {
       const status = effectiveListingStatus(item, now);
       const maturity = item.derivative.kind === "contract" ? item.derivative.maturity : null;

@@ -158,7 +158,10 @@ test("derivative routes expose snapshot, funding and same-underlying comparison 
 test("search separates spot/perpetual/future collisions and filters exact expiry state", async () => {
   const registry = new ProviderRegistry();
   registry.register(createOfficialDerivativeAdapter(OFFICIAL_DERIVATIVE_DEFINITIONS[4]!, deps([FIXTURE.perpetual, FIXTURE.future])));
-  const app = Fastify(); await app.register(marketCatalogRoutesFor(registry)); await app.ready();
+  // The fixture future expires 2026-09-25. Classify against the fixture's own
+  // moment, not the real clock: on the real clock this test went red the day
+  // that contract expired.
+  const app = Fastify(); await app.register(marketCatalogRoutesFor(registry, { now: () => START })); await app.ready();
   const perps = await app.inject({ method: "GET", url: "/api/market/v1/search?q=BTC&type=perpetual&expiry=live" });
   assert.deepEqual(perps.json().results.map((row: { instrumentType: string }) => row.instrumentType), ["perpetual"]);
   const futures = await app.inject({ method: "GET", url: "/api/market/v1/search?q=BTC&type=future&expiry=30d" });
