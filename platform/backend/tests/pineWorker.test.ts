@@ -73,6 +73,30 @@ if ta.crossunder(ta.sma(close, 5), ta.sma(close, 20))
   assert.ok(Array.isArray(run.equityCurve));
 });
 
+test("interactive strategy workers quarantine partial engines while indicators remain available", async () => {
+  for (const selector of ["legacy-baseline", "feeInclusiveAffordability"]) {
+    for (const strategy of [true, false]) {
+      const worker = new Worker(pineWorkerEntry(), {
+        env: { ...process.env, ENGINE_CORRECTIONS: selector },
+        workerData: {
+          ...request(strategy ? 'strategy("quarantine")' : 'indicator("available")\nplot(close)'),
+          broker: strategy ? {
+            initialCapital: 100, commissionPct: 5, slippageTicks: 0,
+            tickSize: 1, qtyCash: 100, qtyPctEquity: 0,
+          } : null,
+        },
+      });
+      const out = await new Promise<{ kind: string; message?: string }>((resolve, reject) => {
+        worker.once("message", resolve);
+        worker.once("error", reject);
+      });
+      assert.equal(out.kind, strategy ? "crash" : "ok", selector);
+      if (strategy) assert.match(out.message ?? "", /quarantined/);
+      await worker.terminate();
+    }
+  }
+});
+
 test("a syntax error is a script error, not a dead thread", async () => {
   const out = await runPineInWorker(request(`
 //@version=5

@@ -150,7 +150,10 @@ export function paramsProblem(params: unknown): string | null {
     // Strategy Tester always sends one; a legacy zero there means nothing.
     const sizedByEquity = Number((params as Record<string, unknown>).qty_pct_equity ?? 0) > 0;
     if (key === "qty_cash" && sizedByEquity) continue;
-    if (bound && kind === "number") {
+    if (bound) {
+      // Strategy resolvers coerce strings and booleans with Number(). That
+      // must not let a typed financial bound disappear at the API boundary.
+      if (kind !== "number") return `${bound.label} must be a number.`;
       const n = value as number;
       const low = bound.exclusiveMin ? n <= bound.min : n < bound.min;
       if (low || n > bound.max) {

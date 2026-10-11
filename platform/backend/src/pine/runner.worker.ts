@@ -13,6 +13,7 @@
  */
 import { parentPort, workerData } from "node:worker_threads";
 import { Broker, type BrokerOptions } from "../engine/broker";
+import { assertCorrectedEngine } from "../engine/corrections";
 import { computeMetrics, downsampleEquity, toTradeRecords } from "../engine/metrics";
 import { PineInterpreter, PineRuntimeError } from "./interpreter";
 import { PineSyntaxError } from "./lexer";
@@ -49,6 +50,9 @@ function scriptErrors(err: unknown): { line: number; col: number; message: strin
 
 export function executePine(req: PineWorkerRequest): PineWorkerResponse {
   try {
+    // Interactive strategy metrics are new results too. Pure Broker legacy
+    // reproductions remain available, but production workers share quarantine.
+    if (req.broker) assertCorrectedEngine();
     const broker = req.broker ? new Broker(req.broker) : undefined;
     const interp = new PineInterpreter(req.source);
     const out = interp.run({

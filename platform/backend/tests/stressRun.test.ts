@@ -65,7 +65,7 @@ test("a finished backtest's fractional tick slippage can be stressed without cha
 
 test("stress validates merged strategy settings before loading benchmark data or queuing work", async (t) => {
   const CONFIG_ID = "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13";
-  let savedParams: Record<string, number> = {};
+  let savedParams: Record<string, unknown> = {};
   const unexpected: string[] = [];
   // The actual route/repositories run, with only PostgreSQL replaced. Any
   // candle read or write means invalid settings passed their admission gate.
@@ -89,7 +89,10 @@ test("stress validates merged strategy settings before loading benchmark data or
   await stressRoutes(app);
   try {
     for (const stored of [false, true]) {
-      const invalidParams: Record<string, number>[] = [{ rrRatio: -1 }, { qty_cash: -1 }, { qty_pct_equity: 200 }];
+      const invalidParams: Record<string, unknown>[] = [
+        { rrRatio: -1 }, { qty_cash: -1 }, { qty_pct_equity: 200 },
+        { rrRatio: "-1" }, { qty_pct_equity: "200" }, { qty_cash: false },
+      ];
       for (const params of invalidParams) {
         savedParams = stored ? params : {};
         const response = await app.inject({ method: "POST", url: "/api/stress/runs", payload: {

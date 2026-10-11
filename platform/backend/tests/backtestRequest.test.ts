@@ -92,6 +92,18 @@ test("strategy inputs that the engine cannot honour are refused", () => {
   assert.equal(paramsProblem({ qty_cash: 0, qty_pct_equity: 100 }), null);
 });
 
+test("known numeric money and reward inputs cannot bypass their bounds as strings or booleans", () => {
+  for (const key of ["qty_cash", "qty_pct_equity", "rrRatio"]) {
+    for (const value of ["-1", "200", "NaN", "", true, false]) {
+      assert.match(paramsProblem({ [key]: value }) ?? "", /must be a number/, `${key}: ${JSON.stringify(value)}`);
+    }
+  }
+  assert.equal(paramsProblem({ qty_pct_equity: 50, qty_cash: "ignored" }), null,
+    "effective equity sizing still ignores the legacy cash field");
+  assert.equal(paramsProblem({ ma1_tf: "1", long_en: true }), null,
+    "other established string and boolean strategy inputs are unchanged");
+});
+
 test("C-01 an order size larger than the account is refused, the strategy's default included", () => {
   // The research form sends no qty_cash; ma_rr_v9's default 930 is what runs.
   const maDefaults = { qty_cash: 930, qty_pct_equity: 0 };
@@ -132,6 +144,9 @@ test("the route answers a bad request with 400 and the sentence, before any look
       [{ commissionPct: -1 }, /Commission/],
       [{ slippageTicks: -50 }, /Slippage/],
       [{ params: { rrRatio: -1 } }, /rrRatio/],
+      [{ params: { rrRatio: "-1" } }, /rrRatio.*must be a number/],
+      [{ params: { qty_pct_equity: "200" } }, /qty_pct_equity.*must be a number/],
+      [{ params: { qty_cash: false } }, /qty_cash.*must be a number/],
       [{ endTime: "2999-01-01T00:00:00.000Z" }, /in the future/],
       [{ holdoutFraction: 0.9 }, /validation window/],
       [{ initialCapital: 100 }, /order size \(930 per entry\) is more than the initial capital \(100\)/],
