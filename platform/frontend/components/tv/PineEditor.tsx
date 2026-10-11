@@ -7,6 +7,7 @@ import { PINE_TEMPLATE, TOKEN_COLOR, highlightLine } from "@/lib/pineHighlight";
 import { fmtNum, fmtPct, signClass } from "@/lib/format";
 import { Separator } from "@/components/ui";
 import { displayTicker, legacyBinanceSpotTicker } from "@/lib/instrument";
+import { pineRunRange } from "@/lib/indicators";
 
 /** What the editor hands the chart when you press "Add to chart". */
 export interface PineChartPayload {
@@ -143,8 +144,8 @@ export function PineEditor({
     try {
       const r = await api.runPine({
         source, symbol: runSymbol, timeframe,
-        startTime: new Date(startTime).toISOString(),
-        endTime: new Date(endTime).toISOString(),
+        // B-12: clamped to what one run may load, as the chart's own path is.
+        ...pineRunRange({ startTime, endTime }, timeframe),
         params,
       });
       setResult(r);

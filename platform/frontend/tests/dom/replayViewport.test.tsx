@@ -75,6 +75,28 @@ test("B-02 — two Replay sessions leave the live chart on the window it started
     `the bar spacing drifted from ${before.barSpacing} to ${twice.barSpacing}`);
 });
 
+test("B-10 — the replay clock reads in the chart's zone, not the browser's", async () => {
+  const zone = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  try {
+    const chart = await mountChart();
+    fireEvent.click(chart.container.querySelector<HTMLElement>('button[aria-label="Bar replay"]')!);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Start Replay" }));
+    await settle();
+    const stamp = chart.container.querySelector<HTMLElement>("time[datetime]");
+    assert.ok(stamp, "the session shows no horizon");
+    const at = new Date(stamp.getAttribute("datetime")!);
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    const utc = `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())} `
+      + `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`;
+    assert.equal(stamp.textContent, utc,
+      "the replay clock is in the browser's zone while the axis under it is UTC");
+  } finally {
+    process.env.TZ = zone;
+  }
+});
+
 test("B-14 — entering Replay leaves the Objects panel open, and exiting keeps it", async () => {
   const chart = await mountChart();
   const objects = chart.container.querySelector<HTMLElement>(

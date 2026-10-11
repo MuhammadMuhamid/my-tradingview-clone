@@ -88,6 +88,7 @@ import { defaultParamsFor } from "@/lib/paramSchema";
 import * as layoutStore from "@/lib/layouts";
 import type { WorkspaceState } from "@/lib/layouts";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
+import { fmtChartBarTime } from "@/lib/chartClock";
 import { storedIntervalFor } from "@/lib/timeframes";
 import { useResolutionPreferences } from "@/components/tv/TimeframePicker";
 import { useSavedLayouts } from "@/lib/useSavedLayouts";
@@ -892,11 +893,6 @@ export default function TvWorkspace() {
     return { ...get(), list: activeIndicatorList };
   }, [active.id, activeIndicatorList]);
 
-  /** Replay must not outrun the studies drawn on any pane. */
-  const replayIndicatorLoading = useMemo(
-    () => Object.values(indicatorLists).some((list) => list.some((i) => i.loading)),
-    [indicatorLists]);
-
   // ── moving averages, per pane ──
   const maLines = active.maLines;
   const [maAlerts, setMaAlerts] = useState<MaAlert[]>([]);
@@ -1543,13 +1539,20 @@ export default function TvWorkspace() {
    */
   const replayCandlesRef = useRef(candles);
   replayCandlesRef.current = candles;
+  /*
+   * B-04: and it no longer waits for the studies. It used to skip every tick
+   * while any Pine study was loading, so Play at 10× advanced one bar per
+   * round trip. A forward step keeps the previous output and studies coalesce
+   * their reruns (`useIndicators`'s `runForward`), so the clock runs at the
+   * speed chosen and the studies catch up — never ahead of the horizon.
+   */
   useEffect(() => {
-    if (!replay?.playing || replayIndicatorLoading) return;
+    if (!replay?.playing) return;
     const timer = window.setTimeout(() => {
       setReplay((current) => current ? replayTick(current, replayCandlesRef.current) : null);
     }, replayDelayMs(replay.speed));
     return () => window.clearTimeout(timer);
-  }, [replay?.playing, replay?.speed, replay?.horizonCloseTime, replayIndicatorLoading]);
+  }, [replay?.playing, replay?.speed, replay?.horizonCloseTime]);
 
   /**
    * Armed price alerts, drawn as horizontal levels on the chart.
@@ -1844,8 +1847,14 @@ export default function TvWorkspace() {
     studies: objectStudies,
     drawings: objectDrawings,
     data: {
+      /*
+       * B-10: in the CHART's zone, the one its time axis is drawn in. This
+       * was `toLocaleString()` — the browser's zone — so a UTC axis reading
+       * 00:45 sat above a Data window reading 20:45 the evening before.
+       */
       time: dataWindowCandle
-        ? new Date(dataWindowCandle.openTime).toLocaleString()
+        ? fmtChartBarTime(dataWindowCandle.openTime, resolutionMs(interval),
+          paneChartSettings(workspace, active.id).timeZone)
         : "Move the crosshair over a loaded bar",
       ohlc: ([
         ["Open", dataWindowCandle?.open], ["High", dataWindowCandle?.high],
@@ -2597,6 +2606,7 @@ export default function TvWorkspace() {
             onDeepen={changeBars}
             onRepick={() => setReplayPickerOpen(true)}
             onExit={exitReplay}
+            timeZone={paneChartSettings(workspace, pane.id).timeZone}
           />
         ) : null}
         onIndicatorList={registerIndicatorList}
@@ -2611,7 +2621,7 @@ export default function TvWorkspace() {
         rangeRowTarget={sharedRangeRow ? (isActive ? rangeRowHost : null) : undefined}
       />
     );
-  }, [sharedRangeRow, rangeRowHost, comparePaneId, paneDecorations, workspace.activePaneId, paneCount, activatePane, changePaneInterval,
+  }, [sharedRangeRow, rangeRowHost, comparePaneId, paneDecorations, workspace, paneCount, activatePane, changePaneInterval,
     toggleMaximizePane, closePane, replay, replayDrawings, updateReplayDrawings, cross, range,
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,

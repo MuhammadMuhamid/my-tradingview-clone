@@ -19,6 +19,7 @@ import { drawingStore } from "@/lib/drawingStore";
 import { resetTailRepairs } from "@/lib/historyFreshness";
 import { resetVolumeProfileRefinementCache } from "@/lib/useVolumeProfileRefinement";
 import { resetManualTradingPollingCapability } from "@/lib/manualTradingPolling";
+import { resetPaneRows } from "@/lib/chartStateSync";
 
 /**
  * A websocket that opens and then says nothing.
@@ -85,6 +86,7 @@ export function resetBrowser(): void {
   resetTailRepairs();
   resetVolumeProfileRefinementCache();
   resetManualTradingPollingCapability();
+  resetPaneRows();
   drawingStore.resetAll();
   window.sessionStorage.clear();
   server.reset();

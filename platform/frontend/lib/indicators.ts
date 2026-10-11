@@ -16,7 +16,7 @@ import {
   type ChartOverlay, type ChartSeriesStyle,
 } from "@/lib/chartSeries";
 import type { Trade } from "@/lib/types";
-import type { Resolution } from "@/lib/resolution";
+import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { legacyBinanceSpotTicker } from "@/lib/instrument";
 
 export type PineParams = Record<string, number | string | boolean>;
@@ -59,14 +59,52 @@ export function invalidateReplayOutput(indicator: AppliedIndicator): AppliedIndi
   };
 }
 
-/** Exact API boundaries; Replay must never widen a close-time horizon to end-of-day. */
-export function pineRunRange(ctx: { startTime: string; endTime: string }): {
+/**
+ * The most bars one Pine run may ask for (B-12).
+ *
+ * The server refuses a run over 120,000 bars (`MAX_RUN_BARS` in
+ * `backend/src/api/routes/pine.ts`), counting from the requested start to the
+ * end. The chart runs from the standard backtest start, which on 1m is
+ * 496,800 bars — so every 1m run came back 400 and the study drew nothing. A
+ * little under the server's figure, so a clock a few minutes apart from the
+ * server's cannot tip a clamped run back over it.
+ */
+export const PINE_MAX_RUN_BARS = 119_000;
+
+/**
+ * Exact API boundaries; Replay must never widen a close-time horizon to end-of-day.
+ *
+ * With a timeframe, the START is moved later when the window would exceed
+ * what the server will run — never the end, which is the horizon and the one
+ * thing lookahead depends on.
+ */
+export function pineRunRange(ctx: { startTime: string; endTime: string }, timeframe?: Resolution): {
   startTime: string; endTime: string;
 } {
+  const startMs = Date.parse(ctx.startTime);
+  const endMs = Date.parse(ctx.endTime);
+  const stepMs = timeframe ? resolutionMs(timeframe) : 0;
+  const earliest = stepMs > 0 ? endMs - PINE_MAX_RUN_BARS * stepMs : -Infinity;
   return {
-    startTime: new Date(ctx.startTime).toISOString(),
-    endTime: new Date(ctx.endTime).toISOString(),
+    startTime: new Date(Math.max(startMs, earliest)).toISOString(),
+    endTime: new Date(endMs).toISOString(),
   };
+}
+
+/**
+ * What a study's legend says when its run failed, or null when it did not.
+ *
+ * The legend showed `∅ ∅` and nothing else. A compile error is the reader's
+ * own script and names its line; anything else is said as what happened to
+ * the study, never in the server's words (the contract's rule for failure
+ * copy — the raw cause stays on `error` for the Indicators panel).
+ */
+export function pineRunStatus(error: string | null | undefined): string | null {
+  if (!error) return null;
+  const line = /^line (\d+):/.exec(error);
+  if (line) return `Script error on line ${line[1]} — open it in the Pine editor`;
+  if (/Binance Spot candle store/.test(error)) return "Not available for this instrument";
+  return "Could not run on this chart";
 }
 
 /** What survives a reload — run output is always recomputed. */
@@ -360,7 +398,7 @@ export async function runIndicator(
       source: ind.source,
       symbol: runSymbol,
       timeframe: ctx.timeframe,
-      ...pineRunRange(ctx),
+      ...pineRunRange(ctx, ctx.timeframe),
       params: ind.params,
     });
     if (!r.ok) {

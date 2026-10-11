@@ -57,6 +57,8 @@ import {
 } from "@/lib/replay";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { Candle } from "@/lib/types";
+import { fmtChartClock, fmtChartDate } from "@/lib/chartClock";
+import type { ChartTimeZone } from "@/lib/chartSettings";
 
 /**
  * The deepest window this strip will offer to fetch in one press.
@@ -89,6 +91,7 @@ export function ReplayControls({
   onDeepen,
   onRepick,
   onExit,
+  timeZone = "UTC",
 }: {
   candles: Candle[];
   /** This pane's resolution — the strip reports coverage in its terms. */
@@ -108,7 +111,14 @@ export function ReplayControls({
   /** Reopen the picker, keeping the session until a new point is chosen. */
   onRepick: () => void;
   onExit: () => void;
+  /**
+   * B-10: the chart's display zone. The clock printed `toLocaleString()` —
+   * the BROWSER's zone — beside an axis drawn in the chart's, so the bar
+   * being replayed read hours away from the axis label under it.
+   */
+  timeZone?: ChartTimeZone;
 }) {
+  const stamp = (ms: number): string => `${fmtChartDate(ms, timeZone)} ${fmtChartClock(ms, timeZone)}`;
   const completed = candles.filter((bar) => bar.closeTime <= Date.now());
   const first = completed[0];
   const last = completed[completed.length - 1];
@@ -203,7 +213,7 @@ export function ReplayControls({
   if (coverage !== "covered") {
     const needed = barsToCoverReplay(session, candles, resolutionMs(interval));
     const reachable = needed !== null && needed <= REPLAY_MAX_DEEPEN_BARS && needed > bars;
-    const at = new Date(session.horizonCloseTime).toLocaleString();
+    const at = stamp(session.horizonCloseTime);
     return (
       <div
         role="group"
@@ -252,7 +262,7 @@ export function ReplayControls({
           dateTime={new Date(session.horizonCloseTime).toISOString()}
           title="The bar this session is standing on"
         >
-          {new Date(session.horizonCloseTime).toLocaleString()}
+          {stamp(session.horizonCloseTime)}
         </time>
 
         <span aria-hidden="true" className="mx-1 h-[22px] w-px shrink-0 bg-border-strong" />

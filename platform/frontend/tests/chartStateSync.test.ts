@@ -120,7 +120,8 @@ test("each half reads and writes only its own column", () => {
   // somebody else's empty list is how the Pine half's own import was pre-empted.
   assert.doesNotMatch(source, /pine: localPine, native: localNative/,
     "the native import must not write the Pine column");
-  assert.match(source, /native: localNative, baseVersion: server\.version/);
+  // B-20: against the newest version this browser has heard for the row.
+  assert.match(source, /native: localNative, baseVersion: Math\.max\(server\.version, row\.version\)/);
 });
 
 test("a populated server wins, whatever this device happens to hold", () => {

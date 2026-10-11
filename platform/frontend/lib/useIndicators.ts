@@ -10,14 +10,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChartMarker } from "@/components/CandleChart";
 import {
-  mergeBarColorLayers, type ChartBarColor, type ChartDecoration, type ChartOverlay,
+  mergeBarColorLayers, PRICE_PANE_ID, type ChartBarColor, type ChartDecoration, type ChartOverlay,
 } from "@/lib/chartSeries";
 import type { PineDrawings } from "@/lib/api";
 import type { Trade } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
 import {
   NO_DRAWINGS, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput, loadStored, newKey,
-  runIndicator, saveStored, storable,
+  pineRunStatus, runIndicator, saveStored, storable,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 import { pushPanePine, syncPanePine } from "@/lib/chartStateSync";
@@ -149,6 +149,37 @@ export function useIndicators(ctx: IndicatorContext) {
     void runIndicator(ind, ctxRef.current).then((res) => settle(res, token, version));
   }, [settle]);
 
+  /*
+   * B-04: a Replay playing forward runs each study at most once at a time.
+   *
+   * Play at 10× advanced about one bar per Pine round trip, because the clock
+   * waited for every study to finish before the next tick — and every tick
+   * started a fresh run of every study, superseding the last. A forward step
+   * keeps the previous output (it ends EARLIER than the new horizon, so it can
+   * be incomplete but never prescient), so the clock no longer waits: while a
+   * study's run is in flight, later steps only note that a rerun is wanted,
+   * and when the run lands one more is started for the horizon the chart is on
+   * by then. The forward step does not spend a new token, so the landing run
+   * is not discarded; a rewind does, so nothing computed for a later horizon
+   * can ever settle onto an earlier one.
+   */
+  const forwardRuns = useRef(new Map<string, boolean>());
+  const runForward = useCallback((ind: AppliedIndicator) => {
+    if (forwardRuns.current.has(ind.key)) { forwardRuns.current.set(ind.key, true); return; }
+    forwardRuns.current.set(ind.key, false);
+    const token = runToken.current;
+    const version = (runVersions.current.get(ind.key) ?? 0) + 1;
+    runVersions.current.set(ind.key, version);
+    void runIndicator(ind, ctxRef.current).then((res) => {
+      settle(res, token, version);
+      const again = forwardRuns.current.get(ind.key) === true;
+      forwardRuns.current.delete(ind.key);
+      if (!again || token !== runToken.current) return;
+      const latest = listRef.current.find((i) => i.key === ind.key);
+      if (latest) runForward(latest);
+    });
+  }, [settle]);
+
   // A ref mirror of the list, so the run effects can read the current
   // instances without taking `list` as a dependency (which would re-run them
   // on every settled result and loop forever).
@@ -186,15 +217,22 @@ export function useIndicators(ctx: IndicatorContext) {
     || shownCtxRef.current.timeframe !== ctx.timeframe;
   useEffect(() => {
     const pending = listRef.current;
-    const token = ++runToken.current;
     const blank = (ctx.replay && !forwardStep) || leavingReplay || contextMoved;
+    // A forward Replay step keeps the token, so in-flight runs still land
+    // (`runForward`); every other change supersedes them.
+    const coalesce = forwardStep && !blank;
+    const token = coalesce ? runToken.current : ++runToken.current;
+    if (!coalesce) forwardRuns.current.clear();
     shownCtxRef.current = ctx;
     setPreparedContextKey(ctxKey);
     if (pending.length === 0) return;
     setList((cur) => cur.map((i) => blank
       ? invalidateReplayOutput(i)
       : { ...i, loading: true, error: null }));
-    for (const ind of pending) runOne(ind, token);
+    for (const ind of pending) {
+      if (coalesce) runForward(ind);
+      else runOne(ind, token);
+    }
     // `runOne` is stable and reads the context itself; ctxKey covers ctx.replay.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctxKey]);
@@ -300,8 +338,22 @@ export function useIndicators(ctx: IndicatorContext) {
   }, []);
 
   /** Union of every visible instance's output, for the chart. */
+  /*
+   * B-12: a study whose run failed still has a row in the legend, and the row
+   * says so. It used to vanish into `∅ ∅` — the values of output that was
+   * never produced — with nothing anywhere on the chart to say why. The row
+   * is an empty overlay whose inputs text is the plain-language status; the
+   * raw cause stays on `error` for the Indicators panel.
+   */
   const overlays = useMemo<ChartOverlay[]>(
-    () => outputList.filter((i) => i.visible).flatMap((i) => i.overlays),
+    () => outputList.filter((i) => i.visible).flatMap((i) => {
+      const status = !i.loading && i.overlays.length === 0 ? pineRunStatus(i.error) : null;
+      return status === null ? i.overlays : [{
+        id: `${i.key}:status`, title: "", color: "#9c9c9c", data: [], paneId: PRICE_PANE_ID,
+        instanceId: i.key, instanceTitle: i.name || "Script", instanceParams: status,
+        statusValueVisible: false, priceScaleLabelVisible: false,
+      }];
+    }),
     [outputList]
   );
   const decorations = useMemo<ChartDecoration[]>(
