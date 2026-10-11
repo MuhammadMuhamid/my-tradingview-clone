@@ -7,6 +7,7 @@ import type { StrategyParams } from "../../types/strategy";
 import * as deploymentRepo from "../../repositories/deployments";
 import * as alertRepo from "../../repositories/alerts";
 import { compareParity, type ParitySignal } from "../../engine/parityReport";
+import { isBacktestId, paramsProblem, runSettingsProblem } from "../backtestRequest";
 
 /**
  * Cost model applied when the caller does not state one.
@@ -52,6 +53,17 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
     if (!body?.strategyKey) {
       return reply.code(400).send({ error: "strategyKey is required" });
     }
+    /*
+     * The numbers and the dates first, before any lookup: they need no
+     * database to judge, and a refusal for a negative capital should not wait
+     * on — or depend on — the strategy table answering. See
+     * `api/backtestRequest.ts` for what each bound is and why.
+     */
+    const settingsProblem = runSettingsProblem(body, Date.now());
+    if (settingsProblem) return reply.code(400).send({ error: settingsProblem });
+    const bodyParamsProblem = paramsProblem(body.params);
+    if (bodyParamsProblem) return reply.code(400).send({ error: bodyParamsProblem });
+
     const strategy = await strategies.getStrategyByKey(body.strategyKey);
     if (!strategy) return reply.code(404).send({ error: "strategy not found" });
 
@@ -74,27 +86,14 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `invalid timeframe: ${timeframe}` });
     }
 
-    /*
-     * The holdout is a fraction of the run, frozen and never selected on. It is
-     * validated here rather than at the engine so a bad number is a 400 on the
-     * request that made it, not an error on a queued row the user has to open
-     * a result page to discover.
-     */
-    if (body.holdoutFraction !== undefined
-      && !(Number.isFinite(body.holdoutFraction)
-        && body.holdoutFraction > 0 && body.holdoutFraction < 1)) {
-      return reply.code(400).send({
-        error: "holdoutFraction must be strictly between 0 and 1",
-      });
-    }
-
+    // The holdout fraction and the dates were checked above, with the costs.
     const startTime = new Date(body.startTime ?? NaN).getTime();
     const endTime = new Date(body.endTime ?? NaN).getTime();
-    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-      return reply
-        .code(400)
-        .send({ error: "startTime and endTime must be valid dates with startTime < endTime" });
-    }
+    // A config's stored parameters are merged under the body's, and a config
+    // saved before these bounds existed must not smuggle a bad value past them.
+    const params = { ...baseParams, ...(body.params ?? {}) };
+    const mergedProblem = paramsProblem(params);
+    if (mergedProblem) return reply.code(400).send({ error: mergedProblem });
 
     const created = await backtests.createBacktest({
       strategyId: strategy.id,
@@ -103,7 +102,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       timeframe,
       startTime,
       endTime,
-      params: { ...baseParams, ...(body.params ?? {}) },
+      params,
       initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
       commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
       slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
@@ -122,6 +121,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/backtests/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (!isBacktestId(id)) return reply.code(404).send({ error: "backtest not found" });
     const row = await backtests.getBacktest(id);
     if (!row) return reply.code(404).send({ error: "backtest not found" });
     return row;
@@ -129,6 +129,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/backtests/:id/trades", async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (!isBacktestId(id)) return reply.code(404).send({ error: "backtest not found" });
     const row = await backtests.getBacktest(id);
     if (!row) return reply.code(404).send({ error: "backtest not found" });
     return backtests.getBacktestTrades(id);
@@ -150,6 +151,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/backtests/:id/parity", async (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as { deploymentId?: string };
+    if (!isBacktestId(id)) return reply.code(404).send({ error: "backtest not found" });
     if (!q.deploymentId) {
       return reply.code(400).send({ error: "deploymentId is required" });
     }
