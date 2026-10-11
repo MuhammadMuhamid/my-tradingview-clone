@@ -601,20 +601,38 @@ export const LEGEND_STUDY_MENU_IDS = [
 ] as const;
 export type LegendStudyMenuId = (typeof LEGEND_STUDY_MENU_IDS)[number];
 
+/**
+ * What a legend row's alert row arms (A5, W2A-04).
+ *
+ * `targets` is for a row that groups several alertable lines — the
+ * moving-average set, whose alerts are armed one line at a time
+ * (`MaAlertModal`). One target makes the row arm it directly; several make
+ * the row a door to them, as `Add to watchlist ›` is with several lists.
+ * Absent, the row arms the study itself.
+ */
+export interface LegendStudyAlert {
+  replayActive: boolean;
+  targets?: readonly { id: string; label: string }[];
+}
+
+/** Child ids of a grouped alert row: `study-legend:add-alert:` + the target's id. */
+export const LEGEND_ALERT_TARGET_PREFIX = "study-legend:add-alert:";
+
 export interface LegendStudyMenuContext {
   title: string;
   /**
    * `Add alert on {title}…`, when the alert engine watches this study's
-   * family — RSI, MACD, Bollinger, Supertrend, Stochastic, ADX — and null when
-   * it does not. During a Replay the row is DISABLED with the reason every
-   * other alert row gives (the price is not the market); null is ABSENCE,
-   * because an alert on a study the engine cannot evaluate is not a state, it
-   * is a row with no route (see above).
+   * family — RSI, MACD, Bollinger, Supertrend, Stochastic, ADX, or a moving
+   * average — and null when it does not. During a Replay the row is DISABLED
+   * with the reason every other alert row gives (the price is not the
+   * market); null is ABSENCE, because an alert on a study the engine cannot
+   * evaluate is not a state, it is a row with no route (see above).
    */
-  alert?: { replayActive: boolean } | null;
+  alert?: LegendStudyAlert | null;
 }
 
 export function legendStudyMenu(ctx: LegendStudyMenuContext): MenuEntry[] {
+  const targets = ctx.alert?.targets ?? [];
   return [
     /*
      * Premium leads its indicator menu with `Add alert on RSI…`, as the drawing
@@ -622,9 +640,16 @@ export function legendStudyMenu(ctx: LegendStudyMenuContext): MenuEntry[] {
      * lands on, and on a study the thing a trader does is arm it.
      */
     ...(ctx.alert ? [{
-      id: "study-legend:add-alert", label: `Add alert on ${ctx.title}…`, glyph: "alarm" as const,
+      id: targets.length === 1 ? `${LEGEND_ALERT_TARGET_PREFIX}${targets[0]!.id}` : "study-legend:add-alert",
+      label: targets.length > 1 ? `Add alert on ${ctx.title}` : `Add alert on ${ctx.title}…`,
+      glyph: "alarm" as const,
       disabled: ctx.alert.replayActive,
       disabledReason: REPLAY_REASON,
+      ...(targets.length > 1 ? {
+        children: targets.map((target) => ({
+          id: `${LEGEND_ALERT_TARGET_PREFIX}${target.id}`, label: `${target.label}…`,
+        })),
+      } : {}),
     }, { id: "sep-alert", separator: true as const }] : []),
     { id: "study-legend:settings", label: "Settings…", glyph: "gear" },
     // The legend only ever draws a study that is currently drawn, so this row

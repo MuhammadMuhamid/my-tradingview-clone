@@ -856,7 +856,7 @@ test("CONTRACT — a study can be acted on from the row that names it", () => {
     "both study kinds are listed, not just the built-ins");
 
   // The key handed back is the instance key the existing resolver expects.
-  assert.match(read("components/CandleChart.tsx"), /onIndicatorPaneAction\(`indicator:\$\{key\}`, action\)/);
+  assert.match(read("components/CandleChart.tsx"), /onIndicatorPaneAction\(`indicator:\$\{key\}`, action, target\)/);
 });
 
 test("CONTRACT — no workstation surface renders a raw symbol variable", () => {

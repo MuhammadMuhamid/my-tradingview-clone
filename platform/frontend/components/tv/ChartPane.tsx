@@ -37,7 +37,9 @@ import type { Viewport } from "@/lib/native/compute";
 import type { PriceScaleState } from "@/lib/priceScale";
 import type { AppliedIndicator } from "@/lib/indicators";
 import type { ChartOverlay } from "@/lib/chartSeries";
-import { buildMaOverlays, MA_INSTANCE_ID, MA_INSTANCE_TITLE } from "@/lib/movingAverages";
+import {
+  buildMaOverlays, MA_INSTANCE_ID, MA_INSTANCE_TITLE, maId, maLabel, type MaType,
+} from "@/lib/movingAverages";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { alertSeedFromStudy, type IndicatorAlertSeed } from "@/lib/studyAlertSeed";
 
@@ -87,6 +89,7 @@ import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
 import type { PaneCompare, PaneViewport } from "@/lib/workspace";
 import type { SavedPaneLayout } from "@/lib/indicatorPaneLayout";
 import { pricePrecision } from "@/lib/movingAverages";
+import type { LegendStudyAlert } from "@/lib/menuPayloads";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
 import {
@@ -246,6 +249,12 @@ export interface ChartPaneProps {
   onMaAction?: (paneId: string, action: "hide" | "settings" | "remove") => void;
   /** A5: `Add alert on …` from a study's legend menu, by alert family. */
   onStudyAlert?: (paneId: string, kind: IndicatorKind, seed: IndicatorAlertSeed | null) => void;
+  /**
+   * W2A-04: `Add alert on Moving averages ›` from the MA set's legend menu —
+   * one line of the set, because an MA alert is armed per line
+   * (`MaAlertModal`).
+   */
+  onMaAlert?: (paneId: string, line: { type: MaType; length: number }) => void;
   /** Open the objects panel — the legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
 
@@ -430,6 +439,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
 
   const nativeRef = useRef(nativeStudies);
   nativeRef.current = nativeStudies;
+  // The MA lines, read by the legend's stable callbacks (W2A-04).
+  const maLinesRef = useRef(pane.maLines);
+  maLinesRef.current = pane.maLines;
   const { onNativeStudiesApi, onNativeStudiesChanged } = props;
   useEffect(() => {
     if (!onNativeStudiesApi) return;
@@ -712,7 +724,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
    *
    * The key decides which API owns it. `nativeRef` was already in scope.
    */
-  const paneAction = useCallback((subPaneId: string, action: PaneAction) => {
+  const paneAction = useCallback((subPaneId: string, action: PaneAction, target?: string) => {
     const key = subPaneId.replace(/^indicator:/, "");
     /*
      * A1: the moving-average set is not a study, and none of the APIs below
@@ -720,9 +732,15 @@ function ChartPaneImpl(props: ChartPaneProps) {
      * nothing and a click did nothing — while every other row on the same
      * legend could be hidden, tuned and removed. The workspace owns the MA
      * state, so it answers.
+     *
+     * W2A-04: and `alert` arms the line the menu named, through the same
+     * dialog the MA panel's own rows open. A target that is no longer a
+     * visible line (the set changed under an open menu) arms nothing.
      */
     if (key === MA_INSTANCE_ID) {
-      if (action !== "alert") props.onMaAction?.(paneId, action);
+      if (action !== "alert") { props.onMaAction?.(paneId, action); return; }
+      const line = maLinesRef.current.find((l) => l.visible && maId(l.type, l.length) === target);
+      if (line) props.onMaAlert?.(paneId, { type: line.type, length: line.length });
       return;
     }
     const isNative = nativeRef.current.list.some((study) => study.key === key);
@@ -756,7 +774,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
     // `props.onMaAction` and `props.onStudyAlert` are stable in the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId, props.onFocusIndicator, props.onEditNative, props.onEditPine,
-    props.onMaAction, props.onStudyAlert]);
+    props.onMaAction, props.onStudyAlert, props.onMaAlert]);
 
   /*
    * The other half of `paneAction`: whether a key names a study at all.
@@ -773,11 +791,22 @@ function ChartPaneImpl(props: ChartPaneProps) {
     || indicatorsRef.current.list.some((study) => study.key === key), [hasMaAction]);
 
   /** A5: whether a study's menu offers `Add alert on …`. */
-  const studyAlertFor = useCallback((key: string) => {
+  const studyAlertFor = useCallback((key: string): LegendStudyAlert | null => {
+    /*
+     * W2A-04: the MA set has alerts — `MaAlertModal`, armed per line from the
+     * MA panel — and its legend menu offered none, while RSI's beside it did.
+     * Its targets are the lines on the chart right now, in the panel's order.
+     */
+    if (key === MA_INSTANCE_ID) {
+      if (!props.onMaAlert) return null;
+      const targets = maLinesRef.current.filter((l) => l.visible)
+        .map((l) => ({ id: maId(l.type, l.length), label: maLabel(l.type, l.length) }));
+      return targets.length > 0 ? { replayActive, targets } : null;
+    }
     if (!props.onStudyAlert) return null;
     const study = nativeRef.current.list.find((s) => s.key === key);
     return study && NATIVE_ALERT_KIND[study.defId] ? { replayActive } : null;
-  }, [props.onStudyAlert, replayActive]);
+  }, [props.onStudyAlert, props.onMaAlert, replayActive]);
 
   /*
    * Everything applied to this pane that is currently switched off.

@@ -40,6 +40,7 @@ import { DrawingCanvas } from "@/components/tv/DrawingCanvas";
 import type { MagnetMode } from "@/components/tv/DrawingToolbar";
 import { PineDrawingLayer, PineTables } from "@/components/tv/PineDrawingLayer";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
+import type { LegendStudyAlert } from "@/lib/menuPayloads";
 import { IndicatorPane, type PaneAction } from "@/components/tv/IndicatorPane";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
 import { VolumeProfileLayer } from "@/components/tv/VolumeProfileLayer";
@@ -1008,7 +1009,7 @@ export function CandleChart({
    * tester's, the split view's second pane — shows the panes with no controls
    * rather than controls that would act on somebody else's list.
    */
-  onIndicatorPaneAction?: (paneId: string, action: PaneAction) => void;
+  onIndicatorPaneAction?: (paneId: string, action: PaneAction, target?: string) => void;
   /** The legend menu's `Object tree` row, resolved as the chart menu resolves it. */
   onOpenObjectTree?: () => void;
   /**
@@ -1059,7 +1060,7 @@ export function CandleChart({
    */
   canIndicatorAction?: (key: string) => boolean;
   /** Whether a study offers `Add alert on …` — see `IndicatorLegend`'s `alertFor`. */
-  indicatorAlertFor?: (key: string) => { replayActive: boolean } | null;
+  indicatorAlertFor?: (key: string) => LegendStudyAlert | null;
   /** Applied but switched off — see `IndicatorLegend`'s `hidden`. */
   hiddenStudies?: { id: string; title: string }[];
   /**
@@ -4881,7 +4882,7 @@ export function CandleChart({
           className="max-w-full"
           /* The same key and the same resolver the indicator panes use. */
           onAction={onIndicatorPaneAction
-            && ((key, action) => onIndicatorPaneAction(`indicator:${key}`, action))}
+            && ((key, action, target) => onIndicatorPaneAction(`indicator:${key}`, action, target))}
           onOpenObjectTree={onOpenObjectTree}
           canAction={canIndicatorAction}
           alertFor={indicatorAlertFor}

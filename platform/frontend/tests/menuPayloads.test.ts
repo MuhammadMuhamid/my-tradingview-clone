@@ -27,6 +27,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  LEGEND_ALERT_TARGET_PREFIX, legendStudyMenu,
   TIME_ZONE_MENU_PREFIX, WATCHLIST_VIEW_DEFAULTS, priceAxisMenu, timeAxisMenu,
   watchlistAddToListMenu, watchlistListsMenu, watchlistMenu, watchlistSettingsMenu,
 } from "../lib/menuPayloads";
@@ -268,4 +269,32 @@ test("A6 — the time axis offers `Time zone ›`, one radio row per zone, the p
   const utc = (timeAxisMenu({ mac: true }).find((e) => e.id === "time:time-zone") as
     { children?: { id: string; checked?: boolean }[] }).children!;
   assert.deepEqual(utc.filter((zone) => zone.checked).map((zone) => zone.id), [`${TIME_ZONE_MENU_PREFIX}UTC`]);
+});
+
+test("W2A-04 — a grouped legend row's alert arms one line: directly for one, a door for several", () => {
+  const one = legendStudyMenu({
+    title: "Moving averages",
+    alert: { replayActive: false, targets: [{ id: "ma-sma-200", label: "SMA 200" }] },
+  });
+  const row = one[0] as { id: string; label: string; children?: unknown };
+  assert.equal(row.id, `${LEGEND_ALERT_TARGET_PREFIX}ma-sma-200`);
+  assert.equal(row.label, "Add alert on Moving averages…");
+  assert.equal(row.children, undefined);
+
+  const two = legendStudyMenu({
+    title: "Moving averages",
+    alert: { replayActive: true, targets: [
+      { id: "ma-sma-200", label: "SMA 200" }, { id: "ma-ema-50", label: "EMA 50" }] },
+  });
+  const door = two[0] as unknown as { label: string; disabled?: boolean; children: { id: string; label: string }[] };
+  assert.equal(door.label, "Add alert on Moving averages", "a door is not an ellipsis row");
+  assert.equal(door.disabled, true, "a Replay disables it, as every alert row");
+  assert.deepEqual(door.children.map((c) => [c.id, c.label]), [
+    [`${LEGEND_ALERT_TARGET_PREFIX}ma-sma-200`, "SMA 200…"],
+    [`${LEGEND_ALERT_TARGET_PREFIX}ma-ema-50`, "EMA 50…"],
+  ]);
+
+  // A study with no targets keeps its own row.
+  const rsi = legendStudyMenu({ title: "RSI", alert: { replayActive: false } });
+  assert.equal((rsi[0] as { id: string }).id, "study-legend:add-alert");
 });

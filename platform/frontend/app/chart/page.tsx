@@ -1063,6 +1063,18 @@ export default function TvWorkspace() {
     setOscillatorKind(kind);
   }, []);
 
+  /**
+   * W2A-04: `Add alert on Moving averages › SMA 20…` from the set's legend —
+   * the MA panel's own per-line dialog, behind the same capability gate.
+   */
+  const maAlert = useCallback((paneId: string, line: { type: MaType; length: number }) => {
+    const target = paneById(latestWorkspace.current, paneId)?.symbol;
+    setWorkspace((ws) => setActivePane(ws, paneId));
+    if (!target) return;
+    if (!alertCapability(target).supported) { setToast(alertCapability(target).reason); return; }
+    setArmLine(line);
+  }, []);
+
   const maValues = useMemo(
     () => currentMaValues(visibleCandles, maLines), [visibleCandles, maLines]);
 
@@ -2683,6 +2695,7 @@ export default function TvWorkspace() {
         onEditPine={editPine}
         onMaAction={maAction}
         onStudyAlert={studyAlert}
+        onMaAlert={maAlert}
         compact={isMobile}
         rangeRowTarget={sharedRangeRow ? (isActive ? rangeRowHost : null) : undefined}
       />
@@ -2692,7 +2705,7 @@ export default function TvWorkspace() {
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, panel, reportDataWindowPlots, noteDrawingSelection, openChartMenu,
-    registerIndicatorList, focusIndicator, editPine, maAction, studyAlert, isMobile, overlays.select, overlays.setViewport,
+    registerIndicatorList, focusIndicator, editPine, maAction, studyAlert, maAlert, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, setPaneWindow, setPaneStack, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,
     replayActive, candles, setReplayPlaying, setReplaySpeed, changeBars,

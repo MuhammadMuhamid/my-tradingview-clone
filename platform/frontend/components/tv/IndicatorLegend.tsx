@@ -4,7 +4,9 @@ import {
   formatPlotValue, labelDuplicateInstances, plotValueAt, type ChartOverlay,
 } from "@/lib/chartSeries";
 import { ContextMenu } from "@/components/tv/ContextMenu";
-import { legendStudyMenu, type LegendStudyMenuId } from "@/lib/menuPayloads";
+import {
+  LEGEND_ALERT_TARGET_PREFIX, legendStudyMenu, type LegendStudyAlert, type LegendStudyMenuId,
+} from "@/lib/menuPayloads";
 
 /**
  * Compact plot/value association for the active crosshair (latest off-chart).
@@ -55,13 +57,17 @@ export function IndicatorLegend({
    * `ChartPane.paneAction` already resolves against the native and Pine study
    * lists — no second lookup, and no second definition of what a study is.
    */
-  onAction?: (instanceId: string, action: "hide" | "settings" | "remove" | "alert") => void;
+  onAction?: (
+    instanceId: string, action: "hide" | "settings" | "remove" | "alert",
+    /** For `alert` on a grouped row: which of its lines (`LegendStudyAlert.targets`). */
+    target?: string,
+  ) => void;
   /**
    * Whether this instance's `⋯` menu offers `Add alert on …` (and whether a
    * Replay disables it), or null when the alert engine watches no family it
    * belongs to. `alert` reaches `onAction` like the other verbs.
    */
-  alertFor?: (instanceId: string) => { replayActive: boolean } | null;
+  alertFor?: (instanceId: string) => LegendStudyAlert | null;
   /**
    * Open the objects panel, for the menu's `Object tree` row.
    *
@@ -539,6 +545,11 @@ export function IndicatorLegend({
           if (!moreMenu) return;
           if (id === "study-legend:object-tree") { onOpenObjectTree?.(); return; }
           if (!onAction) return;
+          // W2A-04: one line of a grouped row (the moving-average set).
+          if (id.startsWith(LEGEND_ALERT_TARGET_PREFIX)) {
+            onAction(moreMenu.id, "alert", id.slice(LEGEND_ALERT_TARGET_PREFIX.length));
+            return;
+          }
           const action: Record<
             Exclude<LegendStudyMenuId, "study-legend:object-tree">,
             "hide" | "settings" | "remove" | "alert"

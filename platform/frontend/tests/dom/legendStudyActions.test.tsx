@@ -77,13 +77,49 @@ test("A1 — the MA set is in the Object tree, and its ⋯ menu is the study men
   fireEvent.click(button("More for Moving averages")!);
   await settle();
   assert.equal(menuLabel(), "Moving averages");
-  assert.deepEqual(menuItems().map((i) => i.label), ["Settings…", "Hide", "Object tree", "Remove"],
-    "the MA set has no alert family of its own, so the menu offers none");
+  assert.deepEqual(menuItems().map((i) => i.label),
+    ["Add alert on Moving averages…", "Settings…", "Hide", "Object tree", "Remove"],
+    "W2A-04: the MA set has alerts, so its menu leads with one as RSI's does");
   fireEvent.click(screen.getByRole("menuitem", { name: /Object tree/ }));
   await settle();
   // The legend row's eye and the tree's eye: two controls, one set.
   assert.ok(screen.getAllByRole("button", { name: "Hide Moving averages" }).length >= 2,
     "the Object tree does not list the moving averages");
+});
+
+test("W2A-04 — the MA set's alert row arms its line, and a door to each line when there are several", async () => {
+  await mountChart();
+  await settle();
+  const [only] = storedMaOn();
+  assert.ok(only, "a fresh chart draws one moving average");
+
+  // One line on: the row arms it directly, in the MA panel's own dialog.
+  fireEvent.click(button("More for Moving averages")!);
+  await settle();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Add alert on Moving averages…" }));
+  await settle();
+  const label = only.replace(/^(sma|ema)/, (t) => `${t.toUpperCase()} `);
+  assert.match(screen.getByRole("dialog").textContent ?? "", new RegExp(`Alert on ${label}`),
+    "the row did not open the moving-average alert dialog for the line on the chart");
+  await press("Escape");
+
+  // Two lines on: the row is a door to each, and each child arms ITS line.
+  fireEvent.click(button("Moving averages settings")!);
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Show EMA 50" }));
+  await settle();
+  assert.equal(storedMaOn().length, 2);
+  fireEvent.click(button("More for Moving averages")!);
+  await settle();
+  const parent = screen.getByRole("menuitem", { name: "Add alert on Moving averages" });
+  assert.equal(parent.getAttribute("aria-haspopup"), "menu", "several lines make the row a submenu");
+  fireEvent.click(parent);
+  await settle();
+  fireEvent.click(screen.getByRole("menuitem", { name: "EMA 50…" }));
+  await settle();
+  assert.match(screen.getByRole("dialog").textContent ?? "", /Alert on EMA 50/,
+    "the child armed some other line than the one it named");
+  await press("Escape");
 });
 
 function seedRsi(): void {
