@@ -1436,6 +1436,8 @@ export default function TvWorkspace() {
     setWorkspace((ws) => setWorkspaceBars(ws, next));
   }, []);
 
+  /** The live-state panel a Replay session closed, to reopen when it ends. */
+  const panelBeforeReplay = useRef<Panel>(null);
   const beginReplay = useCallback((requestedTime: number) => {
     // A new session starts with an empty, un-undoable Replay history: undoing
     // "the session began" is meaningless, and the previous session's steps
@@ -1451,13 +1453,33 @@ export default function TvWorkspace() {
     setPickingLevel(false); setPriceAlertOpen(false); setPickReturn(null);
     setLevelKind(null); setOscillatorKind(null); setEditingAlert(null); setArmLine(null);
     setAlertOpen(false);
-    setPanel((current) => current === "indicators" || current === "watchlist" ? current : null);
+    /*
+     * B-14: only the panels that act on LIVE state close, and they come back.
+     *
+     * This closed every panel but the watchlist and the indicators — the
+     * Objects / Data window included, which is the panel a person reading
+     * replayed bars wants most — and exiting reopened none of them. Alerts and
+     * the order ticket render nothing during a session (`ChartSidePanel` gates
+     * both on Replay), so those two close; everything else is left alone.
+     */
+    setPanel((current) => {
+      if (current === "alerts" || current === "manual") {
+        panelBeforeReplay.current = current;
+        return null;
+      }
+      panelBeforeReplay.current = null;
+      return current;
+    });
     // `symbol` because the Replay history is scoped to it: a session begun on
     // one instrument must not seed another's scope.
   }, [candles, symbol]);
 
   const exitReplay = useCallback(() => {
     setReplay(null); setReplayPickerOpen(false); setReplayDrawings([]);
+    // Reopened only onto an empty side: a panel chosen during the session wins.
+    const reopen = panelBeforeReplay.current;
+    panelBeforeReplay.current = null;
+    if (reopen) setPanel((current) => current ?? reopen);
   }, []);
 
   /**

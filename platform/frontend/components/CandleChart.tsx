@@ -144,6 +144,9 @@ import {
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
+/** How long after a press, move or wheel a study pane still counts as being moved by a person. */
+const PANE_GESTURE_GRACE_MS = 1_000;
+
 /**
  * The legend readout for whatever bar the crosshair is on.
  *
@@ -1191,6 +1194,15 @@ export function CandleChart({
   const syncPaneRangesRef = useRef<(source: string, range: { from: number; to: number }) => void>(() => {});
   /** The newest range that arrived while a sync was in flight: the trailing edge. */
   const pendingPaneRangeRef = useRef<{ source: string; range: { from: number; to: number } } | null>(null);
+  /** Set while a study pane a person is moving drives the price chart. */
+  const priceFollowingRef = useRef(false);
+  /**
+   * When a person last touched each study pane — see `indicatorPaneRange`.
+   * Keyed by pane id; the listeners that write it are kept beside it so a
+   * pane that re-registers on every data change attaches them once.
+   */
+  const paneGestureRef = useRef(new Map<string, number>());
+  const paneGestureListenersRef = useRef(new Map<string, { el: HTMLElement; off: () => void }>());
   const [legend, setLegend] = useState<LegendBar | null>(null);
   /**
    * The price scale, when nothing outside owns it.
@@ -1821,10 +1833,46 @@ export function CandleChart({
    * horizon catches up with the edge again.
    */
   const replayAnchorRef = useRef<number | null>(null);
+  /*
+   * B-02: the window the reader was on when the session began.
+   *
+   * Every session scrolls the chart to keep its horizon on screen, and nothing
+   * scrolled it back: Start → step 3 → Exit, twice, left the live chart on two
+   * candles across 1,334px. So the window is snapshotted on the way in and
+   * restored on the way out — as a LOGICAL range, which keeps the zoom and any
+   * empty space past the last bar, anchored on the time of its last visible
+   * bar so it lands on the same bars even if the array under it moved.
+   */
+  const replaySnapshotRef = useRef<{
+    dataset: string | null;
+    logical: { from: number; to: number };
+    anchorTime: number;
+    anchorIndex: number;
+  } | null>(null);
   useEffect(() => {
     const previous = replayAnchorRef.current;
     replayAnchorRef.current = replayAnchorTime;
-    if (replayAnchorTime === null) return;
+    if (replayAnchorTime === null) {
+      const snapshot = replaySnapshotRef.current;
+      replaySnapshotRef.current = null;
+      if (previous === null || !snapshot) return;
+      // After this commit's data pass, which is what puts the live bars back.
+      requestAnimationFrame(() => {
+        const chart = chartRef.current;
+        if (!chart || disposalRef.current.disposed) return;
+        if (datasetKeyRef.current !== snapshot.dataset) return;
+        try {
+          const scale = chart.timeScale();
+          const x = scale.timeToCoordinate(snapshot.anchorTime as UTCTimestamp);
+          const index = x === null ? null : scale.coordinateToLogical(x);
+          const shift = index === null ? 0 : index - snapshot.anchorIndex;
+          scale.setVisibleLogicalRange({
+            from: snapshot.logical.from + shift, to: snapshot.logical.to + shift,
+          });
+        } catch { /* the live bars have not landed; the view stays where it is */ }
+      });
+      return;
+    }
     const chart = chartRef.current;
     if (!chart) return;
     try {
@@ -1834,6 +1882,18 @@ export function CandleChart({
       if (!current) { scale.fitContent(); return; }
       const span = Number(current.to) - Number(current.from);
       const entering = previous === null;
+      if (entering) {
+        const logical = scale.getVisibleLogicalRange();
+        const x = scale.timeToCoordinate(current.to);
+        const anchorIndex = x === null ? null : scale.coordinateToLogical(x);
+        replaySnapshotRef.current = logical && anchorIndex !== null
+          ? {
+              dataset: datasetKeyRef.current,
+              logical: { from: logical.from, to: logical.to },
+              anchorTime: Number(current.to), anchorIndex,
+            }
+          : null;
+      }
       if (!entering && anchor <= Number(current.to)) return;
       if (span > 0) {
         scale.setVisibleRange({
@@ -1973,48 +2033,79 @@ export function CandleChart({
    * 2. It sent a TIME range. A time range can only name bars that exist, so a
    *    pan into the empty space right of the last bar was clamped by every
    *    target: the price pane showed whitespace, the RSI under it did not, and
-   *    the crosshair line across the panes stopped being one line. The panes
-   *    share a bar timeline (a study's missing values are whitespace points,
-   *    not absent ones), so the LOGICAL range — bar offsets, including the
-   *    empty slots past the end — is what is copied, anchored on a bar both
-   *    panes hold. The time range remains the fallback for a target that
-   *    does not hold the anchor yet.
+   *    the crosshair line across the panes stopped being one line. So the
+   *    LOGICAL range — bar offsets, including the empty slots past the end — is
+   *    what is copied, anchored on a bar both panes hold: a study pane holds
+   *    the window its study was computed over, not the whole history, so the
+   *    same bar has a different index in each pane. The time range remains
+   *    the fallback for a target that does not hold the anchor yet.
+   *
+   * ── B-01: the main chart drives, and only a person moves it from below ──
+   *
+   * After a reload with a comparison and two studies, the price pane drew
+   * twenty-five days of candles while the time axis, both study panes and the
+   * Data window described seven — the price under the cursor was another
+   * bar's. Two holes, both on this path:
+   *
+   * - A study pane's range was broadcast whenever it changed. A pane changes
+   *   range on its own every time its data lands — the library's default
+   *   window for a new series, then the one its window recomputes to — and
+   *   that accidental window was pushed onto the price chart, which zoomed to
+   *   it. Which push won depended on which response landed last, so the same
+   *   saved state opened three different ways. A study pane now moves the
+   *   others only while a PERSON is moving it (`paneGestureRef`); otherwise it
+   *   follows the price chart, and is re-aligned to it every time its data
+   *   lands (`registerIndicatorPane`).
+   * - The price chart's own changes were dropped, not queued, while any sync
+   *   was in flight — so a fit that landed in that frame (a comparison
+   *   arriving, a dataset landing) never reached the panes. The trailing edge
+   *   above only ever caught what reached it; the price chart's events now
+   *   always do, and are ignored only while the price chart is itself
+   *   following a pane a person is dragging.
    */
-  syncPaneRangesRef.current = (source, range) => {
-    if (disposalRef.current.disposed) return;
-    if (syncingPaneRangeRef.current) { pendingPaneRangeRef.current = { source, range }; return; }
-    syncingPaneRangeRef.current = true;
-    const targets: Array<[string, IChartApi]> = [
-      ...(chartRef.current ? [["price", chartRef.current] as [string, IChartApi]] : []),
-      ...paneChartRefs.current,
-    ];
-    const from = targets.find(([id]) => id === source)?.[1];
-    const logical = from?.timeScale().getVisibleLogicalRange() ?? null;
+  const alignChart = (
+    from: IChartApi, target: IChartApi, range: { from: number; to: number },
+  ): void => {
+    const logical = from.timeScale().getVisibleLogicalRange();
     const anchor = range.to as UTCTimestamp;
     const indexOf = (chart: IChartApi): number | null => {
       const scale = chart.timeScale();
       const x = scale.timeToCoordinate(anchor);
       return x === null ? null : scale.coordinateToLogical(x);
     };
-    const sourceIndex = from ? indexOf(from) : null;
-    for (const [id, chart] of targets) {
-      if (id === source) continue;
-      try {
-        const targetIndex = logical && sourceIndex !== null ? indexOf(chart) : null;
-        if (logical && sourceIndex !== null && targetIndex !== null) {
-          const shift = targetIndex - sourceIndex;
-          chart.timeScale().setVisibleLogicalRange({
-            from: logical.from + shift, to: logical.to + shift,
-          });
-        } else {
-          chart.timeScale().setVisibleRange({
-            from: range.from as UTCTimestamp, to: range.to as UTCTimestamp,
-          });
-        }
-      } catch { /* the target has not loaded this range yet */ }
+    const sourceIndex = logical ? indexOf(from) : null;
+    try {
+      const targetIndex = sourceIndex !== null ? indexOf(target) : null;
+      if (logical && sourceIndex !== null && targetIndex !== null) {
+        const shift = targetIndex - sourceIndex;
+        target.timeScale().setVisibleLogicalRange({
+          from: logical.from + shift, to: logical.to + shift,
+        });
+      } else {
+        target.timeScale().setVisibleRange({
+          from: range.from as UTCTimestamp, to: range.to as UTCTimestamp,
+        });
+      }
+    } catch { /* the target has not loaded this range yet */ }
+  };
+  syncPaneRangesRef.current = (source, range) => {
+    if (disposalRef.current.disposed) return;
+    if (syncingPaneRangeRef.current) { pendingPaneRangeRef.current = { source, range }; return; }
+    syncingPaneRangeRef.current = true;
+    if (source !== "price") priceFollowingRef.current = true;
+    const targets: Array<[string, IChartApi]> = [
+      ...(chartRef.current ? [["price", chartRef.current] as [string, IChartApi]] : []),
+      ...paneChartRefs.current,
+    ];
+    const from = targets.find(([id]) => id === source)?.[1];
+    if (from) {
+      for (const [id, chart] of targets) {
+        if (id !== source) alignChart(from, chart, range);
+      }
     }
     requestAnimationFrame(() => {
       syncingPaneRangeRef.current = false;
+      priceFollowingRef.current = false;
       const pending = pendingPaneRangeRef.current;
       pendingPaneRangeRef.current = null;
       if (pending) syncPaneRangesRef.current(pending.source, pending.range);
@@ -2040,20 +2131,75 @@ export function CandleChart({
     rangeReleaseRef.current.push(timer);
   }, []);
 
+  /** Bring one study pane onto the price chart's window. */
+  const alignPaneToPrice = (pane: IChartApi): void => {
+    const price = chartRef.current;
+    if (!price || disposalRef.current.disposed) return;
+    const current = price.timeScale().getVisibleRange();
+    if (!current || typeof current.from !== "number" || typeof current.to !== "number") return;
+    alignChart(price, pane, { from: current.from, to: current.to });
+  };
+  const alignPaneToPriceRef = useRef(alignPaneToPrice);
+  alignPaneToPriceRef.current = alignPaneToPrice;
+
+  /*
+   * Called on mount AND every time the pane's data lands (`IndicatorPane`
+   * reports itself ready after each data pass), which is exactly when its
+   * window has just been moved by something other than a person.
+   *
+   * Aligned twice: now, and once more on the next frame. The library applies
+   * a requested range at its next draw, so a price chart with a fit still
+   * pending reports its OLD window here; the second pass reads the window it
+   * actually settled on. The price chart's own range event covers the same
+   * case from the other side — either is enough, and they cannot disagree.
+   */
   const registerIndicatorPane = useCallback((id: string, chart: IChartApi | null) => {
+    const listeners = paneGestureListenersRef.current;
     if (!chart) {
       paneChartRefs.current.delete(id);
+      listeners.get(id)?.off();
+      listeners.delete(id);
+      paneGestureRef.current.delete(id);
       return;
     }
     paneChartRefs.current.set(id, chart);
-    const current = chartRef.current?.timeScale().getVisibleRange();
-    if (current && typeof current.from === "number" && typeof current.to === "number") {
-      try { chart.timeScale().setVisibleRange(current); } catch { /* data is landing */ }
+    let el: HTMLElement | null = null;
+    try { el = chart.chartElement(); } catch { /* disposed */ }
+    if (el && listeners.get(id)?.el !== el) {
+      listeners.get(id)?.off();
+      const host = el;
+      const mark = (): void => { paneGestureRef.current.set(id, performance.now()); };
+      const markIfPressed = (event: MouseEvent): void => { if (event.buttons !== 0) mark(); };
+      const presses = ["pointerdown", "mousedown", "touchstart", "touchmove", "wheel"] as const;
+      for (const type of presses) host.addEventListener(type, mark, { capture: true, passive: true });
+      host.addEventListener("pointermove", markIfPressed, { capture: true, passive: true });
+      host.addEventListener("mousemove", markIfPressed, { capture: true, passive: true });
+      listeners.set(id, {
+        el: host,
+        off: () => {
+          for (const type of presses) host.removeEventListener(type, mark, { capture: true });
+          host.removeEventListener("pointermove", markIfPressed, { capture: true });
+          host.removeEventListener("mousemove", markIfPressed, { capture: true });
+        },
+      });
     }
+    alignPaneToPriceRef.current(chart);
+    requestAnimationFrame(() => {
+      if (paneChartRefs.current.get(id) === chart) alignPaneToPriceRef.current(chart);
+    });
   }, []);
 
+  /*
+   * A study pane moves the others only while a person is moving it.
+   *
+   * A grace period after the last press, move or wheel covers the library's
+   * own easing at the end of a drag and a kinetic touch scroll; a pane whose
+   * data lands outside it is following, not leading.
+   */
   const indicatorPaneRange = useCallback((id: string, range: { from: number; to: number }) => {
-    if (!syncingPaneRangeRef.current) syncPaneRangesRef.current(id, range);
+    const touched = paneGestureRef.current.get(id);
+    if (touched === undefined || performance.now() - touched > PANE_GESTURE_GRACE_MS) return;
+    syncPaneRangesRef.current(id, range);
   }, []);
 
   const indicatorPaneHover = useCallback((time: number | null) => {
@@ -2267,7 +2413,7 @@ export function CandleChart({
       // A range we just applied ourselves would otherwise bounce back to the
       // pane that sent it, and the two would chase each other.
       if (guard.disposed) return;
-      if (applyingRangeRef.current || syncingPaneRangeRef.current || !range) return;
+      if (applyingRangeRef.current || !range) return;
       const from = range.from as number;
       const to = range.to as number;
       if (!Number.isFinite(from) || !Number.isFinite(to)) return;
@@ -2279,6 +2425,9 @@ export function CandleChart({
         setActiveRange((current) => current === null ? current : null);
       }
       publishRange({ from, to });
+      // Following a pane a person is dragging: that pane is the source, and
+      // echoing its own range back at it is how two panes chase each other.
+      if (priceFollowingRef.current) return;
       syncPaneRangesRef.current("price", { from, to });
     });
 

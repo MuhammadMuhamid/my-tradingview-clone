@@ -409,7 +409,11 @@ test("RANGE — the publisher and the loop-breakers are actually wired in", () =
   assert.match(CHART, /const publishRange = useCallback\(/);
   assert.match(CHART, /if \(!rangeChanged\(publishedRangeRef\.current, range\)\) return;/);
   // A range this pane applied itself is never re-emitted.
-  assert.match(CHART, /if \(applyingRangeRef\.current \|\| syncingPaneRangeRef\.current \|\| !range\) return;/);
+  assert.match(CHART, /if \(applyingRangeRef\.current \|\| !range\) return;/);
+  // B-01: nor is one it took from a study pane a person is dragging — but its
+  // own changes are no longer dropped merely because a sync is in flight
+  // (`tests/dom/paneTimeAxis.test.tsx` holds the behaviour).
+  assert.match(CHART, /if \(priceFollowingRef\.current\) return;/);
 });
 
 test("RANGE — an unmounted pane stops receiving and stops emitting", () => {
