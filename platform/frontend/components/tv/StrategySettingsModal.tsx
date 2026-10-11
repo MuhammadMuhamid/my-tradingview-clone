@@ -56,7 +56,15 @@ export function StrategySettingsModal({
   const [jsonErr, setJsonErr] = useState<string | null>(null);
   const groups = groupsFor(strategyKey);
 
-  // Re-seed drafts each time the dialog opens.
+  /*
+   * Re-seed drafts each time the dialog OPENS — and only then.
+   *
+   * B-06: this re-seeded whenever `params` or `properties` changed identity
+   * too, so anything that re-rendered the page with an equal-but-new object
+   * while the dialog was open threw away the draft — every tab's edits, not
+   * just the visible one's — and Ok then applied the old values. The draft is
+   * ONE object across both tabs and is submitted whole on Ok.
+   */
   useEffect(() => {
     if (open) {
       setDraft(params);
@@ -65,7 +73,9 @@ export function StrategySettingsModal({
       setJsonErr(null);
       setTab("inputs");
     }
-  }, [open, params, properties]);
+    // Captured on opening, deliberately: see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const ok = () => {
     if (!groups) {

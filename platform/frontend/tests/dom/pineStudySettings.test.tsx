@@ -110,7 +110,7 @@ test("Cancel puts back exactly the overrides the study had when the dialog opene
   assert.deepEqual(calls, ["reset", "len=21", "close"]);
 });
 
-test("Ok keeps what was changed", async () => {
+test("Ok submits the whole draft, not only whatever live write happened to stick", async () => {
   const calls: string[] = [];
   render(
     <PineStudySettings
@@ -120,8 +120,12 @@ test("Ok keeps what was changed", async () => {
       onReset={() => calls.push("reset")}
     />);
   await settle();
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Ok" }));
-  assert.deepEqual(calls, ["close"]);
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByRole("spinbutton", { name: "Length" }), { target: { value: "30" } });
+  calls.length = 0;
+  fireEvent.click(within(dialog).getByRole("button", { name: "Ok" }));
+  // B-06: the study is put exactly at the draft, whatever the live path did.
+  assert.deepEqual(calls, ["reset", "len=30", "close"]);
 });
 
 function fakeIndicators(list: AppliedIndicator[], log: string[]): IndicatorsApi {

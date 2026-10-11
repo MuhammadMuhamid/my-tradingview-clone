@@ -129,49 +129,113 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
    * with the entry state held.
    */
   const entry = useRef<AppliedNativeStudy | null>(null);
+  /*
+   * ── B-06: ONE draft for every tab, submitted whole on Ok ────────────────
+   *
+   * The dialog drew each tab from the study PROP and relied on every edit's
+   * live write having stuck. Live, it did not always: ATR → Length 30 → the
+   * Style tab → Ok left the legend and the plot at the old length (and so did
+   * leaving the field for `Defaults`), while Inputs → Ok applied. Whatever
+   * took the write — a re-render from a list that had not yet folded it in, a
+   * server reconciliation landing between keystroke and Ok — the dialog had
+   * nothing of its own to say what the user had chosen.
+   *
+   * So the dialog holds the draft: every tab reads it, every edit writes it
+   * (and still applies live, so the chart previews), and Ok submits the WHOLE
+   * draft, every field, whichever tab it was typed on. Cancel submits the
+   * entry state the same way, which is the revert R6b-29 introduced.
+   */
+  const [draft, setDraft] = useState<AppliedNativeStudy | null>(null);
   useEffect(() => {
-    if (!study) { entry.current = null; return; }
+    if (!study) { entry.current = null; setDraft(null); return; }
     entry.current = study;
+    setDraft(study);
     setTab("inputs");
     // Captured once per study, deliberately: this must be the state on ENTRY.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [study?.key]);
+  /** What every tab draws: the draft once it exists, the study until then. */
+  const view = draft && study && draft.key === study.key ? draft : study;
 
   const def = study ? studyById(study.defId) : null;
   const params = useMemo(
-    () => (def && study ? normalizeParams(def, study.params) : {}), [def, study]);
+    () => (def && view ? normalizeParams(def, view.params) : {}), [def, view]);
 
-  const cancel = useCallback((): void => {
-    const was = entry.current;
-    if (was) {
-      for (const [key, value] of Object.entries(was.params)) {
-        props.onParam(was.key, key, value);
-      }
-      const def0 = studyById(was.defId);
-      for (const plot of def0?.plots ?? []) {
-        props.onStyle(was.key, plot.id, was.styles[plot.id] ?? {
-          // An absent override is the definition's own answer; writing the
-          // definition's values back is how "no override" is restored through
-          // an API that only takes overrides.
-          color: plot.color,
-          width: plot.width ?? 1,
-          style: plot.style,
-          visible: !plot.hiddenByDefault,
-        });
-      }
-      props.onVisibleOn?.(was.key, was.visibleOn);
-      props.onDisplay(was.key, {
-        precision: was.precision,
-        labelsOnPriceScale: was.labelsOnPriceScale,
-        valuesInStatusLine: was.valuesInStatusLine,
-        inputsInStatusLine: was.inputsInStatusLine,
+  /**
+   * Write every field of `target` to the pane, as one submission.
+   *
+   * `restoreAbsent` is Cancel's: a plot with no override in the entry state
+   * gets the definition's values written back, which is how an edit made
+   * during the visit is undone. Ok leaves an un-overridden plot alone, so
+   * pressing Ok on an untouched dialog does not turn every default into an
+   * explicit override.
+   */
+  const submit = useCallback((target: AppliedNativeStudy, restoreAbsent: boolean): void => {
+    for (const [key, value] of Object.entries(target.params)) {
+      props.onParam(target.key, key, value);
+    }
+    const def0 = studyById(target.defId);
+    for (const plot of def0?.plots ?? []) {
+      if (!target.styles[plot.id] && !restoreAbsent) continue;
+      props.onStyle(target.key, plot.id, target.styles[plot.id] ?? {
+        // An absent override is the definition's own answer; writing the
+        // definition's values back is how "no override" is restored through
+        // an API that only takes overrides.
+        color: plot.color,
+        width: plot.width ?? 1,
+        style: plot.style,
+        visible: !plot.hiddenByDefault,
       });
     }
-    onClose();
+    props.onVisibleOn?.(target.key, target.visibleOn);
+    props.onDisplay(target.key, {
+      precision: target.precision,
+      labelsOnPriceScale: target.labelsOnPriceScale,
+      valuesInStatusLine: target.valuesInStatusLine,
+      inputsInStatusLine: target.inputsInStatusLine,
+    });
     // `props` is read through the ref-stable callbacks the pane hands us.
-  }, [onClose, props]);
+  }, [props]);
 
-  if (!study || !def) return null;
+  const cancel = useCallback((): void => {
+    if (entry.current) submit(entry.current, true);
+    onClose();
+  }, [onClose, submit]);
+
+  const ok = useCallback((): void => {
+    if (view) submit(view, false);
+    onClose();
+  }, [onClose, submit, view]);
+
+  if (!study || !def || !view) return null;
+
+  /* Each edit lands in the draft AND reaches the pane live, as a preview. */
+  const editParam = (param: string, value: NativeInputValue): void => {
+    setDraft((d) => (d ? { ...d, params: { ...d.params, [param]: value } } : d));
+    props.onParam(study.key, param, value);
+  };
+  const editStyle = (plotId: string, style: PlotStyleOverride): void => {
+    setDraft((d) => (d
+      ? { ...d, styles: { ...d.styles, [plotId]: { ...d.styles[plotId], ...style } } } : d));
+    props.onStyle(study.key, plotId, style);
+  };
+  const editDisplay = (patch: Pick<AppliedNativeStudy, "precision" | "labelsOnPriceScale"
+    | "valuesInStatusLine" | "inputsInStatusLine">): void => {
+    setDraft((d) => (d ? { ...d, ...patch } : d));
+    props.onDisplay(study.key, patch);
+  };
+  const editVisibleOn = (visibleOn: Resolution[] | undefined): void => {
+    setDraft((d) => (d ? { ...d, visibleOn } : d));
+    props.onVisibleOn?.(study.key, visibleOn);
+  };
+  const reset = (): void => {
+    props.onReset(study.key);
+    // What `useNativeStudies.resetParams` writes, so the draft agrees with it.
+    setDraft((d) => (d ? {
+      ...d, params: normalizeParams(def, undefined), styles: {}, precision: undefined,
+      labelsOnPriceScale: undefined, valuesInStatusLine: undefined, inputsInStatusLine: undefined,
+    } : d));
+  };
 
   /*
    * Asked for once per open dialog rather than memoised across the pane.
@@ -187,16 +251,16 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
   const sources = offered && offered.length > 0 ? offered : undefined;
 
   const isDefault = JSON.stringify(params) === JSON.stringify(defaultParams(def))
-    && Object.keys(study.styles).length === 0
-    && study.precision === undefined
-    && study.labelsOnPriceScale === undefined
-    && study.valuesInStatusLine === undefined
-    && study.inputsInStatusLine === undefined;
+    && Object.keys(view.styles).length === 0
+    && view.precision === undefined
+    && view.labelsOnPriceScale === undefined
+    && view.valuesInStatusLine === undefined
+    && view.inputsInStatusLine === undefined;
 
   const tabs = props.onVisibleOn ? TABS : TABS.filter((t) => t.id !== "visibility");
-  const ranges = visibilityRanges(study.visibleOn);
+  const ranges = visibilityRanges(view.visibleOn);
   const setRanges = (next: VisibilityRanges): void =>
-    props.onVisibleOn?.(study.key, resolutionsForRanges(next));
+    editVisibleOn(resolutionsForRanges(next));
 
   return (
     <Modal
@@ -214,10 +278,10 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
       scrollBody={false}
       footer={
         <div className="flex w-full items-center gap-2">
-          <DefaultsMenu disabled={isDefault} onReset={() => props.onReset(study.key)} />
+          <DefaultsMenu disabled={isDefault} onReset={reset} />
           <span className="flex-1" />
           <Button variant="default" onClick={cancel} className="w-[74px]">Cancel</Button>
-          <Button variant="contrast" onClick={onClose} className="w-[44px] px-0">Ok</Button>
+          <Button variant="contrast" onClick={ok} className="w-[44px] px-0">Ok</Button>
         </div>
       }
     >
@@ -259,7 +323,7 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
                 input={input}
                 value={params[input.key]!}
                 sources={input.kind === "source" ? sources : undefined}
-                onChange={(value) => props.onParam(study.key, input.key, value)}
+                onChange={(value) => editParam(input.key, value)}
               />
             ))}
             {def.inputs.length === 0 && (
@@ -274,18 +338,18 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
               <StyleRow
                 key={plot.id}
                 plot={plot}
-                override={study.styles[plot.id] ?? {}}
+                override={view.styles[plot.id] ?? {}}
                 value={props.values?.[plot.id] ?? null}
-                onChange={(style) => props.onStyle(study.key, plot.id, style)}
+                onChange={(style) => editStyle(plot.id, style)}
               />
             ))}
             <Section>Output values</Section>
             <Row label="Precision">
               <Dropdown
-                value={study.precision === undefined ? "default" : String(study.precision)}
+                value={view.precision === undefined ? "default" : String(view.precision)}
                 label="Precision"
                 width={100}
-                onChange={(value) => props.onDisplay(study.key, {
+                onChange={(value) => editDisplay({
                   precision: value === "default" ? undefined : Number(value),
                 })}
                 options={[
@@ -298,19 +362,19 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
             </Row>
             <CheckRow
               label="Labels on price scale"
-              checked={study.labelsOnPriceScale !== false}
-              onChange={(value) => props.onDisplay(study.key, { labelsOnPriceScale: value })}
+              checked={view.labelsOnPriceScale !== false}
+              onChange={(value) => editDisplay({ labelsOnPriceScale: value })}
             />
             <CheckRow
               label="Values in status line"
-              checked={study.valuesInStatusLine !== false}
-              onChange={(value) => props.onDisplay(study.key, { valuesInStatusLine: value })}
+              checked={view.valuesInStatusLine !== false}
+              onChange={(value) => editDisplay({ valuesInStatusLine: value })}
             />
             <Section>Input values</Section>
             <CheckRow
               label="Inputs in status line"
-              checked={study.inputsInStatusLine !== false}
-              onChange={(value) => props.onDisplay(study.key, { inputsInStatusLine: value })}
+              checked={view.inputsInStatusLine !== false}
+              onChange={(value) => editDisplay({ inputsInStatusLine: value })}
             />
           </>
         )}
@@ -398,24 +462,51 @@ export interface PineStudySettingsProps {
 export function PineStudySettings(props: PineStudySettingsProps) {
   const { study, onClose } = props;
   const entry = useRef<AppliedIndicator | null>(null);
+  /*
+   * B-06: the dialog's own draft of the overrides, as in the built-in dialog
+   * above — what the field shows, and what Ok submits whole, so a live write
+   * that did not stick cannot leave the study at a value the user replaced.
+   */
+  const [draft, setDraft] = useState<{ key: string; params: PineParams } | null>(null);
   useEffect(() => {
     entry.current = study;
+    setDraft(study ? { key: study.key, params: { ...study.params } } : null);
     // Captured once per study, deliberately: this must be the state on ENTRY.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [study?.key]);
+  const params = useMemo(
+    () => (draft && study && draft.key === study.key ? draft.params : study?.params ?? {}),
+    [draft, study]);
+
+  /** Reset, then every override in `target`: the study ends up exactly there. */
+  const submit = useCallback((key: string, target: PineParams): void => {
+    props.onReset(key);
+    for (const [param, value] of Object.entries(target)) props.onParam(key, param, value);
+  }, [props]);
 
   const cancel = useCallback((): void => {
     const was = entry.current;
-    if (was) {
-      props.onReset(was.key);
-      for (const [param, value] of Object.entries(was.params)) props.onParam(was.key, param, value);
-    }
+    if (was) submit(was.key, was.params);
     onClose();
-  }, [onClose, props]);
+  }, [onClose, submit]);
+
+  const ok = useCallback((): void => {
+    if (study) submit(study.key, params);
+    onClose();
+  }, [onClose, submit, study, params]);
 
   if (!study) return null;
 
-  const isDefault = Object.keys(study.params).length === 0;
+  const edit = (param: string, value: PineParams[string]): void => {
+    setDraft((d) => (d ? { ...d, params: { ...d.params, [param]: value } } : d));
+    props.onParam(study.key, param, value);
+  };
+  const reset = (): void => {
+    props.onReset(study.key);
+    setDraft((d) => (d ? { ...d, params: {} } : d));
+  };
+
+  const isDefault = Object.keys(params).length === 0;
   /*
    * Grouped in declaration order, the ungrouped first — the order the script
    * declares them is the order its author meant them read in.
@@ -440,10 +531,10 @@ export function PineStudySettings(props: PineStudySettingsProps) {
       scrollBody={false}
       footer={
         <div className="flex w-full items-center gap-2">
-          <DefaultsMenu disabled={isDefault} onReset={() => props.onReset(study.key)} />
+          <DefaultsMenu disabled={isDefault} onReset={reset} />
           <span className="flex-1" />
           <Button variant="default" onClick={cancel} className="w-[74px]">Cancel</Button>
-          <Button variant="contrast" onClick={onClose} className="w-[44px] px-0">Ok</Button>
+          <Button variant="contrast" onClick={ok} className="w-[44px] px-0">Ok</Button>
         </div>
       }
     >
@@ -469,8 +560,8 @@ export function PineStudySettings(props: PineStudySettingsProps) {
               <PineInputRow
                 key={input.key}
                 input={input}
-                value={study.params[input.key] ?? input.defval}
-                onChange={(value) => props.onParam(study.key, input.key, value)}
+                value={params[input.key] ?? input.defval}
+                onChange={(value) => edit(input.key, value)}
               />
             ))}
           </PineGroup>
