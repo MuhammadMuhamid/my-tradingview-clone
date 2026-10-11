@@ -575,6 +575,11 @@
 :is(.tv-workstation, .ts-app) .tvc-menu-row[data-highlighted="true"] {
   background-color: var(--ts-state-hover);
 }
+/* A row of target cells (the layout menu): the cell under the pointer lights,
+   through `.tvc-control`; the row that holds it does not. */
+:is(.tv-workstation, .ts-app) .tvc-menu-row[data-cell-row]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: transparent;
+}
 :is(.tv-workstation, .ts-app) .tvc-menu-row[aria-checked="true"],
 :is(.tv-workstation, .ts-app) .tvc-menu-row[aria-selected="true"],
 :is(.tv-workstation, .ts-app) .tvc-menu-row[data-active="true"] {

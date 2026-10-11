@@ -144,8 +144,14 @@ export function LayoutSelector({
           style={edgeClamp}
           className="absolute right-0 top-full z-50 tvc-menu px-2">
           {counts.map((n, index) => (
-            <div key={n} role="group" aria-label={`${n} chart${n === 1 ? "" : "s"}`}
-              className={`flex items-center gap-0.5 py-0.5 ${index > 0 ? "border-t border-border" : ""}`}>
+            /*
+              The menu's row grammar, as a row of CELLS: the count is the row,
+              each arrangement a 38px target inside it. `data-cell-row` keeps
+              the row itself from lighting on hover — on the reference only the
+              cell under the pointer does.
+            */
+            <div key={n} role="group" aria-label={`${n} chart${n === 1 ? "" : "s"}`} data-cell-row=""
+              className={`tvc-menu-row gap-0.5 py-0.5 ${index > 0 ? "border-t border-border" : ""}`}>
               {/* The count, muted, as the reference's row label. */}
               <span aria-hidden="true" className="tabular w-6 shrink-0 pl-1 text-[12px] text-ink-faint">{n}</span>
               {presetsForCount(n).map((preset) => {
