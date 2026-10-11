@@ -178,14 +178,16 @@ export function sameInstrument(a: string, b: string): boolean {
  * The venue publishes both assets in its instrument metadata and the `symbols`
  * table already stores them. NEW code reads them from here.
  *
- * Four suffix-parsing sites are deliberately left as they were, because
+ * Three suffix-parsing sites are deliberately left as they were, because
  * changing them now would be risk without a defect. Each carries a pointer
  * back to this module:
  *
  *   backend/src/scripts/seedMaWatchlist.ts   a seed list of USDT pairs
  *   backend/src/shariah/gate.ts              a USDT-only screening gate
  *   frontend/lib/manualTicket.ts             a display label
- *   frontend/components/tv/Watchlist.tsx     a USDT-only add form
+ *
+ * (The watchlist's USDT-only `+` form was the fourth; C-06 replaced it with a
+ * search that adds a resolved instrument, so it parses no suffix at all.)
  */
 export interface InstrumentAssets {
   baseAsset: string;

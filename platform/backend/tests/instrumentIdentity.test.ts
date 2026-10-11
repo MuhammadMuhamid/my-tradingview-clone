@@ -207,13 +207,12 @@ test("exactly the documented routes resolve a venue-qualified symbol", () => {
     "the header says four surfaces resolve; that must be four resolving sites");
 });
 
-test("the four legacy suffix-parsing sites each carry the call-out the header promises", () => {
+test("the three legacy suffix-parsing sites each carry the call-out the header promises", () => {
   const root = path.join(__dirname, "..", "..");
   const sites = [
     "backend/src/scripts/seedMaWatchlist.ts",
     "backend/src/shariah/gate.ts",
     "frontend/lib/manualTicket.ts",
-    "frontend/components/tv/Watchlist.tsx",
   ];
   for (const site of sites) {
     const source = fs.readFileSync(path.join(root, site), "utf8");
