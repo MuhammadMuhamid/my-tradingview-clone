@@ -78,10 +78,12 @@ import { tradesThroughHorizon } from "@/lib/tradeChartTransforms";
 
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
+const NO_CANDLES: Candle[] = [];
 import { PaneLegend } from "@/components/tv/PaneLegend";
 import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
-import type { PaneCompare } from "@/lib/workspace";
+import type { PaneCompare, PaneViewport } from "@/lib/workspace";
+import type { SavedPaneLayout } from "@/lib/indicatorPaneLayout";
 import { pricePrecision } from "@/lib/movingAverages";
 import { type Candle, type Trade } from "@/lib/types";
 import { useVolumeProfileRefinement } from "@/lib/useVolumeProfileRefinement";
@@ -164,6 +166,10 @@ export interface ChartPaneProps {
    */
   priceScale?: PriceScaleState;
   onPriceScaleChange?: (paneId: string, next: PriceScaleState) => void;
+  /** B-08: the window this pane was left on, kept by the workspace. */
+  onViewportSettled?: (paneId: string, viewport: PaneViewport) => void;
+  /** B-09/B-15: how this pane's study stack is arranged, kept by the workspace. */
+  onStudyLayoutChange?: (paneId: string, layout: SavedPaneLayout) => void;
   /** Bumped by the workspace to refit this pane. */
   resetSignal?: number;
   goTo?: { time: number; signal: number } | null;
@@ -348,8 +354,22 @@ function ChartPaneImpl(props: ChartPaneProps) {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [pane.symbol]);
+  /*
+   * ── B-03: another instrument's bars are not this one's ───────────────────
+   *
+   * While a new window loads the previous one is held, which is right for an
+   * interval change: the same instrument's prices stay under its own name. A
+   * SYMBOL change is different. For seven to nine seconds after SOL → BTC the
+   * chart titled Bitcoin showed SOL's candles, SOL's OHLC in its status line,
+   * SOL's strategy values and SOL's level, and every layer derived from these
+   * bars — studies, comparison, moving averages — said the same wrong thing.
+   * So a held window of a different instrument is not drawn at all; the pane
+   * says what it is loading instead, and every derived layer is empty with it.
+   */
+  const heldForeign = history.dataset.symbol.toUpperCase() !== pane.symbol.toUpperCase();
   const visibleCandles = useMemo(
-    () => replayCandles(history.candles, replay), [history.candles, replay]);
+    () => (heldForeign ? NO_CANDLES : replayCandles(history.candles, replay)),
+    [heldForeign, history.candles, replay]);
   /*
    * While an uncached window loads, the previous window stays on screen and
    * `history.dataset` says so. The readouts below must not present its last
@@ -465,6 +485,28 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const compareSeries = useCompareSeries(
     visibleCandles, compare?.symbol ?? "", pane.interval, pane.bars,
     { enabled: compare !== null });
+  /*
+   * The comparison this pane OPENED with is not an arrival (B-08).
+   *
+   * The chart frames itself when a comparison lands, and a comparison restored
+   * from the saved workspace "landed" on every reload — throwing away the
+   * window the reader had left the chart on, which is the one thing the
+   * `undefined`-seeded ref in `CandleChart` was meant to protect. That ref
+   * could not: the workspace is restored one render AFTER the pane mounts.
+   * So whatever comparison the pane holds until its first bars land is the
+   * restored one and passes its key straight through; only a comparison
+   * chosen after that is arrival-gated and framed.
+   */
+  const compareKey = compare ? `${compare.symbol}:${compare.mode}` : null;
+  const mountedCompareKey = useRef(compareKey);
+  const compareSettled = useRef(false);
+  if (!compareSettled.current) {
+    mountedCompareKey.current = compareKey;
+    if (history.candles.length > 0) compareSettled.current = true;
+  } else if (mountedCompareKey.current !== compareKey) mountedCompareKey.current = null;
+  const compareFitKey = compareKey !== null && compareKey === mountedCompareKey.current
+    ? compareKey
+    : compare && !compareSeries.loading && compareSeries.closes.length > 0 ? compareKey : null;
 
   const compared = useMemo(
     () => (compare
@@ -752,14 +794,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
          * emits a range per frame, and a per-bar key would recompute
          * everything sixty times a second.
          */
-        const visibleBars = Math.max(200, Math.ceil(span / 200) * 200);
         const bars = barsRef.current;
         const fromMs = range.from * 1000;
-        let first = bars.length - visibleBars;
+        let first = bars.length - Math.max(200, Math.ceil(span / 200) * 200);
         for (let i = 0; i < bars.length; i++) {
           if (bars[i]!.openTime >= fromMs) { first = i; break; }
         }
         const anchored = Math.max(0, Math.floor(first / 200) * 200);
+        /*
+         * B-01: wide enough to reach the RIGHT edge from the rounded-DOWN
+         * start. Sized from the span alone, a window starting up to 199 bars
+         * early ended up to 199 bars short — the study line stopped part way
+         * across a pane whose candles carried on to the edge.
+         */
+        const visibleBars = Math.max(200, Math.ceil((first - anchored + span) / 200) * 200);
         setViewport((current) => (
           current && current.visibleBars === visibleBars
             && current.firstVisibleIndex === anchored
@@ -1043,7 +1091,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
             */
             className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-sm border border-border bg-surface/90 px-2 text-[11px] leading-[18px] text-ink-muted"
           >
-            Loading {displayTicker(pane.symbol)} {pane.interval}… showing {displayTicker(history.dataset.symbol)} {history.dataset.interval} until it arrives
+            {heldForeign
+              ? <>Loading {displayTicker(pane.symbol)} {pane.interval}…</>
+              : <>Loading {displayTicker(pane.symbol)} {pane.interval}… showing {displayTicker(history.dataset.symbol)} {history.dataset.interval} until it arrives</>}
           </div>
         )}
         {compared.notice && (
@@ -1090,13 +1140,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
               Named by identity and by arrival: a comparison whose second
               instrument has not come back yet must not be framed, because
               framing a pane that holds two points is what collapsed the window
-              in the first place.
+              in the first place. A restored comparison is not an arrival —
+              see `compareFitKey` above.
             */
-            compareFitKey={
-              compare && !compareSeries.loading && compareSeries.closes.length > 0
-                ? `${compare.symbol}:${compare.mode}`
-                : null
-            }
+            compareFitKey={compareFitKey}
+            savedViewport={pane.viewport ?? null}
+            onViewportSettled={props.onViewportSettled
+              ? (viewport) => props.onViewportSettled?.(paneId, viewport) : undefined}
+            studyLayout={pane.studyLayout ?? null}
+            onStudyLayoutChange={props.onStudyLayoutChange
+              ? (layout) => props.onStudyLayoutChange?.(paneId, layout) : undefined}
             /*
               The pane's identity and its own controls, handed to the chart as a
               slot rather than drawn beside it.

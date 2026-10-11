@@ -27,6 +27,9 @@ import { COMPARE_MODES, isCompareMode } from "../lib/workspace";
 import { alignByOpenTime, normalizedCompare } from "../lib/ta/core";
 import { anchorBarIndex, anchoredVwapOverlays, avwapBands, AVWAP_TOOL } from "../lib/anchoredVwap";
 import type { Candle } from "../lib/types";
+
+/** What a stored `SOLUSDT` comparison is keyed by. */
+const SOL_ID = "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot";
 import type { Drawing } from "../lib/drawings";
 
 const MINUTE = 60_000;
@@ -204,13 +207,13 @@ test("each pair surface gets its own pane, never the price scale", () => {
     for (const overlay of overlays) {
       assert.notEqual(overlay.paneId, "price",
         `${mode} is not a price and must not be drawn on the price scale`);
-      assert.equal(overlay.instanceId, `compare:SOLUSDT:${mode}`);
+      assert.equal(overlay.instanceId, `compare:${SOL_ID}:${mode}`);
     }
   }
   // Percent values and currency candles are different units, so percent also
   // gets a dedicated pane instead of flattening both on one normal axis.
   const percent = compareOverlays(base, other, "percent", 20, "BTCUSDT");
-  assert.ok(percent.overlays.every((o) => o.paneId === "compare:SOLUSDT:percent"));
+  assert.ok(percent.overlays.every((o) => o.paneId === `compare:${SOL_ID}:percent`));
   assert.ok(percent.overlays.every((o) => o.instanceParams === "% from first shared bar"));
 });
 

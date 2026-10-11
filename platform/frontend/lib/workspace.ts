@@ -46,6 +46,7 @@ import {
   isDefaultChartSettings, normalizeChartSettings, type ChartSettings, userDefaultChartSettings,
 } from "./chartSettings";
 import { canonicalizeLegacySpotSymbol } from "./instrument";
+import { clampPaneHeight, type SavedPaneLayout } from "./indicatorPaneLayout";
 
 /** Stable across layout changes, maximise, and reloads. */
 export type PaneId = string;
@@ -96,6 +97,38 @@ export interface PaneState {
   priceScale?: PriceScaleState;
   /** Display preferences for the pane's chart settings dialog. */
   chartSettings?: ChartSettings;
+  /**
+   * How the study stack under the chart was arranged: order and dragged
+   * heights, by pane id (B-09, B-15). Absent until the stack is first shown.
+   */
+  studyLayout?: SavedPaneLayout;
+  /**
+   * The window the chart was last left on (B-08), for the dataset it was
+   * left on. Reloading the same state used to open on three different
+   * windows; it now opens on this one, and only for the same symbol and
+   * interval — another dataset frames itself as usual.
+   */
+  viewport?: PaneViewport;
+}
+
+/**
+ * A chart window as "the right edge, and how many bars wide".
+ *
+ * `rightOffset` is bars from the newest bar to the right edge — zero or more
+ * when the newest bar is on screen, in which case a reload stays pinned to the
+ * live edge whatever has printed since. Negative means the reader had scrolled
+ * back, and the window is then re-found by `toTime`, the last bar it showed.
+ */
+export interface PaneViewport {
+  symbol: string;
+  interval: Resolution;
+  /** Visible width in bars (a logical span, so it may be fractional). */
+  bars: number;
+  rightOffset: number;
+  /** Open time of the bar the right edge falls in, in seconds. */
+  toTime: number;
+  /** How far into that bar the edge falls, in bars (0–1). */
+  toFraction?: number;
 }
 
 /** What a pane is comparing against, and how it is drawing the comparison. */
@@ -447,6 +480,22 @@ export function panePriceScale(ws: ChartWorkspace, id: PaneId): PriceScaleState 
   return ws.panes.find((p) => p.id === id)?.priceScale ?? resetPriceScale();
 }
 
+/** Record how one pane's study stack is arranged. Never synced. */
+export function setPaneStudyLayout(
+  ws: ChartWorkspace, id: PaneId, studyLayout: SavedPaneLayout
+): ChartWorkspace {
+  if (!ws.panes.some((p) => p.id === id)) return ws;
+  return { ...ws, panes: ws.panes.map((p) => (p.id === id ? { ...p, studyLayout } : p)) };
+}
+
+/** Record the window one pane was left on. Never synced. */
+export function setPaneViewport(
+  ws: ChartWorkspace, id: PaneId, viewport: PaneViewport
+): ChartWorkspace {
+  if (!ws.panes.some((p) => p.id === id)) return ws;
+  return { ...ws, panes: ws.panes.map((p) => (p.id === id ? { ...p, viewport } : p)) };
+}
+
 /** Set one pane's display preferences; omitted when they are all defaults. */
 export function setPaneChartSettings(
   ws: ChartWorkspace, id: PaneId, chartSettings: ChartSettings
@@ -580,6 +629,9 @@ function validPane(value: unknown): PaneState | null {
   // worst case is that its eye restores nothing, never a lost pane.
   const maHiddenSet = Array.isArray(raw.maHiddenSet)
     ? raw.maHiddenSet.filter((v): v is string => typeof v === "string") : [];
+  // Both decorations again: unreadable means "not kept", never "no pane".
+  const studyLayout = validStudyLayout(raw.studyLayout);
+  const viewport = validViewport(raw.viewport);
 
   return {
     id: raw.id, symbol: canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase(), interval: raw.interval,
@@ -588,6 +640,35 @@ function validPane(value: unknown): PaneState | null {
     ...(compare ? { compare } : {}),
     ...(priceScale && !isDefaultPriceScale(priceScale) ? { priceScale } : {}),
     ...(chartSettings && !isDefaultChartSettings(chartSettings) ? { chartSettings } : {}),
+    ...(studyLayout ? { studyLayout } : {}),
+    ...(viewport ? { viewport } : {}),
+  };
+}
+
+function validStudyLayout(value: unknown): SavedPaneLayout | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.order)) return null;
+  const order = raw.order.filter((id): id is string => typeof id === "string" && id !== "");
+  const heights: Record<string, number> = {};
+  if (raw.heights && typeof raw.heights === "object") {
+    for (const [id, h] of Object.entries(raw.heights as Record<string, unknown>)) {
+      if (typeof h === "number" && Number.isFinite(h)) heights[id] = clampPaneHeight(h);
+    }
+  }
+  return { order: [...new Set(order)], heights };
+}
+
+function validViewport(value: unknown): PaneViewport | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  if (typeof raw.symbol !== "string" || raw.symbol === "" || !isResolution(raw.interval)) return null;
+  if (!finite(raw.bars) || raw.bars <= 0 || !finite(raw.rightOffset) || !finite(raw.toTime)) return null;
+  return {
+    symbol: raw.symbol, interval: raw.interval,
+    bars: raw.bars, rightOffset: raw.rightOffset, toTime: raw.toTime,
+    ...(finite(raw.toFraction) ? { toFraction: Math.max(0, Math.min(1, raw.toFraction)) } : {}),
   };
 }
 

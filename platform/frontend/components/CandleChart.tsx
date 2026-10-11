@@ -10,7 +10,7 @@ import { PointFigurePrimitive } from "@/lib/pointFigurePrimitive";
 import { VolumeCandlePrimitive } from "@/lib/volumeCandlePrimitive";
 import type { PointFigureColumn } from "@/lib/chartTransforms";
 import {
-  createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
+  createChart, IChartApi, ISeriesApi, Logical, Time, UTCTimestamp,
   SeriesMarker, MouseEventParams, ColorType, LineStyle, LineType, PriceScaleMode,
   CrosshairMode,
   type AreaData, type BarData, type CandlestickData, type HistogramData,
@@ -21,7 +21,8 @@ import { rangeChanged, snapToBarIndexBy } from "@/lib/paneSync";
 import { marketFeed, WS_SILENCE_TIMEOUT_MS, type FeedState, type KlineTick } from "@/lib/marketFeed";
 import { describeStreamState } from "@/lib/marketStream";
 import {
-  displayDescription, displayName, displayTicker, instrumentMark, isCanonicalInstrumentId,
+  canonicalizeLegacySpotSymbol, displayDescription, displayName, displayTicker, instrumentMark,
+  isCanonicalInstrumentId,
   marketOpen,
 } from "@/lib/instrument";
 import { useBookQuote } from "@/lib/useBookQuote";
@@ -136,8 +137,10 @@ import {
   canMovePane, COLLAPSED_PANE_HEIGHT, EMPTY_PANE_LAYOUT, isPaneCollapsed,
   isPaneMaximized, movePane, orderedPanes, paneHeight, reconcilePaneLayout,
   setPaneHeight, togglePaneCollapsed, togglePaneMaximized,
-  type PaneLayoutState,
+  sameSavedPaneLayout, savedPaneLayout,
+  type PaneLayoutState, type SavedPaneLayout,
 } from "@/lib/indicatorPaneLayout";
+import type { PaneViewport } from "@/lib/workspace";
 import {
   axisTickFormatter, chartTimeZoneLabel, fmtChartBarTime, fmtChartClock, hoursFormatter,
 } from "@/lib/chartClock";
@@ -146,6 +149,33 @@ export type { ChartOverlay } from "@/lib/chartSeries";
 
 /** How long after a press, move or wheel a study pane still counts as being moved by a person. */
 const PANE_GESTURE_GRACE_MS = 1_000;
+/** A synthetic-time chart opens on its newest bars, not on all of them (B-22). */
+const RECENT_SYNTHETIC_BARS = 150;
+const SYNTHETIC_RIGHT_MARGIN = 3;
+/** A restored window is never narrower than this many bars. */
+const MIN_FRAMED_BARS = 10;
+/** The window is reported this long after the reader stops moving it. */
+const VIEWPORT_REPORT_DELAY_MS = 600;
+/** A study-stack arrangement is reported this long after it last changed. */
+const STUDY_LAYOUT_REPORT_DELAY_MS = 300;
+
+/**
+ * One instrument however it is spelled: a pane restored from storage carries
+ * the canonical id where the session that saved its window may have held the
+ * legacy ticker, and the two must not read as a change of instrument.
+ */
+function sameDatasetSymbol(a: string, b: string): boolean {
+  const norm = (s: string): string => canonicalizeLegacySpotSymbol(s) ?? s.trim().toUpperCase();
+  return norm(a) === norm(b);
+}
+
+/** What the time scale is showing, in the terms a `PaneViewport` keeps. */
+interface ViewportReading {
+  bars: number;
+  rightOffset: number;
+  toTime: number;
+  toFraction?: number;
+}
 
 /**
  * The legend readout for whatever bar the crosshair is on.
@@ -834,6 +864,7 @@ export function CandleChart({
   onOpenObjectTree,
   replayAnchorTime = null,
   compareFitKey = null,
+  savedViewport, onViewportSettled, studyLayout, onStudyLayoutChange,
   canIndicatorAction, indicatorAlertFor,
   hiddenStudies,
   priceScale, onPriceScaleChange, resetSignal, goTo, drawingStyleFocusSignal, onDrawingSettings, paneActive,
@@ -1001,6 +1032,16 @@ export function CandleChart({
    * behind with no way back except changing the interval.
    */
   compareFitKey?: string | null;
+  /**
+   * B-08: the window this chart was last left on, applied when the same
+   * symbol and interval are first drawn (see `frameDataset`), and the
+   * callback that keeps it current once the reader stops moving.
+   */
+  savedViewport?: PaneViewport | null;
+  onViewportSettled?: (viewport: PaneViewport) => void;
+  /** B-09/B-15: the study stack's saved order and heights, and its writer. */
+  studyLayout?: SavedPaneLayout | null;
+  onStudyLayoutChange?: (layout: SavedPaneLayout) => void;
   /**
    * Whether a price-pane overlay is a study the action above can move.
    *
@@ -1203,6 +1244,10 @@ export function CandleChart({
    */
   const paneGestureRef = useRef(new Map<string, number>());
   const paneGestureListenersRef = useRef(new Map<string, { el: HTMLElement; off: () => void }>());
+  const gestureSettleRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (gestureSettleRef.current !== null) window.clearTimeout(gestureSettleRef.current);
+  }, []);
   const [legend, setLegend] = useState<LegendBar | null>(null);
   /**
    * The price scale, when nothing outside owns it.
@@ -1540,10 +1585,23 @@ export function CandleChart({
    * suppressing overlapping axis labels — are deliberately not in the model,
    * because a switch that moves nothing is worse than an absent one.
    */
+  /*
+   * B-08 / B-02: `rightOffset` is applied only when the SETTING changes.
+   *
+   * The library treats the option as an instruction — scroll so the newest
+   * bar sits this many bars from the edge — not as a preference. This effect
+   * re-runs on a symbol change, on Replay entry and exit, on every series
+   * rebuild and on a theme flip, and each run sent it again: any window the
+   * reader had scrolled back to, or a restored one, was thrown to the live
+   * edge. Measured here as a saved window landing correctly and then moving.
+   */
+  const appliedRightOffsetRef = useRef<number | null>(null);
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const placement = settings.scalePlacement;
+    const rightOffsetChanged = appliedRightOffsetRef.current !== settings.rightOffsetBars;
+    appliedRightOffsetRef.current = settings.rightOffsetBars;
     chart.applyOptions({
       /*
        * R6 C-4: the axis's own type, as the reference's `Scales / Text` row
@@ -1639,7 +1697,7 @@ export function CandleChart({
       // is the effect below, because hiding an axis does not move anything.
 
       timeScale: {
-        rightOffset: settings.rightOffsetBars,
+        ...(rightOffsetChanged ? { rightOffset: settings.rightOffsetBars } : {}),
         timeVisible: true,
         ...(settings.scaleLineColor ? { borderColor: settings.scaleLineColor } : {}),
         /*
@@ -1918,6 +1976,9 @@ export function CandleChart({
     if (compareFitRef.current === undefined) { compareFitRef.current = key; return; }
     if (compareFitRef.current === key) return;
     compareFitRef.current = key;
+    // Nothing drawn yet: the dataset's own framing (`frameDataset`) decides,
+    // and a comparison restored with the workspace is not an arrival (B-08).
+    if (framedKeyRef.current === null) return;
     try { chartRef.current?.timeScale().fitContent(); } catch { /* data is landing */ }
     shortcutRangeRef.current = null;
     setActiveRange(null);
@@ -2131,6 +2192,12 @@ export function CandleChart({
     rangeReleaseRef.current.push(timer);
   }, []);
 
+  /** Whether a person has pressed, dragged or wheeled this study pane just now. */
+  const paneGestureActive = (id: string): boolean => {
+    const touched = paneGestureRef.current.get(id);
+    return touched !== undefined && performance.now() - touched <= PANE_GESTURE_GRACE_MS;
+  };
+
   /** Bring one study pane onto the price chart's window. */
   const alignPaneToPrice = (pane: IChartApi): void => {
     const price = chartRef.current;
@@ -2168,7 +2235,21 @@ export function CandleChart({
     if (el && listeners.get(id)?.el !== el) {
       listeners.get(id)?.off();
       const host = el;
-      const mark = (): void => { paneGestureRef.current.set(id, performance.now()); };
+      const mark = (): void => {
+        paneGestureRef.current.set(id, performance.now());
+        /*
+         * And when the person lets go, the price chart is the truth again:
+         * every study pane is brought onto it once. Mid-gesture a pane's data
+         * can land while the price chart is still applying the pane's last
+         * range, and the two can come to rest a bar apart; this is the frame
+         * that says which one wins.
+         */
+        if (gestureSettleRef.current !== null) window.clearTimeout(gestureSettleRef.current);
+        gestureSettleRef.current = window.setTimeout(() => {
+          gestureSettleRef.current = null;
+          for (const pane of paneChartRefs.current.values()) alignPaneToPriceRef.current(pane);
+        }, PANE_GESTURE_GRACE_MS + 50);
+      };
       const markIfPressed = (event: MouseEvent): void => { if (event.buttons !== 0) mark(); };
       const presses = ["pointerdown", "mousedown", "touchstart", "touchmove", "wheel"] as const;
       for (const type of presses) host.addEventListener(type, mark, { capture: true, passive: true });
@@ -2197,8 +2278,7 @@ export function CandleChart({
    * data lands outside it is following, not leading.
    */
   const indicatorPaneRange = useCallback((id: string, range: { from: number; to: number }) => {
-    const touched = paneGestureRef.current.get(id);
-    if (touched === undefined || performance.now() - touched > PANE_GESTURE_GRACE_MS) return;
+    if (!paneGestureActive(id)) return;
     syncPaneRangesRef.current(id, range);
   }, []);
 
@@ -2334,6 +2414,10 @@ export function CandleChart({
     const guard = createDisposalGuard();
     disposalRef.current = guard;
     const chart = createChart(containerRef.current, baseChartOptions());
+    // The margin is set while the chart is still empty, where it moves
+    // nothing; afterwards only a CHANGE of the setting re-applies it.
+    chart.timeScale().applyOptions({ rightOffset: settings.rightOffsetBars });
+    appliedRightOffsetRef.current = settings.rightOffsetBars;
     const unsubscribeTheme = subscribeChartTheme(chart);
     const vol = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
@@ -2425,6 +2509,7 @@ export function CandleChart({
         setActiveRange((current) => current === null ? current : null);
       }
       publishRange({ from, to });
+      reportViewportSoon();
       // Following a pane a person is dragging: that pane is the source, and
       // echoing its own range back at it is how two panes chase each other.
       if (priceFollowingRef.current) return;
@@ -2630,6 +2715,134 @@ export function CandleChart({
     } catch { /* the series went away between render and effect */ }
   }, [precision, chartType, chartReady, priceTick]);
 
+  /*
+   * ── B-08 / B-03 / B-22: how a newly drawn dataset is framed — ONE place ──
+   *
+   * Reloading the same saved state opened on about two days, then twenty-five,
+   * then five: the opening fit raced every study pane's own window (B-01), and
+   * nothing remembered where the reader had been. An interval change refitted
+   * the whole history, which a racing pane could then drag anywhere — 15m was
+   * left parked deep in history on two giant bars. And Renko fitted every
+   * brick it had into one unreadable line.
+   *
+   * Every dataset change comes through here, and the answer is, in order:
+   *   a synthetic time base   → the newest RECENT_SYNTHETIC_BARS bars;
+   *   the window saved for this exact symbol and interval → that window;
+   *   the same instrument on another interval → the same right edge by TIME,
+   *     clamped to the bars that exist, the same number of bars wide;
+   *   anything else (a new instrument, a first visit) → the whole history.
+   * A window at the live edge stays pinned to the live edge, so a reload after
+   * new bars have printed shows them rather than the moment it was saved.
+   */
+  const framedDatasetRef = useRef<{ symbol: string; interval: string } | null>(null);
+  /** The dataset key last framed — distinct from `datasetKeyRef`, which is the one drawn. */
+  const framedKeyRef = useRef<string | null>(null);
+  const savedViewportRef = useRef(savedViewport ?? null);
+  savedViewportRef.current = savedViewport ?? null;
+  const savedViewportSpentRef = useRef(false);
+  const readViewport = (): ViewportReading | null => {
+    const chart = chartRef.current;
+    if (!chart) return null;
+    try {
+      const scale = chart.timeScale();
+      const logical = scale.getVisibleLogicalRange();
+      const range = scale.getVisibleRange();
+      if (!logical || !range) return null;
+      const rightOffset = scale.scrollPosition();
+      // The bar the right edge is in, and how far into it: restoring by that
+      // bar's time plus the same fraction lands on the same pixel, where the
+      // library's own time range (rounded outward) is a bar out.
+      const lastIndex = Math.round(logical.to - rightOffset);
+      const edgeIndex = Math.max(0, Math.min(lastIndex, Math.floor(logical.to)));
+      const x = scale.logicalToCoordinate(edgeIndex as Logical);
+      const edgeTime = x === null ? null : scale.coordinateToTime(x);
+      return {
+        bars: logical.to - logical.from,
+        rightOffset,
+        toTime: edgeTime === null ? Number(range.to) : Number(edgeTime),
+        toFraction: logical.to - edgeIndex,
+      };
+    } catch { return null; }
+  };
+  const frameDataset = (input: {
+    timeBaseChanged: boolean; candles: readonly Candle[]; leaving: ViewportReading | null;
+  }): void => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const scale = chart.timeScale();
+    const synthetic = isSyntheticTimeBase(mainKindRef.current);
+    const count = synthetic ? displayRef.current.length : input.candles.length;
+    try {
+      if (input.timeBaseChanged || synthetic) {
+        // Back onto canonical time from a synthetic one: the whole history,
+        // as it always was — the synthetic window says nothing about it.
+        if (synthetic && count > RECENT_SYNTHETIC_BARS) {
+          scale.setVisibleLogicalRange({
+            from: count - RECENT_SYNTHETIC_BARS, to: count - 1 + SYNTHETIC_RIGHT_MARGIN,
+          });
+        } else scale.fitContent();
+        return;
+      }
+      const framed = framedDatasetRef.current;
+      // The saved window is the OPENING frame: the first framing that sees
+      // one spends it, so a later return to that dataset follows the
+      // interval and symbol rules rather than a window from the last session.
+      const saved = savedViewportSpentRef.current ? null : savedViewportRef.current;
+      if (saved) savedViewportSpentRef.current = true;
+      const target = saved && framed && sameDatasetSymbol(saved.symbol, framed.symbol)
+        && saved.interval === framed.interval ? saved : input.leaving;
+      if (!target || count === 0) { scale.fitContent(); return; }
+      // Never wider than the bars that exist: 1,200 bars of 15m are 300 of
+      // 1h, and a window of 1,200 there would be three quarters empty.
+      const bars = Math.max(MIN_FRAMED_BARS,
+        Math.min(target.bars, count + Math.max(0, target.rightOffset)));
+      let to: number;
+      if (target.rightOffset >= -1) {
+        to = count - 1 + Math.max(0, target.rightOffset);
+      } else {
+        // The last bar at or before the edge the reader was on.
+        let index = -1;
+        for (let i = input.candles.length - 1; i >= 0; i -= 1) {
+          if (input.candles[i]!.openTime / 1000 <= target.toTime) { index = i; break; }
+        }
+        const fraction = Math.max(0, Math.min(1, target.toFraction ?? 0.5));
+        to = index < 0 ? Math.min(count - 1, bars) + fraction : index + fraction;
+      }
+      scale.setVisibleLogicalRange({ from: to - bars, to });
+    } catch {
+      try { scale.fitContent(); } catch { /* the chart is disposing */ }
+    }
+  };
+  const framingRef = useRef({ read: readViewport, frame: frameDataset });
+  framingRef.current = { read: readViewport, frame: frameDataset };
+
+  /*
+   * The window, reported once the reader has stopped moving it, for the same
+   * dataset that is on screen and never during Replay — whose window is the
+   * session's, and is given back on exit (B-02).
+   */
+  const onViewportRef = useRef(onViewportSettled);
+  onViewportRef.current = onViewportSettled;
+  const viewportTimerRef = useRef<number | null>(null);
+  const reportViewportSoon = useCallback(() => {
+    if (!onViewportRef.current) return;
+    if (viewportTimerRef.current !== null) window.clearTimeout(viewportTimerRef.current);
+    viewportTimerRef.current = window.setTimeout(() => {
+      viewportTimerRef.current = null;
+      const framed = framedDatasetRef.current;
+      if (!framed || replayAnchorRef.current !== null || disposalRef.current.disposed) return;
+      if (isSyntheticTimeBase(mainKindRef.current)) return;
+      const reading = framingRef.current.read();
+      if (!reading || !Number.isFinite(reading.bars) || reading.bars <= 0) return;
+      onViewportRef.current?.({
+        symbol: framed.symbol, interval: framed.interval as Resolution, ...reading,
+      });
+    }, VIEWPORT_REPORT_DELAY_MS);
+  }, []);
+  useEffect(() => () => {
+    if (viewportTimerRef.current !== null) window.clearTimeout(viewportTimerRef.current);
+  }, []);
+
   // Load candles without rebuilding all 10,000 points for a last-bar update.
   useEffect(() => {
     const series = seriesRef.current;
@@ -2654,6 +2867,10 @@ export function CandleChart({
     // scratch — but that is not a reason to refit the time scale, which is
     // what makes a presentation change viewport-preserving.
     const forced = mainSeriesDirtyRef.current || datasetKeyRef.current !== datasetKey;
+    // B-03: where the reader was, read BEFORE these bars replace the old ones —
+    // an interval change keeps this right edge (see `frameDataset`).
+    const leaving = framedKeyRef.current !== null && framedKeyRef.current !== datasetKey
+      ? framingRef.current.read() : null;
 
     /*
      * The baseline's reference price, re-anchored whenever the data changes.
@@ -2877,9 +3094,25 @@ export function CandleChart({
       && (isSyntheticTimeBase(drawnType)
         || (drawnTypeRef.current !== null && isSyntheticTimeBase(drawnTypeRef.current)));
     drawnTypeRef.current = drawnType;
-    if (datasetKeyRef.current !== datasetKey || timeBaseChanged) {
-      datasetKeyRef.current = datasetKey;
-      chartRef.current?.timeScale().fitContent();
+    datasetKeyRef.current = datasetKey;
+    /*
+     * Framed once there is something to frame. A dataset first arrives EMPTY
+     * — the request is in flight — and a fit of nothing, applied by the
+     * library at its next draw, raced the bars landing: sometimes it framed
+     * them and sometimes the library's default window won.
+     */
+    const drawnCount = isSyntheticTimeBase(drawnType) ? displayRef.current.length : candles.length;
+    if ((framedKeyRef.current !== datasetKey && drawnCount > 0) || timeBaseChanged) {
+      const previous = framedDatasetRef.current;
+      framedKeyRef.current = datasetKey;
+      framedDatasetRef.current = { symbol: heldSymbol, interval: heldInterval };
+      framingRef.current.frame({
+        timeBaseChanged,
+        candles,
+        // An interval change on the same instrument keeps the reader's edge.
+        leaving: previous && sameDatasetSymbol(previous.symbol, heldSymbol) && previous.interval !== heldInterval
+          ? leaving : null,
+      });
       shortcutRangeRef.current = null;
       setActiveRange(null);
     }
@@ -3717,10 +3950,31 @@ export function CandleChart({
   const stackAvailable = timeAnchored;
   const paneIds = useMemo(
     () => groupedOverlays.panes.map((pane) => pane.id), [groupedOverlays.panes]);
+  /*
+   * B-09 / B-15: the arrangement survives a reload.
+   *
+   * Panes arrive in whatever order their data is assembled — a comparison's
+   * before the studies' — so without a saved order the comparison added last
+   * came back first, and every dragged height was gone. Arriving panes take
+   * their saved places and heights; any change is written back, merged with
+   * what was saved so a pane whose data has not landed yet keeps its place.
+   */
+  const studyLayoutRef = useRef(studyLayout ?? null);
+  studyLayoutRef.current = studyLayout ?? null;
+  const onStudyLayoutRef = useRef(onStudyLayoutChange);
+  onStudyLayoutRef.current = onStudyLayoutChange;
   useEffect(() => {
     // Returns the same object when nothing moved, so this cannot loop.
-    setPaneLayout((current) => reconcilePaneLayout(current, paneIds));
+    setPaneLayout((current) => reconcilePaneLayout(current, paneIds, studyLayoutRef.current));
   }, [paneIds]);
+  useEffect(() => {
+    if (!onStudyLayoutRef.current || paneLayout.order.length === 0) return;
+    const timer = window.setTimeout(() => {
+      const next = savedPaneLayout(paneLayout, studyLayoutRef.current);
+      if (!sameSavedPaneLayout(next, studyLayoutRef.current)) onStudyLayoutRef.current?.(next);
+    }, STUDY_LAYOUT_REPORT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [paneLayout]);
   const stackPanes = useMemo(
     () => orderedPanes(paneLayout, groupedOverlays.panes),
     [paneLayout, groupedOverlays.panes]);

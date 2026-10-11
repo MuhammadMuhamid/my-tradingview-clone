@@ -133,7 +133,8 @@ test("B-01 — a person zooming from a study pane still moves every pane", async
     }
   });
   await settle();
-  await advance(100);
+  // Past the gesture's grace: once the person lets go, every pane rests on one window.
+  await advance(1_200);
   const zoomed = priceView(chart.container);
   assert.ok(zoomed.to - zoomed.from < before.to - before.from,
     "zooming a study pane no longer moves the price chart");

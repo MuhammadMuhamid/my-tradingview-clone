@@ -107,6 +107,44 @@ export function chartViews(container: Element): ChartView[] {
   return views;
 }
 
+/**
+ * The prices the main chart's plot spans, top to bottom, read through its
+ * price series — the vertical counterpart of `chartViews`.
+ */
+export function pricePlotRange(container: Element): { low: number; high: number } {
+  const root = rootFiber(container);
+  const stack: Fiber[] = root ? [root] : [];
+  let chart: IChartApi | null = null;
+  let series: { coordinateToPrice: (y: number) => number | null; seriesType: () => string } | null = null;
+  while (stack.length > 0 && !series) {
+    const fiber = stack.pop()!;
+    const name = typeof fiber.type === "function" ? (fiber.type as { name?: string }).name : null;
+    if (name === "CandleChart") {
+      let hook = fiber.memoizedState as { memoizedState: unknown; next: unknown } | null;
+      while (hook) {
+        const current = (hook.memoizedState as { current?: unknown } | null)?.current as
+          Record<string, unknown> | undefined;
+        if (current && !chart && isChart(current)) chart = current as unknown as IChartApi;
+        if (current && typeof current.coordinateToPrice === "function"
+          && typeof current.seriesType === "function"
+          && (current.seriesType as () => string)() !== "Histogram" && !series) {
+          series = current as unknown as typeof series;
+        }
+        hook = hook.next as typeof hook;
+      }
+    }
+    if (fiber.sibling) stack.push(fiber.sibling);
+    if (fiber.child) stack.push(fiber.child);
+  }
+  if (!chart || !series) throw new Error("the price chart has no price series");
+  const height = chart.paneSize().height;
+  const priceSeries = series as unknown as { coordinateToPrice: (y: number) => number | null };
+  const top = priceSeries.coordinateToPrice(0);
+  const bottom = priceSeries.coordinateToPrice(height);
+  if (top === null || bottom === null) throw new Error("the price scale has no range");
+  return { low: Math.min(top, bottom), high: Math.max(top, bottom) };
+}
+
 /** The main chart's view. Throws when it has none, which is itself a failure. */
 export function priceView(container: Element): ChartView {
   const view = chartViews(container).find((v) => v.id === "price");

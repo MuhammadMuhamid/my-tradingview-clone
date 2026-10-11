@@ -117,10 +117,11 @@ import {
   DEFAULT_COMPARE_LENGTH,
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
-  setPanePriceScale, paneChartSettings, setPaneChartSettings,
+  setPanePriceScale, paneChartSettings, setPaneChartSettings, setPaneStudyLayout, setPaneViewport,
   setPreset, setWorkspaceBars, togglePaneMa, togglePaneMaSet, removePaneMaSet, toggleMaximize, updatePane,
-  type ChartWorkspace as Workspace, type PaneCompare, type PaneState,
+  type ChartWorkspace as Workspace, type PaneCompare, type PaneState, type PaneViewport,
 } from "@/lib/workspace";
+import type { SavedPaneLayout } from "@/lib/indicatorPaneLayout";
 import { MAX_PANES } from "@/lib/layoutPresets";
 import { isMacPlatform, type ShortcutAction } from "@/lib/shortcuts";
 import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
@@ -234,17 +235,37 @@ export default function TvWorkspace() {
   const bars = active.bars;
   const paneCount = workspace.panes.length;
 
+  /*
+   * B-08: each pane's last window, kept BESIDE the workspace state.
+   *
+   * It is written whenever the reader stops panning, and putting it in
+   * `workspace` re-rendered every pane each time — which re-ran every study
+   * pane's data pass in the middle of a drag. It is merged in only on the way
+   * to storage; a restored pane reads its window from the loaded record.
+   */
+  const paneViewports = useRef<Record<string, PaneViewport>>({});
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const workspaceReadyRef = useRef(false);
+  const persistWorkspace = useCallback((ws: Workspace) => {
+    saveWorkspace(Object.entries(paneViewports.current).reduce(
+      (next, [paneId, viewport]) => setPaneViewport(next, paneId, viewport), ws));
+  }, []);
   useEffect(() => {
-    setWorkspace(loadWorkspace({
+    const loaded = loadWorkspace({
       symbol: DEFAULT_SYMBOL, interval: DEFAULT_INTERVAL, chartType: loadChartType(),
-    }));
+    });
+    paneViewports.current = Object.fromEntries(loaded.panes.flatMap((p) =>
+      p.viewport ? [[p.id, p.viewport] as const] : []));
+    setWorkspace(loaded);
     setWorkspaceReady(true);
+    workspaceReadyRef.current = true;
   }, []);
   useEffect(() => {
     // Persisted only after the restore has landed, or the initial default
     // would be written straight over the stored workspace.
-    if (workspaceReady) saveWorkspace(workspace);
-  }, [workspace, workspaceReady]);
+    if (workspaceReady) persistWorkspace(workspace);
+  }, [workspace, workspaceReady, persistWorkspace]);
 
   // ── replay: one clock for the whole workspace ──
   const [replay, setReplay] = useState<ReplaySession | null>(null);
@@ -1342,7 +1363,9 @@ export default function TvWorkspace() {
   const changePaneSymbol = useCallback((paneId: string, next: string) => {
     pauseReplayForNavigation();
     setWorkspace((ws) => applyPaneSymbol(ws, paneId, next, sync));
-    setTrades([]);
+    // B-03: the open trade's ENTRY / TP / SL are the previous instrument's
+    // levels, and were left drawn across the new one until a rerun landed.
+    setTrades([]); setOpenTrade(null);
   }, [pauseReplayForNavigation, sync]);
 
   /*
@@ -1354,7 +1377,7 @@ export default function TvWorkspace() {
     resolutions.noteUsed(next);
     pauseReplayForNavigation();
     setWorkspace((ws) => applyPaneInterval(ws, paneId, next, sync));
-    setTrades([]);
+    setTrades([]); setOpenTrade(null);
   }, [pauseReplayForNavigation, sync, resolutions]);
 
   const activatePane = useCallback((paneId: string) => {
@@ -1678,6 +1701,16 @@ export default function TvWorkspace() {
   [workspace]);
   const setPaneScale = useCallback((paneId: string, next: PriceScaleState) => {
     setWorkspace((ws) => setPanePriceScale(ws, paneId, next));
+  }, []);
+  /** B-08: the window a pane was left on, persisted with the pane. */
+  const setPaneWindow = useCallback((paneId: string, next: PaneViewport) => {
+    // Not `setWorkspace` — see `paneViewports` for why this stays out of state.
+    paneViewports.current = { ...paneViewports.current, [paneId]: next };
+    if (workspaceReadyRef.current) persistWorkspace(workspaceRef.current);
+  }, [persistWorkspace]);
+  /** B-09/B-15: the order and heights of a pane's study stack, persisted with it. */
+  const setPaneStack = useCallback((paneId: string, next: SavedPaneLayout) => {
+    setWorkspace((ws) => setPaneStudyLayout(ws, paneId, next));
   }, []);
 
   /**
@@ -2529,6 +2562,8 @@ export default function TvWorkspace() {
         onChartContextMenu={openChartMenu}
         priceScale={paneScale(pane.id)}
         onPriceScaleChange={setPaneScale}
+        onViewportSettled={setPaneWindow}
+        onStudyLayoutChange={setPaneStack}
         resetSignal={paneResets[pane.id] ?? 0}
         goTo={pane.id === workspace.activePaneId ? goTo : null}
         onGoToDate={() => setGoToOpen(true)}
@@ -2582,7 +2617,7 @@ export default function TvWorkspace() {
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
     registerIndicatorList, focusIndicator, editPine, maAction, studyAlert, isMobile, overlays.select, overlays.setViewport,
-    paneScale, setPaneScale, paneResets, goTo, paneStyleFocus, changePaneCompare,
+    paneScale, setPaneScale, setPaneWindow, setPaneStack, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,
     replayActive, candles, setReplayPlaying, setReplaySpeed, changeBars,
     exitReplay]);

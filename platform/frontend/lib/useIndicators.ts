@@ -175,10 +175,19 @@ export function useIndicators(ctx: IndicatorContext) {
     && shownCtxRef.current.startTime === ctx.startTime
     && Date.parse(ctx.endTime) >= Date.parse(shownCtxRef.current.endTime);
   const leavingReplay = !ctx.replay && shownCtxRef.current.replay;
+  /*
+   * B-03: and so must a new instrument or a new resolution. The old output
+   * was kept on screen until the rerun landed — seven to nine seconds of SOL's
+   * strategy values in the legend of a chart titled Bitcoin — and on another
+   * resolution its times no longer name these bars at all, which is the
+   * `∅ ∅` a reader saw after an interval change.
+   */
+  const contextMoved = shownCtxRef.current.symbol !== ctx.symbol
+    || shownCtxRef.current.timeframe !== ctx.timeframe;
   useEffect(() => {
     const pending = listRef.current;
     const token = ++runToken.current;
-    const blank = (ctx.replay && !forwardStep) || leavingReplay;
+    const blank = (ctx.replay && !forwardStep) || leavingReplay || contextMoved;
     shownCtxRef.current = ctx;
     setPreparedContextKey(ctxKey);
     if (pending.length === 0) return;
@@ -193,7 +202,8 @@ export function useIndicators(ctx: IndicatorContext) {
   // React paints once before effects clear stale state. Suppress the old
   // output synchronously on that render so rewind has no later-horizon flash —
   // and only then: a forward step keeps what it has until the rerun lands.
-  const suppress = preparedContextKey !== ctxKey && ((ctx.replay && !forwardStep) || leavingReplay);
+  const suppress = preparedContextKey !== ctxKey
+    && ((ctx.replay && !forwardStep) || leavingReplay || contextMoved);
   const outputList = useMemo(() => suppress ? [] : list, [suppress, list]);
 
   // Inputs changed on specific instances: re-run just those.

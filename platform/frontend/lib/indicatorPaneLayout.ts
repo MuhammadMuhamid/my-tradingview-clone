@@ -50,23 +50,60 @@ export function clampPaneHeight(height: number): number {
 }
 
 /**
+ * The part of the arrangement that survives a reload (B-09, B-15).
+ *
+ * Order and dragged heights, by pane id. A comparison pane added last came
+ * back first, because without this the order was whatever order the panes'
+ * data happened to be assembled in — and every dragged height was forgotten.
+ * Collapse and maximise are moment-to-moment and are deliberately not kept.
+ */
+export interface SavedPaneLayout {
+  order: string[];
+  heights: Record<string, number>;
+}
+
+/**
  * Bring the layout into line with the panes that actually exist.
  *
  * Returns the SAME object when nothing changed, so a caller can store this in
  * React state and re-run it on every render without causing one.
+ *
+ * With a `saved` arrangement, a pane arriving for the first time takes its
+ * saved height, and every pane the saved order ranks is put in that order
+ * within the slots ranked panes occupy — so panes landing one at a time in
+ * any order still end up where they were. A pane the saved order has never
+ * seen keeps the place it arrived in.
  */
 export function reconcilePaneLayout(
-  state: PaneLayoutState, presentIds: readonly string[]
+  state: PaneLayoutState, presentIds: readonly string[],
+  saved: SavedPaneLayout | null = null,
 ): PaneLayoutState {
   const present = new Set(presentIds);
   const kept = state.order.filter((id) => present.has(id));
   const known = new Set(kept);
   const added = presentIds.filter((id) => !known.has(id));
-  const order = added.length === 0 && kept.length === state.order.length
+  let order = added.length === 0 && kept.length === state.order.length
     ? state.order : [...kept, ...added];
+  if (saved && added.length > 0) {
+    const rank = new Map(saved.order.map((id, i) => [id, i]));
+    const slots = order.flatMap((id, i) => (rank.has(id) ? [i] : []));
+    const ranked = slots.map((i) => order[i]!).sort((a, b) => rank.get(a)! - rank.get(b)!);
+    if (ranked.some((id, i) => order[slots[i]!] !== id)) {
+      order = [...order];
+      slots.forEach((slot, i) => { order[slot] = ranked[i]!; });
+    }
+  }
 
   const collapsed = pruneRecord(state.collapsed, present);
-  const heights = pruneRecord(state.heights, present);
+  let heights = pruneRecord(state.heights, present);
+  if (saved) {
+    const restored = added.filter((id) =>
+      heights[id] === undefined && typeof saved.heights[id] === "number");
+    if (restored.length > 0) {
+      heights = { ...heights };
+      for (const id of restored) heights[id] = clampPaneHeight(saved.heights[id]!);
+    }
+  }
   const maximizedId = state.maximizedId !== null && !present.has(state.maximizedId)
     ? null : state.maximizedId;
 
@@ -83,6 +120,57 @@ function pruneRecord<T>(
   const next: Record<string, T> = {};
   for (const key of keys) if (present.has(key)) next[key] = record[key]!;
   return next;
+}
+
+/** At most this many ids are remembered; the oldest absent ones go first. */
+const SAVED_ORDER_LIMIT = 40;
+
+/**
+ * The arrangement to persist, given what is on screen and what was saved.
+ *
+ * A pane that is in the saved order but not on screen is KEPT, after the
+ * neighbour it followed — because mid-reload "not on screen" usually means
+ * "its data has not landed yet", and writing back the partial stack would
+ * lose the very places this exists to keep. A removed study's id lingers
+ * harmlessly: a re-added study gets a new id, so the rank is never reused.
+ */
+export function savedPaneLayout(
+  state: PaneLayoutState, previous: SavedPaneLayout | null,
+): SavedPaneLayout {
+  const order = [...state.order];
+  if (previous) {
+    const placed = new Set(order);
+    let after: string | null = null;
+    for (const id of previous.order) {
+      if (!placed.has(id)) {
+        order.splice(after === null ? 0 : order.indexOf(after) + 1, 0, id);
+        placed.add(id);
+      }
+      after = id;
+    }
+  }
+  const visible = new Set(state.order);
+  while (order.length > SAVED_ORDER_LIMIT) {
+    const stale = order.findIndex((id) => !visible.has(id));
+    order.splice(stale >= 0 ? stale : 0, 1);
+  }
+  const kept = new Set(order);
+  const heights: Record<string, number> = {};
+  for (const [id, h] of Object.entries({ ...(previous?.heights ?? {}), ...state.heights })) {
+    if (kept.has(id)) heights[id] = h;
+  }
+  return { order, heights };
+}
+
+/** Whether two saved arrangements say the same thing. */
+export function sameSavedPaneLayout(
+  a: SavedPaneLayout | null | undefined, b: SavedPaneLayout | null | undefined,
+): boolean {
+  if (!a || !b) return !a && !b;
+  if (a.order.length !== b.order.length || a.order.some((id, i) => b.order[i] !== id)) return false;
+  const ak = Object.keys(a.heights);
+  return ak.length === Object.keys(b.heights).length
+    && ak.every((id) => a.heights[id] === b.heights[id]);
 }
 
 /** The panes in display order. Anything the layout has not seen keeps its place. */

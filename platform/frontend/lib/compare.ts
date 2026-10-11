@@ -33,7 +33,9 @@
  * rather than hiding it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { displayTicker, storedSymbol, tryStoredSymbol } from "./instrument";
+import {
+  canonicalizeLegacySpotSymbol, displayTicker, storedSymbol, tryStoredSymbol,
+} from "./instrument";
 import { CancellableRequest, isAbortError, LatestRequest } from "./requestGuard";
 import { loadCandleWindow, repairStaleTail } from "./useCandleHistory";
 import {
@@ -339,7 +341,15 @@ export function compareOverlays(
   const point = (series: number[]) => times.map((time, i) => ({
     time, value: Number.isFinite(series[i]!) ? series[i]! : null,
   }));
-  const instanceId = `compare:${other.symbol}:${mode}`;
+  /*
+   * B-09: keyed by the CANONICAL id however the comparison is spelled.
+   *
+   * A comparison chosen in the dialog is stored as a ticker and comes back
+   * from storage canonicalised (`lib/workspace`'s `validCompare`), so the same
+   * comparison had one pane id before a reload and another after — and the
+   * saved study-stack order, which is keyed by pane id, could not find it.
+   */
+  const instanceId = `compare:${canonicalizeLegacySpotSymbol(other.symbol) ?? other.symbol}:${mode}`;
 
   /*
    * What a reader is shown, which is not what the pane is keyed by.
