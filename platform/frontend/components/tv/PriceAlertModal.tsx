@@ -338,6 +338,7 @@ export function PriceAlertModal({
 
   /** The ticker this dialog is about: the edited alert's own, or the chart's. */
   const ticker = displayTicker(editing?.symbol ?? symbol);
+  const heading = editing ? "Edit alert" : "Price alert";
 
   const save = async () => {
     if (!valid) { setErr(said("Enter a price above zero.")); return; }
@@ -418,7 +419,7 @@ export function PriceAlertModal({
         "Edit alert" rather than "Price alert" so a reader who opened an armed
         alert can see they are changing it, not arming a second one.
       */
-      title={<span className="flex items-center gap-2">{editing ? "Edit alert" : "Price alert"} <span className="text-accent">{ticker}</span></span>}
+      title={<span className="flex items-center gap-2">{heading} <span className="text-accent">{ticker}</span></span>}
       panelClassName="w-[480px] max-h-[500px]"
       footer={
         <>
