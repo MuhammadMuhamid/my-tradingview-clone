@@ -1,8 +1,9 @@
 # Nonvisual engineering closure — 2026-10-11
 
 This is an append-only continuation of the accepted Claude/Opus campaign.
-Engineering readiness is **pending** until fresh review and authoritative
-validation below are complete. No main promotion or final release claim.
+Engineering readiness for the Fable/Opus gate is **YES** following adjudicated
+fresh review and authoritative validation below. No main promotion or final
+release claim. Historical pending checkpoints are preserved in the root ledger.
 
 ## Preflight
 
@@ -94,16 +95,100 @@ items from the accepted ledger, requiring Fable/Opus adjudication, not assumed b
 
 ## Fresh nonvisual review
 
-Pending. One independent reviewer will try to disprove engineering readiness;
-all material findings will be adjudicated by the primary.
+One fresh read-only nonvisual reviewer independently reproduced four material
+findings. Primary accepted each based on source and concrete reproductions,
+made minimal fixes and red-first tests, and reviewer reran original probes.
+All four passed at Platform `c0c3aa8` and Research `2297cd6`.
+The reviewer established no remaining material nonvisual defect. This conclusion
+is conditional on authoritative validation and is not visual/release approval.
+Full durable report: `NONVISUAL_FRESH_REVIEW_2026-10-11.md`.
+
+| ID | Class | Root cause / correction / proof |
+|---|---|---|
+| HELPER-DELIVERY-REPOINT | ENGINEERING_P1 | Original-owner retry depended on replacement heartbeat. Retry owed work independently while preserving original trust and bounded attempts. Clear/offline replacement regression and original independent repro pass. Research `f7d9720f67d4b4f8819c1c6040ebb274897b5afc`. |
+| PARAM-TYPE-BYPASS | ENGINEERING_P2 | Existing numeric financial bounds vanished for strings/booleans. Require numeric types for bounded inputs; preserve deliberately ignored cash and other established scalar inputs. Red common-validator test; actual mocked backtest POST now 400; Stress request and saved-config cases pass. Platform `c0c3aa83784afa2a21aa4cd517f2cdbe77a20dc5`. |
+| PINE-QUARANTINE | ENGINEERING_P2 | Interactive worker financial results bypassed accepted production correction guard. Apply existing guard when a broker is requested, preserve indicator and pure Broker historical reproduction. Red legacy worker repro, green partial/legacy refusal and indicator worker tests. Platform `c0c3aa8`. |
+| HELPER-REVOKED-STORAGE | ENGINEERING_P1 | Revoked-owner retirement assumed archive existed even after disk storage failure. Retain before retiring; keep memory/slot and truthful error with delayed retry if storage fails; never send to revoked peer. c4d11 red/green and independent disk-full/revoke/storage-recovery repro pass. Research `2297cd67a209147953710d4d05de487662e69c0c`. |
+
+Research endpoint-race checkpoint `399723f2079aede084b9e77e47daac146d018c60`
+binds in-flight presence evidence to peer, host and port. Focused helper suite
+at final Research source: **37/37**.
+
+The first authoritative frontend unit run caught a missing reader label for
+`feeInclusiveAffordability`: 1521 pass / 1 fail. Preserved the accepted contract,
+added only the plain semantic label to the existing mapping; focused export/
+provenance tests **5/5**. Platform `296c78b` contains this one-line completion;
+no presentation styles, geometry or Premium lock changed.
 
 ## Authoritative validation and final Git state
 
-Pending after fixes and review. Historical pass counts are not final evidence.
+Authoritative checks at the final engineering source (Platform `296c78b`,
+Research `2297cd6`, Bot `88a8bfe`):
+
+| Repo / category | Exact configured command | Actual result |
+|---|---|---|
+| Platform backend | `npm run verify` (lint → typecheck including scripts/tests → full `npm test` → `tsc` build) | 1384/1384; 0 failures, 0 skipped. All static checks/build passed. |
+| Platform frontend static | `npm run lint`; `npm run typecheck` | Passed. |
+| Platform frontend unit | `npm run test:unit` | 1522/1522; 0 failures, 0 skipped. |
+| Platform frontend DOM | `npm run test:dom` | 574/574; 0 failures, 0 skipped. |
+| Platform frontend production | `npm run build` | Next.js production build passed; all 15 pages generated. |
+| Premium regression lock | `QA_PLAYWRIGHT_FROM=/tmp/trading-nonvisual-20261011/qa/ QA_CHANNEL=chrome QA_BASE=http://localhost:3051 node qa/premiumLock.mjs` (unchanged guard) | 61/61 PASS against the production build and canonical backend; no uncaught page errors. |
+| Research Python | `python3 -m unittest discover -s tests -p 'test_*.py'` | 224/224, OK; no skips reported. |
+| Research Node | `node --test tests/*.test.mjs` | 101/101; 0 failures, 0 skipped. |
+| Research configured CI | `check-docs.sh`, `check-repo-hygiene.sh`, `scan-secrets.sh`, `check-platform-resolver.sh`, configured `bash -n` on four launch scripts | All passed. Additional Python AST syntax check: 53 files passed. |
+| Bot backend | `DRY_RUN=true npm run verify` | 385/385; 0 failures, 0 skipped; lint/typecheck/build passed. |
+| Bot frontend | `npm run verify` after lockfile `npm ci --no-audit --no-fund` (dependencies initially absent) | 13/13; 0 failures, 0 skipped; lint/typecheck/Vite production build passed. |
+
+The frontend first full unit run was 1521/1522; the missing correction label
+was fixed without changing the test, and the authoritative repeat is above.
+No backend source changed after its full pass; no Research source changed after
+its full pass. Focused runs are overlapping evidence, never added to these totals.
+
+Canonical runtime DB `platform`: `npm run migrate` returned no pending migrations.
+Read-only schema verification confirms migration
+`047_fractional_backtest_slippage.sql` recorded and both slippage columns `numeric`.
+It was already applied when the final migration check ran. No canonical
+DB reset. Full backend tests used only the configured test database.
+
+One canonical checkout/runtime used, no database clones or new worktrees.
+A temporary production frontend on :3051 used the same canonical backend on
+:4000, a fresh Chrome context, and no owner browser profile. It was stopped after
+the unchanged guard passed. Existing owner runtime processes were preserved.
+Disk 8.5 GiB after build. No credentials changed or real order made.
+
+Final engineering source Platform:
+`296c78bedb6e34d602d1b6b1482a86f696b1409c`, equals fetched campaign origin.
+Platform engineering cluster:
+`2439d43477234cdbe051159d5b0388a017df8160`.
+The final documentation-only commit records this acceptance; its exact SHA and
+remote equality are recorded in the root campaign ledger and final handoff.
+
+Research continuation `finalization/nonvisual-compute-delivery-20261011`:
+`2297cd67a209147953710d4d05de487662e69c0c`, equals fetched origin, clean.
+Accepted baseline origin remains
+`894e7335e29213f89c9d1ee025090a6a0499463a`.
+Bot `finalization/bot-halt-exits-20261011`:
+`88a8bfe1125d40f2c955c67c3d098393265d7501`, equals fetched origin, clean.
+Platform has only the documented pre-existing eight `graphify-out/` tracked
+deletions and intentional untracked `phase2/` after the docs checkpoint.
+
+All local/origin main refs remain unchanged: Platform `ca30f80`, Research
+`f6d10e5`, Bot `9286434`. No merge, main push, reset, clean, stash, rebase,
+force push, accepted-history rewrite or test weakening.
 
 ## External actions and handoff
 
-After engineering passes, Fable/Opus performs the final live visual and interaction
-acceptance, including the inherited queue and Premium guard. No repo is promoted
-to main by this work. This marker, if earned, will mean engineering readiness
-for that gate only, never full product release readiness.
+Fable/Opus must now perform the final live visual and interaction acceptance
+against the canonical campaign state, including the inherited queue and unchanged
+Premium guard. No known valid P0/P1 or material unresolved P2 engineering finding
+remains; deferred/new-scope items have explicit dispositions above.
+
+No external engineering blocker remains. Other deployment targets must apply
+migration 047 through the normal migration runner when these commits are later
+deployed. This is not an instruction to deploy or promote main now.
+
+Preserve accepted visuals and the tested engineering contracts while conducting
+that gate. No repo was promoted to main. Engineering readiness does not imply
+final release approval or final Premium-parity acceptance.
+
+ENGINEERING_READY_FOR_FABLE=YES

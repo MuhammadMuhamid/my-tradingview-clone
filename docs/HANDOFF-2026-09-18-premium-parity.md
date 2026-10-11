@@ -138,3 +138,18 @@ The browser fleet is `scratchpad/tvdrv.mjs <profile> <port>`. Profiles are
 **copies** of `ms-playwright/tradingview-premium`, so another Claude session's
 Chrome keeps its lock and is never disturbed. Premium entitlement was proven,
 not assumed: `pro_premium_trial`, `is_pro: true`, badge "Premium Trial".
+
+## 2026-10-11 nonvisual continuation
+
+The accepted Claude/Opus campaign remains the baseline. Subsequent objective
+engineering corrections and independent reviewer adjudication are recorded in
+[NONVISUAL_ENGINEERING_CLOSURE_2026-10-11.md](NONVISUAL_ENGINEERING_CLOSURE_2026-10-11.md)
+and [NONVISUAL_FRESH_REVIEW_2026-10-11.md](NONVISUAL_FRESH_REVIEW_2026-10-11.md).
+Use that closure document's current validation and Git evidence rather than
+historical counts above. Its `FABLE_OPUS_VISUAL_QUEUE` is the durable queue for
+the next gate. No main promotion, Fable launch, or subjective redesign occurred.
+
+Fable/Opus should inspect the final canonical campaign state, perform live visual
+and interaction acceptance, and adjudicate the queued inherited items. Preserve
+the tested engine, fail-closed workflow and Bot exit contracts. Engineering
+readiness is not full release approval; main remains deliberately unpromoted.
