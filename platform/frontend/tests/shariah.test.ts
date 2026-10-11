@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   comparePreviewToPack, downloadReviewPack, downloadSnapshot, filterUniverse, importResultsPath,
-  parseResultsFile, publicationSourceLabel, reviewPackPath,
+  ResultsFileError, evidenceCitedLabel, parseResultsFile, publicationSourceLabel, reviewPackPath,
   type ShariahAssetState, type ShariahReviewPack, type ShariahSnapshot,
 } from "../lib/shariah";
 
@@ -31,12 +31,15 @@ test("parseResultsFile parses JSON and nothing else", () => {
 });
 
 test("an unparseable results file gets an instruction, not a stack trace", () => {
-  assert.throws(() => parseResultsFile(""), /paste or choose a results file first/);
-  assert.throws(() => parseResultsFile("   "), /paste or choose a results file first/);
+  assert.throws(() => parseResultsFile(""), /Paste or choose a results file first/);
+  assert.throws(() => parseResultsFile("   "), /Paste or choose a results file first/);
   assert.throws(
     () => parseResultsFile('```json\n{"a":1}\n```'),
     /no markdown fence, no commentary/
   );
+  // C-03: it is the paste's problem, said as one — with where the parser stopped.
+  assert.throws(() => parseResultsFile("this is { not json"), (e: unknown) =>
+    e instanceof ResultsFileError && /^The pasted text is not a JSON document: .+\. Paste only/.test(e.message));
 });
 
 test("downloading a pack is a no-op without a DOM rather than a crash", () => {
@@ -103,6 +106,13 @@ test("a decision's source reads as what is known, and unknown is never 'manual'"
   assert.equal(publicationSourceLabel("manual"), "Entered by hand");
   assert.equal(publicationSourceLabel(null), "Source not recorded");
   assert.equal(publicationSourceLabel(undefined), "Source not recorded");
+});
+
+test("C-10 a decision's evidence is counted, and the ids are labelled as ids", () => {
+  // "Evidence: 3" for ONE entry whose id is 3 read as three pieces of evidence.
+  assert.equal(evidenceCitedLabel(["3"]), "1 evidence (#3)");
+  assert.equal(evidenceCitedLabel(["3", "12"]), "2 evidence (#3, #12)");
+  assert.equal(evidenceCitedLabel([]), "No evidence cited");
 });
 
 test("the browser never re-derives the exposure rule", () => {

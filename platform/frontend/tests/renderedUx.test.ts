@@ -353,11 +353,13 @@ test("controls that speak, and failures that are announced", () => {
    */
   const shariah = read("app/shariah/page.tsx");
   assert.match(shariah, /<Notice tone="error" role="alert">/);
-  assert.match(shariah, /shortReason\(error\)/,
+  // C-03: the slot carries what failed beside its cause, so the cause is
+  // `error.cause` — the rule about where it may appear is unchanged.
+  assert.match(shariah, /\{error\.headline\} \{shortReason\(error\.cause\)\}/,
     "the headline must be a sentence a reader can act on");
-  assert.match(shariah, /<span title=\{error\}>/,
+  assert.match(shariah, /<span title=\{error\.cause\}>/,
     "the provider's own words belong in the tooltip, not the headline");
-  assert.doesNotMatch(shariah, /role="alert"[^>]*>\{error\}</,
+  assert.doesNotMatch(shariah, /role="alert"[^>]*>\{error(\.cause)?\}</,
     "a raw backend error must never be the page's own copy");
   assert.match(read("app/screener/page.tsx"), /<div role="status" aria-live="polite">/);
 });

@@ -267,6 +267,50 @@ test("an ELIGIBLE with open questions blocks the batch until that row is acknowl
     "the backend enforces the acknowledgement, so it must be sent");
 });
 
+// ── C-03: a bad paste is the file's problem, not the universe's ──────────────
+
+test("C-03 pasted text that is not JSON is an issue under the box, not a universe failure", async () => {
+  await openScreening();
+  fireEvent.change(screen.getByLabelText(/ChatGPT results/), { target: { value: "this is { not json" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check results" }));
+  await settle();
+
+  assertNoUniverseFailure();
+  const issues = screen.getByRole("list", { name: "Problems with the pasted results" });
+  assert.match(issues.textContent ?? "", /^The pasted text is not a JSON document: .+/,
+    "the parser's finding is said where the paste is");
+  assert.equal(server.callsTo("/api/shariah/review-results/preview").length, 0,
+    "nothing unparseable is sent");
+});
+
+test("C-03 a refused check lists the server's issues there too, and a failed service says so there", async () => {
+  server.routes.set("POST /api/shariah/review-results/preview", () => new Response(JSON.stringify({
+    error: "the results file does not match TS_SHARIAH_REVIEW_RESULTS_V1",
+    issues: [{ index: 0, baseAsset: "AAA", message: "answers.project is required" }],
+  }), { status: 400, headers: { "content-type": "application/json" } }));
+  await openScreening();
+  await checkPastedResults();
+  assertNoUniverseFailure();
+  const list = screen.getByRole("list", { name: "Problems with the pasted results" });
+  assert.match(list.textContent ?? "", /AAA: answers\.project is required/);
+
+  server.routes.set("POST /api/shariah/review-results/preview", () => new Response(
+    JSON.stringify({ error: "upstream exploded at /api/internal" }),
+    { status: 502, headers: { "content-type": "application/json" } }));
+  fireEvent.click(screen.getByRole("button", { name: "Check results" }));
+  await settle();
+  assertNoUniverseFailure();
+  const row = screen.getByRole("list", { name: "Problems with the pasted results" }).textContent ?? "";
+  assert.match(row, /The results could not be checked\. The service did not answer/);
+  assert.ok(!/exploded|\/api\//.test(row), `a raw cause reached the page copy: ${row}`);
+});
+
+function assertNoUniverseFailure(): void {
+  const alerts = screen.queryAllByRole("alert").map((a) => a.textContent ?? "").join(" | ");
+  assert.ok(!/universe could not be read/i.test(alerts),
+    `a failure that is not a universe read claimed the universe could not be read: ${alerts}`);
+}
+
 test("editing the pasted file discards every acknowledgement", async () => {
   await openScreening();
   await checkPastedResults();

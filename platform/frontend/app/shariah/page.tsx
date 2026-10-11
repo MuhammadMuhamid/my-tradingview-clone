@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  MAX_REVIEW_PACK_ASSETS, SHARIAH_ANSWER_LABELS, ShariahImportError, UNIVERSE_FILTERS,
+  MAX_REVIEW_PACK_ASSETS, ResultsFileError, SHARIAH_ANSWER_LABELS, ShariahImportError, UNIVERSE_FILTERS,
   UNIVERSE_FILTER_EMPTY, comparePreviewToPack, describeShariahSync, downloadReviewPack,
   downloadSnapshot, filterUniverse, normalizeShariahMode, parseResultsFile,
-  publicationSourceLabel, shariahApi,
+  evidenceCitedLabel, publicationSourceLabel, shariahApi,
   type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
   type ShariahImportPreview, type ShariahImportPreviewResult, type ShariahLastPack,
   type ShariahMode, type ShariahModeChange, type ShariahModeState, type ShariahReviewPackRequest,
@@ -16,6 +16,7 @@ import {
   TextInput, PageHeader,
 } from "@/components/ui";
 import { fmtUtcStamp } from "@/lib/format";
+import { failureReason, ownRefusal } from "@/lib/errorCopy";
 
 /**
  * The private Shariah review console.
@@ -165,6 +166,20 @@ function shortReason(raw: string): string {
   return "Hover for the reason reported.";
 }
 
+/**
+ * The page's one error slot: what did not happen, and the cause verbatim.
+ *
+ * C-03: the slot used to hold only the cause and always said "The Shariah
+ * universe could not be read" in front of it, so a failed mode change, a
+ * failed pack download or a pasted file that was not JSON all claimed the
+ * universe was unreadable. Each failure now says what it was; a problem with
+ * the pasted results is not here at all, but under the paste box.
+ */
+interface PageFailure { headline: string; cause: string }
+
+const failed = (headline: string, e: unknown): PageFailure =>
+  ({ headline, cause: e instanceof Error ? e.message : String(e) });
+
 export default function ShariahPage() {
   const [view, setView] = useState<"status" | "screening">("status");
   const [universe, setUniverse] = useState<ShariahUniverse | null>(null);
@@ -182,7 +197,7 @@ export default function ShariahPage() {
    * pack and opening it to read are different acts.
    */
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set());
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PageFailure | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
@@ -225,7 +240,7 @@ export default function ShariahPage() {
        * for a question that failed. On the page that says whether the product
        * is enforcing Shariah, that is the worst place in the product to guess.
        */
-      setError((e as Error).message);
+      setError(failed("The Shariah universe could not be read.", e));
     } finally {
       setLoaded(true);
     }
@@ -257,7 +272,7 @@ export default function ShariahPage() {
     try {
       setDetail(await shariahApi.asset(assetId));
     } catch (e) {
-      setError((e as Error).message);
+      setError(failed("This asset's record could not be read.", e));
     }
   }, []);
 
@@ -293,7 +308,7 @@ export default function ShariahPage() {
       setNotice(`Downloaded snapshot ${snapshot.snapshotId} — ${snapshot.entries.length} assets, `
         + `content hash ${snapshot.contentHash.slice(0, 12)}…`);
     } catch (e) {
-      setError((e as Error).message);
+      setError(failed("The snapshot could not be downloaded.", e));
     } finally {
       setBusy(false);
     }
@@ -317,7 +332,7 @@ export default function ShariahPage() {
       // The PUT does not report the Bot's own floor, so ask for it once.
       await rereadMode(saved);
     } catch (e) {
-      setError((e as Error).message);
+      setError(failed("The Shariah Mode change did not complete.", e));
       // A refusal is exactly when the two sides can disagree — the 502 and the
       // 500 drift error both mean "one side moved and the other did not". Show
       // what the server says now rather than the stale value this page held.
@@ -335,7 +350,7 @@ export default function ShariahPage() {
         + `content hash ${snapshot.contentHash.slice(0, 12)}…`);
       await loadUniverse();
     } catch (e) {
-      setError((e as Error).message);
+      setError(failed("The universe snapshot was not created.", e));
     } finally {
       setBusy(false);
     }
@@ -366,7 +381,7 @@ export default function ShariahPage() {
         + "here has been classified, and nothing new can be bought until you publish a decision.");
       await loadUniverse();
     } catch (e) {
-      setError((e as Error).message);
+      setError(failed("The universe could not be synced.", e));
     } finally {
       setBusy(false);
     }
@@ -490,7 +505,7 @@ export default function ShariahPage() {
       */}
       {error && (
         <Notice tone="error" role="alert">
-          <span title={error}>The Shariah universe could not be read. {shortReason(error)}</span>
+          <span title={error.cause}>{error.headline} {shortReason(error.cause)}</span>
         </Notice>
       )}
       {notice && <Notice tone="success" role="status">{notice}</Notice>}
@@ -554,7 +569,7 @@ export default function ShariahPage() {
                     .then(() => setNotice(days === 0
                       ? "Time-based re-review is off. Decisions are surfaced only when a delisted ticker reappears."
                       : `Settled decisions older than ${days} days are now surfaced as due. Nothing is demoted by age.`))
-                    .catch((e) => setError((e as Error).message))
+                    .catch((e) => setError(failed("The re-review horizon was not changed.", e)))
                     .finally(() => setBusy(false));
                 }}
                 className="rounded border border-control-border bg-transparent px-1.5 py-0.5"
@@ -766,7 +781,7 @@ function BatchReviewCard({
   /** Assets the operator ticked in the universe list, for "Download pack for selected". */
   chosenIds: readonly string[];
   onClearChosen: () => void;
-  onError: (message: string | null) => void;
+  onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
   onImported: () => Promise<void>;
 }) {
@@ -774,6 +789,9 @@ function BatchReviewCard({
   const [resultsText, setResultsText] = useState("");
   const [preview, setPreview] = useState<ShariahImportPreview | null>(null);
   const [issues, setIssues] = useState<ShariahImportIssue[]>([]);
+  /** A check/import failure that is not a per-row issue; said under the paste box. */
+  const [fileProblem, setFileProblem] = useState<
+    { text: string; title?: string; service: boolean } | null>(null);
   const [size, setSize] = useState("20");
   const [includeSettled, setIncludeSettled] = useState(false);
   /*
@@ -790,6 +808,7 @@ function BatchReviewCard({
     setResultsText(text);
     setPreview(null);
     setIssues([]);
+    setFileProblem(null);
     setAcknowledged(new Set());
   };
 
@@ -811,7 +830,7 @@ function BatchReviewCard({
         + `(${pack.needsReviewTotal} still need review). Upload the file to ChatGPT and ask it to `
         + "follow the instructions inside, then paste the JSON it returns below.");
     } catch (e) {
-      onError((e as Error).message);
+      onError(failed("The review pack could not be downloaded.", e));
     } finally {
       setBusy(false);
     }
@@ -822,14 +841,44 @@ function BatchReviewCard({
     editResults(await file.text());
   };
 
+  /*
+   * C-03: a check or an import that fails is said HERE, under the paste box,
+   * and never in the page's slot. Pasting text that was not JSON used to put
+   * "The Shariah universe could not be read" across the top of the page — the
+   * universe was fine; the paste was not.
+   *
+   *   - the text is not a results file at all: the parser's finding;
+   *   - the backend refused the FILE (4xx): its per-row issues, or its own
+   *     sentence when it sent no rows;
+   *   - the service failed (5xx, network): what that means, with the cause
+   *     verbatim in the tooltip, never as the row's words.
+   */
+  const reportFileFailure = (e: unknown, action: string) => {
+    if (e instanceof ResultsFileError) { setFileProblem({ text: e.message, service: false }); return; }
+    if (e instanceof ShariahImportError && e.status !== null && e.status >= 400 && e.status < 500) {
+      setIssues(e.issues);
+      if (e.issues.length === 0) {
+        const own = ownRefusal({ status: e.status, detail: e.message });
+        setFileProblem({
+          text: own ?? `The results could not be ${action}. ${failureReason(e)}`,
+          title: e.message, service: own === null,
+        });
+      }
+      return;
+    }
+    setFileProblem({
+      text: `The results could not be ${action}. ${failureReason(e)}`,
+      title: e instanceof Error ? e.message : String(e), service: true,
+    });
+  };
+
   const check = async () => {
-    setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]);
+    setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]); setFileProblem(null);
     setAcknowledged(new Set());
     try {
       setPreview(await shariahApi.previewResults(parseResultsFile(resultsText)));
     } catch (e) {
-      if (e instanceof ShariahImportError) setIssues(e.issues);
-      onError((e as Error).message);
+      reportFileFailure(e, "checked");
     } finally {
       setBusy(false);
     }
@@ -840,7 +889,7 @@ function BatchReviewCard({
 
   const publish = async () => {
     if (!preview) return;
-    setBusy(true); onError(null); onNotice(null); setIssues([]);
+    setBusy(true); onError(null); onNotice(null); setIssues([]); setFileProblem(null);
     try {
       // Only the rows that need one, so a stale tick from an earlier preview
       // can never ride along — the backend refuses a surplus acknowledgement.
@@ -853,8 +902,7 @@ function BatchReviewCard({
       editResults("");
       await onImported();
     } catch (e) {
-      if (e instanceof ShariahImportError) setIssues(e.issues);
-      onError((e as Error).message);
+      reportFileFailure(e, "imported");
     } finally {
       setBusy(false);
     }
@@ -994,12 +1042,17 @@ function BatchReviewCard({
           </div>
         )}
 
-        {issues.length > 0 && (
+        {(issues.length > 0 || fileProblem) && (
           <div className="mt-3 rounded-md border border-down/30 bg-down/10 px-3 py-2">
             <div className="mb-1 text-xs font-semibold text-down">
-              Nothing was published. Fix the file and check again.
+              {fileProblem?.service
+                ? "Nothing was published."
+                : "Nothing was published. Fix the file and check again."}
             </div>
-            <ul className="max-h-40 overflow-y-auto text-[11px] text-down">
+            <ul aria-label="Problems with the pasted results" className="max-h-40 overflow-y-auto text-[11px] text-down">
+              {fileProblem && (
+                <li className="border-t border-down/20 py-1" title={fileProblem.title}>{fileProblem.text}</li>
+              )}
               {issues.map((issue, i) => (
                 <li key={i} className="border-t border-down/20 py-1">
                   {issue.baseAsset ? `${issue.baseAsset}: ` : issue.index !== null ? `results[${issue.index}]: ` : ""}
@@ -1129,7 +1182,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
   detail: ShariahAssetDetail;
   categories: string[];
   onChanged: () => Promise<void>;
-  onError: (message: string | null) => void;
+  onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
 }) {
   const { asset } = detail;
@@ -1159,7 +1212,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
       setEvidenceDraft({ url: "", title: "", publisher: "", retrievedAt: "", excerpt: "" });
       await onChanged();
     } catch (e) {
-      onError((e as Error).message);
+      onError(failed("The evidence was not added.", e));
     } finally {
       setBusy(false);
     }
@@ -1180,7 +1233,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
       setClassification(""); setReason(""); setSelectedCategories([]); setSelectedEvidence([]);
       await onChanged();
     } catch (e) {
-      onError((e as Error).message);
+      onError(failed("The decision was not published.", e));
     } finally {
       setBusy(false);
     }
@@ -1329,7 +1382,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               <p className="text-ink-faint">Categories: {p.prohibitedCategories.join(", ")}</p>
             )}
             <p className="text-ink-faint">
-              Evidence: {p.evidenceIds.length > 0 ? p.evidenceIds.join(", ") : "none cited"}
+              {evidenceCitedLabel(p.evidenceIds)}
             </p>
           </div>
         ))}

@@ -107,6 +107,18 @@ export function publicationSourceLabel(source: ShariahPublicationSource | null |
   return "Source not recorded";
 }
 
+/**
+ * A decision's cited evidence, counted, with the ids marked as ids.
+ *
+ * C-10: the history printed the ids bare — "Evidence: 3" — so one entry whose
+ * id is 3 read as three pieces of evidence, on the record of what a decision
+ * rested on.
+ */
+export function evidenceCitedLabel(ids: readonly string[]): string {
+  if (ids.length === 0) return "No evidence cited";
+  return `${ids.length} evidence (${ids.map((id) => `#${id}`).join(", ")})`;
+}
+
 export interface ShariahAssetDetail {
   asset: ShariahAssetState;
   evidence: ShariahEvidence[];
@@ -545,9 +557,29 @@ export function describeShariahSync(state: ShariahModeState | null): ShariahSync
 
 /** An import rejection carries every problem in the file, not just the first. */
 export class ShariahImportError extends Error {
-  constructor(message: string, readonly issues: ShariahImportIssue[]) {
+  constructor(
+    message: string,
+    readonly issues: ShariahImportIssue[],
+    /** The HTTP status, so a refusal of the FILE is told apart from a failed service. */
+    readonly status: number | null = null,
+  ) {
     super(message);
     this.name = "ShariahImportError";
+  }
+}
+
+/**
+ * The pasted or chosen text could not be read as a results file at all.
+ *
+ * Its own class because it is the operator's paste that is wrong, not the
+ * service and not the universe: it is said under the paste box, as one of the
+ * file's problems, and was being shown as "The Shariah universe could not be
+ * read" across the top of the page.
+ */
+export class ResultsFileError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ResultsFileError";
   }
 }
 
@@ -564,7 +596,7 @@ async function reqWithIssues<T>(path: string, body: unknown): Promise<T> {
       if (parsed.error) message = parsed.error;
       if (Array.isArray(parsed.issues)) issues = parsed.issues;
     } catch { /* keep status text */ }
-    throw new ShariahImportError(message, issues);
+    throw new ShariahImportError(message, issues, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -688,13 +720,16 @@ export function downloadJsonFile(filename: string, data: unknown): boolean {
  */
 export function parseResultsFile(text: string): unknown {
   const trimmed = text.trim();
-  if (trimmed.length === 0) throw new Error("paste or choose a results file first");
+  if (trimmed.length === 0) throw new ResultsFileError("Paste or choose a results file first.");
   try {
     return JSON.parse(trimmed);
-  } catch {
-    throw new Error(
-      "that is not valid JSON. Paste only the JSON document ChatGPT returned — " +
-      "no markdown fence, no commentary."
+  } catch (e) {
+    // The parser's own finding — where it stopped — is what tells the
+    // operator whether they pasted a markdown fence, commentary or half a file.
+    const where = e instanceof Error ? e.message.replace(/\.$/, "") : "it could not be parsed";
+    throw new ResultsFileError(
+      `The pasted text is not a JSON document: ${where}. Paste only the JSON document ChatGPT `
+      + "returned — no markdown fence, no commentary."
     );
   }
 }
