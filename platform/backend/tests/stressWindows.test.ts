@@ -314,7 +314,8 @@ test("provenance records enough to regenerate the same windows", () => {
     interval: "1h", providerId: "binance-spot", feedId: "binance-public-klines",
   }, candles, config);
 
-  assert.equal(p.schemaVersion, "stress-discovery.v1");
+  assert.equal(p.schemaVersion, "stress-discovery.v2",
+    "v2 measures from the window's first open; a stored v1 record measured from its first close");
   // "BTC's worst week" is a different week on a different venue's series, so
   // the benchmark's identity is part of the result, not context around it.
   assert.equal(p.benchmark.symbol, "BTCUSDT");
@@ -363,16 +364,87 @@ test("the benchmark is named independently of the traded instrument", () => {
     "discovery reads the series it is given and nothing about which symbol it is");
 });
 
+// ── What a window measures ──────────────────────────────────────────────────
+
+/** One bar per [open, high, low, close], an hour apart. */
+function bars(ohlc: [number, number, number, number][]): Candle[] {
+  return ohlc.map(([open, high, low, close], i) => ({
+    symbol: "BTCUSDT", interval: "1h",
+    openTime: T0 + i * HOUR, closeTime: T0 + (i + 1) * HOUR - 1,
+    open, high, low, close, volume: 1,
+  }));
+}
+
+test("a window's return runs from its first bar's OPEN to its last bar's close", () => {
+  /*
+   * A backtest asked for `startMs..endMs` can first fill at the first bar's
+   * open, so the strategy is exposed to that bar's whole move. The benchmark
+   * used to be measured from the bar's CLOSE, so a crash that came as one
+   * violent opening bar was left out of the benchmark column while the
+   * strategy column included it — and discovery could not find it at all,
+   * because no window starting AT the crash measured the crash.
+   */
+  const candles = bars([
+    [96, 98, 96, 98],
+    [98, 100, 98, 100],
+    [100, 100, 68, 70], // the crash, in one bar
+    [70, 71, 69, 70],
+    [70, 71, 69, 70],
+    [70, 71, 69, 70],
+  ]);
+  const [worst] = discoverStressWindows(candles, { method: "worst_return", lengthBars: 2, topN: 1 });
+  assert.equal(worst!.startMs, candles[2]!.openTime,
+    "the window that contains the crash bar must be the one that starts at it");
+  assert.equal(worst!.endMs, candles[3]!.closeTime);
+  assert.equal(worst!.benchmarkReturnPct, -30, "100 at the open to 70 at the close");
+  assert.equal(worst!.selectedBy.value, -30);
+
+  // Manual windows are measured the same way: the period named is the period scored.
+  const [named] = discoverStressWindows(candles, {
+    method: "manual", lengthBars: 2, topN: 1,
+    manualWindows: [{ startMs: candles[2]!.openTime, endMs: candles[3]!.closeTime }],
+  });
+  assert.equal(named!.benchmarkReturnPct, -30);
+});
+
+test("a drawdown is measured from a price printed BEFORE the low, not after it", () => {
+  /*
+   * The peak used to be raised to a bar's close before that same bar's low
+   * was compared with it, so a bar that fell to 97 and recovered to 103 was
+   * recorded as a 5.8 % fall from a price that traded only after the low.
+   * The fall that actually happened is 3 %, from the open.
+   */
+  const candles = bars([
+    [100, 103, 97, 103],
+    [103, 103.5, 102.5, 103],
+  ]);
+  const [w] = discoverStressWindows(candles, { method: "deepest_drawdown", lengthBars: 2, topN: 1 });
+  assert.equal(w!.benchmarkDrawdownPct, 3);
+
+  // A bar's OPEN is known to precede its low, so a gap up is a peak to fall from.
+  const gap = bars([
+    [100, 100, 100, 100],
+    [120, 120, 90, 95],
+  ]);
+  const [g] = discoverStressWindows(gap, { method: "deepest_drawdown", lengthBars: 2, topN: 1 });
+  assert.equal(g!.benchmarkDrawdownPct, 25, "from the 120 open to the 90 low");
+});
+
 // ── Bounded work, and the same answers as before ────────────────────────────
 
 /**
- * The discovery this module shipped with, kept verbatim as the oracle.
+ * The discovery this module shipped with, kept as the oracle.
  *
  * It scored every position by computing all three statistics over every bar
  * of the window, then sorted every position. The current implementation
  * computes only the ranked statistic and selects without sorting; a stored
  * run's windows must replay from its provenance byte for byte, so the two
  * must agree EXACTLY — `deepStrictEqual`, not a tolerance.
+ *
+ * Its statistics are the v2 DEFINITIONS (return and drawdown from the first
+ * bar's open; the drawdown's peak raised by a close only after that bar's low
+ * is compared), so this pins the selection algorithm, and the test below it
+ * pins the definitions.
  */
 function referenceDiscover(candles: readonly Candle[], config: StressWindowConfig) {
   const { method, lengthBars, topN } = config;
@@ -381,18 +453,19 @@ function referenceDiscover(candles: readonly Candle[], config: StressWindowConfi
   const describe = (i: number, j: number) => {
     const first = candles[i]!;
     const last = candles[j]!;
-    let peak = first.close;
+    let peak = first.open;
     let worst = 0;
     let sum = 0;
     let sumSq = 0;
     let n = 0;
     for (let k = i; k <= j; k += 1) {
       const bar = candles[k]!;
-      if (bar.close > peak) peak = bar.close;
+      if (bar.open > peak) peak = bar.open;
       if (peak > 0) {
         const fall = ((peak - bar.low) / peak) * 100;
         if (fall > worst) worst = fall;
       }
+      if (bar.close > peak) peak = bar.close;
       if (k > i) {
         const previous = candles[k - 1]!.close;
         if (previous > 0) {
@@ -404,7 +477,7 @@ function referenceDiscover(candles: readonly Candle[], config: StressWindowConfi
     const mean = n > 0 ? sum / n : 0;
     const variance = n > 1 ? Math.max(0, sumSq / n - mean * mean) : 0;
     return {
-      returnPct: changePct(first.close, last.close),
+      returnPct: changePct(first.open, last.close),
       drawdownPct: worst,
       volatilityPct: Math.sqrt(variance),
     };

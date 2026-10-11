@@ -113,40 +113,82 @@ function changePct(from: number, to: number): number {
   return from > 0 ? ((to - from) / from) * 100 : 0;
 }
 
-/** The benchmark's own behaviour across `[i, j]`, independent of any method. */
-function describe(candles: readonly Candle[], i: number, j: number): {
-  returnPct: number; drawdownPct: number; volatilityPct: number;
-} {
-  const first = candles[i]!;
-  const last = candles[j]!;
-  let peak = first.close;
+/*
+ * ── The three statistics, each defined once ───────────────────────────────
+ *
+ * Discovery ranks on one of them for every window position and `describe`
+ * reports all three for the windows kept. Both call these, so the value a
+ * window was RANKED on is by construction bit for bit the value it REPORTS.
+ *
+ * The window is `[first bar's OPEN, last bar's CLOSE]`. That is the span a
+ * backtest asked for `startMs..endMs` can act in: the strategy's first
+ * possible fill is at the first bar's open. Measuring the benchmark from that
+ * bar's CLOSE (as `stress-discovery.v1` did) left the first bar's own move out
+ * of the benchmark while the strategy was exposed to it, so on a crash that
+ * began with one violent bar the two columns described different periods —
+ * and the window had been chosen for a fall it did not report.
+ */
+
+/** Buy-and-hold across the window: the first bar's open to the last bar's close. */
+function returnOf(candles: readonly Candle[], i: number, j: number): number {
+  return changePct(candles[i]!.open, candles[j]!.close);
+}
+
+/**
+ * The deepest fall below a price the window had already printed.
+ *
+ * The bar's LOW is the trough, so a fall that reversed inside one bar is not
+ * rounded away. The peak is what is known to have traded BEFORE that low: the
+ * window's opening price, each bar's open, and the closes of earlier bars. v1
+ * raised the peak to a bar's close before comparing that same bar's low, so a
+ * day that fell to 97 and closed at 103 recorded a 5.8 % drawdown from a
+ * price printed after the low; it now records the 3 % fall from its open.
+ */
+function drawdownOf(candles: readonly Candle[], i: number, j: number): number {
+  let peak = candles[i]!.open;
   let worst = 0;
-  let sum = 0;
-  let sumSq = 0;
-  let n = 0;
   for (let k = i; k <= j; k += 1) {
     const bar = candles[k]!;
-    // Drawdown is measured against the running peak using the bar's LOW, so a
-    // fall that reversed inside one bar is not rounded away.
-    if (bar.close > peak) peak = bar.close;
+    if (bar.open > peak) peak = bar.open;
     if (peak > 0) {
       const fall = ((peak - bar.low) / peak) * 100;
       if (fall > worst) worst = fall;
     }
-    if (k > i) {
-      const previous = candles[k - 1]!.close;
-      if (previous > 0) {
-        const r = ((bar.close - previous) / previous) * 100;
-        sum += r; sumSq += r * r; n += 1;
-      }
+    if (bar.close > peak) peak = bar.close;
+  }
+  return worst;
+}
+
+/**
+ * Dispersion of the bar-to-bar close returns inside the window.
+ *
+ * Unchanged from v1: it is a statistic of the window's shape, not of a level,
+ * so the open/close anchoring above does not bear on it.
+ */
+function volatilityOf(candles: readonly Candle[], i: number, j: number): number {
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let k = i + 1; k <= j; k += 1) {
+    const previous = candles[k - 1]!.close;
+    if (previous > 0) {
+      const r = ((candles[k]!.close - previous) / previous) * 100;
+      sum += r; sumSq += r * r; n += 1;
     }
   }
   const mean = n > 0 ? sum / n : 0;
   const variance = n > 1 ? Math.max(0, sumSq / n - mean * mean) : 0;
+  return Math.sqrt(variance);
+}
+
+/** The benchmark's own behaviour across `[i, j]`, independent of any method. */
+function describe(candles: readonly Candle[], i: number, j: number): {
+  returnPct: number; drawdownPct: number; volatilityPct: number;
+} {
   return {
-    returnPct: changePct(first.close, last.close),
-    drawdownPct: worst,
-    volatilityPct: Math.sqrt(variance),
+    returnPct: returnOf(candles, i, j),
+    drawdownPct: drawdownOf(candles, i, j),
+    volatilityPct: volatilityOf(candles, i, j),
   };
 }
 
@@ -286,45 +328,6 @@ export function validateStressConfig(config: StressWindowConfig, positions?: num
   }
 }
 
-/*
- * The ranked statistic alone, for one window position.
- *
- * Each is `describe`'s own arithmetic for that statistic — the same
- * expressions in the same order — so the value a window was RANKED on is bit
- * for bit the value it REPORTS, and a stored run replays to the same windows.
- * `tests/stressWindows.test.ts` holds the old all-statistics implementation as
- * the oracle for that.
- */
-function drawdownOf(candles: readonly Candle[], i: number, j: number): number {
-  let peak = candles[i]!.close;
-  let worst = 0;
-  for (let k = i; k <= j; k += 1) {
-    const bar = candles[k]!;
-    if (bar.close > peak) peak = bar.close;
-    if (peak > 0) {
-      const fall = ((peak - bar.low) / peak) * 100;
-      if (fall > worst) worst = fall;
-    }
-  }
-  return worst;
-}
-
-function volatilityOf(candles: readonly Candle[], i: number, j: number): number {
-  let sum = 0;
-  let sumSq = 0;
-  let n = 0;
-  for (let k = i + 1; k <= j; k += 1) {
-    const previous = candles[k - 1]!.close;
-    if (previous > 0) {
-      const r = ((candles[k]!.close - previous) / previous) * 100;
-      sum += r; sumSq += r * r; n += 1;
-    }
-  }
-  const mean = n > 0 ? sum / n : 0;
-  const variance = n > 1 ? Math.max(0, sumSq / n - mean * mean) : 0;
-  return Math.sqrt(variance);
-}
-
 /**
  * Discover the benchmark's worst windows.
  *
@@ -352,14 +355,14 @@ export function discoverStressWindows(
   /*
    * Only the statistic being ranked is computed per position; all three are
    * computed for the windows actually kept, by `describe`. `worst_return`
-   * needs two closes per position, so it is linear in the series however long
-   * the window is.
+   * needs one open and one close per position, so it is linear in the series
+   * however long the window is.
    */
   const severity = new Float64Array(positions);
   const values = new Float64Array(positions);
   for (let i = 0; i < positions; i += 1) {
     const j = i + lengthBars - 1;
-    const value = method === "worst_return" ? changePct(candles[i]!.close, candles[j]!.close)
+    const value = method === "worst_return" ? returnOf(candles, i, j)
       : method === "deepest_drawdown" ? drawdownOf(candles, i, j)
         : volatilityOf(candles, i, j);
     values[i] = value;
@@ -455,9 +458,14 @@ function manualWindows(
  * stored beside the results so the discovery can be repeated exactly — the
  * benchmark's identity and provider included, because "BTC's worst week" means
  * a different week on a different venue's series.
+ *
+ * `v2` measures a window's return and drawdown from its first bar's OPEN (see
+ * `returnOf` and `drawdownOf`). A `v1` record measured them from that bar's
+ * close, so replaying one under this code can rank differently; the version
+ * says which definitions a stored run's figures were computed under.
  */
 export interface StressProvenance {
-  schemaVersion: "stress-discovery.v1";
+  schemaVersion: "stress-discovery.v1" | "stress-discovery.v2";
   benchmark: {
     symbol: string;
     canonicalInstrument: string | null;
@@ -479,7 +487,7 @@ export function stressProvenance(
   config: StressWindowConfig,
 ): StressProvenance {
   return {
-    schemaVersion: "stress-discovery.v1",
+    schemaVersion: "stress-discovery.v2",
     benchmark,
     searched: {
       startMs: candles[0]?.openTime ?? 0,
