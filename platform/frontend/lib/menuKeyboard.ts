@@ -10,7 +10,14 @@ export function menuItems(menu: HTMLElement | null): HTMLElement[] {
   // jsdom (used by the interaction suite) does not calculate offsetParent;
   // disabled controls are excluded by the selector, and menus only render
   // their visible sections, so no geometry filter is needed here.
-  return [...menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)];
+  //
+  // `data-menu-skip` marks a row's ACCESSORY — the favourite star beside an
+  // interval or a chart style — which is a second button inside the row and
+  // matched `button:not([disabled])`, so ArrowDown landed on "Take Candles
+  // off the toolbar" instead of the next style (B-24). The arrows travel
+  // the rows; the accessory is a pointer target, out of the tab order too.
+  return [...menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR)]
+    .filter((el) => !el.hasAttribute("data-menu-skip"));
 }
 
 /** Move focus according to the familiar menu key bindings. */

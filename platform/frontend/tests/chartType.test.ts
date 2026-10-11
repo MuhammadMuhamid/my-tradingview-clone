@@ -266,10 +266,12 @@ test("THE BAR IS A SPLIT CONTROL AND THE MENU OPENS AT THE TOP OF THE ROW", () =
    *
    * The bar carries the account's favourite styles as 38px icon-only radio
    * buttons followed by a 24px caret, and the caret's menu is 273px wide,
-   * opening at the caret's left edge and at y=0 of the toolbar row — over the
-   * bar it came from, running the height of the viewport. Twenty-one 40px
-   * rows do not fit beneath a 38px bar on a 900px screen, which is why the
-   * reference does not try.
+   * opening at the caret's left edge.
+   *
+   * B-16 (re-measured on Premium by two reviewers): the list drops from the
+   * caret and scrolls inside a height capped to the room below it. It used to
+   * open at y=0 over the bar with `max-h-[100vh]`, which put its 21st row
+   * (`Range`) past the bottom of a 900px viewport.
    */
   const menu = read("components/tv/ChartTypeMenu.tsx");
 
@@ -284,7 +286,8 @@ test("THE BAR IS A SPLIT CONTROL AND THE MENU OPENS AT THE TOP OF THE ROW", () =
   assert.match(menu, /aria-haspopup="menu"/);
 
   // The menu's own geometry.
-  assert.match(menu, /absolute left-0 top-0 z-50 max-h-\[100vh\] w-\[273px\]/);
+  assert.match(menu, /absolute left-0 top-full z-50 mt-\[2px\] max-h-\[calc\(100vh-48px\)\] w-\[273px\] overflow-y-auto/);
+  assert.doesNotMatch(menu, /top-0 z-50 max-h-\[100vh\]/, "the list no longer covers the bar it came from");
 
   /*
    * NO WRITTEN DISCLOSURE ON THE BAR, AND NOT BECAUSE IT STOPPED MATTERING.

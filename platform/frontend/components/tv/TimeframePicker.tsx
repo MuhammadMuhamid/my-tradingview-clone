@@ -200,6 +200,9 @@ function PickerRow({
       {onRemove && (
         <button
           onClick={() => onRemove(resolution)}
+          /* B-24: a row accessory — the arrow keys travel the rows. */
+          tabIndex={-1}
+          data-menu-skip
           data-tooltip={`Remove the custom ${resolution} resolution`}
           aria-label={`Remove the custom ${resolution} resolution`}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
@@ -211,6 +214,9 @@ function PickerRow({
       )}
       <button
         onClick={() => onToggleFavourite(resolution)}
+        /* B-24: as above — ArrowDown landed on this star, not the next row. */
+        tabIndex={-1}
+        data-menu-skip
         aria-pressed={favourite}
         data-tooltip={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}
         aria-label={favourite ? `Remove ${resolution} from the toolbar` : `Keep ${resolution} on the toolbar`}

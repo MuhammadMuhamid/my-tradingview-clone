@@ -483,6 +483,9 @@ export function ChartTypeMenu({
         </button>
         <button
           onClick={() => toggleFavourite(t.value)}
+          /* B-24: an accessory of the row, not a stop of the arrow keys. */
+          tabIndex={-1}
+          data-menu-skip
           aria-pressed={starred}
           data-tooltip={starred
             ? `Take ${t.label} off the toolbar`
@@ -586,13 +589,12 @@ export function ChartTypeMenu({
             */
             style={edgeClamp}
             /*
-              `top-0`, not `top-full`: the reference's list opens at the TOP of
-              the toolbar row and runs the height of the viewport, covering the
-              bar it came from. Twenty-one 40px rows do not fit under a 38px
-              bar on a 900px screen, and a list that starts 38px lower loses a
-              row to nothing.
+              B-16: under the caret, capped, scrolling inside. It opened at
+              `top-0`/`max-h-[100vh]` over the bar, and `Range` fell off a
+              900px screen. The bar is the first row, so the caret ends at 38:
+              start 2px below it and scroll past viewport − 48.
             */
-            className="absolute left-0 top-0 z-50 max-h-[100vh] w-[273px] overflow-y-auto tvc-menu"
+            className="absolute left-0 top-full z-50 mt-[2px] max-h-[calc(100vh-48px)] w-[273px] overflow-y-auto tvc-menu"
           >
             {CHART_TYPES.flatMap((t) => (
               GROUP_STARTS.has(t.value)
