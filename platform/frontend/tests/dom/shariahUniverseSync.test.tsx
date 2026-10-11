@@ -21,7 +21,33 @@ import { assertAbsent, closeBrowser, render, resetBrowser, server, settle } from
 import { AppRoute } from "./harness/routing";
 import ShariahPage from "@/app/shariah/page";
 
-beforeEach(resetBrowser);
+/*
+ * F-3: the fixture origin had no `/api/shariah/*` route, so `universe` was
+ * null, the page rendered none of the three things below, and each test's
+ * `if (x === null) return` made it pass while asserting nothing. An EMPTY
+ * universe is served now — the state the warning is about — and the guards
+ * are assertions.
+ */
+function seedEmptyUniverse(): void {
+  let reviewMaxAgeDays: number | null = 365;
+  server.routes.set("GET /api/shariah/universe", () => ({
+    policyVersion: "TS_SHARIAH_V1",
+    prohibitedCategories: [],
+    reviewPolicy: { reviewMaxAgeDays },
+    counts: { total: 0, active: 0, eligible: 0, review: 0, excluded: 0, dueForReReview: 0 },
+    assets: [],
+  }));
+  // The page loads the universe together with the snapshot list and the mode,
+  // and shows nothing until all of them answer.
+  server.routes.set("GET /api/shariah/snapshots", () => ({ snapshots: [] }));
+  server.routes.set("GET /api/shariah/mode", () => ({ mode: "off", policyVersion: "TS_SHARIAH_V1" }));
+  server.routes.set("PUT /api/shariah/review-policy", (body) => {
+    reviewMaxAgeDays = (body as { reviewMaxAgeDays: number | null }).reviewMaxAgeDays;
+    return { reviewMaxAgeDays };
+  });
+}
+
+beforeEach(() => { resetBrowser(); seedEmptyUniverse(); });
 after(closeBrowser);
 
 async function mount(): Promise<void> {
@@ -61,7 +87,7 @@ test("an empty registry says what it means and what to do about it", async () =>
    */
   await mount();
   const warning = screen.queryByText(/This registry is empty/i);
-  if (warning === null) return; // the fixture seeded a universe; nothing to assert
+  assert.ok(warning, "an empty registry rendered no warning");
   const text = warning.textContent ?? "";
   assert.match(text, /every symbol reads as REVIEW/i);
   assert.match(text, /would refuse every BUY/i);
@@ -89,7 +115,7 @@ test("the re-review horizon is a control, not a curl-only setting", async () => 
   await mount();
   const horizon = screen.queryByLabelText(
     /Days after which a settled decision is surfaced as due for re-review/i);
-  if (horizon === null) return; // the fixture served no universe; nothing to drive
+  assert.ok(horizon, "the re-review horizon has no control");
   assert.equal(horizon.tagName, "SELECT");
 
   fireEvent.change(horizon, { target: { value: "730" } });
@@ -104,6 +130,6 @@ test("the horizon control says age withdraws nothing", async () => {
   // it could invalidate decisions would be read as one that does.
   await mount();
   const note = screen.queryByText(/an aged decision still stands and is still enforced/i);
-  if (note === null) return;
+  assert.ok(note, "the horizon control does not say age withdraws nothing");
   assert.match(note.textContent ?? "", /Advisory only/i);
 });
