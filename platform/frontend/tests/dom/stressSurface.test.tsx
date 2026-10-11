@@ -15,11 +15,13 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
-import { closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
+import { advance, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
 import { AppRoute } from "./harness/routing";
 import StressPage from "@/app/stress/page";
 import { RunWindows } from "@/components/RunWindows";
-import type { BacktestMetrics } from "@/lib/types";
+import type {
+  Backtest, BacktestMetrics, StressRun, StressRunDetail, StressWindow,
+} from "@/lib/types";
 
 beforeEach(resetBrowser);
 after(closeBrowser);
@@ -87,6 +89,269 @@ test("a run sends the same discovery it previewed, plus the strategy", async () 
   assert.ok(typeof body.benchmarkSymbol === "string");
   assert.ok(typeof body.lengthBars === "number" && (body.lengthBars as number) >= 2);
   assert.ok(typeof body.topN === "number" && (body.topN as number) >= 1);
+});
+
+// ── Whose settings are stressed ─────────────────────────────────────────────
+
+const SOURCE_ID = "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13";
+const STRATEGIES = [
+  { id: 3, key: "mtf_lean", name: "MTF Lean", description: null, pineSource: null },
+  { id: 7, key: "ma_rr_v9", name: "MA RR v9", description: null, pineSource: null },
+];
+/** A finished run with a configuration nobody would mistake for the defaults. */
+const SOURCE_PARAMS = { qty_cash: 930, ma_len: 50, use_filter: true, mode: "close" };
+
+function sourceBacktest(over: Partial<Backtest> = {}): Backtest {
+  return {
+    id: SOURCE_ID, strategyId: 7, configId: null, symbol: "SOLUSDT", timeframe: "4h",
+    startTime: "2025-01-01T00:00:00.000Z", endTime: "2025-06-01T00:00:00.000Z",
+    params: SOURCE_PARAMS, initialCapital: 2500, commissionPct: 0.075, slippageTicks: 1,
+    status: "done", error: null, metrics: metrics({ netProfitPct: 12 }), equityCurve: null,
+    holdoutFraction: null, segments: null, executionTruth: null, stressRunId: null,
+    createdAt: "2025-06-02T00:00:00.000Z", ...over,
+  };
+}
+
+function serveSource(backtest: Backtest | null = sourceBacktest()): void {
+  server.routes.set("/api/strategies", () => STRATEGIES);
+  server.routes.set(`GET /api/backtests/${SOURCE_ID}`, () => backtest
+    ?? new Response(JSON.stringify({ error: "backtest not found" }), {
+      status: 404, headers: { "content-type": "application/json" },
+    }));
+}
+
+async function mountFrom(id = SOURCE_ID): Promise<void> {
+  render(<AppRoute path="/stress" query={`from=${id}`}><StressPage /></AppRoute>);
+  await settle(6);
+}
+
+function runBodies(): Record<string, unknown>[] {
+  return server.callsTo("/api/stress/runs").filter((c) => c.method === "POST")
+    .map((c) => c.body as Record<string, unknown>);
+}
+
+test("?from=<run> says whose settings it is stressing, before any number", async () => {
+  serveSource();
+  await mountFrom();
+
+  const banner = document.querySelector("[data-stress-source]")?.textContent ?? "";
+  assert.match(banner, /Stressing the settings of run 3f1c2a9e \(MA RR v9 · SOLUSDT · 4h\)/,
+    "the reader must be told which run's configuration is about to be stressed");
+  assert.match(banner, /4 parameters/);
+  assert.match(banner, /2,500 initial capital/);
+  assert.doesNotMatch(banner, /default parameters/i);
+});
+
+test("a run started from a backtest sends that backtest's whole configuration", async () => {
+  serveSource();
+  await mountFrom();
+  fireEvent.click(screen.getByRole("button", { name: /Run the strategy through them/ }));
+  await settle();
+
+  const [body] = runBodies();
+  assert.ok(body, "the run control asked nothing");
+  assert.equal(body.strategyKey, "ma_rr_v9", "the run's strategy, not the page's default one");
+  assert.equal(body.symbol, "SOLUSDT");
+  assert.equal(body.timeframe, "4h");
+  assert.deepEqual(body.params, SOURCE_PARAMS,
+    "without the params the server runs the strategy's defaults, which is the defect");
+  assert.equal(body.initialCapital, 2500);
+  assert.equal(body.commissionPct, 0.075);
+  assert.equal(body.slippageTicks, 1);
+});
+
+test("starting from a run still discovers the windows with no strategy named", async () => {
+  /*
+   * The invariant does not bend because the page now knows a configuration:
+   * the configuration travels with the RUN request, and discovery sends the
+   * benchmark half alone.
+   */
+  serveSource();
+  await mountFrom();
+  fireEvent.click(screen.getByRole("button", { name: /Find the windows/ }));
+  await settle();
+  const calls = server.callsTo("/api/stress/windows").filter((c) => c.method === "POST");
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    const body = call.body as Record<string, unknown>;
+    for (const forbidden of ["strategyKey", "configId", "params", "symbol", "timeframe",
+      "initialCapital", "commissionPct", "slippageTicks"]) {
+      assert.ok(!(forbidden in body), `discovery sent ${forbidden}`);
+    }
+  }
+});
+
+test("clearing the source goes back to the defaults, and says so", async () => {
+  serveSource();
+  await mountFrom();
+  fireEvent.click(screen.getByRole("button", { name: /Use the strategy.s defaults instead/ }));
+  await settle();
+
+  assert.match(document.querySelector("[data-stress-source]")?.textContent ?? "",
+    /will run with its default\s+parameters/);
+  fireEvent.click(screen.getByRole("button", { name: /Run the strategy through them/ }));
+  await settle();
+  const [body] = runBodies();
+  assert.ok(body);
+  assert.equal("params" in body, false, "a defaults run must not carry the cleared run's params");
+  assert.equal(body.strategyKey, "mtf_lean");
+});
+
+test("without a source the page says plainly that it runs the defaults", async () => {
+  await mountStress();
+  const text = document.querySelector("[data-stress-source]")?.textContent ?? "";
+  assert.match(text, /will run with its default\s+parameters/);
+  assert.match(text, /not a configuration you have tuned/);
+});
+
+test("a source that cannot be loaded is said, and the run falls back to defaults openly", async () => {
+  serveSource(null);
+  await mountFrom();
+  const alert = document.querySelector("[data-stress-source] [role=alert]");
+  assert.ok(alert, "a missing run must be said, not silently replaced by defaults");
+  assert.match(alert.textContent ?? "", /Run 3f1c2a9e could not be loaded/);
+  assert.match(alert.textContent ?? "", /default parameters/);
+  assert.doesNotMatch(alert.textContent ?? "", /backtest not found/,
+    "the server's own error string is the tooltip, not the copy");
+
+  fireEvent.click(screen.getByRole("button", { name: /Run the strategy through them/ }));
+  await settle();
+  const [body] = runBodies();
+  assert.ok(body);
+  assert.equal("params" in body, false);
+});
+
+// ── What an opened run shows ────────────────────────────────────────────────
+
+const RUN_ID = "9b2e4f60-1a3c-4d5e-8f70-a1b2c3d4e5f6";
+
+function stressWindow(rank: number, startDay: number, over: Partial<StressWindow> = {}) {
+  return {
+    rank, startMs: T0 + startDay * DAY, endMs: T0 + (startDay + 21) * DAY - 1, bars: 21,
+    benchmarkReturnPct: -30 + rank * 5, benchmarkDrawdownPct: 35 - rank * 4,
+    benchmarkVolatilityPct: 3.1, selectedBy: { metric: "worst_return" as const, value: -30 + rank * 5 },
+    backtestId: `00000000-0000-4000-8000-00000000000${rank}`, ...over,
+  };
+}
+
+function stressRun(status: StressRun["status"] = "done"): StressRunDetail {
+  const windows = [stressWindow(1, 40), stressWindow(2, 120)];
+  return {
+    id: RUN_ID, strategyId: 3, symbol: "SOLUSDT", timeframe: "1h", configId: null, params: {},
+    initialCapital: 10_000, commissionPct: 0.1, slippageTicks: 2,
+    benchmarkSymbol: "BTCUSDT", benchmarkInterval: "1d",
+    discovery: {
+      schemaVersion: "stress-discovery.v2",
+      benchmark: {
+        symbol: "BTCUSDT", canonicalInstrument: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
+        interval: "1d", providerId: "binance-spot", feedId: "binance-public-klines",
+      },
+      searched: { startMs: T0, endMs: T0 + 200 * DAY - 1, bars: 200 },
+      config: { method: "worst_return", lengthBars: 21, topN: 2, minSeparationBars: 21 },
+      epistemicNote: "",
+    },
+    windows, status, error: null, createdAt: "2025-08-01T00:00:00.000Z", finishedAt: null,
+    epistemicNote: "",
+    results: windows.map((window, i) => ({
+      window,
+      backtest: sourceBacktest({
+        id: window.backtestId, strategyId: 3, stressRunId: RUN_ID,
+        metrics: metrics({ netProfitPct: -1.5 - i, totalTrades: 3, maxDrawdownPct: 2 }),
+        executionTruth: {
+          requested: { startMs: window.startMs, endMs: window.endMs },
+          covered: { startMs: window.startMs, endMs: window.endMs },
+          barsProcessed: 504, sizing: { mode: "fixed_cash", value: 1000 },
+          fillTiming: "next_bar_open",
+        },
+      }),
+      target: i === 0
+        ? { returnPct: -28.4, startMs: window.startMs, endMs: window.endMs, complete: true }
+        : { returnPct: -9.2, startMs: window.startMs + 5 * DAY, endMs: window.endMs, complete: false },
+    })),
+  };
+}
+
+async function mountRun(detail: StressRunDetail = stressRun()): Promise<void> {
+  server.routes.set("/api/strategies", () => STRATEGIES);
+  server.routes.set("GET /api/stress/runs", () => [detail]);
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}`, () => detail);
+  server.routes.set(`GET /api/stress/runs/${RUN_ID}/benchmark`, () => ({
+    symbol: "BTCUSDT", interval: "1d",
+    path: Array.from({ length: 200 }, (_, i) => [T0 + i * DAY, 100 - (i % 50)]),
+  }));
+  render(<AppRoute path="/stress" query={`run=${RUN_ID}`}><StressPage /></AppRoute>);
+  await settle(6);
+}
+
+test("each window shows what the TRADED symbol did, beside what the strategy did", async () => {
+  await mountRun();
+  const cells = [...document.querySelectorAll("[data-stress-target]")];
+  assert.equal(cells.length, 2, "one Target % per window");
+  assert.match(cells[0]!.textContent ?? "", /-28\.40%/);
+  assert.match(cells[1]!.textContent ?? "", /-9\.20%/);
+  const partial = cells[1]!.querySelector("[title]");
+  assert.match(partial?.getAttribute("title") ?? "", /covers only/,
+    "a figure over part of the window must say so");
+  assert.ok(screen.getByText("Target %"), "the column is named");
+});
+
+test("each window says why it qualified, its benchmark and its rank", async () => {
+  await mountRun();
+  assert.ok(screen.getByText("Rank"));
+  assert.ok(screen.getByText(/^BTCUSDT return -25\.00%$/), "rank 1 qualified on its return");
+  assert.ok(screen.getByText(/^BTCUSDT return -20\.00%$/));
+});
+
+test("the sizing is stated, and the numbers are not called directly comparable", async () => {
+  await mountRun();
+  const note = document.querySelector("[data-stress-exposure]")?.textContent ?? "";
+  // 1,000 per entry against 10,000 capital: a tenth, which is exactly why a
+  // −28 % market reads as about −3 % here.
+  assert.match(note, /fixed 1,000 of quote currency — 10 % of the 10,000 initial capital/);
+  assert.match(note, /moved -28\.40%, a position of that size would show about -2\.84%/);
+  assert.equal(/directly comparable/i.test(document.body.textContent ?? ""), false,
+    "the figures are comparable with another run only where capital, sizing and costs match");
+  assert.match(document.body.textContent ?? "", /compares with another\s+run.s only where the capital, sizing and costs match/);
+});
+
+test("the provenance names the venue in words, and keeps the provider id for the tooltip", async () => {
+  await mountRun();
+  const label = screen.getByText("Binance market data");
+  assert.match(label.getAttribute("title") ?? "", /binance-spot/);
+  const body = document.body.cloneNode(true) as HTMLElement;
+  for (const el of body.querySelectorAll("[title]")) el.removeAttribute("title");
+  assert.equal((body.textContent ?? "").includes("binance-spot"), false,
+    "a provider id is never body copy");
+});
+
+test("the benchmark is drawn over the period searched, with each window shaded", async () => {
+  await mountRun();
+  const chart = document.querySelector("[data-stress-benchmark-chart]");
+  assert.ok(chart, "the opened run must show what its windows were chosen from");
+  assert.equal(chart.querySelectorAll("[data-stress-window]").length, 2);
+  assert.match(chart.querySelector("svg")?.getAttribute("aria-label") ?? "",
+    /2 stress windows shaded: #1 2025-02-10 to 2025-03-02/);
+});
+
+test("a finished run stops saying Running in the list without a reload", async () => {
+  /*
+   * The list was read once, on mount, and the server only ever settled a run
+   * it was asked for by id. Now the page re-reads the list while anything is
+   * running, and the server settles each row it lists.
+   */
+  let listed = 0;
+  server.routes.set("GET /api/stress/runs", () => {
+    listed += 1;
+    return [stressRun(listed === 1 ? "running" : "done")];
+  });
+  render(<AppRoute path="/stress"><StressPage /></AppRoute>);
+  await settle(6);
+  const list = (): string => screen.getByText("Previous stress runs").closest("div")!
+    .parentElement!.textContent ?? "";
+  assert.match(list(), /running/i);
+  await advance(2700);
+  assert.ok(listed >= 2, "the list was never read again");
+  assert.doesNotMatch(list(), /running/i);
 });
 
 // ── The windows panel on a backtest ─────────────────────────────────────────

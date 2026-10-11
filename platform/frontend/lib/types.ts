@@ -255,7 +255,8 @@ export type StressMethod =
   | "worst_return" | "deepest_drawdown" | "highest_volatility" | "manual";
 
 export interface StressDiscovery {
-  schemaVersion: "stress-discovery.v1";
+  /** v2 measures return and drawdown from the window's first open; v1 from its first close. */
+  schemaVersion: "stress-discovery.v1" | "stress-discovery.v2";
   benchmark: {
     symbol: string; canonicalInstrument: string | null; interval: Interval;
     providerId: string; feedId: string;
@@ -271,12 +272,17 @@ export interface StressDiscovery {
 
 export interface StressRun {
   id: string;
+  strategyId: number;
   symbol: string;
   timeframe: Interval;
   /** The saved configuration this ran, when it ran one. */
   configId: string | null;
   /** The parameters it ran. Empty means the strategy's own defaults. */
   params: Record<string, number | string | boolean>;
+  /** The capital and cost model every window ran under. */
+  initialCapital: number;
+  commissionPct: number;
+  slippageTicks: number;
   benchmarkSymbol: string;
   benchmarkInterval: Interval;
   discovery: StressDiscovery;
@@ -287,10 +293,31 @@ export interface StressRun {
   finishedAt: string | null;
 }
 
+/**
+ * What the TRADED symbol itself did over a window: buy-and-hold from the
+ * window's first open to its last close. Null until the store holds its bars.
+ */
+export interface StressTargetReturn {
+  returnPct: number;
+  /** The span actually measured, which may be narrower than the window. */
+  startMs: number;
+  endMs: number;
+  /** False when the traded symbol's history covers only part of the window. */
+  complete: boolean;
+}
+
 export interface StressRunDetail extends StressRun {
-  results: { window: StressWindow & { backtestId: string }; backtest: Backtest | null }[];
+  results: {
+    window: StressWindow & { backtestId: string };
+    backtest: Backtest | null;
+    /** Absent on a server that predates it; null when there is no figure. */
+    target?: StressTargetReturn | null;
+  }[];
   epistemicNote: string;
 }
+
+/** The benchmark's closes over the searched period, thinned for a chart: [openTime, close]. */
+export type StressBenchmarkPath = [number, number][];
 
 export interface Trade {
   tradeNo: number;

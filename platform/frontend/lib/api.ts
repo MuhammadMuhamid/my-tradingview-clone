@@ -1,7 +1,7 @@
 import type {
   Alert, Backtest, BacktestStatus, Candle, Deployment, DeliveryMode,
   Interval, Strategy, StrategyConfig, StrategyParams, SymbolInfo, Trade,
-  StressDiscovery, StressMethod, StressRun, StressRunDetail, StressWindow,
+  StressBenchmarkPath, StressDiscovery, StressMethod, StressRun, StressRunDetail, StressWindow,
 } from "./types";
 
 /** The benchmark-only half of a stress request, shared by both stress calls. */
@@ -1559,15 +1559,23 @@ export const api = {
    * windows and queues one ordinary backtest per window.
    */
   stressWindows: (body: StressDiscoveryRequest) =>
-    req<{ windows: StressWindow[]; discovery: StressDiscovery; epistemicNote: string }>(
-      "/api/stress/windows", { method: "POST", body: JSON.stringify(body) }),
+    req<{
+      windows: StressWindow[]; discovery: StressDiscovery; epistemicNote: string;
+      /** The searched period, thinned for a chart. Absent from an older server. */
+      path?: StressBenchmarkPath;
+    }>("/api/stress/windows", { method: "POST", body: JSON.stringify(body) }),
   createStressRun: (body: StressDiscoveryRequest & {
     strategyKey: string; configId?: string; symbol: string; timeframe: Interval;
     params?: StrategyParams; initialCapital?: number;
     commissionPct?: number; slippageTicks?: number;
   }) => req<StressRun>("/api/stress/runs", { method: "POST", body: JSON.stringify(body) }),
   listStressRuns: () => req<StressRun[]>("/api/stress/runs"),
-  getStressRun: (id: string) => req<StressRunDetail>(`/api/stress/runs/${id}`),
+  getStressRun: (id: string) =>
+    req<StressRunDetail>(`/api/stress/runs/${encodeURIComponent(id)}`),
+  /** The benchmark over the period a run searched — read once per opened run, not polled. */
+  getStressBenchmark: (id: string) =>
+    req<{ symbol: string; interval: Interval; path: StressBenchmarkPath }>(
+      `/api/stress/runs/${encodeURIComponent(id)}/benchmark`),
 
   // chart layouts (server-persisted workspaces)
   listLayouts: () => req<ServerLayout[]>("/api/layouts"),
