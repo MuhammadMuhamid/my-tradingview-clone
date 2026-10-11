@@ -212,6 +212,32 @@ test("RAIL — the flyout affordance keeps the name the DOM harness addresses it
   }
 });
 
+test("RAIL — D-F9: on a coarse pointer the strip is shown and wider to a finger, and only there", () => {
+  /*
+   * A finger cannot hover, so the hover-only strip was invisible on a touch
+   * screen. Every repair is under `(pointer: coarse)`: the desktop strings
+   * pinned above are untouched, and no unscoped utility was added to the strip
+   * or the cell that would move the locked 52×38 desktop geometry.
+   */
+  // Literal strings: Tailwind scans source text, and a `${prefix}`-built
+  // variant is a class it never generates.
+  const tokensOf = (name: string): string[] => {
+    const body = source.match(new RegExp(`const ${name} =([\\s\\S]*?);\\n`))?.[1] ?? "";
+    assert.doesNotMatch(body, /\$\{/, `${name} interpolates a class name Tailwind cannot see`);
+    return (body.match(/"[^"]*"/g) ?? []).flatMap((s) => s.slice(1, -1).split(" ")).filter(Boolean);
+  };
+  const strip = tokensOf("COARSE_STRIP");
+  const cell = tokensOf("COARSE_CELL");
+  assert.ok(strip.includes("[@media(pointer:coarse)]:opacity-100"), "the strip is not shown to a finger");
+  assert.ok(strip.includes("[@media(pointer:coarse)]:after:-right-[9px]"), "the strip's touch target was not widened");
+  assert.ok(cell.includes("[@media(pointer:coarse)]:select-none"));
+  for (const token of [...strip, ...cell]) {
+    assert.ok(token.startsWith("[@media(pointer:coarse)]:"), `"${token}" is not scoped to a coarse pointer`);
+  }
+  assert.match(source, /\+ COARSE_STRIP\n/);
+  assert.match(source, /className=\{`\$\{btn\(\)\} \$\{COARSE_CELL\}`\}/);
+});
+
 test("RAIL — Remove is never disabled and carries no count label", () => {
   /*
    * It was `disabled={count === 0}` with `disabled:opacity-30` and a `<span>`

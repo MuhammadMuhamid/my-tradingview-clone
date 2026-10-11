@@ -22,9 +22,9 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent } from "@testing-library/react";
-import { closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
+import { advance, closeBrowser, compactSeries, resetBrowser, server, settle } from "./harness/env";
 import { mountChart } from "./harness/chart";
-import { GROUPS } from "@/components/tv/DrawingToolbar";
+import { GROUPS, LONG_PRESS_MS } from "@/components/tv/DrawingToolbar";
 
 beforeEach(() => {
   resetBrowser();
@@ -255,4 +255,62 @@ test("R2c-14 — phone drawing tools use the Draw sheet, not a permanent rail", 
   } finally {
     window.matchMedia = desktopMatchMedia;
   }
+});
+
+/*
+ * D-F9 — a finger cannot hover, and iOS Safari never fires `contextmenu` for a
+ * long press, so on a touch screen a group's other tools were reachable only
+ * through a strip nobody could see. A hold on the group cell opens its flyout.
+ */
+const trendCell = (rail: HTMLElement): HTMLElement => {
+  const cell = rail.querySelector<HTMLElement>('button[aria-label="Trendline"]');
+  assert.ok(cell, "no Trendline cell");
+  return cell;
+};
+
+test("D-F9 — holding a group cell with a finger opens its flyout and arms nothing", async () => {
+  const chart = await mountChart();
+  const rail = railOf(chart.container);
+  const cell = trendCell(rail);
+  assert.equal(cell.getAttribute("aria-pressed"), "false");
+
+  fireEvent.pointerDown(cell, { pointerType: "touch", clientX: 26, clientY: 60 });
+  await advance(LONG_PRESS_MS + 50);
+  assert.equal(menuOf(rail) !== null, true, "a held finger did not open the trend flyout");
+
+  // The lift ends in a click; it must not arm the tool under the open menu.
+  fireEvent.pointerUp(cell, { pointerType: "touch", clientX: 26, clientY: 60 });
+  fireEvent.click(cell);
+  await settle();
+  assert.equal(menuOf(rail) !== null, true, "the click that ended the hold closed the menu");
+  assert.equal(trendCell(rail).getAttribute("aria-pressed"), "false",
+    "the click that ended the hold armed the trendline");
+});
+
+test("D-F9 — a short tap still arms the tool, and a drag is a scroll, not a hold", async () => {
+  const chart = await mountChart();
+  const rail = railOf(chart.container);
+
+  // A tap: down and up well inside the hold time.
+  fireEvent.pointerDown(trendCell(rail), { pointerType: "touch", clientX: 26, clientY: 60 });
+  fireEvent.pointerUp(trendCell(rail), { pointerType: "touch", clientX: 26, clientY: 60 });
+  fireEvent.click(trendCell(rail));
+  await advance(LONG_PRESS_MS + 50);
+  assert.equal(menuOf(rail) === null, true, "a tap opened the flyout");
+  assert.equal(trendCell(rail).getAttribute("aria-pressed"), "true", "a tap no longer arms the tool");
+
+  // A finger that moves is scrolling the sheet.
+  fireEvent.pointerDown(trendCell(rail), { pointerType: "touch", clientX: 26, clientY: 60 });
+  fireEvent.pointerMove(trendCell(rail), { pointerType: "touch", clientX: 26, clientY: 80 });
+  await advance(LONG_PRESS_MS + 50);
+  assert.equal(menuOf(rail) === null, true, "a drag across the cell opened the flyout");
+});
+
+test("D-F9 — a mouse held on a cell does nothing new: desktop keeps right-click and the strip", async () => {
+  const chart = await mountChart();
+  const rail = railOf(chart.container);
+  fireEvent.pointerDown(trendCell(rail), { pointerType: "mouse", clientX: 26, clientY: 60 });
+  await advance(LONG_PRESS_MS + 50);
+  assert.equal(menuOf(rail) === null, true, "a held mouse button opened the flyout");
+  fireEvent.pointerUp(trendCell(rail), { pointerType: "mouse", clientX: 26, clientY: 60 });
 });

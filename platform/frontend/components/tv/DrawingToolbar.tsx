@@ -29,6 +29,50 @@ const FAVOURITES_GRIP_WIDTH = 24;
 const FAVOURITES_CELL = 38;
 
 /*
+ * ── A finger cannot hover (D-F9) ───────────────────────────────────────────
+ *
+ * The flyout strip is revealed by hover and the cell's other route to its
+ * flyout is a right-click. A touch screen has neither: the strip stayed at
+ * `opacity-0` under a fingertip, and iOS Safari never fires `contextmenu` for
+ * a long press, so on a phone or a tablet the eight groups' other tools were
+ * unreachable from the rail.
+ *
+ * Both repairs are scoped to a COARSE pointer, so the desktop rail — measured
+ * against the reference and locked at 52×38 cells with an 11×34 hover strip —
+ * is byte-for-byte what it was:
+ *
+ *   - the strip is always shown, and its hit area reaches 9px past the rail's
+ *     edge, so the 34px-tall target is 20px wide rather than 11 without the
+ *     cell's glyph giving up any of its own width;
+ *   - holding a group cell for `LONG_PRESS_MS` opens its flyout, the gesture
+ *     a touch user reaches for and the one the reference answers. Moving more
+ *     than `LONG_PRESS_SLOP_PX` (a scroll) or lifting first cancels it, and
+ *     the tap that ends a hold does not also arm the tool.
+ */
+/*
+ * Spelled out in full, never built from a `${prefix}` template: Tailwind finds
+ * classes by scanning the source text, and an interpolated variant is a class
+ * it never sees and therefore never generates.
+ */
+const COARSE_STRIP =
+  "[@media(pointer:coarse)]:opacity-100 "
+  + "[@media(pointer:coarse)]:after:absolute [@media(pointer:coarse)]:after:inset-y-0 "
+  + "[@media(pointer:coarse)]:after:left-0 [@media(pointer:coarse)]:after:-right-[9px] "
+  + "[@media(pointer:coarse)]:after:content-['']";
+/** No text selection or iOS callout sheet over a held cell. */
+const COARSE_CELL =
+  "[@media(pointer:coarse)]:select-none [@media(pointer:coarse)]:[-webkit-touch-callout:none]";
+export const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 8;
+
+/** A finger or a stylus; a pointer that does not say counts when the device's primary pointer is coarse. */
+function isCoarsePress(e: { pointerType?: string }): boolean {
+  if (e.pointerType === "touch" || e.pointerType === "pen") return true;
+  if (e.pointerType === "mouse") return false;
+  try { return window.matchMedia?.("(pointer: coarse)").matches === true; } catch { return false; }
+}
+
+/*
  * ═══════════════════════════════════════════════════════════════════════════
  *  WIRING THIS COMPONENT STILL NEEDS FROM `app/chart/page.tsx`
  * ═══════════════════════════════════════════════════════════════════════════
@@ -1028,6 +1072,42 @@ export function DrawingToolbar({
   }, [setFlyoutOpen]);
   const railRef = useRef<HTMLDivElement>(null);
 
+  /*
+   * The long press that opens a group's flyout on a touch screen — see the
+   * note on `COARSE_STRIP`. `heldRef` remembers that a hold fired, so the
+   * click the browser delivers when the finger lifts is swallowed rather than
+   * arming the cell's tool underneath the menu it just opened.
+   */
+  const holdRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const heldRef = useRef(false);
+  const cancelHold = useCallback(() => {
+    if (holdRef.current) window.clearTimeout(holdRef.current.timer);
+    holdRef.current = null;
+  }, []);
+  useEffect(() => cancelHold, [cancelHold]);
+  const holdToOpen = (id: string) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      heldRef.current = false;
+      cancelHold();
+      if (!isCoarsePress(e)) return;
+      holdRef.current = {
+        x: e.clientX, y: e.clientY,
+        timer: window.setTimeout(() => {
+          holdRef.current = null;
+          heldRef.current = true;
+          setFlyout(id);
+        }, LONG_PRESS_MS),
+      };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const hold = holdRef.current;
+      if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > LONG_PRESS_SLOP_PX) cancelHold();
+    },
+    onPointerUp: cancelHold,
+    onPointerCancel: cancelHold,
+    onPointerLeave: cancelHold,
+  });
+
   const magnetOn = magnetMode ? magnetMode !== "off" : magnet;
 
   // TradingView keeps drawing-tool favourites across chart reloads. Keep the
@@ -1215,6 +1295,9 @@ export function DrawingToolbar({
    * stays with the icon. `.tvc-control` cannot be used here because the rail
    * scopes its chip to `inset: 2px 9px` — on an 11px strip that is a negative
    * width — so the state grammar is spelled out at this control's own size.
+   *
+   * On a coarse pointer it is always shown and its hit area is widened past
+   * the rail's edge (`COARSE_STRIP`), because a finger cannot hover.
    */
   const strip = (id: string, title: string) => (
     <button
@@ -1236,7 +1319,8 @@ export function DrawingToolbar({
         "absolute right-0 top-[2px] flex h-[34px] w-[11px] items-center justify-center "
         + "group/tip rounded-[4px] text-ink opacity-0 transition-none group-hover:opacity-100 "
         + "focus-visible:opacity-100 data-[open=true]:opacity-100 "
-        + "hover:bg-state-hover data-[open=true]:bg-state-hover"
+        + "hover:bg-state-hover data-[open=true]:bg-state-hover "
+        + COARSE_STRIP
       }
     >
       {tip(title, "group")}
@@ -1511,9 +1595,13 @@ export function DrawingToolbar({
         return (
           <div key={group.id} className="group relative">
             <button
-              onClick={() => onTool(current.tool)}
+              onClick={() => {
+                if (heldRef.current) { heldRef.current = false; return; }
+                onTool(current.tool);
+              }}
               onContextMenu={(e) => { e.preventDefault(); setFlyout(group.id); }}
-              className={btn()}
+              {...holdToOpen(group.id)}
+              className={`${btn()} ${COARSE_CELL}`}
               /*
                * A tool button is a toggle, and until now the only thing that
                * said which one was armed was a colour. That is invisible to a
