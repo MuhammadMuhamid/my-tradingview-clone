@@ -23,7 +23,7 @@ import { applyTemplateTo } from "@/lib/indicatorTemplates";
  * focus is only focus. In particular it does not move a staged order — see
  * `lib/tradingTarget`.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { captureLayoutWorkspace, restoreLayoutWorkspace } from "@/lib/layoutWorkspace";
 import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { useAsk } from "@/components/AskDialog";
@@ -384,7 +384,19 @@ export default function TvWorkspace() {
    * said". A default is what you get before you have an opinion; it must not
    * overrule one you have expressed.
    */
-  const [panel, setPanel] = useState<Panel>(openingPanel);
+  /*
+   * Starts from what the SERVER rendered — the default — and takes the stored
+   * choice in a layout effect, before the first client paint.
+   *
+   * `useState(openingPanel)` read storage during the first render: the server
+   * (no storage) drew the watchlist open, a client whose user had closed it
+   * drew the bare rail, and React threw the whole tree away as a hydration
+   * mismatch and rebuilt it client-side on every load.
+   */
+  const [panel, setPanel] = useState<Panel>(DEFAULT_PANEL);
+  /** The stored choice has been applied; until then nothing may overwrite it. */
+  const [panelRestored, setPanelRestored] = useState(false);
+  useLayoutEffect(() => { setPanel(openingPanel()); setPanelRestored(true); }, []);
 
   // ── the order ticket's target ──
   /** True while the ticket holds anything an operator typed, chose or attested. */
@@ -518,8 +530,10 @@ export default function TvWorkspace() {
 
   /* FG-01: desktop panel preference survives reloads; phone sheets are transient. */
   useEffect(() => {
-    if (!isMobile) rememberPanel(panel);
-  }, [isMobile, panel]);
+    // Not before the stored choice is on screen: the default the first render
+    // carries is not a choice, and writing it would erase the one that is.
+    if (panelRestored && !isMobile) rememberPanel(panel);
+  }, [isMobile, panel, panelRestored]);
   /** FG-04: bumped to toggle the bottom workstation from the keyboard. */
   const [bottomToggle, setBottomToggle] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
