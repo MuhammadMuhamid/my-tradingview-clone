@@ -98,8 +98,8 @@ const GLYPH_PATHS: Record<MenuGlyph, React.ReactNode> = {
 
 function Glyph({ name }: { name: MenuGlyph }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-menu-glyph="">
       {GLYPH_PATHS[name]}
     </svg>
   );
@@ -333,9 +333,9 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
       key={entry.id}
       role="group"
       aria-label={entry.label}
-      className="tvc-menu-row w-full gap-2 px-2"
+      className="tvc-menu-row w-full gap-1 px-2"
     >
-      <span className="flex w-5 shrink-0" aria-hidden="true" />
+      <span className="flex w-7 shrink-0" aria-hidden="true" />
       <span className="flex items-center gap-2">
         {entry.swatches.map((swatch, i) => {
           const on = entry.selected === swatch.id;
@@ -429,17 +429,25 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
           this product means direction, never danger (§2). The flag still keeps
           the keyboard cursor from LANDING on it when the menu opens.
         */
-        className={`tvc-menu-row w-full gap-2 px-2 text-left text-sm ${
+        className={`tvc-menu-row w-full gap-1 px-2 text-left text-sm ${
           entry.disabled ? "cursor-not-allowed text-ink-faint" : "text-ink"
         }`}
       >
         {/*
-          The 20px leading column: the check when the row is a toggle that is
+          The 28px leading column: the check when the row is a toggle that is
           ON, otherwise the row's own mark. In ink, never accent — a tick beside
           "Logarithmic" is the row saying it is on, which is selection, and
           selection in this product is never blue.
+
+          W2A-07: measured on live Premium's indicator menu (2026-10-11), the
+          mark is an 18px glyph in a 28×28 box 8px in from the row's edge, in
+          the row's own ink rgb(219), with the label 4px after the box. This
+          was a 14px glyph in a 20px column in muted rgb(168), on every menu,
+          so the whole family read a step fainter and smaller than the
+          reference. The column inherits the row's colour, so a disabled row's
+          mark greys with its label.
         */}
-        <span className="flex w-5 shrink-0 justify-center text-ink-muted">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center" data-menu-mark="">
           {entry.checked && <Check />}
           {!entry.checked && entry.glyph && <Glyph name={entry.glyph} />}
         </span>

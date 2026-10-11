@@ -587,9 +587,13 @@ function StudyButton(
 
         Hover is a hairline, not a fill: this sits on the candles, and a filled
         square there is the "bordered mini-toolbar" the owner vetoed.
+
+        W2A-07: in the full ink rgb(219) once revealed, as live Premium's are
+        (2026-10-11). They were faint rgb(140) and only reached ink under the
+        pointer, so the cluster read as disabled until each one was touched.
       */
       className="flex h-[22px] w-7 shrink-0 items-center justify-center rounded-sm border border-transparent
-        text-ink-faint transition-colors hover:border-border hover:text-ink"
+        text-ink transition-colors hover:border-border"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

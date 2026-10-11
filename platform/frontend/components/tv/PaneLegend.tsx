@@ -360,10 +360,16 @@ export function PaneLegend(props: PaneLegendProps) {
                   fill={flagFill ?? "none"} stroke={flagFill ?? "currentColor"} />
               </svg>
             </button>
+            {/*
+              W2A-07: `More` in the full ink, as live Premium's is (rgb(219),
+              2026-10-11). The flag beside it stays dim — Premium draws an
+              unset flag in rgb(87), a mark waiting to be set, not an action
+              that is unavailable.
+            */}
             {props.onOpenSeriesMenu && (
               <button
                 type="button"
-                {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
+                {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink transition-colors hover:border-border` }}
                 aria-label={`More for ${tickerLabel}`}
                 onClick={(event) => {
                   const box = event.currentTarget.getBoundingClientRect();

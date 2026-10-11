@@ -316,3 +316,31 @@ test("a ticked toggle row says so with its check, not with the selected chip", a
     "a verb row has no check to stand in for a chip");
   await press("Escape");
 });
+
+test("W2A-07 — a row's mark is an 18px glyph in a 28px box, in the row's own ink", async () => {
+  /*
+   * Live Premium's indicator and chart menus (2026-10-11): an 18px glyph
+   * inside a 28×28 icon box, in the row's ink rgb(219). Ours was a 14px glyph
+   * in a 20px column painted muted rgb(168), on every menu in the product.
+   * The mark inherits its colour from the row, so a disabled row's greys with
+   * its label rather than holding a colour of its own.
+   */
+  const chart = await mountChart();
+  await rightClickAt(chart.plot, PLOT.x, PLOT.y);
+  const menu = document.querySelector<HTMLElement>('[role="menu"]');
+  assert.ok(menu, "the chart menu did not open");
+  const marks = [...menu.querySelectorAll<HTMLElement>("[data-menu-mark]")];
+  assert.ok(marks.length > 0, "the rows carry a mark column");
+  const glyphs = marks.map((mark) => mark.querySelector("svg[data-menu-glyph]")).filter((svg) => svg !== null);
+  assert.ok(glyphs.length >= 3, "several rows draw a glyph");
+  for (const svg of glyphs) {
+    assert.equal(svg.getAttribute("width"), "18");
+    assert.equal(svg.getAttribute("height"), "18");
+  }
+  for (const mark of marks) {
+    assert.match(mark.className, /\bw-7\b/, "the box is 28px, the reference's");
+    assert.doesNotMatch(mark.className, /\btext-/,
+      "the mark has no colour of its own — it is the row's ink");
+  }
+  await press("Escape");
+});

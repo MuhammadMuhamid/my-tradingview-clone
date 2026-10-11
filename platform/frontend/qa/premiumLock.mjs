@@ -139,6 +139,11 @@ const chartMenu = await page.evaluate(() => {
     outline: getComputedStyle(m).outlineStyle === "none" || getComputedStyle(m).outlineColor === "rgba(0, 0, 0, 0)",
     highlighted: m.querySelectorAll('[data-highlighted="true"]').length,
     portalled: m.closest("[data-context-menu-root]")?.parentElement === document.body,
+    // W2A-07: 18px glyph, 28px box, the row's own ink (Premium 2026-10-11).
+    glyphs: [...m.querySelectorAll("[data-menu-mark] svg[data-menu-glyph]")].map((s) => Math.round(s.getBoundingClientRect().width)),
+    boxes: [...m.querySelectorAll("[data-menu-mark]")].map((s) => Math.round(s.getBoundingClientRect().width)),
+    markInk: [...m.querySelectorAll("[data-menu-mark]")].every((s) =>
+      getComputedStyle(s).color === getComputedStyle(s.closest(".tvc-menu-row")).color),
   };
 });
 check("context menu", "opens on right-click", chartMenu !== null);
@@ -147,6 +152,10 @@ check("context menu", "rows are 32px", chartMenu?.rowH.every((h) => h === 32), J
 check("context menu", "wears no focus ring", chartMenu?.outline);
 check("context menu", "opens with no row highlighted", chartMenu?.highlighted === 0, `${chartMenu?.highlighted}`);
 check("context menu", "is portalled to <body>", chartMenu?.portalled);
+check("context menu", "row glyphs are 18px in a 28px box", chartMenu?.glyphs.length > 0
+  && chartMenu.glyphs.every((w) => w === 18) && chartMenu.boxes.every((w) => w === 28),
+  JSON.stringify({ glyphs: chartMenu?.glyphs, boxes: chartMenu?.boxes }));
+check("context menu", "row glyphs are in the row's own ink", chartMenu?.markInk);
 await page.keyboard.press("Escape");
 await page.waitForTimeout(300);
 check("context menu", "Escape dismisses", !(await page.$('[role="menu"]')));
@@ -169,9 +178,12 @@ if (study) {
   await page.mouse.move(study.hover.x, study.hover.y);
   await page.waitForTimeout(400);
   const buttons = await page.evaluate(() => [...document.querySelector("[data-study-actions]").querySelectorAll("button")]
-    .map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), b.getAttribute("aria-label")]; }));
+    .map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), b.getAttribute("aria-label"), getComputedStyle(b).color]; }));
   check("study legend", "hover reveals >=4 actions at 28x22", buttons.length >= 4 && buttons.every(([w, h]) => w === 28 && h === 22),
     JSON.stringify(buttons));
+  // W2A-07: revealed in the full ink rgb(219), as Premium's are, not faint.
+  check("study legend", "revealed actions are in ink", buttons.every((b) => b[3] === "rgb(219, 219, 219)"),
+    JSON.stringify(buttons.map((b) => b[3])));
   const more = buttons.find((b) => /^More for/.test(b[2]));
   if (more) {
     const box = await page.locator(`[data-study-actions] button[aria-label="${more[2]}"]`).first().boundingBox();
