@@ -156,6 +156,85 @@ plot(acc)
   assert.equal(poolState().queued, 0);
 });
 
+/*
+ * W2D-01: a run whose caller has gone gives its place up.
+ *
+ * Every chart interval/symbol switch starts a fresh run of every applied study
+ * and the browser now cancels the one it superseded. Without this, the
+ * cancelled run still waited for — and then held — one of the pool's workers,
+ * so a few quick switches queued tens of seconds of unwanted work ahead of the
+ * run the chart was waiting for, which the Next proxy then cut off with a 500.
+ */
+const SLOW_SOURCE = `
+//@version=5
+indicator("slow")
+var float acc = 0.0
+// Inside every guard (100k per loop, 20M per run), so it is slow rather than
+// refused: 300 bars x 60k iterations.
+for i = 0 to 60000
+    acc := acc + math.sin(i)
+plot(acc)
+`;
+
+test("W2D-01: a QUEUED run whose caller aborts leaves the queue and never takes a worker", async () => {
+  const { max } = poolState();
+  const holders = Array.from({ length: max }, () => new AbortController());
+  const busy = holders.map((c) => runPineInWorker(request(SLOW_SOURCE, 20_000), c.signal));
+  const queuedCaller = new AbortController();
+  const queued = runPineInWorker(request(SLOW_SOURCE, 20_000), queuedCaller.signal);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(poolState().running, max);
+  assert.equal(poolState().queued, 1);
+
+  const started = Date.now();
+  queuedCaller.abort();
+  const out = await queued;
+  assert.equal(out.kind, "aborted");
+  assert.ok(Date.now() - started < 1_000, "a cancelled waiter must not wait for a worker");
+  assert.equal(poolState().queued, 0, "the cancelled run is still holding a place in the queue");
+  assert.equal(poolState().running, max, "and it must never have taken a slot");
+
+  // The runs that ARE running are cancelled too, and their threads stop.
+  const stopping = Date.now();
+  for (const c of holders) c.abort();
+  const outs = await Promise.all(busy);
+  assert.deepEqual(outs.map((o) => o.kind), holders.map(() => "aborted"));
+  assert.ok(Date.now() - stopping < 2_000, "a cancelled RUNNING run must free its worker at once");
+  assert.equal(poolState().running, 0);
+});
+
+test("W2D-01: a cancelled run hands its worker straight to the next waiter", async () => {
+  const { max } = poolState();
+  const holders = Array.from({ length: max }, () => new AbortController());
+  const busy = holders.map((c) => runPineInWorker(request(SLOW_SOURCE, 20_000), c.signal));
+  // The run the chart is actually waiting for, behind a full pool.
+  const wanted = runPineInWorker(request(`
+//@version=5
+indicator("wanted")
+plot(close)
+`, 10_000));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(poolState().queued, 1);
+  const started = Date.now();
+  holders[0]!.abort();
+  const out = await wanted;
+  assert.equal(out.kind, "ok");
+  assert.ok(Date.now() - started < 10_000,
+    "the wanted run waited for a superseded run to finish instead of taking its worker");
+  for (const c of holders) c.abort();
+  await Promise.all(busy);
+  assert.equal(poolState().running, 0);
+  assert.equal(poolState().queued, 0);
+});
+
+test("W2D-01: an already-aborted signal never starts a run", async () => {
+  const caller = new AbortController();
+  caller.abort();
+  const out = await runPineInWorker(request("//@version=5\nindicator(\"x\")\nplot(close)"), caller.signal);
+  assert.equal(out.kind, "aborted");
+  assert.equal(poolState().running, 0);
+});
+
 test("the worker entry starts without inheriting this thread's TypeScript loader", async () => {
   // A worker thread does not reliably inherit the parent's loader: on Node 22
   // the hooks tsx registers through `module.register()` do not apply inside

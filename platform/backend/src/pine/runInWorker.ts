@@ -49,19 +49,46 @@ export type PineRunOutcome =
   | { kind: "ok"; run: Record<string, unknown> }
   | { kind: "script-error"; errors: { line: number; col: number; message: string }[] }
   | { kind: "timeout"; budgetMs: number }
-  | { kind: "crash"; message: string };
+  | { kind: "crash"; message: string }
+  /** The caller went away first; nobody is waiting for an answer (W2D-01). */
+  | { kind: "aborted" };
 
 let running = 0;
 const waiting: (() => void)[] = [];
 
-async function acquire(): Promise<void> {
+/**
+ * A slot in the pool, or `false` if `signal` fired while waiting for one.
+ *
+ * W2D-01: a chart switches interval or symbol and starts a fresh run of every
+ * applied study, and the browser now cancels the run it superseded. Before
+ * this, a cancelled request still held its place in the queue and then a
+ * worker: five quick switches put five full runs ahead of the one the chart
+ * was waiting for, which then outlived the Next proxy's 30-second ceiling and
+ * came back as a 500. A waiter whose caller has gone leaves the queue without
+ * ever taking a slot.
+ */
+async function acquire(signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
   if (running < MAX_CONCURRENT) {
     running += 1;
-    return;
+    return true;
   }
   if (waiting.length >= MAX_QUEUED) throw new PineBusyError();
-  await new Promise<void>((resolve) => waiting.push(resolve));
-  running += 1;
+  const admitted = await new Promise<boolean>((resolve) => {
+    const admit = (): void => {
+      signal?.removeEventListener("abort", leave);
+      resolve(true);
+    };
+    const leave = (): void => {
+      const at = waiting.indexOf(admit);
+      if (at >= 0) waiting.splice(at, 1);
+      resolve(false);
+    };
+    waiting.push(admit);
+    signal?.addEventListener("abort", leave, { once: true });
+  });
+  if (admitted) running += 1;
+  return admitted;
 }
 
 function release(): void {
@@ -137,8 +164,17 @@ function crashOutcome(err: Error, entry: string): PineRunOutcome {
   };
 }
 
-export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutcome> {
-  await acquire();
+export async function runPineInWorker(
+  req: PineRunRequest,
+  /**
+   * Fired when the caller no longer wants the answer — the route wires it to
+   * the client's connection closing. A queued run leaves the queue; a running
+   * one has its thread terminated, so the slot goes to the next waiter now
+   * rather than when a result nobody will read is finished.
+   */
+  signal?: AbortSignal,
+): Promise<PineRunOutcome> {
+  if (!(await acquire(signal))) return { kind: "aborted" };
   try {
     return await new Promise<PineRunOutcome>((resolve) => {
       const payload: PineWorkerRequest = req;
@@ -149,10 +185,12 @@ export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutco
       });
       let settled = false;
       let failed = false;
+      const onAbort = (): void => finish({ kind: "aborted" });
       const finish = (outcome: PineRunOutcome): void => {
         if (settled) return;
         settled = true;
         clearTimeout(killer);
+        signal?.removeEventListener("abort", onAbort);
         void worker.terminate();
         resolve(outcome);
       };
@@ -162,6 +200,8 @@ export async function runPineInWorker(req: PineRunRequest): Promise<PineRunOutco
       );
       // Do not hold the process open for a run nobody is waiting on.
       killer.unref?.();
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
       worker.on("message", (msg: PineWorkerResponse) => finish(msg));
       worker.on("error", (err) => {
         failed = true;

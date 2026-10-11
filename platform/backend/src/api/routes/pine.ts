@@ -259,6 +259,20 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
+    /*
+     * W2D-01: a caller that has gone does not keep its place in the pool.
+     *
+     * The chart cancels the run it superseded whenever it switches symbol or
+     * interval. The response's `close` before it has finished writing is the
+     * connection going away — the browser's abort, carried through the Next
+     * proxy — and the worker pool then drops the run (queued) or terminates
+     * its thread (running), so the run the chart is waiting for is not queued
+     * behind work nobody will read.
+     */
+    const gone = new AbortController();
+    const onClose = (): void => { if (!reply.raw.writableFinished) gone.abort(); };
+    reply.raw.once("close", onClose);
+
     let outcome;
     try {
       outcome = await runPineInWorker({
@@ -273,14 +287,21 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
         // anything else either, because it runs off this thread — but it is
         // still bounded, and the thread is terminated if it overruns.
         timeBudgetMs: EDITOR_TIME_BUDGET_MS,
-      });
+      }, gone.signal);
     } catch (err) {
       if (err instanceof PineBusyError) {
         return reply.code(503).send({ error: err.message });
       }
       throw err;
+    } finally {
+      reply.raw.off("close", onClose);
     }
 
+    if (outcome.kind === "aborted") {
+      // Nobody is reading this. 499 is the conventional "client closed" code
+      // for the access log; the socket is already gone.
+      return reply.code(499).send({ error: "the run was cancelled by the client" });
+    }
     if (outcome.kind === "ok") return { ok: true, errors: [], ...outcome.run };
     if (outcome.kind === "script-error") {
       return { ok: false, errors: outcome.errors, meta: compiled.meta };
