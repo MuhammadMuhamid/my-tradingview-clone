@@ -126,7 +126,7 @@ test("edit opens on what the alert holds, under the create dialog's own grammar"
   assertAbsent(screen.queryByLabelText("Alert symbol"), "the free-text symbol row came back");
   assertAbsent(screen.queryByLabelText("Price direction"), "the native direction select came back");
   assert.deepEqual([...dialog.querySelectorAll("select")].map((s) => s.id),
-    ["alert-frequency"], "a native <select> the create dialog does not have is in the edit dialog");
+    [], "a native <select> is in the edit dialog");
   assert.ok(screen.getByRole("button", { name: "Pick" }), "the edit lost pick-from-chart");
   assert.ok(screen.getByRole("button", { name: "Save" }));
 });

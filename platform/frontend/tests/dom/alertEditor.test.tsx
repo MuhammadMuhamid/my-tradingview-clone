@@ -70,9 +70,8 @@ test("the title is the create dialogs' — Edit alert, then the ticker — and n
   const dialog = screen.getByRole("dialog");
   assert.match(within(dialog).getByRole("heading").textContent ?? "", /Edit alert\s*SOLUSDT\s*RSI/);
 
-  // The one native select left is the shared FrequencyField, which every
-  // create dialog carries as well.
-  assert.deepEqual([...dialog.querySelectorAll("select")].map((s) => s.id), ["alert-frequency"],
+  // No native select at all: the shared FrequencyField is a Dropdown too.
+  assert.deepEqual([...dialog.querySelectorAll("select")].map((s) => s.id), [],
     "a native <select> is back in the editor");
   assert.match(screen.getByRole("button", { name: "Alert condition" }).textContent ?? "", /Crosses above/);
   assert.match(screen.getByRole("button", { name: "What the RSI crosses" }).textContent ?? "",

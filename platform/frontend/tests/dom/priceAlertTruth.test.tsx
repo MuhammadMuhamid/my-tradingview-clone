@@ -271,8 +271,8 @@ test("a live frame is not qualified, because it is the market", async () => {
 test("the frequency explains what it evaluates, and warns when it stops waiting for the close", async () => {
   await openDialog();
 
-  const frequency = screen.getByLabelText("Frequency") as HTMLSelectElement;
-  assert.equal(frequency.value, "once_per_bar_close", "the default frequency moved");
+  const frequency = screen.getByRole("button", { name: "Frequency" });
+  assert.match(frequency.textContent ?? "", /Once per bar close — default/, "the default frequency moved");
   assert.match(body(), /Evaluates only completed candles/,
     "the default frequency is not explained");
   // "each candle" needs a length, and the length is this alert's timeframe.
@@ -282,8 +282,7 @@ test("the frequency explains what it evaluates, and warns when it stops waiting 
 
   // An intrabar mode is not a mistake — it is a different promise, and the
   // dialog has to state it before the user accepts it.
-  fireEvent.change(frequency, { target: { value: "once_per_bar" } });
-  await settle();
+  await chooseInDropdown("Frequency", /^Once per bar$/);
   assert.match(body(), /Triggers the first moment the condition becomes true inside each candle/);
   const warning = document.querySelector<HTMLElement>('[role="note"]');
   assert.ok(warning, "an intrabar frequency carried no warning");
