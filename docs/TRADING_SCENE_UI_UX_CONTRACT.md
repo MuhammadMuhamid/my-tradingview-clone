@@ -866,6 +866,10 @@ from being lost — §9 has the test:
 | a study settings dialog (built-in and Pine) is one fixed size on every tab; its tab panel scrolls | `tests/dom/studySettings.test.tsx`, `tests/dom/pineStudySettings.test.tsx` |
 | the interval menu is Premium's full-height column from the viewport top (re-measured on Premium 2026-10-11: 196×900 at y=0) — not a dropdown under the caret | `tests/dom/intervals.test.tsx` |
 | a study pane's buttons end 4px left of its price axis | `tests/dom/paneButtonsAxis.test.tsx` |
+| the axis `⊕` sits outside the price axis; the axis chips reveal for the whole axis | `tests/dom/axisPlusButton.test.tsx` |
+| a menu row's mark is an 18px glyph in a 28px box in the row's own ink | `tests/dom/contextMenu.test.tsx`, `qa/premiumLock.mjs` |
+| a right-click on a legend row is the legend's display menu; the study's own menu is its `⋯` | `tests/dom/legendStudyActions.test.tsx` |
+| an alert dialog confirms in `contrast` and names its symbol in ink | `tests/alertEditing.test.ts` |
 | a backtest result counts one population (entries) per row and names it; the last window is "Validation", never "frozen"; a failed run leads with the reader's sentence and keeps the engine's words behind a disclosure; a run can be reproduced from its page | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts` |
 
 Add to this table when you add a rule worth protecting. Prefer semantic DOM
