@@ -1294,7 +1294,10 @@ export default function TvWorkspace() {
   useEffect(() => {
     const target = parseScannerChartTarget(window.location.search);
     if (!target) return;
-    setWorkspace((ws) => applyPaneSymbol(ws, ws.activePaneId, target.symbol, DEFAULT_SYNC));
+    // Every pane, as it always did: this prefill was written against a default
+    // with symbol sync on, and B-09 moved only the default (`lib/paneSync`).
+    setWorkspace((ws) => applyPaneSymbol(ws, ws.activePaneId, target.symbol,
+      { ...DEFAULT_SYNC, symbol: true }));
     setTrades([]);
     if (target.panel === "manual") setPanel("manual");
   }, []);

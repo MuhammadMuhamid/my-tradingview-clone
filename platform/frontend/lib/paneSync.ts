@@ -33,12 +33,17 @@ export interface SyncOptions {
 }
 
 /**
- * Symbol and crosshair on, the rest off — matching TradingView, and the only
- * combination that is useful without first being configured: reading several
- * resolutions of one instrument at the same instant.
+ * Crosshair on, the rest off — matching TradingView Premium.
+ *
+ * B-09: symbol sync used to be on by default too ("Sync across charts — 2 of
+ * 5 on"), so clicking a watchlist row retargeted EVERY chart in a new layout,
+ * which the reference does not do: a fresh multi-chart layout there follows
+ * the crosshair only, and each chart keeps its own instrument until the user
+ * turns Symbol on. Only the default moved. A choice already stored is merged
+ * over it by `loadSync` and wins, so nobody's saved setting is rewritten.
  */
 export const DEFAULT_SYNC: SyncOptions = {
-  symbol: true,
+  symbol: false,
   interval: false,
   crosshair: true,
   time: false,

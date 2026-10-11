@@ -61,6 +61,11 @@ test("the result is always the newest bar at or before the time", () => {
 test("crosshair is on by default and every option has a label", () => {
   assert.equal(DEFAULT_SYNC.crosshair, true);
   assert.equal(DEFAULT_SYNC.interval, false);
+  // B-09: a new layout does not sync symbols — Premium's default. A stored
+  // choice still wins (`loadSync` merges it over this).
+  assert.equal(DEFAULT_SYNC.symbol, false);
+  assert.equal(DEFAULT_SYNC.time, false);
+  assert.equal(DEFAULT_SYNC.dateRange, false);
   const ids = SYNC_LABELS.map((o) => o.id).sort();
   assert.deepEqual(ids, ["crosshair", "dateRange", "interval", "symbol", "time"]);
   // Every declared option must be renderable, or the menu silently drops one.
