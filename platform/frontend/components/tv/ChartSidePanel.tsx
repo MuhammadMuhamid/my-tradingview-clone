@@ -394,7 +394,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
       <button
         onClick={() => props.onPanel((p) => (p === "ma" ? null : "ma"))}
         className={railBtn(props.panel === "ma")}
-        data-tooltip="Moving averages and the alerts armed on them"
+        data-tooltip="Moving averages, and every alert armed on this symbol"
         aria-label="Moving averages"
         aria-pressed={props.panel === "ma"}
       >

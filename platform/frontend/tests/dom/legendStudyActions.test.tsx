@@ -242,6 +242,25 @@ test("W2A-11 — a right-click on a study row is the LEGEND's menu, and it moves
   await press("Escape");
 });
 
+test("W2A-13 — the Indicators rail badge and toolbar count every study on the chart", async () => {
+  /*
+   * Both counted the Pine list alone, so a chart carrying RSI and ATR said
+   * nothing at all, and one with a strategy beside them said "1".
+   */
+  window.localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([
+    { key: "rsi-1", defId: "rsi", params: { length: 14, source: "close" }, visible: true, styles: {} },
+    { key: "atr-1", defId: "atr", params: { length: 14 }, visible: true, styles: {} },
+  ]));
+  await mountChart();
+  await settle();
+  const rail = screen.getAllByRole("button", { name: "Indicators" })
+    .find((b) => b.hasAttribute("data-tooltip") && b.getAttribute("data-tooltip") === "Indicators");
+  assert.ok(rail, "no Indicators rail cell");
+  assert.equal(rail.textContent?.trim(), "2", "the rail badge counts the built-ins on the chart");
+  assert.ok(screen.getByRole("button", { name: "Indicators — 2 on the focused chart" }),
+    "and the toolbar's label says the same number");
+});
+
 test("A5 — a study the alert engine does not evaluate offers no alert row", async () => {
   window.localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([{
     key: "atr-1", defId: "atr", params: { length: 14 }, visible: true, styles: {},

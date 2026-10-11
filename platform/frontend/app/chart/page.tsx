@@ -895,6 +895,13 @@ export default function TvWorkspace() {
 
   const activeIndicatorList = useMemo(
     () => indicatorLists[active.id] ?? [], [indicatorLists, active.id]);
+  /*
+   * W2A-13: how many studies are ON the focused chart — Pine and built-in,
+   * the number the Indicators panel heads its `On chart (n)` list with. The
+   * rail badge and the toolbar's label counted the Pine list alone, so a chart
+   * carrying an RSI, an ATR and one strategy said "1".
+   */
+  const onChartStudyCount = activeIndicatorList.length + (activeNativeStudies?.list.length ?? 0);
   const activeIndicators = useMemo<IndicatorsApi | null>(() => {
     const get = indicatorApis.current.get(active.id);
     if (!get) return null;
@@ -2820,7 +2827,7 @@ export default function TvWorkspace() {
           syncDisabled={paneCount < 2}
           bars={bars}
           onBars={changeBars}
-          indicatorCount={activeIndicatorList.length}
+          indicatorCount={onChartStudyCount}
           onOpenIndicators={() => setIndicatorBrowserOpen(true)}
           onAddFavoriteIndicator={(id) => { activeNativeStudies?.add(id); }}
           indicatorTemplateStudies={{ indicators: activeIndicatorList, native: activeNativeStudies?.list ?? [] }}
@@ -3113,7 +3120,7 @@ export default function TvWorkspace() {
         nativeStudies={activeNativeStudies}
         onEditNative={setEditingNativeKey}
         onEditPine={(key) => editPine(active.id, key)}
-        indicatorCount={activeIndicatorList.length}
+        indicatorCount={onChartStudyCount}
         indicatorFocusKey={indicatorFocusKey}
         onOpenInEditor={openInEditor}
         onEditIndicator={editIndicator}

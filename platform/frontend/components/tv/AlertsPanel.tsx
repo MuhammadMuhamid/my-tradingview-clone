@@ -139,7 +139,7 @@ export function AlertsPanel({ onCreateAlert }: { onCreateAlert: () => void }) {
                 as a real order.
               </p>
               <p className="text-xs text-ink-faint">
-                Looking to be notified about a price instead? That is the bell in the toolbar.
+                Looking to be notified about a price instead? That is the bell in the toolbar — the alerts you have armed are listed under Moving averages.
               </p>
               <button onClick={onCreateAlert} className="rounded-md bg-ink px-4 py-1.5 text-sm font-semibold text-bg hover:bg-ink/90">
                 Automate a strategy
