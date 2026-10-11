@@ -533,7 +533,7 @@ function StudyButton(
         Hover is a hairline, not a fill: this sits on the candles, and a filled
         square there is the "bordered mini-toolbar" the owner vetoed.
       */
-      className="flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent
+      className="flex h-[22px] w-7 shrink-0 items-center justify-center rounded-sm border border-transparent
         text-ink-faint transition-colors hover:border-border hover:text-ink"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
