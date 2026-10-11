@@ -580,16 +580,31 @@ test("worst return is linear in the series, so a long minute-bar search does not
   /*
    * 540 days of 1-minute bars with a one-day window was measured holding the
    * event loop for 8.2 seconds (29 s on a slower machine), because every
-   * position re-read all 1,440 bars of its window. Ranking on return needs
-   * two closes per position. The ceiling is generous, so a loaded machine
-   * does not fail it and the quadratic version cannot pass it.
+   * position re-read all of its window's bars: O(N·L). Ranking on return needs
+   * two closes per position.
+   *
+   * Asserted as a RATIO, not a wall-clock ceiling. A ceiling failed under a
+   * loaded parallel suite (5.5 s for work that takes 0.47 s alone) and a
+   * ceiling loose enough to survive load lets the quadratic version through.
+   * Making the window 16x longer leaves a linear search almost unchanged and
+   * makes an O(N·L) one 16x slower, whatever the machine is doing; the best of
+   * three runs each keeps a scheduler hiccup from deciding it.
    */
-  const candles = randomWalk(400_000, 99, 0.004);
-  const started = performance.now();
-  const windows = discoverStressWindows(candles, { method: "worst_return", lengthBars: 1440, topN: 10 });
-  const elapsed = performance.now() - started;
-  assert.equal(windows.length, 10);
-  assert.ok(elapsed < 3000, `discovery took ${Math.round(elapsed)} ms`);
+  const candles = randomWalk(200_000, 99, 0.004);
+  const best = (lengthBars: number): number => {
+    let fastest = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const started = performance.now();
+      const windows = discoverStressWindows(candles, { method: "worst_return", lengthBars, topN: 10 });
+      fastest = Math.min(fastest, performance.now() - started);
+      assert.equal(windows.length, 10);
+    }
+    return fastest;
+  };
+  const short = best(90);
+  const long = best(1440);
+  assert.ok(long < short * 4 + 50,
+    `a 16x longer window took ${Math.round(long)} ms against ${Math.round(short)} ms — the search is not linear`);
 });
 
 test("the expensive rankings are bounded, and the refusal says what to change", () => {
