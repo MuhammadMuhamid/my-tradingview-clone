@@ -375,7 +375,7 @@ test("a compounding run is told WHY it has no split, not shown a blank", () => {
   assert.ok(screen.getByText(/fixed cash size/), "and it must name the change that answers it");
 });
 
-test("the holdout is named as frozen, and the covered window is not the requested one", () => {
+test("the last window is named for what it is, and the covered window is not the requested one", () => {
   render(<RunWindows initialCapital={1000}
     segments={{
       available: true, holdoutFraction: 0.2,
@@ -399,9 +399,15 @@ test("the holdout is named as frozen, and the covered window is not the requeste
       fillTiming: "signal_bar_close",
     }} />);
 
-  assert.ok(screen.getByText(/Holdout \(frozen\)/), "the frozen window must be named as frozen");
-  assert.ok(screen.getByText(/never select on it/i),
-    "what makes it a holdout is that nothing is chosen on it; that has to be said");
+  /*
+   * It was "Holdout (frozen) — report it, never select on it", and it is
+   * neither: the engine cuts the last fraction of whatever range was chosen,
+   * on every run, and the headline includes it. `researchResult.test.tsx`
+   * holds the rest of that rule.
+   */
+  assert.ok(screen.getAllByText(/^Validation$/).length > 0, "the last window is the validation window");
+  assert.ok(screen.getByText(/it is not withheld/i),
+    "and the reader is told it is not withheld, rather than that it is frozen");
   assert.ok(screen.getByText(/simulated a narrower window than was requested/i),
     "a short run must say so, or its figures describe a window the reader did not ask for");
   assert.ok(screen.getByText(/at the signal bar's close/),
@@ -413,6 +419,6 @@ test("the holdout is named as frozen, and the covered window is not the requeste
 test("a run recorded before the split says so, rather than implying it had none", () => {
   render(<RunWindows segments={null} execution={null} initialCapital={1000} />);
   assert.ok(screen.getByText(/predates the window split/i));
-  assert.ok(screen.getByText(/not a\s*statement that it had no holdout/i),
+  assert.ok(screen.getByText(/not a\s*statement that it had no validation window/i),
     "absence of a record is not evidence of absence, and the panel must not imply it is");
 });

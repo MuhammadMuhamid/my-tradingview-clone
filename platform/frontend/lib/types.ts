@@ -141,6 +141,25 @@ export interface BacktestMetrics {
   avgTradePct: number;
   avgBarsInTrade: number;
   commissionPaid: number;
+  /*
+   * The trade figures per ENTRY, beside the leg-based ones above.
+   *
+   * `totalTrades`, and on the HEADLINE `winRatePct` / `profitFactor`, count
+   * exit LEGS — a partial take-profit closes one entry as several. A window's
+   * `winRatePct` / `profitFactor` are ENTRY-based (the engine overwrites them)
+   * while its `totalTrades` is still legs. These fields name the entry
+   * population outright; runs recorded before they existed lack them, and
+   * `lib/backtestFigures.ts` decides what such a row can honestly be shown as.
+   */
+  entries?: number;
+  winningEntries?: number;
+  losingEntries?: number;
+  entryWinRatePct?: number;
+  entryProfitFactor?: number | null;
+  avgEntryPct?: number;
+  avgBarsPerEntry?: number;
+  legWinRatePct?: number;
+  legProfitFactor?: number | null;
   /** Position still running at the end of the window; never counted above. */
   openTrade?: OpenTrade | null;
 }
@@ -195,6 +214,14 @@ export interface Backtest {
    * kinds of evidence.
    */
   stressRunId: string | null;
+  /** Engine / correction-set identity that produced the stored result. */
+  engineFingerprint?: string | null;
+  /** The full market, data and methodology envelope; null on historical rows. */
+  resultProvenance?: Record<string, unknown> | null;
+  /** Read-time label for how much of this result's meaning was recorded. */
+  semanticsStatus?: "historical_unversioned" | "engine_only_legacy" | "reproducible";
+  startedAt?: string | null;
+  finishedAt?: string | null;
   createdAt: string;
 }
 

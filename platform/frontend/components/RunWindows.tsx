@@ -2,6 +2,9 @@ import Link from "next/link";
 import { Card, CardHeader, Notice } from "@/components/ui";
 import type { BacktestMetrics, BacktestSegments, ExecutionTruth, SegmentWindow } from "@/lib/types";
 import { fmtNum, fmtPct, signClass, UTC_DATE_NOTE } from "@/lib/format";
+import {
+  LOW_SAMPLE_WINDOW, profitFactorText, tradeFigures, unitOf, validationLabel, winRateText,
+} from "@/lib/backtestFigures";
 
 /** A window's dates, in the product's own UTC grammar. */
 function windowLabel(w: SegmentWindow): string {
@@ -13,12 +16,17 @@ function days(w: SegmentWindow): number {
   return Math.max(0, Math.round((w.endMs - w.startMs) / 86_400_000));
 }
 
-function SegmentRow({ name, note, window, m }: {
+function SegmentRow({ name, note, window, m, tone }: {
   name: string; note: string; window: SegmentWindow; m: BacktestMetrics;
+  /** The validation row is set apart, so the eye lands on the split. */
+  tone: "development" | "validation";
 }) {
+  const f = tradeFigures(m);
+  const low = f.count > 0 && f.count < LOW_SAMPLE_WINDOW;
   return (
-    <tr className="border-b border-border/50">
-      <td className="px-4 py-2">
+    <tr className={`border-b border-border/50 ${tone === "validation" ? "bg-state-hover" : ""}`}
+      data-window={tone}>
+      <td className={`border-l-2 px-4 py-2 ${tone === "validation" ? "border-l-ink-faint" : "border-l-transparent"}`}>
         <div className="font-medium text-ink">{name}</div>
         <div className="text-xs text-ink-faint">{note}</div>
       </td>
@@ -28,21 +36,58 @@ function SegmentRow({ name, note, window, m }: {
       </td>
       <td className={`px-4 py-2 text-right ${signClass(m.netProfitPct)}`}>{fmtPct(m.netProfitPct)}</td>
       <td className="px-4 py-2 text-right">-{fmtNum(m.maxDrawdownPct)}%</td>
-      <td className="px-4 py-2 text-right">{m.totalTrades}</td>
-      <td className="px-4 py-2 text-right">
-        {m.totalTrades === 0 ? "—" : `${fmtNum(m.winRatePct, 1)}%`}
+      <td className="px-4 py-2 text-right"
+        title={f.basis === "entries" ? `${f.count} ${unitOf(f.basis, f.count)} closed as ${f.legs} exit legs` : "exit legs"}>
+        {f.count}
+        {/*
+          A rate over twenty entries is twelve wins and eight losses; one more
+          loss moves it five points. The validation window — a fifth of the
+          run by default — is where this is common, and it is the window a
+          reader most wants to believe.
+        */}
+        {low && <div className="text-xs text-warn">low sample</div>}
       </td>
+      <td className="px-4 py-2 text-right">{winRateText(f)}</td>
       <td className="px-4 py-2 text-right">
         {/*
           `profitFactor` is null both for "no losses" and for "no trades", and
-          the second is common here — the holdout is a fifth of every run. A
-          window that took nothing showed the same ∞ as a window that lost
-          nothing, which is the strongest possible claim about the weakest
-          possible evidence.
+          the second is common here. A window that took nothing showed the same
+          ∞ as a window that lost nothing — `profitFactorText` holds that rule
+          for every surface now.
         */}
-        {m.totalTrades === 0 ? "—" : m.profitFactor === null ? "∞" : fmtNum(m.profitFactor)}
+        {profitFactorText(f)}
       </td>
     </tr>
+  );
+}
+
+/**
+ * The run's range as one bar, divided where the windows divide it.
+ *
+ * Three rows of dates do not show proportion, and proportion is the point: a
+ * validation window that is a fifth of the range reads very differently from
+ * one that is a twentieth. Neutral fills only — this is a statement about
+ * dates, not a direction or an action — with the validation part set apart by
+ * its own weight and its label.
+ */
+function SplitBar({ split, fraction }: {
+  split: { inSample: SegmentWindow; outOfSample: SegmentWindow; holdout: SegmentWindow };
+  fraction: number;
+}) {
+  const total = Math.max(1, split.holdout.endMs - split.inSample.startMs);
+  const pct = (w: SegmentWindow): string => `${((w.endMs - w.startMs) / total) * 100}%`;
+  return (
+    <div className="px-4 pt-3" aria-hidden="true">
+      <div className="flex h-2 overflow-hidden rounded-md border border-border">
+        <div className="bg-state-hover" style={{ width: pct(split.inSample) }} />
+        <div className="border-l border-border bg-state-active" style={{ width: pct(split.outOfSample) }} />
+        <div className="border-l border-ink-faint bg-ink-faint/50" style={{ width: pct(split.holdout) }} />
+      </div>
+      <div className="mt-1 flex text-[11px] text-ink-faint">
+        <span style={{ width: `${(1 - fraction) * 100}%` }}>Development</span>
+        <span className="font-medium text-ink-muted">Validation</span>
+      </div>
+    </div>
   );
 }
 
@@ -58,11 +103,17 @@ function SegmentRow({ name, note, window, m }: {
  * seen. That is the difference between a measurement and a hope, and it was
  * invisible.
  *
- * The holdout is FROZEN: it is reported once and never selected on. The
- * distinction is worth the words because the out-of-sample window in this
- * product's own optimizer history was consumed by selection — gated and
- * maximised over — which is how an apparently validated configuration can be a
- * selection artefact.
+ * ── What the last window is, and is not ────────────────────────────────────
+ *
+ * It was labelled "Holdout (frozen) — report it, never select on it". It is
+ * neither frozen nor withheld: the engine takes the last fraction of WHATEVER
+ * range was chosen, on every run, and the headline and the equity curve
+ * include it. Re-running over a later range moves it; tuning a parameter and
+ * re-running consumes it. So it is named for what it is — the validation
+ * window, the last N% of this run — and the reader is told that it is only a
+ * check on the development window if they did not tune against it. Nothing in
+ * this product enforces that, and the copy no longer implies that something
+ * does.
  */
 export function RunWindows({ segments, execution, initialCapital, stressRunId = null }: {
   segments: BacktestSegments | null;
@@ -72,18 +123,19 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
   stressRunId?: string | null;
 }) {
   /*
-   * ── A stress window has no holdout, and must not be shown one ────────────
+   * ── A stress window has no validation split, and must not be shown one ───
    *
    * `engine/stress.ts` opens by forbidding exactly this: "The product must
    * never present a stress score beside a holdout score as though the two were
    * the same kind of number." A stress window is selected BECAUSE of what
-   * happened in it; a holdout is frozen and never selected on.
+   * happened in it; a validation window is simply the last part of a range
+   * chosen for some other reason.
    *
    * A stress window nevertheless executes as an ordinary backtest — that is
    * deliberate, so its numbers are comparable — so this panel would happily
-   * carve its last fifth off and label it "Holdout (frozen) — report it, never
-   * select on it" over four days of a hand-picked crash. The split is
-   * suppressed and the run says what it is instead.
+   * carve its last fifth off and label it a validation window over four days
+   * of a hand-picked crash. The split is suppressed and the run says what it
+   * is instead.
    */
   if (stressRunId !== null) {
     return (
@@ -92,7 +144,7 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
         <div className="px-4 py-4 text-sm text-ink-muted">
           <span className="font-medium text-ink">This run is one window of a stress analysis.</span>{" "}
           Its dates were chosen by searching history for the benchmark&rsquo;s worst stretches, so
-          they are selected with hindsight — there is no development, out-of-sample or holdout
+          they are selected with hindsight — there is no development, out-of-sample or validation
           split to make of them, and showing one would invite exactly the reading the analysis
           cannot support.{" "}
           <Link href="/stress" className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
@@ -147,8 +199,8 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
         <CardHeader title="Windows and execution" />
         <div className="px-4 py-6 text-sm text-ink-faint">
           This run predates the window split, so it has none recorded. That is not a
-          statement that it had no holdout — the run simply did not store one. Re-run it
-          to see the division.
+          statement that it had no validation window — the run simply did not store one.
+          Re-run it to see the division.
         </div>
       </Card>
     );
@@ -165,6 +217,16 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
     && execution.covered !== null
     && (execution.covered.startMs > execution.requested.startMs + DAY_MS
       || execution.covered.endMs < execution.requested.endMs - DAY_MS);
+
+  /*
+   * One unit for the whole table. Every row of a run recorded since the
+   * engine counted windows per entry is in entries; a column header that said
+   * "Trades" above an entry count was half of the original defect.
+   */
+  const rows = segments?.available ? [segments.inSample, segments.outOfSample, segments.holdout] : [];
+  const allEntries = rows.every((m) => tradeFigures(m).basis === "entries");
+  const countHeader = allEntries ? "Entries" : "Trades";
+  const countUnit = allEntries ? "entries" : "exit legs";
 
   return (
     <Card>
@@ -251,6 +313,7 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
         <div className="px-4 py-4 text-sm text-ink-muted">{segments.reason}</div>
       ) : segments?.available ? (
         <div className="overflow-x-auto">
+          <SplitBar split={segments.split} fraction={segments.holdoutFraction} />
           <table className="w-full min-w-[760px] text-sm tabular">
             <thead>
               <tr className="border-b border-border text-left text-xs text-ink-muted">
@@ -258,27 +321,29 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
                 <th className="px-4 py-2 font-medium" title={UTC_DATE_NOTE}>Dates (UTC)</th>
                 <th className="px-4 py-2 font-medium text-right">Net %</th>
                 <th className="px-4 py-2 font-medium text-right">Max DD</th>
-                <th className="px-4 py-2 font-medium text-right">Trades</th>
+                <th className="px-4 py-2 font-medium text-right">{countHeader}</th>
                 <th className="px-4 py-2 font-medium text-right">Win %</th>
                 <th className="px-4 py-2 font-medium text-right">PF</th>
               </tr>
             </thead>
             <tbody>
-              <SegmentRow name="Development" note="the strategy was built against this"
-                window={segments.split.inSample} m={segments.inSample} />
-              <SegmentRow name="Out of sample" note="not developed on — but often selected on"
-                window={segments.split.outOfSample} m={segments.outOfSample} />
-              <SegmentRow name="Holdout (frozen)"
-                note={`the last ${Math.round(segments.holdoutFraction * 100)}% — report it, never select on it`}
-                window={segments.split.holdout} m={segments.holdout} />
+              <SegmentRow name="Development · in sample" note="the first half of the development window"
+                tone="development" window={segments.split.inSample} m={segments.inSample} />
+              <SegmentRow name="Development · out of sample" note="the second half of the development window"
+                tone="development" window={segments.split.outOfSample} m={segments.outOfSample} />
+              <SegmentRow name="Validation"
+                note={validationLabel(segments.holdoutFraction)}
+                tone="validation" window={segments.split.holdout} m={segments.holdout} />
             </tbody>
           </table>
           <p className="px-4 py-3 text-xs text-ink-faint">
-            The three windows come from one simulation, divided by date; a trade belongs to
-            the window that closed it. The holdout is the only one of the three that nothing
-            may be chosen on — an out-of-sample window that has been gated or ranked against
-            has become a second selection criterion, and its agreement with the development
-            window is then an artefact rather than evidence.
+            The three windows come from one simulation over the range you chose, divided by date.
+            A trade belongs to the window that closed it, so an entry whose exits straddle a
+            boundary is counted in each window it closed in. The validation window is the{" "}
+            {validationLabel(segments.holdoutFraction)}, and it is not withheld: the headline
+            figures and the equity curve include it, and a different range moves it. It is a check
+            on the development windows only if you did not tune the strategy against it. Every
+            count and rate in a row is over the same {countUnit}.
           </p>
         </div>
       ) : null}
