@@ -608,6 +608,38 @@ test("the history bound is the server's own number", () => {
     "the dialog would name a limit the runner does not have");
 });
 
+test("W2A-08 — an alert dialog confirms in contrast, names its symbol in ink, and draws no fourth button", () => {
+  /*
+   * Contract §3: a dialog's CONFIRMING action is the `contrast` Button (live
+   * Premium's alert dialogs confirm in a light fill, not blue), and accent is
+   * never a title's decoration. These dialogs confirmed in accent blue and
+   * printed the ticker in accent, and the price dialog's `Pick` was a
+   * hand-rolled 45×32 at radius 4 — a third height and a fourth radius.
+   *
+   * `IndicatorAlertModal` follows in its own change (it is being reworked
+   * separately); it is the one alert dialog not listed here.
+   */
+  const dialogs = [
+    "components/tv/PriceAlertModal.tsx",
+    "components/tv/LevelAlertModal.tsx",
+    "components/tv/MaAlertModal.tsx",
+    "components/tv/EditAlertModal.tsx",
+    "components/tv/AlertEditor.tsx",
+    "components/tv/AlertModal.tsx",
+  ];
+  for (const file of dialogs) {
+    const src = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+    assert.doesNotMatch(src, /<Button variant="primary"/, `${file}: the confirming action is accent`);
+    assert.match(src, /<Button variant="contrast"/, `${file}: no contrast confirming action`);
+    const from = src.includes("const title = ") ? src.indexOf("const title = ") : src.indexOf("title=");
+    const title = src.slice(from, src.indexOf("footer="));
+    assert.doesNotMatch(title, /text-accent/, `${file}: the title paints its symbol in accent`);
+  }
+  const price = fs.readFileSync(path.join(__dirname, "..", "components/tv/PriceAlertModal.tsx"), "utf8");
+  assert.match(price, /<Button onClick=\{onPickFromChart\}/, "Pick is the shared 34px Button");
+  assert.doesNotMatch(price, /<button[^>]*onClick=\{onPickFromChart\}/, "and not a hand-rolled one");
+});
+
 test("ALERTS — every create dialog can arm, and every control reaches the request", () => {
   /*
    * The edit dialog has always had "Armed"; none of the four create dialogs

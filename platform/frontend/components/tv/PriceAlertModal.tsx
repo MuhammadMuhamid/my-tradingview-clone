@@ -419,13 +419,13 @@ export function PriceAlertModal({
         "Edit alert" rather than "Price alert" so a reader who opened an armed
         alert can see they are changing it, not arming a second one.
       */
-      title={<span className="flex items-center gap-2">{heading} <span className="text-accent">{ticker}</span></span>}
+      title={<span className="flex items-center gap-2">{heading} <span>{ticker}</span></span>}
       panelClassName="w-[480px] max-h-[500px]"
       footer={
         <>
           {match && <Button onClick={() => void remove()} disabled={busy} className="mr-auto text-down">Delete</Button>}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy || !valid}>
+          <Button variant="contrast" onClick={() => void save()} disabled={busy || !valid}>
             {busy ? "Saving…" : editing ? "Save" : match ? "Update" : "Create"}
           </Button>
         </>
@@ -464,9 +464,17 @@ export function PriceAlertModal({
             <div className="flex items-center gap-1.5">
               <input type="number" step="any" min="0" value={price} autoFocus onChange={(e) => setPrice(e.target.value)}
                 aria-label="Alert price level" className={box} />
+              {/*
+                W2A-08: the shared `Button` — 34px, radius 6, beside a 34px
+                field. It was a hand-rolled 45×32 at radius 4 with an accent
+                hover: a third control height and a fourth radius in one row,
+                which §3 forbids, and accent on a control that is not the
+                dialog's action.
+              */}
               {onPickFromChart && (
-                <button type="button" onClick={onPickFromChart} title="Pick the level on the chart"
-                  className="h-8 shrink-0 rounded border border-border px-2 text-xs text-ink-muted hover:border-accent hover:text-ink">Pick</button>
+                <Button onClick={onPickFromChart} title="Pick the level on the chart" className="shrink-0">
+                  Pick
+                </Button>
               )}
             </div>
           </div>

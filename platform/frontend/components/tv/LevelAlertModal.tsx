@@ -190,11 +190,11 @@ export function LevelAlertModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={<>Level alert on <span className="text-accent">{displayTicker(symbol)}</span></>}
+      title={<>Level alert on {displayTicker(symbol)}</>}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy}>
+          <Button variant="contrast" onClick={() => void save()} disabled={busy}>
             {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
           </Button>
         </>

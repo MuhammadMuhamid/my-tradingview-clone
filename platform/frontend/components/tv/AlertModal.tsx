@@ -101,11 +101,11 @@ export function AlertModal({
 
   return (
     <Modal open={open} onClose={onClose}
-      title={<>Automate trading on <span className="text-accent">{displayTicker(symbol)}</span></>}
+      title={<>Automate trading on {displayTicker(symbol)}</>}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={create} disabled={busy || !strategy || !acknowledged}>
+          <Button variant="contrast" onClick={create} disabled={busy || !strategy || !acknowledged}>
             {busy ? "Starting…" : "Start trading"}
           </Button>
         </>

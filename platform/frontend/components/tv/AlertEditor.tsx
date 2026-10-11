@@ -150,7 +150,7 @@ export function AlertEditor({
             style={{ background: alertColor(alert) }}
             aria-hidden="true"
           />
-          Edit alert <span className="text-accent">{displayTicker(alert.symbol)}</span>
+          Edit alert <span>{displayTicker(alert.symbol)}</span>
           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
             {ALERT_FAMILY_LABELS[kind]}
           </span>
@@ -169,7 +169,7 @@ export function AlertEditor({
             </Button>
           )}
           <Button onClick={onClose} disabled={busy !== null}>Cancel</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy !== null}>
+          <Button variant="contrast" onClick={() => void save()} disabled={busy !== null}>
             {busy === "save" ? "Saving…" : "Save"}
           </Button>
         </>

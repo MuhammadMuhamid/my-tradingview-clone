@@ -241,7 +241,7 @@ export function MaAlertModal({
         <span className="flex items-center gap-2">
           <span className="inline-block h-2.5 w-5 rounded-sm" style={{ background: maColor(maLength) }} />
           Alert on {label}
-          <span className="text-accent">{displayTicker(symbol)}</span>
+          <span>{displayTicker(symbol)}</span>
         </span>
       }
       footer={
@@ -250,7 +250,7 @@ export function MaAlertModal({
             <Button onClick={remove} disabled={busy} className="mr-auto text-down">Delete</Button>
           )}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy}>
+          <Button variant="contrast" onClick={save} disabled={busy}>
             {busy ? "Saving…" : match ? "Update" : "Create"}
           </Button>
         </>

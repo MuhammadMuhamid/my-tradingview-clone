@@ -5,6 +5,7 @@ import { Button, FIELD } from "@/components/ui";
 import { api } from "@/lib/api";
 import { shortReason } from "@/lib/errorCopy";
 import { deliversLiveOrders } from "@/lib/types";
+import { displayTicker } from "@/lib/instrument";
 import type { DeliveryMode, Deployment } from "@/lib/types";
 
 /**
@@ -72,11 +73,11 @@ export function EditAlertModal({
   );
   const box = `w-full ${FIELD}`;
 
-  // accent-is-meaning: the symbol is the alert's SUBJECT. A dialog title names
-  // what it is about the same way the status line names the instrument, and no
-  // row in this dialog is selected.
+  // W2A-08: the symbol in the title is ink, as live Premium's alert dialog
+  // titles are — the title already says what the dialog is about, and accent
+  // there read as a link. And a ticker, never the stored form (§5).
   const title = deployment
-    ? <>Edit alert on <span className="text-accent">{deployment.symbol}</span></>
+    ? <>Edit alert on {displayTicker(deployment.symbol)}</>
     : "Edit alert";
 
   return (
@@ -87,7 +88,7 @@ export function EditAlertModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy || !deployment}>
+          <Button variant="contrast" onClick={save} disabled={busy || !deployment}>
             {busy ? "Saving…" : "Save"}
           </Button>
         </>
