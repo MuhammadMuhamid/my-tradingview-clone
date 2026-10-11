@@ -1600,7 +1600,7 @@ export function DrawingToolbar({
           onClick={() => (onMagnetMode
             ? onMagnetMode(magnetOn ? "off" : (magnetMode === "strong" ? "strong" : "weak"))
             : onMagnet(!magnet))}
-          className={btn()} aria-pressed={magnetOn}
+          className={btn()} data-switch="" aria-pressed={magnetOn}
           aria-label={magnetOn ? "Turn the magnet off" : "Turn the magnet on"}>
           <Icon name="magnet" />
         </button>
@@ -1625,7 +1625,7 @@ export function DrawingToolbar({
 
       <div className="group relative">
         <button onClick={() => onStayInDrawingMode(!stayInDrawingMode)}
-          className={btn()} aria-pressed={stayInDrawingMode}
+          className={btn()} data-switch="" aria-pressed={stayInDrawingMode}
           aria-label={stayInDrawingMode ? "Turn off keep drawing" : "Keep drawing"}>
           <Icon name="stayInDrawingMode" />
         </button>
@@ -1636,7 +1636,7 @@ export function DrawingToolbar({
 
       <div className="group relative">
         <button onClick={() => (onLockScope ? onLockScope("drawings") : onLocked(!locked))}
-          className={btn()} aria-pressed={lockScope ? lockScope !== "none" : locked}
+          className={btn()} data-switch="" aria-pressed={lockScope ? lockScope !== "none" : locked}
           aria-label={locked ? "Unlock all drawings" : "Lock drawings and indicators"}>
           <Icon name={(lockScope ? lockScope !== "none" : locked) ? "lock" : "unlock"} />
         </button>
@@ -1658,7 +1658,7 @@ export function DrawingToolbar({
 
       <div className="group relative">
         <button onClick={() => (onHideScope ? onHideScope("drawings") : onHidden(!hidden))}
-          className={btn()} aria-pressed={hideScope ? hideScope !== "none" : hidden}
+          className={btn()} data-switch="" aria-pressed={hideScope ? hideScope !== "none" : hidden}
           aria-label={hidden ? "Show all drawings" : "Hide all drawings"}>
           <Icon name={(hideScope ? hideScope !== "none" : hidden) ? "eyeOff" : "eye"} />
         </button>

@@ -438,6 +438,25 @@
 :is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control::before {
   inset: 2px 9px;
 }
+/*
+ * A4: a SWITCH that is on is not a tool that is selected.
+ *
+ * Magnet, Keep drawing, Lock and Hide are modes that stay on while the user
+ * goes on drawing; the cursor or trend-line cell is the tool in hand. They
+ * wore the same rgb(61) chip, so a rail with the magnet on and a trend line
+ * armed showed two identical squares saying different things. Measured on the
+ * reference: an ON switch is the INVERTED chip — rgb(242) ground under rgb(15)
+ * ink — and a selected tool keeps rgb(61) under rgb(219). The inverted pair is
+ * the menu-selection token, which already flips for the light theme.
+ */
+:is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control[data-switch][aria-pressed="true"],
+:is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control[data-switch][aria-pressed="true"]:hover {
+  color: var(--ts-menu-selected-ink);
+}
+:is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control[data-switch][aria-pressed="true"]::before,
+:is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control[data-switch][aria-pressed="true"]:hover::before {
+  background-color: var(--ts-menu-selected-bg);
+}
 /* D-04: 45px of paint behind the rail hairline, a 46px cell pitch, and a
    centred 36×36 selected chip around the 28px optical glyph. */
 :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before {

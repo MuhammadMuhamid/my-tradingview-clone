@@ -1070,3 +1070,17 @@ test("RAIL — a starred tool reaches a floating favourites bar", () => {
   // A starred row's star sits on the 28px active chip, as the reference's does.
   assert.match(source, /data-\[starred=true\]:bg-state-active/);
 });
+
+test("A4 — the rail's four switches wear the inverted ON chip, not the selected-tool chip", () => {
+  const rail = fs.readFileSync(RAIL, "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "..", "app", "globals.css"), "utf8");
+  for (const pressed of ["magnetOn", "stayInDrawingMode", 'lockScope ? lockScope !== "none" : locked',
+    'hideScope ? hideScope !== "none" : hidden']) {
+    assert.ok(rail.includes(`className={btn()} data-switch="" aria-pressed={${pressed}}`),
+      `switch ${pressed} is not marked as a switch`);
+  }
+  assert.match(css,
+    /\[data-drawing-rail="true"\] \.tvc-control\[data-switch\]\[aria-pressed="true"\]::before,[\s\S]{0,200}background-color: var\(--ts-menu-selected-bg\)/);
+  assert.match(css,
+    /\[data-drawing-rail="true"\] \.tvc-control\[data-switch\]\[aria-pressed="true"\]:hover \{\s*color: var\(--ts-menu-selected-ink\)/);
+});

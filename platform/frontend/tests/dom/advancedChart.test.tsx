@@ -213,7 +213,8 @@ test("percent comparison keeps candles on price and declares a dedicated percent
 test("choosing two charts closes layout and leaves pane two immediately operable", async () => {
   const chart = await mountChart();
   fireEvent.click(screen.getByRole("button", { name: /^Chart layout/ }));
-  fireEvent.click(screen.getByRole("button", { name: /^2 charts/ }));
+  // C12: each count is a row of its arrangements; take the row's first.
+  fireEvent.click(within(screen.getByRole("group", { name: "2 charts" })).getAllByRole("menuitemradio")[0]!);
   await settle();
   assertAbsent(screen.queryByRole("menu", { name: "Chart layout" }), "expected nothing to match");
   const second = chart.pane(1);

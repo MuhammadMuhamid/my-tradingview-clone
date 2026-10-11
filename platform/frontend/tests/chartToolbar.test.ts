@@ -466,11 +466,13 @@ test("the bar mounts the shared picker rather than a second interval control", (
 
 // ── layout selector ────────────────────────────────────────────────────────
 
-test("one to four charts are immediately accessible and five to sixteen are not hidden", () => {
+test("every count to sixteen is a row of its arrangements, one click each, as the reference draws it", () => {
   const source = read("components/tv/LayoutSelector.tsx");
-  assert.match(source, /COMMON_COUNTS = \[1, 2, 3, 4\]/);
-  // Everything else is still in the same menu, one click away.
-  assert.match(source, /More charts/);
+  // C12: one row per count, every arrangement for that count shown as a
+  // thumbnail — no count-first second trip, no bare numerals.
+  assert.match(source, /counts\.map\(\(n, index\) => \(/);
+  assert.match(source, /presetsForCount\(n\)\.map\(\(preset\) =>/);
+  assert.match(source, /role="menuitemradio"/);
   assert.match(source, /availablePaneCounts\(\)/);
   const counts = availablePaneCounts();
   assert.deepEqual(counts, Array.from({ length: MAX_PANES }, (_, i) => i + 1));
@@ -518,16 +520,17 @@ test("the layout-setup control is an icon cell, not a thumbnail with a digit", (
   // value, so the icons to its left moved when the layout changed.
   assert.doesNotMatch(source, /current\.panes > 1 &&/);
 
-  // The menu rows keep the washed thumbnails: there the fill is what separates
-  // one arrangement from the next.
-  assert.match(source, /<PresetThumbnail preset=\{preset\} \/>/);
+  // C12: the menu draws each arrangement with the SAME line glyph, as the
+  // reference's layout menu does — rows of outline grids, no washed blocks.
+  assert.match(source, /<LayoutGlyph preset=\{preset\} \/>/);
+  assert.doesNotMatch(source, /PresetThumbnail/);
 });
 
 test("asymmetric arrangements are exposed, not only grids", () => {
   const asymmetric = LAYOUT_PRESETS.filter((p) => p.cells.some((c) => c.colSpan > 1 || c.rowSpan > 1));
   assert.ok(asymmetric.length >= 4, "the one-big-several-small shapes must remain selectable");
   const source = read("components/tv/LayoutSelector.tsx");
-  assert.match(source, /presetsForCount\(count\)/,
+  assert.match(source, /presetsForCount\(n\)/,
     "variants must come from the preset data so a new shape appears without an edit");
 });
 
