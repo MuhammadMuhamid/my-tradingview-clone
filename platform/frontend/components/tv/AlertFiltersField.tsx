@@ -2,9 +2,9 @@
 import { useEffect, useState } from "react";
 import { Dropdown, FIELD, PlusGlyph } from "@/components/ui";
 import {
-  FILTER_DEFAULTS, FILTER_KINDS, FILTER_TIMEFRAMES, MAX_ALERT_FILTERS, defaultGate,
+  FILTER_KINDS, FILTER_TIMEFRAMES, MAX_ALERT_FILTERS, defaultGate,
   type AlertGate, type FilterKind, type FilterSide, type FilterTimeframe,
-  type MaAlert, type MaType, type MacdTarget, type StAtrMethod,
+  type MaType, type MacdTarget,
 } from "@/lib/api";
 
 /**
@@ -42,46 +42,11 @@ const KIND_LABEL: Record<FilterKind, string> = {
 };
 
 /**
- * The gates a persisted alert already carries.
- *
- * Prefers the list. Falls back to the legacy fields for a row written before
- * it, where a gate counts as configured only when its whole rule is present —
- * matching the server's own reconstruction, because a length with no side is
- * not half a gate, it is no gate, and showing it as enabled would misreport
- * what the alert does.
+ * The gates a persisted alert already carries — defined beside the editor
+ * form in `lib/alertEditing`, which is built from it, and re-exported here so
+ * every dialog keeps importing its gate helpers from one place.
  */
-export function filtersFromAlert(a: MaAlert): AlertFilterState {
-  if (a.filters && a.filters.length > 0) return a.filters.map((g) => ({ ...g }));
-
-  const gates: AlertGate[] = [];
-  if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
-    gates.push({
-      kind: "rsi",
-      length: a.filterRsiLength,
-      level: a.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
-      side: a.filterRsiSide as FilterSide,
-    });
-  }
-  if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
-    gates.push({
-      kind: "ma",
-      type: a.filterMaType,
-      length: a.filterMaLength,
-      side: a.filterMaSide as FilterSide,
-    });
-  }
-  if (a.filterStPeriod !== null && a.filterStSide !== null) {
-    gates.push({
-      kind: "supertrend",
-      period: a.filterStPeriod,
-      multiplier: a.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier,
-      atrMethod: (a.filterStAtrMethod as StAtrMethod | null)
-        ?? FILTER_DEFAULTS.supertrend.atrMethod,
-      side: a.filterStSide as FilterSide,
-    });
-  }
-  return gates;
-}
+export { filtersFromAlert } from "@/lib/alertEditing";
 
 /**
  * The request field for the gates, at CREATION.

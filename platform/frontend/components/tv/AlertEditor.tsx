@@ -2,12 +2,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { Modal } from "@/components/Modal";
-import { Button, FIELD } from "@/components/ui";
+import { Button, Dropdown, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
+import { AlertArmedField } from "@/components/tv/AlertArmedField";
+import { AlertFiltersField } from "@/components/tv/AlertFiltersField";
 import { api, type MaAlert } from "@/lib/api";
 import type {
-  BollingerBand, FilterSide, MaAlertMode, MacdTarget, MaType, PivotType,
+  BollingerBand, MaAlertMode, MacdTarget, MaType, PivotType,
   PriceDirection, RsiTarget, SrSide, StAtrMethod, StochasticTarget,
 } from "@/lib/api";
 import {
@@ -16,11 +18,19 @@ import {
   pivotLevelNames, usesBand, usesGates, validateAlertForm, type AlertEditForm,
 } from "@/lib/alertEditing";
 import { describeAlert, alertColor } from "@/lib/alerts";
+import { displayTicker } from "@/lib/instrument";
 import type { Interval } from "@/lib/types";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
+/** The two moving-average shapes, as every MA control in the product offers them. */
+const MA_TYPES = [
+  { value: "ema", label: "EMA" },
+  { value: "sma", label: "SMA" },
+] as const;
+
 /**
- * The one editor every armed alert opens into.
+ * The one editor every armed alert of a family without its own editing mode
+ * opens into.
  *
  * One component, not one per family, because an alert is edited from two
  * places — the Alerts inventory and the chart's rail — and the fields a family
@@ -31,6 +41,19 @@ import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
  * The alert keeps its id. This is a PATCH onto the existing row, so the event
  * log, the once-only retirement flag and the delivery history all survive an
  * edit — which is the difference between changing an alert and replacing it.
+ *
+ * ── C14: the create dialogs' grammar ─────────────────────────────────────
+ *
+ * Price alerts now edit in `PriceAlertModal` itself (`editsInPriceDialog`).
+ * The other families are edited here, and this dialog was a different product
+ * from the ones that armed them: native `<select>`s, which the contract
+ * forbids inside a dialog because the OS draws their chevron, popup, row
+ * height and font; the three-checkbox gate model, which could not show a
+ * second gate of one kind, a gate on another timeframe, or — for a row that
+ * carries the list — any gate at all; and a title without the ticker. The
+ * selects are the shared `Dropdown`, the gates are the shared
+ * `AlertFiltersField`, the state is the shared `AlertArmedField`, and the
+ * title reads "Edit alert TICKER" as the price dialog's does.
  */
 export function AlertEditor({
   alert, onClose, onSaved, onDeleted,
@@ -80,7 +103,7 @@ export function AlertEditor({
       // The server's row, not the form's — anything it normalised or refused to
       // change must be what the list shows afterwards.
       const updated = await api.updateMaAlert(alert.id, patch);
-      onSaved(updated, `Updated ${updated.symbol} · ${describeAlert(updated)}`);
+      onSaved(updated, `Updated ${displayTicker(updated.symbol)} · ${describeAlert(updated)}`);
       onClose();
     } catch (e) {
       // Deliberately leaves the dialog open with the server's values still
@@ -94,7 +117,7 @@ export function AlertEditor({
   const remove = async (): Promise<void> => {
     if (!onDeleted) return;
     if (!await ask.confirm({
-      title: `Delete this alert on ${alert.symbol}?`,
+      title: `Delete this alert on ${displayTicker(alert.symbol)}?`,
       body: <>{describeAlert(alert)}<br />This cannot be undone.</>,
       confirmLabel: "Delete", tone: "danger",
     })) return;
@@ -102,7 +125,7 @@ export function AlertEditor({
     setErr(null);
     try {
       await api.deleteMaAlert(alert.id);
-      onDeleted(alert, `Deleted ${alert.symbol} · ${describeAlert(alert)}`);
+      onDeleted(alert, `Deleted ${displayTicker(alert.symbol)} · ${describeAlert(alert)}`);
       onClose();
     } catch (e) {
       setErr(describeAction(e, "delete the alert"));
@@ -115,6 +138,11 @@ export function AlertEditor({
     <Modal
       open
       onClose={onClose}
+      /*
+        "Edit alert", then the ticker — the price dialog's own title shape —
+        and the family as a quiet badge, because this one dialog serves ten of
+        them and which one is open is the first thing to know.
+      */
       title={
         <span className="flex items-center gap-2">
           <span
@@ -122,7 +150,7 @@ export function AlertEditor({
             style={{ background: alertColor(alert) }}
             aria-hidden="true"
           />
-          Edit alert
+          Edit alert <span className="text-accent">{displayTicker(alert.symbol)}</span>
           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
             {ALERT_FAMILY_LABELS[kind]}
           </span>
@@ -142,44 +170,13 @@ export function AlertEditor({
           )}
           <Button onClick={onClose} disabled={busy !== null}>Cancel</Button>
           <Button variant="primary" onClick={() => void save()} disabled={busy !== null}>
-            {busy === "save" ? "Saving…" : dirty ? "Save changes" : "Save"}
+            {busy === "save" ? "Saving…" : "Save"}
           </Button>
         </>
       }
     >
       <div className="space-y-2.5">
-        {/* ── what it watches ── */}
-        <p className="rounded-md border border-border bg-surface-2/50 px-2.5 py-2 text-xs text-ink-muted">
-          Currently: <span className="text-ink">{describeAlert(alert)}</span> on{" "}
-          <span className="text-ink">{alert.symbol} {alert.timeframe}</span>.
-          {" "}The alert type is fixed — delete and re-create it to watch something else.
-        </p>
-
-        <Row label="Symbol">
-          <input
-            value={form.symbol}
-            onChange={(e) => update("symbol", e.target.value.toUpperCase())}
-            aria-label="Alert symbol"
-            className={BOX}
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </Row>
-        <Row label="Timeframe">
-          <select
-            value={form.timeframe}
-            onChange={(e) => update("timeframe", e.target.value as Interval)}
-            aria-label="Alert timeframe"
-            className={BOX}
-          >
-            {EDIT_INTERVALS.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
-          </select>
-        </Row>
-
-        <Divider />
-
-        {/* ── family-specific configuration ── */}
+        {/* ── the condition, first, as every create dialog opens ── */}
         {kind === "price" && (
           <>
             <Row label="Price">
@@ -192,17 +189,18 @@ export function AlertEditor({
                 className={BOX}
               />
             </Row>
-            <Row label="Direction">
-              <select
+            <Row label="Condition">
+              <Dropdown
                 value={form.priceDirection}
-                onChange={(e) => update("priceDirection", e.target.value as PriceDirection)}
-                aria-label="Price direction"
-                className={BOX}
-              >
-                <option value="either">Reaches the level, from either side</option>
-                <option value="cross_up">Crosses up through the level</option>
-                <option value="cross_down">Crosses down through the level</option>
-              </select>
+                label="Price direction"
+                width={WIDE}
+                onChange={(v) => update("priceDirection", v as PriceDirection)}
+                options={[
+                  { value: "either", label: "Price reaches the level, from either side" },
+                  { value: "cross_up", label: "Price crosses up through the level" },
+                  { value: "cross_down", label: "Price crosses down through the level" },
+                ]}
+              />
             </Row>
           </>
         )}
@@ -210,21 +208,14 @@ export function AlertEditor({
         {(kind === "ma" || kind === "ma_vs_ma") && (
           <Row label={kind === "ma_vs_ma" ? "Fast MA" : "Line"}>
             <div className="flex items-center gap-2">
-              <select
+              <Dropdown
                 value={form.maType}
-                onChange={(e) => update("maType", e.target.value as MaType)}
-                aria-label="Moving-average type"
-                className={`${BOX} w-[92px]`}
-              >
-                <option value="ema">EMA</option>
-                <option value="sma">SMA</option>
-              </select>
-              <input
-                type="number" min={1} max={1000} value={form.maLength}
-                onChange={(e) => update("maLength", intOf(e.target.value))}
-                aria-label="Moving-average length"
-                className={BOX}
+                label="Moving-average type"
+                width={92}
+                onChange={(v) => update("maType", v as MaType)}
+                options={MA_TYPES}
               />
+              <IntInput value={form.maLength} onChange={(n) => update("maLength", n)} label="Moving-average length" />
             </div>
           </Row>
         )}
@@ -232,21 +223,14 @@ export function AlertEditor({
         {kind === "ma_vs_ma" && (
           <Row label="Slow MA">
             <div className="flex items-center gap-2">
-              <select
+              <Dropdown
                 value={form.ma2Type}
-                onChange={(e) => update("ma2Type", e.target.value as MaType)}
-                aria-label="Slow moving-average type"
-                className={`${BOX} w-[92px]`}
-              >
-                <option value="ema">EMA</option>
-                <option value="sma">SMA</option>
-              </select>
-              <input
-                type="number" min={1} max={1000} value={form.ma2Length}
-                onChange={(e) => update("ma2Length", intOf(e.target.value))}
-                aria-label="Slow moving-average length"
-                className={BOX}
+                label="Slow moving-average type"
+                width={92}
+                onChange={(v) => update("ma2Type", v as MaType)}
+                options={MA_TYPES}
               />
+              <IntInput value={form.ma2Length} onChange={(n) => update("ma2Length", n)} label="Slow moving-average length" />
             </div>
           </Row>
         )}
@@ -254,35 +238,32 @@ export function AlertEditor({
         {kind === "sr_zone" && (
           <>
             <Row label="Side">
-              <select
+              <Dropdown
                 value={form.srSide}
-                onChange={(e) => update("srSide", e.target.value as SrSide)}
-                aria-label="Support or resistance side"
-                className={BOX}
-              >
-                <option value="support">Nearest support below price</option>
-                <option value="resistance">Nearest resistance above price</option>
-                <option value="either">Whichever is nearer</option>
-              </select>
-            </Row>
-            <Row label="Swing length">
-              <input
-                type="number" min={2} max={100} value={form.pivotLength}
-                onChange={(e) => update("pivotLength", intOf(e.target.value))}
-                aria-label="Swing pivot length"
-                className={BOX}
+                label="Support or resistance side"
+                width={WIDE}
+                onChange={(v) => update("srSide", v as SrSide)}
+                options={[
+                  { value: "support", label: "Nearest support below price" },
+                  { value: "resistance", label: "Nearest resistance above price" },
+                  { value: "either", label: "Whichever is nearer" },
+                ]}
               />
             </Row>
+            <Row label="Swing length">
+              <IntInput value={form.pivotLength} onChange={(n) => update("pivotLength", n)} label="Swing pivot length" min={2} max={100} />
+            </Row>
             <Row label="Invalidated by">
-              <select
+              <Dropdown
                 value={form.invalidation}
-                onChange={(e) => update("invalidation", e.target.value as "close" | "wick")}
-                aria-label="Zone invalidation"
-                className={BOX}
-              >
-                <option value="close">A close through the zone</option>
-                <option value="wick">Any wick through the zone</option>
-              </select>
+                label="Zone invalidation"
+                width={WIDE}
+                onChange={(v) => update("invalidation", v as "close" | "wick")}
+                options={[
+                  { value: "close", label: "A close through the zone" },
+                  { value: "wick", label: "Any wick through the zone" },
+                ]}
+              />
             </Row>
           </>
         )}
@@ -290,10 +271,12 @@ export function AlertEditor({
         {kind === "pivot_level" && (
           <>
             <Row label="Pivot type">
-              <select
+              <Dropdown
                 value={form.pivotType}
-                onChange={(e) => {
-                  const next = e.target.value as PivotType;
+                label="Pivot type"
+                width={WIDE}
+                onChange={(v) => {
+                  const next = v as PivotType;
                   setForm((f) => f && ({
                     ...f, pivotType: next,
                     // Fibonacci defines no R4/R5, so a level the new type does
@@ -301,33 +284,28 @@ export function AlertEditor({
                     levelName: pivotLevelNames(next).includes(f.levelName) ? f.levelName : "any",
                   }));
                 }}
-                aria-label="Pivot type"
-                className={BOX}
-              >
-                {PIVOT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+                options={PIVOT_TYPES.map((t) => ({ value: t, label: t }))}
+              />
             </Row>
             <Row label="Level">
-              <select
+              <Dropdown
                 value={form.levelName}
-                onChange={(e) => update("levelName", e.target.value)}
-                aria-label="Pivot level"
-                className={BOX}
-              >
-                {pivotLevelNames(form.pivotType).map((l) => (
-                  <option key={l} value={l}>{l === "any" ? "Whichever is nearest" : l}</option>
+                label="Pivot level"
+                width={WIDE}
+                onChange={(v) => update("levelName", v)}
+                options={pivotLevelNames(form.pivotType).map((l) => (
+                  { value: l, label: l === "any" ? "Whichever is nearest" : l }
                 ))}
-              </select>
+              />
             </Row>
             <Row label="Pivots from">
-              <select
+              <Dropdown
                 value={form.anchor}
-                onChange={(e) => update("anchor", e.target.value)}
-                aria-label="Pivot anchor period"
-                className={BOX}
-              >
-                {PIVOT_ANCHORS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-              </select>
+                label="Pivot anchor period"
+                width={WIDE}
+                onChange={(v) => update("anchor", v)}
+                options={PIVOT_ANCHORS.map((a) => ({ value: a.id, label: a.label }))}
+              />
             </Row>
           </>
         )}
@@ -335,23 +313,19 @@ export function AlertEditor({
         {kind === "rsi" && (
           <>
             <Row label="RSI length">
-              <input
-                type="number" min={1} max={1000} value={form.rsiLength}
-                onChange={(e) => update("rsiLength", intOf(e.target.value))}
-                aria-label="RSI length"
-                className={BOX}
-              />
+              <IntInput value={form.rsiLength} onChange={(n) => update("rsiLength", n)} label="RSI length" />
             </Row>
             <Row label="Crosses">
-              <select
+              <Dropdown
                 value={form.rsiTarget}
-                onChange={(e) => update("rsiTarget", e.target.value as RsiTarget)}
-                aria-label="What the RSI crosses"
-                className={BOX}
-              >
-                <option value="level">A fixed level</option>
-                <option value="sma">Its own SMA</option>
-              </select>
+                label="What the RSI crosses"
+                width={WIDE}
+                onChange={(v) => update("rsiTarget", v as RsiTarget)}
+                options={[
+                  { value: "level", label: "A fixed level" },
+                  { value: "sma", label: "Its own SMA" },
+                ]}
+              />
             </Row>
             {form.rsiTarget === "level" ? (
               <Row label="Level">
@@ -364,12 +338,7 @@ export function AlertEditor({
               </Row>
             ) : (
               <Row label="SMA length">
-                <input
-                  type="number" min={1} max={1000} value={form.rsiMaLength}
-                  onChange={(e) => update("rsiMaLength", intOf(e.target.value))}
-                  aria-label="RSI moving-average length"
-                  className={BOX}
-                />
+                <IntInput value={form.rsiMaLength} onChange={(n) => update("rsiMaLength", n)} label="RSI moving-average length" />
               </Row>
             )}
           </>
@@ -378,27 +347,22 @@ export function AlertEditor({
         {kind === "macd" && (
           <>
             <Row label="Crosses">
-              <select
+              <Dropdown
                 value={form.macdTarget}
-                onChange={(e) => update("macdTarget", e.target.value as MacdTarget)}
-                aria-label="What the MACD crosses"
-                className={BOX}
-              >
-                <option value="signal">The signal line</option>
-                <option value="zero">The zero line</option>
-              </select>
+                label="What the MACD crosses"
+                width={WIDE}
+                onChange={(v) => update("macdTarget", v as MacdTarget)}
+                options={[
+                  { value: "signal", label: "The signal line" },
+                  { value: "zero", label: "The zero line" },
+                ]}
+              />
             </Row>
             <Row label="Lengths">
               <div className="flex items-center gap-2">
-                <input
-                  type="number" min={1} value={form.macdFast} aria-label="MACD fast length"
-                  onChange={(e) => update("macdFast", intOf(e.target.value))} className={BOX} />
-                <input
-                  type="number" min={1} value={form.macdSlow} aria-label="MACD slow length"
-                  onChange={(e) => update("macdSlow", intOf(e.target.value))} className={BOX} />
-                <input
-                  type="number" min={1} value={form.macdSignal} aria-label="MACD signal length"
-                  onChange={(e) => update("macdSignal", intOf(e.target.value))} className={BOX} />
+                <IntInput value={form.macdFast} onChange={(n) => update("macdFast", n)} label="MACD fast length" />
+                <IntInput value={form.macdSlow} onChange={(n) => update("macdSlow", n)} label="MACD slow length" />
+                <IntInput value={form.macdSignal} onChange={(n) => update("macdSignal", n)} label="MACD signal length" />
               </div>
             </Row>
             <Hint>fast · slow · signal</Hint>
@@ -408,11 +372,7 @@ export function AlertEditor({
         {kind === "supertrend" && (
           <>
             <Row label="ATR period">
-              <input
-                type="number" min={1} max={1000} value={form.stPeriod}
-                onChange={(e) => update("stPeriod", intOf(e.target.value))}
-                aria-label="Supertrend ATR period"
-                className={BOX} />
+              <IntInput value={form.stPeriod} onChange={(n) => update("stPeriod", n)} label="Supertrend ATR period" />
             </Row>
             <Row label="Multiplier">
               <input
@@ -422,15 +382,16 @@ export function AlertEditor({
                 className={BOX} />
             </Row>
             <Row label="ATR method">
-              <select
+              <Dropdown
                 value={form.stAtrMethod}
-                onChange={(e) => update("stAtrMethod", e.target.value as StAtrMethod)}
-                aria-label="Supertrend ATR method"
-                className={BOX}
-              >
-                <option value="rma">Wilder&apos;s (default)</option>
-                <option value="sma">Simple average of true range</option>
-              </select>
+                label="Supertrend ATR method"
+                width={WIDE}
+                onChange={(v) => update("stAtrMethod", v as StAtrMethod)}
+                options={[
+                  { value: "rma", label: "Wilder's (default)" },
+                  { value: "sma", label: "Simple average of true range" },
+                ]}
+              />
             </Row>
             <Hint>
               The study&apos;s own defaults are 10 and 3. Changing either reshapes
@@ -443,23 +404,20 @@ export function AlertEditor({
         {kind === "bollinger" && (
           <>
             <Row label="Band">
-              <select
+              <Dropdown
                 value={form.bbBand}
-                onChange={(e) => update("bbBand", e.target.value as BollingerBand)}
-                aria-label="Which Bollinger band"
-                className={BOX}
-              >
-                <option value="upper">Upper</option>
-                <option value="basis">Basis</option>
-                <option value="lower">Lower</option>
-              </select>
+                label="Which Bollinger band"
+                width={WIDE}
+                onChange={(v) => update("bbBand", v as BollingerBand)}
+                options={[
+                  { value: "upper", label: "Upper" },
+                  { value: "basis", label: "Basis" },
+                  { value: "lower", label: "Lower" },
+                ]}
+              />
             </Row>
             <Row label="Length">
-              <input
-                type="number" min={2} max={1000} value={form.bbLength}
-                onChange={(e) => update("bbLength", intOf(e.target.value))}
-                aria-label="Bollinger length"
-                className={BOX} />
+              <IntInput value={form.bbLength} onChange={(n) => update("bbLength", n)} label="Bollinger length" min={2} />
             </Row>
             <Row label="Multiplier">
               <input
@@ -469,15 +427,16 @@ export function AlertEditor({
                 className={BOX} />
             </Row>
             <Row label="Basis">
-              <select
+              <Dropdown
                 value={form.bbMaType}
-                onChange={(e) => update("bbMaType", e.target.value as MaType)}
-                aria-label="Bollinger basis type"
-                className={BOX}
-              >
-                <option value="sma">Simple (default)</option>
-                <option value="ema">Exponential</option>
-              </select>
+                label="Bollinger basis type"
+                width={WIDE}
+                onChange={(v) => update("bbMaType", v as MaType)}
+                options={[
+                  { value: "sma", label: "Simple (default)" },
+                  { value: "ema", label: "Exponential" },
+                ]}
+              />
             </Row>
             <Hint>
               The study&apos;s own defaults are 20 and 2. This alert watches PRICE
@@ -490,15 +449,16 @@ export function AlertEditor({
         {kind === "stochastic" && (
           <>
             <Row label="Crosses">
-              <select
+              <Dropdown
                 value={form.stochTarget}
-                onChange={(e) => update("stochTarget", e.target.value as StochasticTarget)}
-                aria-label="What the Stochastic crosses"
-                className={BOX}
-              >
-                <option value="signal">Its %D signal line</option>
-                <option value="level">A fixed level</option>
-              </select>
+                label="What the Stochastic crosses"
+                width={WIDE}
+                onChange={(v) => update("stochTarget", v as StochasticTarget)}
+                options={[
+                  { value: "signal", label: "Its %D signal line" },
+                  { value: "level", label: "A fixed level" },
+                ]}
+              />
             </Row>
             {form.stochTarget === "level" && (
               <Row label="Level">
@@ -511,15 +471,9 @@ export function AlertEditor({
             )}
             <Row label="Lengths">
               <div className="flex items-center gap-2">
-                <input
-                  type="number" min={1} value={form.stochKLength} aria-label="Stochastic %K length"
-                  onChange={(e) => update("stochKLength", intOf(e.target.value))} className={BOX} />
-                <input
-                  type="number" min={1} value={form.stochKSmooth} aria-label="Stochastic %K smoothing"
-                  onChange={(e) => update("stochKSmooth", intOf(e.target.value))} className={BOX} />
-                <input
-                  type="number" min={1} value={form.stochDSmooth} aria-label="Stochastic %D smoothing"
-                  onChange={(e) => update("stochDSmooth", intOf(e.target.value))} className={BOX} />
+                <IntInput value={form.stochKLength} onChange={(n) => update("stochKLength", n)} label="Stochastic %K length" />
+                <IntInput value={form.stochKSmooth} onChange={(n) => update("stochKSmooth", n)} label="Stochastic %K smoothing" />
+                <IntInput value={form.stochDSmooth} onChange={(n) => update("stochDSmooth", n)} label="Stochastic %D smoothing" />
               </div>
             </Row>
             <Hint>%K length · %K smoothing · %D smoothing</Hint>
@@ -537,12 +491,8 @@ export function AlertEditor({
             </Row>
             <Row label="Lengths">
               <div className="flex items-center gap-2">
-                <input
-                  type="number" min={1} value={form.adxDiLength} aria-label="ADX DI length"
-                  onChange={(e) => update("adxDiLength", intOf(e.target.value))} className={BOX} />
-                <input
-                  type="number" min={1} value={form.adxSmoothing} aria-label="ADX smoothing"
-                  onChange={(e) => update("adxSmoothing", intOf(e.target.value))} className={BOX} />
+                <IntInput value={form.adxDiLength} onChange={(n) => update("adxDiLength", n)} label="ADX DI length" />
+                <IntInput value={form.adxSmoothing} onChange={(n) => update("adxSmoothing", n)} label="ADX smoothing" />
               </div>
             </Row>
             <Hint>
@@ -555,16 +505,13 @@ export function AlertEditor({
 
         {kind !== "price" && (
           <Row label="Condition">
-            <select
+            <Dropdown
               value={form.mode}
-              onChange={(e) => update("mode", e.target.value as MaAlertMode)}
-              aria-label="Alert condition"
-              className={BOX}
-            >
-              {modesFor(kind).map((m) => (
-                <option key={m} value={m}>{modeLabel(kind, m)}</option>
-              ))}
-            </select>
+              label="Alert condition"
+              width={WIDE}
+              onChange={(v) => update("mode", v as MaAlertMode)}
+              options={modesFor(kind).map((m) => ({ value: m, label: modeLabel(kind, m) }))}
+            />
           </Row>
         )}
 
@@ -594,98 +541,43 @@ export function AlertEditor({
           </>
         )}
 
+        {/*
+          The gates, as the LIST the create dialogs edit — the same component,
+          so a gate armed there is shown and changed here exactly as it was
+          built. It opens expanded when the alert carries any.
+        */}
         {usesGates(kind) && (
           <>
             <Divider />
-            <div className="text-sm text-ink-muted">Only fire when</div>
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterRsi} className="accent-accent"
-                onChange={(e) => update("filterRsi", e.target.checked)} />
-              RSI filter
-            </label>
-            {form.filterRsi && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-sm text-ink-muted">RSI</span>
-                <input type="number" min={1} max={1000} value={form.filterRsiLength}
-                  aria-label="Filter RSI length" className={`${BOX} w-[70px]`}
-                  onChange={(e) => update("filterRsiLength", intOf(e.target.value))} />
-                <select value={form.filterRsiSide} aria-label="Filter RSI side"
-                  className={`${BOX} w-[92px]`}
-                  onChange={(e) => update("filterRsiSide", e.target.value as FilterSide)}>
-                  <option value="above">is above</option>
-                  <option value="below">is below</option>
-                </select>
-                <input type="number" min={1} max={99} value={form.filterRsiLevel}
-                  aria-label="Filter RSI level" className={`${BOX} w-[70px]`}
-                  onChange={(e) => update("filterRsiLevel", numOf(e.target.value))} />
-              </div>
-            )}
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterMa} className="accent-accent"
-                onChange={(e) => update("filterMa", e.target.checked)} />
-              Moving-average filter
-            </label>
-            {form.filterMa && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-sm text-ink-muted">Price</span>
-                <select value={form.filterMaSide} aria-label="Filter MA side"
-                  className={`${BOX} w-[92px]`}
-                  onChange={(e) => update("filterMaSide", e.target.value as FilterSide)}>
-                  <option value="above">is above</option>
-                  <option value="below">is below</option>
-                </select>
-                <select value={form.filterMaType} aria-label="Filter MA type"
-                  className={`${BOX} w-[80px]`}
-                  onChange={(e) => update("filterMaType", e.target.value as MaType)}>
-                  <option value="ema">EMA</option>
-                  <option value="sma">SMA</option>
-                </select>
-                <input type="number" min={1} max={1000} value={form.filterMaLength}
-                  aria-label="Filter MA length" className={`${BOX} w-[80px]`}
-                  onChange={(e) => update("filterMaLength", intOf(e.target.value))} />
-              </div>
-            )}
-            <label className="flex items-center gap-2 py-1 text-sm text-ink">
-              <input type="checkbox" checked={form.filterSt} className="accent-accent"
-                onChange={(e) => update("filterSt", e.target.checked)} />
-              Supertrend filter
-            </label>
-            {form.filterSt && (
-              <>
-                <div className="flex items-center gap-2 pl-6">
-                  <span className="text-sm text-ink-muted">Price</span>
-                  <select value={form.filterStSide} aria-label="Filter Supertrend side"
-                    className={`${BOX} w-[92px]`}
-                    onChange={(e) => update("filterStSide", e.target.value as FilterSide)}>
-                    <option value="above">is above</option>
-                    <option value="below">is below</option>
-                  </select>
-                  <span className="whitespace-nowrap text-sm text-ink-muted">Supertrend</span>
-                  <input type="number" min={1} max={1000} value={form.filterStPeriod}
-                    aria-label="Filter Supertrend ATR period" className={`${BOX} w-[64px]`}
-                    onChange={(e) => update("filterStPeriod", intOf(e.target.value))} />
-                  <input type="number" min="0.1" max="100" step="0.1"
-                    value={form.filterStMultiplier}
-                    aria-label="Filter Supertrend multiplier" className={`${BOX} w-[64px]`}
-                    onChange={(e) => update("filterStMultiplier", numOf(e.target.value))} />
-                </div>
-                <Hint>
-                  ATR period · multiplier. Above the Supertrend is its uptrend,
-                  below is its downtrend.
-                </Hint>
-              </>
-            )}
-            <Hint>
-              Measured on this alert&apos;s own timeframe, on the same bar. While a
-              filter is not met the alert stays silent — it does not queue up and
-              fire later.
-            </Hint>
+            <AlertFiltersField value={form.gates} onChange={(next) => update("gates", next)} />
           </>
         )}
 
         <Divider />
 
-        {/* ── cadence and state ── */}
+        {/* ── where it runs: the instrument and the timeframe ── */}
+        <Row label="Symbol">
+          <input
+            value={form.symbol}
+            onChange={(e) => update("symbol", e.target.value.toUpperCase())}
+            aria-label="Alert symbol"
+            className={BOX}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+        </Row>
+        <Row label="Timeframe">
+          <Dropdown
+            value={form.timeframe}
+            label="Alert timeframe"
+            width={WIDE}
+            onChange={(v) => update("timeframe", v as Interval)}
+            options={EDIT_INTERVALS.map((tf) => ({ value: tf, label: tf }))}
+          />
+        </Row>
+
+        {/* ── cadence, message and state, in the create dialogs' order ── */}
         <FrequencyField
           value={form.frequency}
           onChange={(next) => update("frequency", next)}
@@ -707,21 +599,19 @@ export function AlertEditor({
             "shown at the end of the notification" hint are the two things that
             make the limit and the purpose obvious while typing. */}
         <AlertNoteField value={form.note} onChange={(next) => update("note", next)} />
-        <label className="flex items-center gap-2 py-1 text-sm text-ink">
-          <input type="checkbox" checked={form.enabled} className="accent-accent"
-            onChange={(e) => update("enabled", e.target.checked)} />
-          Armed
-          {alert.completedAt !== null && (
-            <span className="text-xs text-ink-faint">
-              — this once-only alert has already fired; saving it armed re-arms it
-            </span>
-          )}
-        </label>
+        <AlertArmedField
+          value={form.enabled}
+          onChange={(next) => update("enabled", next)}
+          disabledNote={alert.completedAt !== null
+            ? "This once-only alert has already fired; saving it armed re-arms it."
+            : "Saved changes are picked up on the next candle."}
+        />
 
         {/* State is never signalled by colour alone: the sentence says it. */}
         <p className="text-xs text-ink-faint">
-          Saved changes are picked up on the next candle. The alert keeps its history — editing
-          it does not create a second one, and both configurations are never live at once.
+          The alert keeps its history — editing it does not create a second one, and both
+          configurations are never live at once. The alert type is fixed; delete and
+          re-create it to watch something else.
         </p>
 
         {err && (
@@ -737,15 +627,35 @@ export function AlertEditor({
 
 const BOX = `w-full ${FIELD}`;
 
+/**
+ * A whole-number field. Module-level, like `Row`, because a component
+ * declared inside a render is a new type on every render, and React remounts
+ * a changed type — which for a number input means losing the caret after
+ * each keystroke.
+ */
+const IntInput = ({ value, onChange, label, min = 1, max = 1000 }: {
+  value: number; onChange: (next: number) => void; label: string; min?: number; max?: number;
+}) => (
+  <input
+    type="number" min={min} max={max} value={value}
+    onChange={(e) => onChange(intOf(e.target.value))}
+    aria-label={label}
+    className={BOX}
+  />
+);
+
+/** The wide Dropdown width, the reference's 180. */
+const WIDE = 180;
+
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="grid grid-cols-[104px_1fr] items-center gap-3">
+  <div className="grid grid-cols-[110px_1fr] items-center gap-3">
     <span className="text-sm text-ink-muted">{label}</span>
     {children}
   </div>
 );
 
 const Hint = ({ children }: { children: React.ReactNode }) => (
-  <p className="pl-[116px] text-xs text-ink-faint">{children}</p>
+  <p className="pl-[122px] text-xs text-ink-faint">{children}</p>
 );
 
 const Divider = () => <div className="my-1 border-t border-border" />;

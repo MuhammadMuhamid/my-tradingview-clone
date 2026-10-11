@@ -18,12 +18,58 @@
 import {
   ADX_DEFAULTS, ALERT_HISTORY_BARS, BOLLINGER_DEFAULTS, DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS,
   MACD_DEFAULTS, RSI_DEFAULTS, STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
-  type AlertFrequency, type BollingerBand, type ConditionKind, type FilterSide,
+  type AlertFrequency, type AlertGate, type BollingerBand, type ConditionKind, type FilterSide,
   type MaAlert, type StAtrMethod, type StochasticTarget,
   type MaAlertMode, type MaAlertUpdate, type MacdTarget, type MaType,
   type PivotType, type PriceDirection, type RsiTarget, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
+
+/**
+ * The gates a persisted alert already carries.
+ *
+ * Prefers the list. Falls back to the legacy fields for a row written before
+ * it, where a gate counts as configured only when its whole rule is present —
+ * matching the server's own reconstruction, because a length with no side is
+ * not half a gate, it is no gate, and showing it as enabled would misreport
+ * what the alert does.
+ *
+ * Lives here rather than in `AlertFiltersField` (which re-exports it) because
+ * the editor form below is built from it, and a pure module must not reach
+ * into a component file for its rules.
+ */
+export function filtersFromAlert(a: MaAlert): AlertGate[] {
+  if (a.filters && a.filters.length > 0) return a.filters.map((g) => ({ ...g }));
+
+  const gates: AlertGate[] = [];
+  if (a.filterRsiLength !== null && a.filterRsiSide !== null) {
+    gates.push({
+      kind: "rsi",
+      length: a.filterRsiLength,
+      level: a.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
+      side: a.filterRsiSide as FilterSide,
+    });
+  }
+  if (a.filterMaType !== null && a.filterMaLength !== null && a.filterMaSide !== null) {
+    gates.push({
+      kind: "ma",
+      type: a.filterMaType,
+      length: a.filterMaLength,
+      side: a.filterMaSide as FilterSide,
+    });
+  }
+  if (a.filterStPeriod !== null && a.filterStSide !== null) {
+    gates.push({
+      kind: "supertrend",
+      period: a.filterStPeriod,
+      multiplier: a.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier,
+      atrMethod: (a.filterStAtrMethod as StAtrMethod | null)
+        ?? FILTER_DEFAULTS.supertrend.atrMethod,
+      side: a.filterStSide as FilterSide,
+    });
+  }
+  return gates;
+}
 
 /** Every timeframe the backend supports, in toolbar order. */
 export const EDIT_INTERVALS: Interval[] = [
@@ -180,19 +226,17 @@ export interface AlertEditForm {
   adxDiLength: number;
   adxSmoothing: number;
   adxLevel: number;
-  filterRsi: boolean;
-  filterRsiLength: number;
-  filterRsiLevel: number;
-  filterRsiSide: FilterSide;
-  filterMa: boolean;
-  filterMaType: MaType;
-  filterMaLength: number;
-  filterMaSide: FilterSide;
-  filterSt: boolean;
-  filterStPeriod: number;
-  filterStMultiplier: number;
-  filterStAtrMethod: StAtrMethod;
-  filterStSide: FilterSide;
+  /**
+   * The "only fire when" gates, as the LIST every create dialog edits.
+   *
+   * This was thirteen fields — one RSI, one moving-average and one Supertrend
+   * gate, each on the alert's own timeframe — so the editor could neither show
+   * two gates of one kind nor a gate on another timeframe. Worse, for a row
+   * that carries the list, the server describes its gates BY the list and
+   * ignores the legacy flags, so a gate switched on here showed as saved and
+   * never applied.
+   */
+  gates: AlertGate[];
 }
 
 /** Default swing length for support/resistance; mirrors DEFAULT_SR_OPTIONS. */
@@ -252,20 +296,7 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     adxDiLength: alert.adxDiLength ?? ADX_DEFAULTS.diLength,
     adxSmoothing: alert.adxSmoothing ?? ADX_DEFAULTS.smoothing,
     adxLevel: alert.adxLevel ?? ADX_DEFAULTS.level,
-    filterRsi: alert.filterRsiLength !== null && alert.filterRsiSide !== null,
-    filterRsiLength: alert.filterRsiLength ?? FILTER_DEFAULTS.rsi.length,
-    filterRsiLevel: alert.filterRsiLevel ?? FILTER_DEFAULTS.rsi.level,
-    filterRsiSide: (alert.filterRsiSide as FilterSide | null) ?? FILTER_DEFAULTS.rsi.side,
-    filterMa: alert.filterMaType !== null && alert.filterMaLength !== null,
-    filterMaType: alert.filterMaType ?? FILTER_DEFAULTS.ma.type,
-    filterMaLength: alert.filterMaLength ?? FILTER_DEFAULTS.ma.length,
-    filterMaSide: (alert.filterMaSide as FilterSide | null) ?? FILTER_DEFAULTS.ma.side,
-    filterSt: alert.filterStPeriod !== null && alert.filterStSide !== null,
-    filterStPeriod: alert.filterStPeriod ?? FILTER_DEFAULTS.supertrend.period,
-    filterStMultiplier: alert.filterStMultiplier ?? FILTER_DEFAULTS.supertrend.multiplier,
-    filterStAtrMethod:
-      (alert.filterStAtrMethod as StAtrMethod | null) ?? FILTER_DEFAULTS.supertrend.atrMethod,
-    filterStSide: (alert.filterStSide as FilterSide | null) ?? FILTER_DEFAULTS.supertrend.side,
+    gates: filtersFromAlert(alert),
   };
 }
 
@@ -371,23 +402,41 @@ export function validateAlertForm(
       `${ALERT_HISTORY_BARS}. Reduce them, or the alert can never warm up.`;
   }
   if (usesGates(kind)) {
-    if (form.filterRsi) {
-      if (!isLength(form.filterRsiLength)) return "The RSI filter length must be from 1 to 1000.";
-      if (!(form.filterRsiLevel > 0 && form.filterRsiLevel < 100)) {
-        return "The RSI filter level must be between 0 and 100.";
-      }
-    }
-    if (form.filterMa && !isLength(form.filterMaLength)) {
-      return "The moving-average filter length must be from 1 to 1000.";
-    }
-    if (form.filterSt) {
-      if (!isLength(form.filterStPeriod)) {
-        return "The Supertrend filter ATR period must be from 1 to 1000.";
-      }
-      if (!isMultiplier(form.filterStMultiplier)) return MULTIPLIER_MESSAGE;
+    for (const gate of form.gates) {
+      const problem = gateProblem(gate);
+      if (problem) return problem;
     }
   }
   return null;
+}
+
+/** The first thing wrong with one gate, in the words its own row uses. */
+function gateProblem(gate: AlertGate): string | null {
+  switch (gate.kind) {
+    case "rsi":
+      if (!isLength(gate.length)) return "The RSI filter length must be from 1 to 1000.";
+      if (!(gate.level > 0 && gate.level < 100)) {
+        return "The RSI filter level must be between 0 and 100.";
+      }
+      return null;
+    case "rsi_ma":
+      if (!isLength(gate.length) || !isLength(gate.maLength)) {
+        return "The RSI-versus-MA filter lengths must be from 1 to 1000.";
+      }
+      return null;
+    case "ma":
+      return isLength(gate.length) ? null
+        : "The moving-average filter length must be from 1 to 1000.";
+    case "supertrend":
+      if (!isLength(gate.period)) return "The Supertrend filter ATR period must be from 1 to 1000.";
+      return isMultiplier(gate.multiplier) ? null : MULTIPLIER_MESSAGE;
+    case "macd":
+      for (const value of [gate.fastLength, gate.slowLength, gate.signalLength]) {
+        if (!isLength(value)) return "The MACD filter lengths must be from 1 to 1000.";
+      }
+      return gate.fastLength < gate.slowLength ? null
+        : "The MACD filter's fast length must be below its slow length.";
+  }
 }
 
 const isLength = (v: number): boolean => Number.isInteger(v) && v >= 1 && v <= 1000;
@@ -521,56 +570,18 @@ function setBand(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): void
 }
 
 /**
- * A gate is all-or-nothing: switching it off sends the explicit `false` the
- * server needs to clear the columns, and switching it on sends every part of it
- * so a half-written gate can never be stored.
+ * The gate list, sent whole when it changed and not at all when it did not.
+ *
+ * Whole, because the server REPLACES the list rather than merging it — so the
+ * list sent is exactly the gates the alert will have, and removing the last
+ * one is an explicit `[]` rather than an omission that would leave the row's
+ * own gates applying while the editor showed none. Sending the list also
+ * retires a legacy row's single-gate columns, which the server drops in the
+ * same write. Not at all when unchanged, so an untouched Save stays a no-op.
  */
 function setGates(body: MaAlertUpdate, form: AlertEditForm, alert: MaAlert): void {
-  const hadRsi = alert.filterRsiLength !== null && alert.filterRsiSide !== null;
-  if (!form.filterRsi) {
-    if (hadRsi) body.filterRsi = false;
-  } else if (
-    !hadRsi ||
-    form.filterRsiLength !== alert.filterRsiLength ||
-    form.filterRsiLevel !== alert.filterRsiLevel ||
-    form.filterRsiSide !== alert.filterRsiSide
-  ) {
-    body.filterRsi = true;
-    body.filterRsiLength = form.filterRsiLength;
-    body.filterRsiLevel = form.filterRsiLevel;
-    body.filterRsiSide = form.filterRsiSide;
-  }
-
-  const hadMa = alert.filterMaType !== null && alert.filterMaLength !== null;
-  if (!form.filterMa) {
-    if (hadMa) body.filterMa = false;
-  } else if (
-    !hadMa ||
-    form.filterMaType !== alert.filterMaType ||
-    form.filterMaLength !== alert.filterMaLength ||
-    form.filterMaSide !== alert.filterMaSide
-  ) {
-    body.filterMa = true;
-    body.filterMaType = form.filterMaType;
-    body.filterMaLength = form.filterMaLength;
-    body.filterMaSide = form.filterMaSide;
-  }
-
-  const hadSt = alert.filterStPeriod !== null && alert.filterStSide !== null;
-  if (!form.filterSt) {
-    if (hadSt) body.filterSt = false;
-  } else if (
-    !hadSt ||
-    form.filterStPeriod !== alert.filterStPeriod ||
-    form.filterStMultiplier !== alert.filterStMultiplier ||
-    form.filterStAtrMethod !== alert.filterStAtrMethod ||
-    form.filterStSide !== alert.filterStSide
-  ) {
-    body.filterSt = true;
-    body.filterStPeriod = form.filterStPeriod;
-    body.filterStMultiplier = form.filterStMultiplier;
-    body.filterStAtrMethod = form.filterStAtrMethod;
-    body.filterStSide = form.filterStSide;
+  if (JSON.stringify(form.gates) !== JSON.stringify(filtersFromAlert(alert))) {
+    body.filters = form.gates.map((gate) => ({ ...gate }));
   }
 }
 
