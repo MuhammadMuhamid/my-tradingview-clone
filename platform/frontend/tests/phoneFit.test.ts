@@ -38,6 +38,24 @@ test("A14 — a Studies card wraps on a phone, so the name keeps its room", () =
   assert.equal((panel.match(/flex shrink-0 items-center gap-[0-9.]+ max-sm:ml-auto/g) ?? []).length, 2);
 });
 
+test("W2A-12 — a Studies card gives its NAME the room, at every width", () => {
+  const panel = read("components/tv/IndicatorsPanel.tsx");
+  // The name is its own run that yields last; the count after it yields first.
+  assert.match(panel, /const CARD_NAME = "max-w-full shrink-0 truncate";/);
+  assert.match(panel, /const CARD_COUNT = "ml-1 min-w-0 truncate text-\[10px\]";/);
+  assert.equal((panel.match(/<span className=\{CARD_NAME\} data-study-card-name="">/g) ?? []).length, 2,
+    "both card kinds print the name in its own run, not in one run with the count");
+  // With a hover to find them, the actions wait for it, over the badge; a
+  // touch screen keeps them — every hide is under `(pointer:fine)`.
+  const reveal = /const CARD_ACTIONS_REVEAL = "([^"]+)";/.exec(panel)?.[1] ?? "";
+  assert.ok(reveal.split(" ").every((c) => c.startsWith("[@media(pointer:fine)]:")),
+    "an action hidden on a touch screen has no hover to bring it back");
+  assert.match(reveal, /group-hover\/card:flex/);
+  assert.match(reveal, /group-focus-within\/card:flex/, "and the keyboard reveals them too");
+  assert.equal((panel.match(/\$\{CARD_ACTIONS_REVEAL\}`\}\s+data-study-card-actions=""/g) ?? []).length, 2);
+  assert.equal((panel.match(/className="group\/card mb-1 /g) ?? []).length, 2, "the card is the hover group");
+});
+
 test("A15 — symbol search fits a phone: chips scroll, filters stay one line, clear is 24px", () => {
   const search = read("components/tv/SymbolSearch.tsx");
   const chips = /data-asset-class-chips\s+className="([^"]+)"/.exec(search)?.[1] ?? "";

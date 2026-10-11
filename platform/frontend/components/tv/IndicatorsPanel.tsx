@@ -399,6 +399,26 @@ export function IndicatorsPanel({
  * built-in has no source to open, and it has an order that decides layering,
  * so it gets move controls instead of an editor button.
  */
+/*
+ * ── W2A-12: the NAME gets the card's room ──────────────────────────────────
+ *
+ * At 300px a built-in card was eye + name + BUILT-IN + four 20px actions, so
+ * the name had 74px and read `Average …`; on a phone, where the actions wrap,
+ * the plot count was in the same truncating run as the name and the ellipsis
+ * fell inside the name (`Average True Rang…`) rather than eating the count.
+ *
+ * Two changes, at every width. The name is its own run that does not shrink
+ * until it alone is wider than the card, and the count after it is what gives
+ * way first. And where there is a hover (a fine pointer), the actions are
+ * revealed on hover or keyboard focus of the card, over the badge, as the
+ * reference's object rows reveal theirs — so at rest the name has the card.
+ * A touch screen keeps them on screen: there is no hover to find them with.
+ */
+const CARD_NAME = "max-w-full shrink-0 truncate";
+const CARD_COUNT = "ml-1 min-w-0 truncate text-[10px]";
+const CARD_ACTIONS_REVEAL = "[@media(pointer:fine)]:hidden [@media(pointer:fine)]:group-hover/card:flex [@media(pointer:fine)]:group-focus-within/card:flex";
+const CARD_BADGE_YIELD = "[@media(pointer:fine)]:group-hover/card:hidden [@media(pointer:fine)]:group-focus-within/card:hidden";
+
 function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
   row: NativeStudyRow;
   first: boolean;
@@ -410,8 +430,8 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
   const { study } = row;
   const plotCount = Object.keys(row.values).length;
   return (
-    <div className="mb-1 rounded border border-border bg-surface-2/40"
-      onContextMenu={onContextMenu}>
+    <div className="group/card mb-1 rounded border border-border bg-surface-2/40"
+      onContextMenu={onContextMenu} data-study-card="">
       {/*
         A phone gives every button a 44px thumb target (globals.css), which
         makes this row's eye + badge + four actions 286px in a 241px card: the
@@ -438,17 +458,17 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
         </button>
         <button
           onClick={onEdit}
-          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px]"
+          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px] flex items-baseline"
           /*
            * A study that cannot compute says so in the row and explains why on
            * hover. "not enough history" would be the wrong answer for all
            * three cases — more bars will never fix a deleted source, a cycle
            * or a chain past its depth limit.
            */
-          title={row.sourceIssue ? sourceIssueMessage(row.sourceIssue) : undefined}
+          title={row.sourceIssue ? sourceIssueMessage(row.sourceIssue) : row.name}
         >
-          {row.name}
-          <span className={`ml-1 text-[10px] ${
+          <span className={CARD_NAME} data-study-card-name="">{row.name}</span>
+          <span className={`${CARD_COUNT} ${
             row.sourceIssue ? "text-warn" : "text-ink-faint"
           }`}>
             {row.sourceIssue === "missing" ? "source removed"
@@ -459,10 +479,11 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
                     : `${plotCount} plot${plotCount === 1 ? "" : "s"}`}
           </span>
         </button>
-        <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
+        <span className={`shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up ${CARD_BADGE_YIELD}`}>
           built-in
         </span>
-        <span className="flex shrink-0 items-center gap-0.5 max-sm:ml-auto">
+        <span className={`flex shrink-0 items-center gap-0.5 max-sm:ml-auto ${CARD_ACTIONS_REVEAL}`}
+          data-study-card-actions="">
           <RowButton
             onClick={() => studies.move(study.key, -1)}
             label={`Move ${row.name} up`} title="Move up" disabled={first}
@@ -505,8 +526,8 @@ function IndicatorRow({
 }) {
   const overridden = Object.keys(ind.params).length;
   return (
-    <div className="mb-1 rounded border border-border bg-surface-2/40"
-      onContextMenu={onContextMenu}>
+    <div className="group/card mb-1 rounded border border-border bg-surface-2/40"
+      onContextMenu={onContextMenu} data-study-card="">
       {/* Wraps on a phone for the same reason as the built-in row above. */}
       <div className="flex items-center gap-1 px-1.5 py-1 max-sm:flex-wrap" data-study-card-row>
         <button
@@ -528,18 +549,19 @@ function IndicatorRow({
               stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>
-        <button onClick={onToggleOpen}
-          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px]">
-          {title}
-          {ind.loading && <span className="ml-1 text-[10px] text-ink-faint">running…</span>}
+        <button onClick={onToggleOpen} title={title}
+          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px] flex items-baseline">
+          <span className={CARD_NAME} data-study-card-name="">{title}</span>
+          {ind.loading && <span className={`${CARD_COUNT} text-ink-faint`}>running…</span>}
           {!ind.loading && !ind.error && (
-            <span className="ml-1 text-[10px] text-ink-faint">
+            <span className={`${CARD_COUNT} text-ink-faint`}>
               {ind.overlays.length} plot{ind.overlays.length === 1 ? "" : "s"}
               {ind.markers.length > 0 ? ` · ${ind.markers.length} marks` : ""}
             </span>
           )}
         </button>
-        <span className="flex shrink-0 items-center gap-1 max-sm:ml-auto">
+        <span className={`flex shrink-0 items-center gap-1 max-sm:ml-auto ${CARD_ACTIONS_REVEAL}`}
+          data-study-card-actions="">
           <RowButton
             onClick={onEdit}
             label={`Edit ${ind.shortTitle || ind.name} source in the Pine Editor`}
