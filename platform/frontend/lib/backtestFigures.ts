@@ -514,18 +514,62 @@ export interface CompareRow {
   differs: boolean;
 }
 
+/**
+ * What a comparison cell says when one run has no value there.
+ *
+ * C-07: it was a bare "—", which beside a figure reads as zero, or as a
+ * figure that failed to load. It is neither: the run predates the field, or
+ * did not divide into windows, and says so.
+ */
+export const NOT_RECORDED = "not recorded for this run";
+
 function figureRows(prefix: string, a: BacktestMetrics | null, b: BacktestMetrics | null): CompareRow[] {
   const fa = a ? tradeFigures(a) : null;
   const fb = b ? tradeFigures(b) : null;
   const row = (label: string, pa: string, pb: string): CompareRow => ({ label: `${prefix}${label}`, a: pa, b: pb, differs: pa !== pb });
-  const pct = (n: number | undefined): string => n === undefined ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  const pct = (n: number | undefined): string => n === undefined ? NOT_RECORDED : `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
   return [
     row("Net profit", pct(a?.netProfitPct), pct(b?.netProfitPct)),
-    row("Max drawdown", a ? `-${a.maxDrawdownPct.toFixed(2)}%` : "—", b ? `-${b.maxDrawdownPct.toFixed(2)}%` : "—"),
-    row("Trades", fa ? `${fa.count} ${unitOf(fa.basis, fa.count)}` : "—", fb ? `${fb.count} ${unitOf(fb.basis, fb.count)}` : "—"),
-    row("Win rate", fa ? winRateText(fa) : "—", fb ? winRateText(fb) : "—"),
-    row("Profit factor", fa ? profitFactorText(fa) : "—", fb ? profitFactorText(fb) : "—"),
+    row("Max drawdown", a ? `-${a.maxDrawdownPct.toFixed(2)}%` : NOT_RECORDED, b ? `-${b.maxDrawdownPct.toFixed(2)}%` : NOT_RECORDED),
+    row("Trades", fa ? `${fa.count} ${unitOf(fa.basis, fa.count)}` : NOT_RECORDED, fb ? `${fb.count} ${unitOf(fb.basis, fb.count)}` : NOT_RECORDED),
+    // A run with no entries has no rate to state; it says so, as the result page does.
+    row("Win rate", fa ? (fa.count === 0 ? "no trades" : winRateText(fa)) : NOT_RECORDED,
+      fb ? (fb.count === 0 ? "no trades" : winRateText(fb)) : NOT_RECORDED),
+    row("Profit factor", fa ? (fa.count === 0 ? "no trades" : profitFactorText(fa)) : NOT_RECORDED,
+      fb ? (fb.count === 0 ? "no trades" : profitFactorText(fb)) : NOT_RECORDED),
   ];
+}
+
+/** Most parameter rows a comparison lists before it says how many more differ. */
+const MAX_PARAM_ROWS = 12;
+
+/**
+ * C-07: the strategy parameters, compared key by key.
+ *
+ * The comparison said "Strategy parameters: differ / differ" — true, and
+ * useless: the reader came to find WHICH input explains the difference and had
+ * to open both runs to diff thirty values by eye. A summary row says how many
+ * differ; one row per differing key follows, each run's value in its own
+ * column. A key one run does not carry is "not set" there, which for these
+ * snapshots means the strategy's default ran.
+ */
+function paramCompareRows(a: StrategyParams, b: StrategyParams): CompareRow[] {
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort((x, y) => x.localeCompare(y));
+  const shown = (p: StrategyParams, k: string): string => (k in p ? String(p[k]) : "not set");
+  const differing = keys.filter((k) => shown(a, k) !== shown(b, k));
+  if (differing.length === 0) {
+    return [{ label: "Strategy parameters", a: "same", b: "same", differs: false }];
+  }
+  const count = `${differing.length} of ${keys.length} differ`;
+  const rows: CompareRow[] = [{ label: "Strategy parameters", a: count, b: count, differs: true }];
+  for (const k of differing.slice(0, MAX_PARAM_ROWS)) {
+    rows.push({ label: `Parameter ${k}`, a: shown(a, k), b: shown(b, k), differs: true });
+  }
+  if (differing.length > MAX_PARAM_ROWS) {
+    const more = `${differing.length - MAX_PARAM_ROWS} more — open each run`;
+    rows.push({ label: "Other parameters", a: more, b: more, differs: true });
+  }
+  return rows;
 }
 
 /**
@@ -540,17 +584,11 @@ export function compareRuns(a: Backtest, b: Backtest, strategies: readonly Strat
   const wanted = ["Strategy", "Symbol", "Timeframe", "Window requested (UTC)", "Validation split",
     "Initial capital", "Commission", "Slippage", "Position size", "Entry fills", "Engine"];
   const settings = wanted.map((label) => {
-    const va = sa.find((r) => r.label === label)?.value ?? "—";
-    const vb = sb.find((r) => r.label === label)?.value ?? "—";
+    const va = sa.find((r) => r.label === label)?.value ?? NOT_RECORDED;
+    const vb = sb.find((r) => r.label === label)?.value ?? NOT_RECORDED;
     return { label, a: va, b: vb, differs: va !== vb };
   });
-  const paramsDiffer = JSON.stringify(paramRows(a.params)) !== JSON.stringify(paramRows(b.params));
-  settings.push({
-    label: "Strategy parameters",
-    a: paramsDiffer ? "differ" : "same",
-    b: paramsDiffer ? "differ" : "same",
-    differs: paramsDiffer,
-  });
+  settings.push(...paramCompareRows(a.params ?? {}, b.params ?? {}));
 
   const seg = (bt: Backtest) => (bt.segments?.available ? bt.segments : null);
   const ga = seg(a);

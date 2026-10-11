@@ -191,3 +191,32 @@ test("a comparison puts the differing settings and every window side by side", (
   assert.equal(cmp.headline.find((r) => r.label === "Net profit")!.b, "-1.00%");
   assert.ok(cmp.windows.some((r) => r.label.startsWith("Validation")), "the validation window is compared too");
 });
+
+test("C-07 differing strategy parameters are listed key by key, not as 'differ / differ'", () => {
+  const a = run({ params: { rrRatio: 2, qty_cash: 930, ma_len: 50 } });
+  const b = run({ id: "other", params: { rrRatio: 3, qty_cash: 930, use_filter: true } });
+  const cmp = compareRuns(a, b, STRATEGIES);
+  const summary = cmp.settings.find((r) => r.label === "Strategy parameters")!;
+  assert.deepEqual([summary.a, summary.b, summary.differs], ["3 of 4 differ", "3 of 4 differ", true]);
+  const rows = cmp.settings.filter((r) => r.label.startsWith("Parameter "));
+  assert.deepEqual(rows.map((r) => [r.label, r.a, r.b]), [
+    ["Parameter ma_len", "50", "not set"],
+    ["Parameter rrRatio", "2", "3"],
+    ["Parameter use_filter", "not set", "true"],
+  ], "each differing key, a's value beside b's; the shared qty_cash is not repeated");
+  assert.ok(rows.every((r) => r.differs));
+
+  const same = compareRuns(a, run({ id: "twin", params: { ...a.params } }), STRATEGIES);
+  assert.deepEqual(same.settings.find((r) => r.label === "Strategy parameters")!.a, "same");
+  assert.equal(same.settings.filter((r) => r.label.startsWith("Parameter ")).length, 0);
+});
+
+test("C-07 a setting or a window one run did not record says so, rather than a bare dash", () => {
+  const a = run({ segments: null });
+  const b = run({ id: "other" });
+  const cmp = compareRuns(a, b, STRATEGIES);
+  const validation = cmp.windows.find((r) => r.label === "Validation — Net profit")!;
+  assert.equal(validation.a, "not recorded for this run");
+  assert.ok(![...cmp.settings, ...cmp.headline, ...cmp.windows].some((r) => r.a === "—" || r.b === "—"),
+    "no comparison cell is a bare dash");
+});
