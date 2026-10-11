@@ -1180,7 +1180,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             hiddenStudies={hiddenStudies}
           />
           {/*
-            These dialogs belong to the pane, not to the visible status line.
+            The picker and the settings menu belong to the pane, not to the visible status line.
             Mounting them inside PaneLegend made the toolbar route disappear
             when Status line → Title was off. The legend chip still opens the
             same settings, while a second toolbar click manages an existing
@@ -1201,6 +1201,16 @@ function ChartPaneImpl(props: ChartPaneProps) {
               || compareSettingsOpen}
             current={compare}
             baseTicker={displayTicker(pane.symbol)}
+            /*
+              The menu hangs from whatever opened it: this pane's own `vs …`
+              chip when the legend draws one, otherwise the toolbar's Compare
+              button — the only route in when Status line → Title is off.
+              Found by accessible name because both controls belong to other
+              components, and a name is what they already promise to keep.
+            */
+            anchor={() =>
+              rootRef.current?.querySelector<HTMLElement>('button[aria-label^="Comparing with "]')
+              ?? document.querySelector<HTMLElement>('button[aria-label="Compare with another instrument"]')}
             onClose={() => {
               setCompareSettingsOpen(false);
               setChangingCompareSymbol(false);

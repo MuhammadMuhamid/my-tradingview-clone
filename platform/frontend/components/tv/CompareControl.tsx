@@ -25,10 +25,11 @@
  *
  * The pane's own instrument is never touched by either surface.
  */
-import { Modal } from "@/components/Modal";
-import { Button } from "@/components/ui";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SymbolSearch } from "@/components/tv/SymbolSearch";
 import { displayTicker } from "@/lib/instrument";
+import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import { DEFAULT_COMPARE_LENGTH, type PaneCompare } from "@/lib/workspace";
 
 const MODES: { value: PaneCompare["mode"]; label: string; hint: string }[] = [
@@ -107,17 +108,56 @@ export function CompareControl({
   );
 }
 
+/** The menu's width. Wide enough that the longest mode label and the window
+ *  field each sit on one line, narrow enough to stay a menu beside a chip. */
+const MENU_WIDTH = 300;
+
+/**
+ * Where the menu sits: under its anchor's left edge, flipped above when there
+ * is no room below, and never past a viewport edge — the rule `useAnchor` in
+ * `components/ui.tsx` applies to every dropdown. Restated here only because
+ * this anchor is FOUND (the legend owns the chip) rather than owned.
+ */
+function placeUnder(
+  anchor: { left: number; top: number; bottom: number } | null,
+  height: number,
+): { left: number; top: number; maxHeight: number } {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  if (!anchor) return { left: 8, top: 48, maxHeight: Math.max(120, vh - 56) };
+  const left = Math.max(8, Math.min(anchor.left, vw - 8 - MENU_WIDTH));
+  const below = anchor.bottom + 4;
+  if (below + height <= vh - 8 || anchor.top - 4 - height < 8) {
+    return { left, top: below, maxHeight: Math.max(120, vh - 8 - below) };
+  }
+  return { left, top: anchor.top - 4 - height, maxHeight: anchor.top - 12 };
+}
+
 /**
  * How the comparison is drawn, and the way out of it.
  *
- * The secondary half of the old form, reached from the legend's `vs …` chip
- * rather than standing between a reader and choosing an instrument. Nothing
- * it says was dropped: the mode hints, the two self-comparison notices and
- * the returns/prices caveats are the reason a reader can tell a rolling beta
- * from a pair ratio without reading the source.
+ * ── C15: a menu on the chip, not a dialog ─────────────────────────────────
+ *
+ * This was a full `Modal` — backdrop, close button, centred panel — opened
+ * from a 20px chip in the legend, although this file's own header said what
+ * it should be: a small menu hanging off the `vs …` chip, which is how the
+ * reference manages a comparison in place. A dialog takes the chart away to
+ * change one radio; a menu leaves it visible, so the reader watches the
+ * comparison redraw as they pick a mode.
+ *
+ * The product's popover grammar rather than `ContextMenu` itself, because one
+ * row is a number field and a context menu's rows are verbs. The plumbing is
+ * the same and for the same reasons: portalled to `<body>` inside its own
+ * `tv-workstation` root (a legend's stacking context must not cap it), an
+ * outside press closes it before the chart can act on the release, Escape
+ * closes it and stops there, and focus goes back to what opened it.
+ *
+ * Nothing it says was dropped: the mode hints, the two self-comparison notices
+ * and the returns/prices caveats are the reason a reader can tell a rolling
+ * beta from a pair ratio without reading the source.
  */
 export function CompareSettings({
-  open, current, baseTicker, onClose, onApply, onChangeSymbol,
+  open, current, baseTicker, onClose, onApply, onChangeSymbol, anchor,
 }: {
   open: boolean;
   current: PaneCompare | null;
@@ -126,7 +166,19 @@ export function CompareSettings({
   onApply: (next: PaneCompare | null) => void;
   /** Reopen the shared symbol picker without removing the current comparison. */
   onChangeSymbol?: () => void;
+  /**
+   * The control the menu hangs from — the legend's `vs …` chip, or the
+   * toolbar's Compare button when the status-line title is off and there is
+   * no chip. A getter read when the menu opens, because the chip is the
+   * legend's to render and this component must not hold a ref into it.
+   */
+  anchor?: () => HTMLElement | null;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const restoreTo = useRef<HTMLElement | null>(null);
+  const [placement, setPlacement] =
+    useState<{ left: number; top: number; maxHeight: number } | null>(null);
+
   const mode = current?.mode ?? "percent";
   const length = current?.length ?? DEFAULT_COMPARE_LENGTH;
   const hint = MODES.find((m) => m.value === mode)?.hint ?? "";
@@ -138,38 +190,143 @@ export function CompareSettings({
     onApply({ ...current, ...next });
   };
 
-  return (
-    /*
-      `displayTicker`, not the stored symbol.
+  /*
+   * Remember what had focus, and give it back on close.
+   *
+   * The anchor is the fallback rather than the first choice: a keyboard user
+   * who opened this from the chip has the chip focused already, while a
+   * pointer user on Safari — which does not focus a clicked button — has
+   * nothing focused, and the chip is where their attention is.
+   */
+  useEffect(() => {
+    if (!open) { setPlacement(null); return; }
+    const active = document.activeElement as HTMLElement | null;
+    restoreTo.current = active && active !== document.body ? active : anchor?.() ?? null;
+    return () => {
+      const target = restoreTo.current;
+      if (target?.isConnected) target.focus();
+    };
+    // `anchor` is a fresh closure on every pane render; the OPENING is the event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-      A comparison chosen through this dialog is stored already-displayed (see
-      `onSelect` above), so this read looked safe. A comparison restored from a
-      saved workspace is not: it carries the canonical id, and the dialog's own
-      heading rendered "Comparing with instrument:v1:BINANCE:spot:ETH:USDT:
-      USDT:spot" — the exact leak this file's header comment says the contract
-      forbids, on the most prominent line of the surface. Converting at the
-      point of DISPLAY holds for both paths.
-    */
-    <Modal open={open} onClose={onClose} title={`Comparing with ${displayTicker(current?.symbol ?? "")}`.trim()}>
-      <div className="flex flex-col gap-3">
-        <div role="group" aria-label="Which comparison" className="flex flex-col gap-1">
+  // Measure, then place, so the panel is never seen at the wrong position. A
+  // mode change re-measures because the window field and caveats come and go.
+  useLayoutEffect(() => {
+    if (!open || !panelRef.current) return;
+    const height = panelRef.current.getBoundingClientRect().height;
+    setPlacement(placeUnder(anchor?.()?.getBoundingClientRect() ?? null, height));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode]);
+
+  // Focus lands on the mode that is on, so the arrows start from the answer —
+  // once per opening, not again on every re-measure.
+  const placed = placement !== null;
+  useEffect(() => {
+    if (!open || !placed) return;
+    const items = menuItems(panelRef.current);
+    (items.find((el) => el.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
+  }, [open, placed]);
+
+  /*
+   * Escape in the capture phase, stopped there — the popover grammar of
+   * `components/ui.tsx`. Escape is also the chart's clear-selection and
+   * disarm-the-tool key; dismissing this menu must not do those as well.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onClose]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const onKeyDown = (event: React.KeyboardEvent): void => {
+    // The window field owns its own arrows: Up and Down step the number.
+    const inField = (event.target as HTMLElement).tagName === "INPUT";
+    if (!inField && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      moveMenuFocus(menuItems(panelRef.current), document.activeElement, event.key);
+      return;
+    }
+    // Tab walks the menu rather than escaping into the chart behind the
+    // outside-press catcher, where focus would sit on something unclickable.
+    if (event.key === "Tab") {
+      event.preventDefault();
+      moveMenuFocus(menuItems(panelRef.current), document.activeElement,
+        event.shiftKey ? "ArrowUp" : "ArrowDown");
+    }
+  };
+
+  /*
+    `displayTicker`, not the stored symbol.
+
+    A comparison chosen through the picker is stored already-displayed (see
+    `onSelect` above), so this read looked safe. A comparison restored from a
+    saved workspace is not: it carries the canonical id, and the heading
+    rendered "Comparing with instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot" —
+    the exact leak this file's header comment says the contract forbids, on
+    the most prominent line of the surface. Converting at the point of
+    DISPLAY holds for both paths.
+  */
+  const title = `Comparing with ${displayTicker(current?.symbol ?? "")}`.trim();
+
+  return createPortal(
+    <div className="tv-workstation" data-compare-menu-root="">
+      {/*
+        The outside-press catcher, on `pointerdown` so the menu closes on the
+        press, before the chart underneath can start a pan on the release.
+      */}
+      <div
+        className="fixed inset-0 z-[90]"
+        onPointerDown={onClose}
+        onContextMenu={(event) => { event.preventDefault(); onClose(); }}
+        aria-hidden="true"
+      />
+      <div
+        ref={panelRef}
+        role="menu"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        style={{
+          left: placement?.left ?? 0,
+          top: placement?.top ?? 0,
+          maxHeight: placement?.maxHeight,
+          width: MENU_WIDTH,
+          // Invisible until measured, so it is never seen in the wrong place.
+          visibility: placement ? "visible" : "hidden",
+        }}
+        className="tvc-menu tvc-menu--compact fixed z-[91] overflow-y-auto outline-none"
+      >
+        <div role="presentation" className="truncate px-3 pb-1 pt-0.5 text-xs font-semibold text-ink">
+          {title}
+        </div>
+        <div role="group" aria-label="Which comparison">
           {MODES.map((m) => (
             <button
               key={m.value}
+              type="button"
               role="menuitemradio"
               aria-checked={m.value === mode}
               onClick={() => set({ mode: m.value })}
-              className="tvc-menu-row justify-start px-3 text-sm"
+              className="tvc-menu-row justify-start px-2 text-left text-sm"
             >
               {m.label}
             </button>
           ))}
         </div>
         {WINDOWED.has(mode) && (
-          <label className="flex flex-col gap-1 text-sm text-ink-muted">
-            Window, in bars
+          <div role="group" aria-label="Rolling window" className="flex items-center gap-2 px-3 pt-1.5">
+            <span className="text-xs text-ink-muted">Window, in bars</span>
             <input
-              className="w-full rounded-md border border-control-border bg-transparent px-2 py-1 text-sm text-ink"
+              className="ml-auto h-7 w-[76px] rounded-md border border-control-border bg-transparent px-2 text-sm tabular text-ink"
               type="number" min={2} max={1000}
               value={length}
               onChange={(e) => {
@@ -178,80 +335,93 @@ export function CompareSettings({
               }}
               aria-label="Rolling window in bars"
             />
-          </label>
+          </div>
         )}
-        <p className="text-xs text-ink-faint">{hint}</p>
-        {self && (mode === "ratio" || mode === "zspread") && (
-          /*
-           * A pair with itself is a constant 1, and a z-score of a constant is
-           * a division by zero. Worth naming separately from the correlation
-           * case below, because "the line will be flat at 1" and "there will be
-           * no line at all" are different surprises.
-           */
-          <p className="text-xs text-warn">
-            That is this chart&apos;s own instrument. The ratio is exactly 1 at every
-            bar, and a z-score of a constant has nothing to measure.
-          </p>
-        )}
-        {self && (mode === "correlation" || mode === "beta" || mode === "percent") && (
-          /*
-           * Legal, and worth saying out loud rather than refusing: the
-           * correlation is 1 and the beta is 1 by construction, and seeing
-           * that IS useful — but a reader who did not intend it would
-           * otherwise spend a while wondering why the line is flat.
-           */
-          <p className="text-xs text-warn">
-            That is this chart&apos;s own instrument. The correlation and beta will be
-            exactly 1, and the percentage overlay will draw one line over the other.
-          </p>
+        <div role="presentation" className="space-y-1 px-3 pb-1 pt-1.5">
+          <p className="text-xs text-ink-faint">{hint}</p>
+          {self && (mode === "ratio" || mode === "zspread") && (
+            /*
+             * A pair with itself is a constant 1, and a z-score of a constant is
+             * a division by zero. Worth naming separately from the correlation
+             * case below, because "the line will be flat at 1" and "there will be
+             * no line at all" are different surprises.
+             */
+            <p className="text-xs text-warn">
+              That is this chart&apos;s own instrument. The ratio is exactly 1 at every
+              bar, and a z-score of a constant has nothing to measure.
+            </p>
+          )}
+          {self && (mode === "correlation" || mode === "beta" || mode === "percent") && (
+            /*
+             * Legal, and worth saying out loud rather than refusing: the
+             * correlation is 1 and the beta is 1 by construction, and seeing
+             * that IS useful — but a reader who did not intend it would
+             * otherwise spend a while wondering why the line is flat.
+             */
+            <p className="text-xs text-warn">
+              That is this chart&apos;s own instrument. The correlation and beta will be
+              exactly 1, and the percentage overlay will draw one line over the other.
+            </p>
+          )}
+          {/*
+            Said before it can surprise anyone: the statistics are computed from
+            RETURNS, and a bar the second instrument does not have is left out
+            rather than filled in. Both are choices a reader is entitled to know
+            about, because both change what the number means.
+          */}
+          {(mode === "correlation" || mode === "beta") && (
+            <p className="text-xs text-ink-faint">
+              Computed from returns rather than prices — two instruments that both
+              drift upward correlate at nearly 1 whatever they have in common, which
+              would be a fact about drift rather than about them. Bars the second
+              instrument has no data for are left out, never filled in.
+            </p>
+          )}
+          {(mode === "ratio" || mode === "zspread") && (
+            /*
+             * The pair surfaces are computed from PRICES, and that is a different
+             * statement from the one above rather than an omission of it: a ratio
+             * of returns is not a ratio. The z-score is said to describe rather
+             * than to predict, out loud, because a spread two deviations from its
+             * own mean is a fact about the last few hundred bars and not a claim
+             * that it comes back.
+             */
+            <p className="text-xs text-ink-faint">
+              Computed from prices, since a ratio of returns is not a ratio. Bars
+              the second instrument has no data for are left out rather than
+              filled in.
+              {mode === "zspread" && " A z-score says where the pair has been "
+                + "against its own window — it is not a claim that the spread returns."}
+            </p>
+          )}
+        </div>
+        <div role="separator" className="tvc-menu-sep" />
+        {onChangeSymbol && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onChangeSymbol}
+            className="tvc-menu-row px-2 text-left text-sm text-ink"
+          >
+            Change symbol…
+          </button>
         )}
         {/*
-          Said before it can surprise anyone: the statistics are computed from
-          RETURNS, and a bar the second instrument does not have is left out
-          rather than filled in. Both are choices a reader is entitled to know
-          about, because both change what the number means.
+          Not tinted: a destructive row is the same ink as every other row in
+          this product's menus (see `ContextMenu`), and chromatic colour here
+          means direction, never danger.
         */}
-        {(mode === "correlation" || mode === "beta") && (
-          <p className="text-xs text-ink-faint">
-            Computed from returns rather than prices — two instruments that both
-            drift upward correlate at nearly 1 whatever they have in common, which
-            would be a fact about drift rather than about them. Bars the second
-            instrument has no data for are left out, never filled in.
-          </p>
-        )}
-        {(mode === "ratio" || mode === "zspread") && (
-          /*
-           * The pair surfaces are computed from PRICES, and that is a different
-           * statement from the one above rather than an omission of it: a ratio
-           * of returns is not a ratio. The z-score is said to describe rather
-           * than to predict, out loud, because a spread two deviations from its
-           * own mean is a fact about the last few hundred bars and not a claim
-           * that it comes back.
-           */
-          <p className="text-xs text-ink-faint">
-            Computed from prices, since a ratio of returns is not a ratio. Bars
-            the second instrument has no data for are left out rather than
-            filled in.
-            {mode === "zspread" && " A z-score says where the pair has been "
-              + "against its own window — it is not a claim that the spread returns."}
-          </p>
-        )}
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => { onApply(null); onClose(); }}
-              disabled={!current}
-            >
-              Remove comparison
-            </Button>
-            {onChangeSymbol && (
-              <Button variant="ghost" onClick={onChangeSymbol}>Change symbol…</Button>
-            )}
-          </div>
-          <Button variant="ghost" onClick={onClose}>Done</Button>
-        </div>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!current}
+          onClick={() => { onApply(null); onClose(); }}
+          className="tvc-menu-row px-2 text-left text-sm text-ink disabled:cursor-not-allowed disabled:text-ink-faint"
+        >
+          Remove comparison
+        </button>
       </div>
-    </Modal>
+    </div>,
+    document.body,
   );
 }

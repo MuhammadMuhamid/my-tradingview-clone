@@ -113,15 +113,19 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
     name: "Comparing with BTCUSDT. Change or remove.",
   });
   fireEvent.click(settings);
-  const settingsDialog = screen.getByRole("dialog");
-  fireEvent.click(within(settingsDialog).getByRole("menuitemradio", {
+  // C15: the chip opens a menu hanging off it, not a dialog over the chart.
+  const settingsMenu = screen.getByRole("menu", { name: "Comparing with BTCUSDT" });
+  assertAbsent(screen.queryByRole("dialog"), "managing the comparison opened a dialog");
+  fireEvent.click(within(settingsMenu).getByRole("menuitemradio", {
     name: "Pair spread, z-scored",
   }));
-  fireEvent.change(within(settingsDialog).getByRole("spinbutton", {
+  fireEvent.change(within(settingsMenu).getByRole("spinbutton", {
     name: "Rolling window in bars",
   }), { target: { value: "30" } });
-  fireEvent.click(within(settingsDialog).getByRole("button", { name: "Close" }));
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   await settle();
+  assertAbsent(screen.queryByRole("menu", { name: "Comparing with BTCUSDT" }),
+    "Escape did not dismiss the comparison menu");
 
   assert.ok(server.callsTo("/candles").some((call) =>
     call.path.includes("/api/symbols/BTCUSDT/candles") && call.path.includes("interval=15m")),
@@ -137,7 +141,7 @@ test("a pane applies, persists and removes a z-scored pair spread", async () => 
   fireEvent.click(screen.getByRole("button", {
     name: "Comparing with BTCUSDT. Change or remove.",
   }));
-  fireEvent.click(screen.getByRole("button", { name: "Remove comparison" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Remove comparison" }));
   await settle();
   const removed = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "null") as {
     panes?: { compare?: unknown }[];
@@ -182,9 +186,9 @@ test("compare settings and removal remain reachable when the status-line Title i
   // With no legend chip to click, the same toolbar control must manage the
   // comparison instead of opening a second, disconnected picker.
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
-  const settings = screen.getByRole("dialog");
+  const settings = screen.getByRole("menu", { name: "Comparing with BTCUSDT" });
   assert.ok(within(settings).getByRole("menuitemradio", { name: "Pair ratio" }));
-  fireEvent.click(within(settings).getByRole("button", { name: "Remove comparison" }));
+  fireEvent.click(within(settings).getByRole("menuitem", { name: "Remove comparison" }));
   await settle();
 
   const stored = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "null") as {

@@ -22,8 +22,10 @@
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, within } from "@testing-library/react";
-import { advance, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
+import { fireEvent, screen, within } from "@testing-library/react";
+import {
+  advance, assertAbsent, closeBrowser, render, resetBrowser, server, settle,
+} from "./harness/env";
 import { searchResponse } from "./harness/market";
 import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import type { PaneCompare } from "@/lib/workspace";
@@ -103,23 +105,122 @@ test("an existing comparison keeps its mode, and can be removed, from the legend
       onClose={() => {}} onApply={(next) => applied.push(next)} />
   );
   await settle();
-  const dialog = view.baseElement.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]')
-    ?? view.baseElement;
+  // C15: a menu, not a dialog. The `?? view.baseElement` fallback this used
+  // to carry meant the test could pass with no surface rendered at all.
+  const menu = within(view.baseElement).getByRole("menu", { name: "Comparing with SOLUSDT" });
+  assertAbsent(view.baseElement.querySelector('[role="dialog"], [role="alertdialog"]'),
+    "managing a comparison opened a dialog again");
 
   // It names the comparison by TICKER, and never by a canonical id.
-  const said = (dialog.textContent ?? "").replace(/\s+/g, " ");
+  const said = (menu.textContent ?? "").replace(/\s+/g, " ");
   assert.match(said, /Comparing with SOLUSDT/);
   assert.ok(!said.includes("instrument:v1"));
 
   // Changing the mode keeps the instrument and the window.
-  fireEvent.click(within(dialog as HTMLElement).getByRole("menuitemradio", { name: "Pair ratio" }));
+  fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Pair ratio" }));
   await settle();
   assert.deepEqual(applied.at(-1), { symbol: "SOLUSDT", mode: "ratio", length: 60 });
 
   // And the way out is still one click.
-  fireEvent.click(within(dialog as HTMLElement).getByRole("button", { name: "Remove comparison" }));
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Remove comparison" }));
   await settle();
   assert.equal(applied.at(-1), null);
+});
+
+/** The settings menu, anchored under a stand-in for the legend's chip. */
+async function openSettingsMenu(over: Partial<Parameters<typeof CompareSettings>[0]> = {}) {
+  const chip = document.createElement("button");
+  chip.setAttribute("aria-label", "Comparing with SOLUSDT. Change or remove.");
+  chip.getBoundingClientRect = () =>
+    ({ left: 140, top: 60, bottom: 80, right: 200, width: 60, height: 20, x: 140, y: 60 }) as DOMRect;
+  document.body.appendChild(chip);
+  chip.focus();
+  const closed: number[] = [];
+  const view = render(
+    <CompareSettings open current={{ symbol: "SOLUSDT", mode: "correlation", length: 60 }}
+      baseTicker="BTCUSDT" onClose={() => closed.push(1)} onApply={() => {}}
+      anchor={() => chip} {...over} />
+  );
+  await settle();
+  return { view, chip, closed };
+}
+
+test("the settings menu hangs under the chip, portalled out of the legend", async () => {
+  const { view, chip } = await openSettingsMenu();
+  const menu = screen.getByRole("menu", { name: "Comparing with SOLUSDT" });
+
+  // Out of the pane's stacking context, into its own workstation root, so a
+  // neighbouring pane's legend cannot paint over it.
+  assert.equal(view.container.contains(menu), false, "the menu rendered in place");
+  assert.ok(menu.closest(".tv-workstation"), "the portal lost the workstation scope");
+  assert.ok(menu.classList.contains("tvc-menu"), "the menu is not the shared popover grammar");
+
+  // Under the chip's left edge, not centred on the viewport like a dialog.
+  assert.equal(menu.style.left, "140px");
+  assert.equal(menu.style.top, "84px");
+  assert.equal(menu.style.visibility, "visible");
+
+  // Focus starts on the mode that is on.
+  assert.equal(document.activeElement?.textContent, "Rolling correlation");
+  assert.equal(document.activeElement?.getAttribute("role"), "menuitemradio");
+  chip.remove();
+});
+
+test("Escape closes the menu, stops there, and hands focus back to the chip", async () => {
+  const seenByWindow: string[] = [];
+  const listener = (e: KeyboardEvent) => seenByWindow.push(e.key);
+  window.addEventListener("keydown", listener);
+  const { view, chip, closed } = await openSettingsMenu();
+
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await settle();
+  assert.equal(closed.length, 1, "Escape did not close the menu");
+  assert.deepEqual(seenByWindow, [],
+    "Escape reached the chart's own handlers as well — it would also clear the selection");
+
+  view.rerender(
+    <CompareSettings open={false} current={{ symbol: "SOLUSDT", mode: "correlation", length: 60 }}
+      baseTicker="BTCUSDT" onClose={() => {}} onApply={() => {}} anchor={() => chip} />
+  );
+  await settle();
+  assert.equal(document.activeElement, chip, "closing dropped focus instead of returning it");
+  window.removeEventListener("keydown", listener);
+  chip.remove();
+});
+
+test("a press outside the menu closes it", async () => {
+  const { closed, chip } = await openSettingsMenu();
+  const catcher = document.querySelector<HTMLElement>("[data-compare-menu-root] > [aria-hidden='true']");
+  assert.ok(catcher, "no outside-press catcher");
+  fireEvent.pointerDown(catcher);
+  assert.equal(closed.length, 1);
+  chip.remove();
+});
+
+test("the window field appears for windowed modes only, and Change symbol is a row", async () => {
+  const changed: number[] = [];
+  const applied: (PaneCompare | null)[] = [];
+  const { view, chip } = await openSettingsMenu({
+    onChangeSymbol: () => changed.push(1), onApply: (next) => applied.push(next),
+  });
+  const menu = screen.getByRole("menu", { name: "Comparing with SOLUSDT" });
+
+  const field = within(menu).getByRole("spinbutton", { name: "Rolling window in bars" });
+  fireEvent.change(field, { target: { value: "30" } });
+  assert.deepEqual(applied.at(-1), { symbol: "SOLUSDT", mode: "correlation", length: 30 });
+
+  view.rerender(
+    <CompareSettings open current={{ symbol: "SOLUSDT", mode: "ratio", length: 60 }}
+      baseTicker="BTCUSDT" onClose={() => {}} onApply={() => {}}
+      onChangeSymbol={() => changed.push(1)} anchor={() => chip} />
+  );
+  await settle();
+  assertAbsent(within(menu).queryByRole("spinbutton"),
+    "a pair ratio has no window, and the menu offered one");
+
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Change symbol…" }));
+  assert.equal(changed.length, 1);
+  chip.remove();
 });
 
 test("the pane hands the dialog a ticker, not the canonical id it holds", async () => {
@@ -160,11 +261,12 @@ test("a comparison RESTORED from a saved workspace is still named by ticker", as
       onClose={() => {}} onApply={() => {}} />
   );
   await settle();
-  const dialog = view.baseElement.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]')
-    ?? view.baseElement;
-  const said = (dialog.textContent ?? "").replace(/\s+/g, " ");
+  const menu = within(view.baseElement).getByRole("menu");
+  const said = (menu.textContent ?? "").replace(/\s+/g, " ");
 
   assert.ok(!said.includes("instrument:v1"),
-    "a canonical instrument id reached the dialog's own heading");
+    "a canonical instrument id reached the menu's own heading");
+  assert.ok(!(menu.getAttribute("aria-label") ?? "").includes("instrument:v1"),
+    "a canonical instrument id reached the menu's accessible name");
   assert.match(said, /Comparing with ETHUSDT/);
 });
