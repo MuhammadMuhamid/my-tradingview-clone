@@ -16,6 +16,8 @@ import { stressRoutes } from "../src/api/routes/stress";
 import { targetReturn } from "../src/engine/stressTarget";
 import { benchmarkPath, discoverStressWindows } from "../src/engine/stress";
 import type { Candle } from "../src/types/market";
+import { pool } from "../src/db/pool";
+import { settleStressRun, type StressRunRow } from "../src/repositories/stress";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2025-01-01T00:00:00Z");
@@ -53,6 +55,61 @@ test("absent costs stay absent, so the route's one set of defaults applies", () 
   assert.deepEqual(parsed.value.params, {});
 });
 
+test("a finished backtest's fractional tick slippage can be stressed without changing its cost model", () => {
+  // Backtest requests deliberately allow fractional ticks. The Stress copy
+  // must preserve that valid value rather than refusing the linked workflow.
+  const parsed = parseStressRunSettings({ ...FROM_A_RUN, slippageTicks: 1.5 });
+  assert.ok(parsed.ok, parsed.ok ? "" : parsed.error);
+  assert.equal(parsed.value.slippageTicks, 1.5);
+});
+
+test("stress validates merged strategy settings before loading benchmark data or queuing work", async (t) => {
+  const CONFIG_ID = "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13";
+  let savedParams: Record<string, number> = {};
+  const unexpected: string[] = [];
+  // The actual route/repositories run, with only PostgreSQL replaced. Any
+  // candle read or write means invalid settings passed their admission gate.
+  t.mock.method(pool, "query", async (sql: string) => {
+    if (sql.startsWith("SELECT * FROM symbols WHERE")) {
+      return { rows: [{ symbol: "SOLUSDT", base_asset: "SOL", quote_asset: "USDT",
+        price_tick: 0.01, qty_step: 0.001, min_notional: 1, is_active: true }] };
+    }
+    if (sql.startsWith("SELECT * FROM strategies WHERE")) {
+      return { rows: [{ id: 1, key: "ma_rr_v9", name: "MA RR", description: null, pine_source: null }] };
+    }
+    if (sql.startsWith("SELECT * FROM strategy_configs WHERE")) {
+      return { rows: [{ id: CONFIG_ID, strategy_id: 1, name: "Saved", symbol: "SOLUSDT",
+        timeframe: "1h", params: savedParams, is_default: false,
+        created_at: new Date(T0), updated_at: new Date(T0) }] };
+    }
+    unexpected.push(sql);
+    throw new Error("Invalid strategy settings reached market data or persistence");
+  });
+  const app = Fastify({ logger: false });
+  await stressRoutes(app);
+  try {
+    for (const stored of [false, true]) {
+      const invalidParams: Record<string, number>[] = [{ rrRatio: -1 }, { qty_cash: -1 }, { qty_pct_equity: 200 }];
+      for (const params of invalidParams) {
+        savedParams = stored ? params : {};
+        const response = await app.inject({ method: "POST", url: "/api/stress/runs", payload: {
+          ...FROM_A_RUN, params: stored ? {} : params,
+          ...(stored ? { configId: CONFIG_ID } : {}),
+          benchmarkSymbol: "SOLUSDT", benchmarkInterval: "1h",
+          startTime: T0, endTime: T0 + 10 * HOUR,
+          method: "worst_return", lengthBars: 2, topN: 1,
+        } });
+        assert.equal(response.statusCode, 400, `${stored ? "saved" : "request"} ${JSON.stringify(params)}: ${response.body}`);
+        assert.match(response.json().error, new RegExp(Object.keys(params)[0]!));
+      }
+    }
+    assert.deepEqual(unexpected, [], "invalid settings must not start discovery or persist runs");
+  } finally {
+    await app.close();
+    t.mock.restoreAll();
+  }
+});
+
 test("settings no real run could have are refused before ten backtests are queued", () => {
   const refusals: [string, Record<string, unknown>, RegExp][] = [
     ["no strategy", { ...FROM_A_RUN, strategyKey: "" }, /strategyKey is required/],
@@ -61,7 +118,7 @@ test("settings no real run could have are refused before ten backtests are queue
     ["capital as text", { ...FROM_A_RUN, initialCapital: "1000" }, /initialCapital/],
     ["negative commission", { ...FROM_A_RUN, commissionPct: -0.1 }, /commissionPct/],
     ["commission as a fraction typo", { ...FROM_A_RUN, commissionPct: 50 }, /commissionPct/],
-    ["fractional slippage", { ...FROM_A_RUN, slippageTicks: 1.5 }, /slippageTicks/],
+    ["negative slippage", { ...FROM_A_RUN, slippageTicks: -1.5 }, /slippageTicks/],
     ["params as a list", { ...FROM_A_RUN, params: [1, 2] }, /params must be an object/],
     ["params null", { ...FROM_A_RUN, params: null }, /params must be an object/],
     ["a nested param", { ...FROM_A_RUN, params: { qty_cash: { value: 930 } } }, /params\.qty_cash/],
@@ -116,6 +173,95 @@ test("a stress run id that is not a uuid is a 404, and asks the database nothing
     assert.equal(response.statusCode, 404, `${url}: ${response.body}`);
     assert.deepEqual(response.json(), { error: "stress run not found" });
   }
+});
+
+test("a coordinator still attaching its windows cannot be settled as a completed empty report", async (t) => {
+  const writes: string[] = [];
+  t.mock.method(pool, "query", async (sql: string) => {
+    writes.push(sql);
+    return { rows: [] };
+  });
+  const pending = { id: "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13",
+    status: "running", windows: [] } as unknown as StressRunRow;
+  try {
+    assert.equal((await settleStressRun(pending)).status, "running");
+    assert.deepEqual(writes, [], "empty does not prove that all children finished");
+  } finally { t.mock.restoreAll(); }
+});
+
+test("Stress publishes the coordinator and all child jobs atomically and rolls failed creation back", async (t) => {
+  const COORDINATOR_ID = "3f1c2a9e-8d4b-4c6f-9a1e-2b7d5c8e0f13";
+  const candles = Array.from({ length: 4 }, (_, i) => ({
+    symbol: "SOLUSDT", interval: "1h", open_time: new Date(T0 + i * HOUR),
+    close_time: new Date(T0 + (i + 1) * HOUR - 1),
+    open: 100 - i, high: 101 - i, low: 98 - i, close: 99 - i, volume: 1,
+    quote_volume: null, trade_count: null,
+  }));
+  let failure: "none" | "child" | "attach" = "none";
+  let commands: string[] = [];
+  let childCount = 0;
+  let releases = 0;
+  const coordinator = {
+    id: COORDINATOR_ID, strategy_id: 1, config_id: null, source_backtest_id: null,
+    symbol: "SOLUSDT", timeframe: "1h", params: {}, initial_capital: 2500,
+    commission_pct: 0.075, slippage_ticks: 1.5, benchmark_symbol: "SOLUSDT",
+    benchmark_interval: "1h", discovery: {}, windows: [], status: "running", error: null,
+    created_at: new Date(T0), finished_at: null,
+  };
+  t.mock.method(pool, "query", async (sql: string) => {
+    if (sql.startsWith("SELECT * FROM symbols WHERE")) return { rows: [{ symbol: "SOLUSDT",
+      base_asset: "SOL", quote_asset: "USDT", price_tick: 0.01, qty_step: 0.001,
+      min_notional: 1, is_active: true }] };
+    if (sql.startsWith("SELECT * FROM strategies WHERE")) return { rows: [{ id: 1,
+      key: "ma_rr_v9", name: "MA RR", description: null, pine_source: null }] };
+    if (sql.startsWith("SELECT * FROM candles WHERE")) return { rows: candles };
+    throw new Error(`Stress creation escaped its transaction: ${sql}`);
+  });
+  t.mock.method(pool, "connect", async () => ({
+    query: async (sql: string, values: unknown[] = []) => {
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) {
+        commands.push(sql);
+        return { rows: [] };
+      }
+      if (sql.includes("INSERT INTO stress_runs")) {
+        commands.push("coordinator");
+        return { rows: [coordinator] };
+      }
+      if (sql.includes("INSERT INTO backtests")) {
+        commands.push("child");
+        if (++childCount === 2 && failure === "child") throw new Error("child insert failed");
+        return { rows: [{ ...coordinator, id: `${COORDINATOR_ID.slice(0, -1)}${childCount}`,
+          start_time: values[4], end_time: values[5], stress_run_id: COORDINATOR_ID,
+          started_at: null, holdout_fraction: null, engine_fingerprint: null }] };
+      }
+      if (sql.startsWith("UPDATE stress_runs SET windows")) {
+        commands.push("attach");
+        if (failure === "attach") throw new Error("window attachment failed");
+        return { rows: [{ ...coordinator, windows: JSON.parse(String(values[1])) }] };
+      }
+      throw new Error(`Unexpected transactional query: ${sql}`);
+    },
+    release: () => { releases++; },
+  }));
+  const app = Fastify({ logger: false });
+  await stressRoutes(app);
+  try {
+    for (const mode of ["none", "child", "attach"] as const) {
+      failure = mode; childCount = 0; commands = [];
+      const response = await app.inject({ method: "POST", url: "/api/stress/runs", payload: {
+        ...FROM_A_RUN, slippageTicks: 1.5,
+        benchmarkSymbol: "SOLUSDT", benchmarkInterval: "1h",
+        startTime: T0, endTime: T0 + 4 * HOUR - 1,
+        method: "worst_return", lengthBars: 2, topN: 2,
+      } });
+      assert.equal(response.statusCode, mode === "none" ? 201 : 500, response.body);
+      assert.deepEqual(commands, mode === "child"
+        ? ["BEGIN", "coordinator", "child", "child", "ROLLBACK"]
+        : ["BEGIN", "coordinator", "child", "child", "attach", mode === "none" ? "COMMIT" : "ROLLBACK"]);
+      if (mode === "none") assert.equal(response.json().windows.length, 2);
+    }
+    assert.equal(releases, 3, "every client is released on success and every failure");
+  } finally { await app.close(); t.mock.restoreAll(); }
 });
 
 // ── What the traded instrument did ──────────────────────────────────────────

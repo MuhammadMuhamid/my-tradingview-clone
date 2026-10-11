@@ -43,7 +43,7 @@ import { evaluateMtfLeanBar, type MtfLeanDecision } from "./mtfLeanLiveEvaluator
 import { INTERVAL_MS } from "../types/market";
 import { deliversLiveOrders } from "../types/deployments";
 import { applyPaperSignal } from "./paperBroker";
-import { evaluateShariahGate, type ShariahGateDeps } from "../shariah/gate";
+import { evaluateShariahGate, type ShariahGateDeps, type ShariahGateDecision } from "../shariah/gate";
 import * as paperRepo from "../repositories/paperFills";
 
 /**
@@ -611,11 +611,20 @@ export class LiveRunner {
      * exitable, and nothing here generates an exit either: a status change
      * blocks the next entry, it never liquidates a position.
      */
-    const shariah = await evaluateShariahGate(
-      { symbol: dep.symbol, side: decision.action === "buy" ? "BUY" : "SELL" },
-      this.shariahDeps
-    );
-    if (!shariah.allowed) {
+    let shariah: ShariahGateDecision | undefined;
+    try {
+      shariah = await evaluateShariahGate(
+        { symbol: dep.symbol, side: decision.action === "buy" ? "BUY" : "SELL" },
+        this.shariahDeps
+      );
+    } catch (error) {
+      // The automation halt has already been checked above. A screening read
+      // failure must not separately trap its exit, nor certify an entry.
+      if (decision.action !== "sell") throw error;
+      this.log.warn({ err: error, deploymentId: dep.id },
+        "exit proceeds without unavailable Shariah provenance");
+    }
+    if (shariah && !shariah.allowed) {
       this.log.error(
         { deploymentId: dep.id, symbol: dep.symbol, effectiveStatus: shariah.context.effectiveStatus },
         `signal BLOCKED by Shariah Mode: ${shariah.reason}`
@@ -647,8 +656,10 @@ export class LiveRunner {
      * authentication is the webhook secret, so the block is signed separately —
      * see `withShariahEvidence`.
      */
-    built = withShariahEvidence(built,
-      { symbol: dep.symbol, side: decision.action, context: shariah.context });
+    if (shariah) {
+      built = withShariahEvidence(built,
+        { symbol: dep.symbol, side: decision.action, context: shariah.context });
+    }
 
     /*
      * BE-13 / BE-16: claim the intent BEFORE delivering.

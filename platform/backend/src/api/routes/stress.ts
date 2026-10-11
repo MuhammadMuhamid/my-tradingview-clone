@@ -31,7 +31,7 @@ import {
 } from "../../engine/stress";
 import { targetReturn, type TargetReturn } from "../../engine/stressTarget";
 import { isUuid, parseStressRunSettings } from "./stressRequest";
-import { sizingProblem } from "../backtestRequest";
+import { paramsProblem, sizingProblem } from "../backtestRequest";
 import { engineDefaultParams } from "../../engine/backtester";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import {
@@ -39,6 +39,7 @@ import {
 } from "./backtests";
 import { canonicalInstrumentId } from "../../market/model";
 import type { StrategyParams } from "../../types/strategy";
+import { pool, type query } from "../../db/pool";
 
 const METHODS: readonly StressMethod[] = [
   "worst_return", "deepest_drawdown", "highest_volatility", "manual",
@@ -259,8 +260,11 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
      * strategy's settings alone — discovery has already been handed all it
      * will ever see.
      */
+    const params = { ...baseParams, ...settings.params };
+    const mergedProblem = paramsProblem(params);
+    if (mergedProblem) return reply.code(400).send({ error: mergedProblem });
     const sized = sizingProblem(
-      { ...baseParams, ...settings.params },
+      params,
       settings.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
       engineDefaultParams(settings.strategyKey));
     if (sized) return reply.code(400).send({ error: sized });
@@ -286,7 +290,6 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const params = { ...baseParams, ...settings.params };
     const initialCapital = settings.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
     const commissionPct = settings.commissionPct ?? DEFAULT_COMMISSION_PCT;
     const slippageTicks = settings.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS;
@@ -297,33 +300,47 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
      * over a slice of a hand-picked crash — the exact conflation the top of
      * `engine/stress.ts` forbids.
      */
-    const coordinator = await stressRepo.createStressRun({
-      strategyId: strategy.id,
-      configId: settings.configId ?? null,
-      sourceBacktestId: settings.sourceBacktestId ?? null,
-      symbol, timeframe, params,
-      initialCapital, commissionPct, slippageTicks,
-      benchmarkSymbol: benchmark.symbol,
-      benchmarkInterval: interval,
-      discovery: stressProvenance({ ...benchmark, interval }, candles, config),
-      windows: [],
-    });
-    const windows: stressRepo.StressRunWindow[] = [];
-    for (const window of discovered) {
-      const run = await backtests.createBacktest({
-        stressRunId: coordinator.id,
+    // Publish the coordinator and every child together. Until COMMIT, a
+    // polling reader cannot settle an empty coordinator and the worker
+    // cannot claim a child whose window linkage is not yet durable.
+    const client = await pool.connect();
+    const runQuery: typeof query = (text, values) => client.query(text, values);
+    try {
+      await client.query("BEGIN");
+      const coordinator = await stressRepo.createStressRun({
         strategyId: strategy.id,
-        configId: settings.configId,
-        symbol, timeframe,
-        startTime: window.startMs,
-        endTime: window.endMs,
-        params,
+        configId: settings.configId ?? null,
+        sourceBacktestId: settings.sourceBacktestId ?? null,
+        symbol, timeframe, params,
         initialCapital, commissionPct, slippageTicks,
-      });
-      windows.push({ ...window, backtestId: run.id });
+        benchmarkSymbol: benchmark.symbol,
+        benchmarkInterval: interval,
+        discovery: stressProvenance({ ...benchmark, interval }, candles, config),
+        windows: [],
+      }, runQuery);
+      const windows: stressRepo.StressRunWindow[] = [];
+      for (const window of discovered) {
+        const run = await backtests.createBacktest({
+          stressRunId: coordinator.id,
+          strategyId: strategy.id,
+          configId: settings.configId,
+          symbol, timeframe,
+          startTime: window.startMs,
+          endTime: window.endMs,
+          params,
+          initialCapital, commissionPct, slippageTicks,
+        }, runQuery);
+        windows.push({ ...window, backtestId: run.id });
+      }
+      const created = await stressRepo.attachStressWindows(coordinator.id, windows, runQuery);
+      await client.query("COMMIT");
+      return reply.code(201).send(created);
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
     }
-    const created = await stressRepo.attachStressWindows(coordinator.id, windows);
-    return reply.code(201).send(created);
   });
 
   /*

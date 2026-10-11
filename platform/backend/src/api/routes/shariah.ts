@@ -252,7 +252,17 @@ export async function shariahRoutes(
 
     const client = await connect();
     try {
+      await client.query("BEGIN");
+      // Sync touches the whole registry (including deactivation). Hold its
+      // mapping identities in the same order as review imports, and keep a
+      // reactivated ticker's mapping and STALE transition in one transaction.
+      // Otherwise an import can see the mapping update before STALE and
+      // overwrite the subsequent withdrawal using pre-reactivation research.
+      await client.query(
+        "SELECT m.asset_id FROM shariah_asset_binance_mappings m ORDER BY m.asset_id FOR UPDATE"
+      );
       const result = await syncShariahUniverse(client, qualifying);
+      await client.query("COMMIT");
       return {
         policyVersion: TS_SHARIAH_V1,
         qualifying: qualifying.length,
@@ -260,6 +270,9 @@ export async function shariahRoutes(
         reactivated: result.reactivated,
         deactivated: result.deactivated,
       };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
     } finally {
       client.release();
     }

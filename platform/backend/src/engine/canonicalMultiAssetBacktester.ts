@@ -537,6 +537,7 @@ export function runCanonicalBacktest(input: CanonicalBacktestInput): CanonicalBa
   };
 
   const recordFill = (params: Omit<CanonicalFill, "id" | "notional" | "fee">): CanonicalFill => {
+    finitePositive(params.price, "fill price after slippage");
     const amount = notional(current, params.quantity, params.price);
     const fee = feeFor(current, params.quantity, params.price);
     feesPaid += fee;

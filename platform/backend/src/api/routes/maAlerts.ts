@@ -31,7 +31,7 @@ import {
   ALERT_FREQUENCIES, DEFAULT_ALERT_FREQUENCY, INTRABAR_WARNING,
   describeFrequency, explainFrequency, isAlertFrequency, isIntrabar,
 } from "../../alerts/alertFrequency";
-import { validateCondition } from "../../alerts/alertConditions";
+import { parseStoredFilters, validateCondition } from "../../alerts/alertConditions";
 import { alertEvaluation } from "../../alerts/evaluationGate";
 import { scannerRequest } from "../../scanner/client";
 import { canonicalizeLegacySpotSymbol, normalizeCanonicalInstrumentId } from "../../market/model";
@@ -263,6 +263,18 @@ export async function planAlertPatch(
     const merged = mergeConditionRequest(row, b);
     let columns: ReturnType<typeof toColumns> | null = null;
     if (merged) {
+      // The runner skips unreadable authoritative lists. Rebuilding a
+      // condition from legacy gates (or no gates) would silently re-arm that
+      // row with fewer preconditions. Only an explicit list replacement may
+      // repair it; note/pause edits above still leave the condition untouched.
+      // A stored [] is unreadable too, while a requested [] deliberately
+      // removes gates, so that intent must be checked before the round trip.
+      if (b.filters === undefined && row.filters != null &&
+          parseStoredFilters(row.filters) === null) {
+        return reject(400, bad(
+          "stored filters cannot be read; replace filters explicitly before editing the condition"
+        ));
+      }
       const read = readCondition(row.conditionKind, merged);
       if ("error" in read) return reject(400, read);
       const invalid = validateCondition(read.condition);

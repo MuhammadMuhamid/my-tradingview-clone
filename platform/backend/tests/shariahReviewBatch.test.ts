@@ -439,6 +439,35 @@ test("a valid import publishes through the publication authority, with evidence 
     /ON CONFLICT \(asset_id\) DO UPDATE/);
 });
 
+test("an asset made STALE after preview cannot be republished with pre-staleness research", async () => {
+  class ReactivatedClient extends RecordingClient {
+    private stale = false;
+    override async query<T extends QueryResultRow = QueryResultRow>(sql: string, values: unknown[] = []): Promise<QueryResult<T>> {
+      // Model the universe sync committing its ticker-reactivation STALE
+      // between the initial import check and the publication transaction.
+      if (sql === "BEGIN") this.stale = true;
+      const response = await super.query<T>(sql, values);
+      if (/FROM shariah_asset_binance_mappings m/.test(sql)) {
+        response.rows = [{ asset_id: "1", base_asset: "AAA", binance_available: true,
+          lifecycle: this.stale ? "STALE" : "SCREENED",
+          updated_at: this.stale ? "2026-09-02T00:00:00.000Z" : null }] as unknown as T[];
+      }
+      return response;
+    }
+  }
+  const client = new ReactivatedClient();
+  await assert.rejects(() => importShariahReviewResults(client, {
+    document: document(), publishedBy: "owner",
+  }), /FULL fresh screening/);
+  assert.equal(matching(client, /^INSERT INTO shariah_evidence/).length, 0);
+  assert.equal(matching(client, /^INSERT INTO shariah_publications/).length, 0);
+  assert.equal(matching(client, /^ROLLBACK$/).length, 1);
+  const lock = client.statements.findIndex((sql) => /FOR UPDATE/.test(sql));
+  assert.ok(lock > client.statements.indexOf("BEGIN"), "registry identity must be locked inside the publication transaction");
+  const validations = client.statements.flatMap((sql, i) => /COALESCE\(r.lifecycle/.test(sql) ? [i] : []);
+  assert.ok(validations.at(-1)! > lock, "registry lifecycle must be re-read after the sync lock is held");
+});
+
 test("one invalid entry publishes nothing at all — the batch is all-or-nothing", async () => {
   const client = new RecordingClient();
   await assert.rejects(

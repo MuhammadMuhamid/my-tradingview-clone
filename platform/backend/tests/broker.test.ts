@@ -337,6 +337,92 @@ test("C-01 affordableEntries — percent-of-equity sizing is unaffected while eq
   assert.equal(withFix.rejectedEntries.length, 0);
 });
 
+test("a fixed-cash spot entry must pay its entry fee from the available account", () => {
+  const bars = makeBars([[100, 100, 100, 100], [100, 100, 100, 100]]);
+  const b = new Broker({ ...OPTS, initialCapital: 100, qtyCash: 100,
+    commissionPct: 5, slippageTicks: 0, corrections: allCorrections() });
+  b.queueEntry("entry");
+  b.processOpen(bars, 1);
+  assert.equal(b.isFlat, true, "100 notional plus a 5 fee cannot be funded by 100 cash");
+  assert.equal(b.commissionPaid, 0, "a refused entry must not charge its fee");
+  assert.equal(b.rejectedEntries.length, 1);
+});
+
+test("100%-equity spot sizing reserves entry commission without borrowing or suppressing the workflow", () => {
+  const bars = makeBars([[100, 100, 100, 100], [100, 100, 100, 100]]);
+  const b = new Broker({ ...OPTS, initialCapital: 100, qtyPctEquity: 100,
+    commissionPct: 5, slippageTicks: 0, corrections: allCorrections() });
+  b.queueEntry("entry");
+  b.processOpen(bars, 1);
+  assert.ok(b.positionQty > 0, "an all-equity entry remains usable with fees reserved");
+  const spent = b.positionQty * b.avgPrice + b.commissionPaid;
+  assert.ok(spent <= 100 + 1e-9, `the entry spent ${spent} from only 100 cash`);
+  approx(spent, 100);
+});
+
+test("fee-reserved equity sizing conserves account money through a complete round trip", () => {
+  const bars = makeBars([[100, 100, 100, 100], [100, 100, 100, 100], [110, 110, 110, 110]]);
+  for (const pct of [50, 100]) {
+    const b = new Broker({ ...OPTS, initialCapital: 100, qtyPctEquity: pct,
+      commissionPct: 5, slippageTicks: 0, corrections: allCorrections() });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    const notional = Math.min(pct, 100 / 1.05);
+    approx(b.positionQty * b.avgPrice, notional);
+    const cashRemaining = 100 - notional - b.commissionPaid;
+    assert.ok(cashRemaining >= -1e-9);
+    b.queueClose("exit");
+    b.processOpen(bars, 2);
+    const proceeds = notional * 1.1;
+    const expectedEquity = cashRemaining + proceeds * 0.95;
+    approx(b.equityAt(110), expectedEquity);
+    approx(b.closed[0]!.pnl!, expectedEquity - 100);
+    approx(b.commissionPaid, notional * 0.05 + proceeds * 0.05);
+    assert.equal(b.isFlat, true);
+  }
+});
+
+test("entry fill price is checked before creating a position or charging a fee", () => {
+  for (const price of [0, -1, Number.NaN]) {
+    const bars = makeBars([[100, 100, 100, 100], [price, price, price, price]]);
+    const b = new Broker({ ...OPTS, slippageTicks: 0, corrections: allCorrections() });
+    b.queueEntry("entry");
+    assert.throws(() => b.processOpen(bars, 1), /Entry fill price/);
+    assert.equal(b.isFlat, true);
+    assert.equal(b.commissionPaid, 0);
+    assert.equal(b.realizedNet, 0);
+  }
+});
+
+test("Broker rejects nonfinite or impossible money inputs while ignoring unused cash sizing", () => {
+  for (const override of [
+    { initialCapital: 0 }, { initialCapital: Number.NaN },
+    { commissionPct: -1 }, { commissionPct: Number.POSITIVE_INFINITY },
+    { slippageTicks: -1 }, { tickSize: 0 },
+    { qtyCash: -1 }, { qtyPctEquity: Number.NaN },
+  ]) {
+    assert.throws(() => new Broker({ ...OPTS, ...override }), /capital|commission|slippage|tick|sizing/i);
+  }
+  assert.doesNotThrow(() => new Broker({ ...OPTS, qtyPctEquity: 50, qtyCash: 0 }),
+    "equity sizing does not read qtyCash");
+});
+
+test("slippage cannot book a nonpositive exit price or refund an exit fee", () => {
+  const bars = makeBars([[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]]);
+  for (const slippageTicks of [100, 200]) {
+    const b = new Broker({ ...OPTS, slippageTicks, tickSize: 0.01,
+      corrections: allCorrections() });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    const feeBefore = b.commissionPaid;
+    b.queueClose("exit");
+    assert.throws(() => b.processOpen(bars, 2), /fill price|slippage/i,
+      "a result with a zero or negative execution price must fail clearly");
+    assert.equal(b.closed.length, 0, "an impossible fill must not become a reported trade");
+    assert.equal(b.commissionPaid, feeBefore, "the invalid exit must not alter cost accounting");
+  }
+});
+
 test("C-01 the run records skipped entries, and a run that skipped all of them says why", () => {
   assert.equal(skippedEntriesTruth([]), null, "a run that skipped nothing records nothing");
   const truth = skippedEntriesTruth([

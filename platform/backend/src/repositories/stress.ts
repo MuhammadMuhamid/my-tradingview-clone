@@ -99,8 +99,8 @@ export async function createStressRun(input: {
   benchmarkInterval: Interval;
   discovery: StressProvenance;
   windows: StressRunWindow[];
-}): Promise<StressRunRow> {
-  const { rows } = await query<DbStressRun>(
+}, runQuery: typeof query = query): Promise<StressRunRow> {
+  const { rows } = await runQuery<DbStressRun>(
     `INSERT INTO stress_runs
        (strategy_id, config_id, symbol, timeframe, params, initial_capital,
         commission_pct, slippage_ticks, benchmark_symbol, benchmark_interval,
@@ -150,6 +150,9 @@ export async function stressRunBacktests(run: StressRunRow): Promise<Map<string,
  */
 export async function settleStressRun(run: StressRunRow): Promise<StressRunRow> {
   if (run.status !== "running") return run;
+  // An older coordinator may be visible while its children are being
+  // attached. No windows is not evidence that all windows finished.
+  if (run.windows.length === 0) return run;
   const children = await stressRunBacktests(run);
   const states = run.windows.map((w) => children.get(w.backtestId)?.status ?? "queued");
   if (states.some((s) => s === "queued" || s === "running")) return run;
@@ -176,8 +179,9 @@ export async function settleStressRun(run: StressRunRow): Promise<StressRunRow> 
  */
 export async function attachStressWindows(
   id: string, windows: StressRunWindow[],
+  runQuery: typeof query = query,
 ): Promise<StressRunRow> {
-  const { rows } = await query<DbStressRun>(
+  const { rows } = await runQuery<DbStressRun>(
     "UPDATE stress_runs SET windows = $2 WHERE id = $1 RETURNING *",
     [id, JSON.stringify(windows)],
   );

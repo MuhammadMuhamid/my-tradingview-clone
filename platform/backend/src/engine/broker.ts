@@ -127,6 +127,23 @@ export class Broker {
   private tradeNo = 0;
 
   constructor(opts: BrokerOptions) {
+    if (!Number.isFinite(opts.initialCapital) || opts.initialCapital <= 0) {
+      throw new Error("Initial capital must be positive and finite.");
+    }
+    if (!Number.isFinite(opts.commissionPct) || opts.commissionPct < 0) {
+      throw new Error("Commission must be finite and nonnegative.");
+    }
+    if (!Number.isFinite(opts.slippageTicks) || opts.slippageTicks < 0) {
+      throw new Error("Slippage must be finite and nonnegative.");
+    }
+    if (!Number.isFinite(opts.tickSize) || opts.tickSize <= 0) {
+      throw new Error("Tick size must be positive and finite.");
+    }
+    const pct = opts.qtyPctEquity ?? 0;
+    if (!Number.isFinite(pct) || pct < 0
+      || (!(pct > 0) && (!Number.isFinite(opts.qtyCash) || opts.qtyCash <= 0))) {
+      throw new Error("Position sizing must be finite and positive (or zero equity sizing with positive cash).");
+    }
     this.opts = opts;
     this.slip = opts.slippageTicks * opts.tickSize;
     this.corrections = opts.corrections ?? ACTIVE_CORRECTIONS;
@@ -247,22 +264,31 @@ export class Broker {
     this.pending = null;
     if (order.action === "entry" && this.positionQty === 0) {
       const fillPx = px + this.slip;
+      if (!Number.isFinite(fillPx) || fillPx <= 0) {
+        throw new Error("Entry fill price must be positive and finite; check the price and slippage.");
+      }
       const pct = this.opts.qtyPctEquity ?? 0;
       // Flat when entering, so realised equity is all the account holds.
       const equity = this.opts.initialCapital + this.realizedNet;
-      const cash = pct > 0
+      let cash = pct > 0
         ? equity * (pct / 100)
         : this.opts.qtyCash;
+      const feeRate = this.opts.commissionPct / 100;
+      if (this.corrections.feeInclusiveAffordability && pct > 0 && pct <= 100 && equity > 0) {
+        cash = Math.min(cash, equity / (1 + feeRate));
+      }
+      const requiredCash = this.corrections.feeInclusiveAffordability ? cash * (1 + feeRate) : cash;
       // C-01: spot has no margin — an order larger than the account is not a
       // trade anyone could have placed, and an empty account places none.
-      if (this.corrections.affordableEntries && (cash > equity * (1 + 1e-12) || cash <= 0)) {
-        this.rejectedEntries.push({ bar: i, time: bars.time[i]!, cash, equity });
+      if ((this.corrections.affordableEntries || this.corrections.feeInclusiveAffordability)
+        && (!Number.isFinite(requiredCash) || requiredCash > equity * (1 + 1e-12) || cash <= 0)) {
+        this.rejectedEntries.push({ bar: i, time: bars.time[i]!, cash: requiredCash, equity });
         // Brackets issued for an entry that never filled belong to nothing.
         this.legs = [];
         return;
       }
       const qty = cash / fillPx;
-      const commission = fillPx * qty * (this.opts.commissionPct / 100);
+      const commission = fillPx * qty * feeRate;
       this.positionQty = qty;
       this.avgPrice = fillPx;
       this.entryQty = qty;
@@ -427,6 +453,9 @@ export class Broker {
     qty: number, px: number, time: number, bar: number, reason: string,
     intendedTriggerPrice: number | null = null
   ): void {
+    if (!Number.isFinite(px) || px <= 0) {
+      throw new Error("Exit fill price must be positive and finite; check the price and slippage.");
+    }
     const exitCommission = px * qty * (this.opts.commissionPct / 100);
     const entryCommShare = this.entryQty > 0 ? this.entryCommission * (qty / this.entryQty) : 0;
     const pnl = (px - this.avgPrice) * qty - exitCommission - entryCommShare;

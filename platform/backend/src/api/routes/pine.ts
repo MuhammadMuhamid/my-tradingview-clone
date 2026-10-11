@@ -26,6 +26,7 @@ import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import { parseResolution } from "../../data/resolution";
 import { ensureResolvedCoverage, readResolvedCandles } from "../../data/resolvedCandles";
 import { completedAtOrBefore } from "../../pine/horizon";
+import { paramsProblem, runSettingsProblem } from "../backtestRequest";
 
 /** Bars of history loaded before the requested start so indicators settle. */
 const WARMUP_BARS = 1500;
@@ -188,6 +189,14 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     const compiled = PineInterpreter.compile(source, body.params);
     if (compiled.errors.length > 0) {
       return { ok: false, errors: compiled.errors, meta: compiled.meta };
+    }
+    if (compiled.meta.kind === "strategy") {
+      const problem = runSettingsProblem({ ...body, startTime: startMs, endTime: endMs }, Date.now())
+        ?? paramsProblem({
+          ...(body.qtyCash === undefined ? {} : { qty_cash: body.qtyCash }),
+          ...(body.qtyPctEquity === undefined ? {} : { qty_pct_equity: body.qtyPctEquity }),
+        });
+      if (problem) return reply.code(400).send({ error: problem });
     }
 
     const interval = plan.id;

@@ -15,7 +15,7 @@ import { config as appConfig } from "../../config";
 import * as liveSafety from "../../repositories/liveSafety";
 import * as paperRepo from "../../repositories/paperFills";
 import { PAPER_COMMISSION_PCT, summarisePaper } from "../../engine/paperBroker";
-import { evaluateShariahGate, type ShariahGateDeps } from "../../shariah/gate";
+import { evaluateShariahGate, type ShariahGateDeps, type ShariahGateDecision } from "../../shariah/gate";
 
 const DELIVERY_MODES: DeliveryMode[] = ["3commas", "custom", "off", "paper"];
 const publicDeployment = <T extends { secret: string | null; botUuid: string | null }>(d: T) => ({
@@ -246,11 +246,19 @@ export function deploymentRoutes(
        * A $20 ceiling bounds the size of a mistake; it does not make buying a
        * non-ELIGIBLE asset acceptable while Shariah Mode is on.
        */
-      const shariah = await evaluateShariahGate(
-        { symbol: dep.symbol, side: body.action === "buy" ? "BUY" : "SELL" },
-        deps.shariah ?? {}
-      );
-      if (!shariah.allowed) {
+      let shariah: ShariahGateDecision | undefined;
+      try {
+        shariah = await evaluateShariahGate(
+          { symbol: dep.symbol, side: body.action === "buy" ? "BUY" : "SELL" },
+          deps.shariah ?? {}
+        );
+      } catch (error) {
+        // The operator's exit does not require a screening decision. Preserve
+        // healthy evidence, omit unreadable evidence, and keep BUY fail-closed.
+        if (body.action !== "sell") throw error;
+        req.log.warn({ err: error }, "test exit proceeds without unavailable Shariah provenance");
+      }
+      if (shariah && !shariah.allowed) {
         return reply.code(403).send({ error: shariah.reason, shariah: shariah.context });
       }
 
@@ -286,8 +294,9 @@ export function deploymentRoutes(
       };
       // Same reasoning as LiveRunner: the gate above decided, and the decision
       // has to travel with the order so the receiver can apply it too.
-      const built = withShariahEvidence(buildPayload(dep, ctx),
-        { symbol: dep.symbol, side: body.action, context: shariah.context });
+      const payload = buildPayload(dep, ctx);
+      const built = shariah ? withShariahEvidence(payload,
+        { symbol: dep.symbol, side: body.action, context: shariah.context }) : payload;
       if (built.dedupeKey && await alertRepo.dedupeKeyExists(dep.id, built.dedupeKey)) {
         return reply.code(409).send({ error: "duplicate test signal" });
       }

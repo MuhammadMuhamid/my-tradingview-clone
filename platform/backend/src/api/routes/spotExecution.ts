@@ -5,7 +5,7 @@ import { ManualBotError, spotBotRequest, canonicalJson,
   type ManualBotRequestInput } from "../../manualTrading/client";
 import * as liveSafety from "../../repositories/liveSafety";
 import {
-  assertShariahExposureAllowed, ShariahExposureBlockedError, type ShariahGateDeps,
+  assertShariahExposureAllowed, ShariahExposureBlockedError, type ShariahGateDeps, type ShariahRequestContext,
 } from "../../shariah/gate";
 import { normalizeCanonicalInstrumentId } from "../../market/model";
 
@@ -125,10 +125,18 @@ export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
      * An empty string resolves to no registry identity, which `gate.ts` maps to
      * REVIEW and refuses while enforcing. That is the intended fail-closed path.
      */
-    const shariah = await assertShariahExposureAllowed(
-      { symbol: registrySymbolFor(command.canonicalInstrumentId) ?? "", side: command.side },
-      shariahDeps,
-    );
+    let shariah: ShariahRequestContext | undefined;
+    try {
+      shariah = await assertShariahExposureAllowed(
+        { symbol: registrySymbolFor(command.canonicalInstrumentId) ?? "", side: command.side },
+        shariahDeps,
+      );
+    } catch (error) {
+      // No screening read may trap a Spot exit. Healthy provenance is kept;
+      // unavailable provenance is omitted, never turned into an approval.
+      if (command.side !== "SELL") throw error;
+      req.log.warn({ err: error }, "spot exit proceeds without unavailable Shariah provenance");
+    }
     const claim = await claimIntent({ deploymentId, dedupeKey, action: command.side === "BUY" ? "buy" : "sell", barTime });
     if (!claim.claimed) {
       if (claim.existing.state === "delivered" || claim.existing.state === "duplicate") return { status: "duplicate", platformIntentId: String(claim.existing.id), dedupeKey };
@@ -136,7 +144,7 @@ export async function spotExecutionRoutes(app: FastifyInstance, dependencies: {
     }
     const intent = { id: `x3a_platform_intent_${claim.intent.id}`, dedupeKey, createdAt: new Date(claim.intent.createdAt).toISOString(), payloadHash: payloadHash(command) };
     const result = await botRequest({ method: "POST", path: "/api/spot-execution/v1/orders",
-      body: { platformIntent: intent, ...command, shariah }, requestId: intent.id });
+      body: { platformIntent: intent, ...command, ...(shariah ? { shariah } : {}) }, requestId: intent.id });
     await resolveIntent(claim.intent.id, "delivered", "Bot accepted durable X3A intent; provider lifecycle is reconciled by Bot");
     return { ...(result as object), platformIntentId: intent.id, dedupeKey };
   }));

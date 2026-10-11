@@ -97,6 +97,20 @@ test("crypto spot preserves corrected next-bar long-only fills, fees, slippage a
   assert.throws(() => runCanonicalBacktest(illegal), /short position requires|long-only/);
 });
 
+test("canonical spot rejects nonpositive slippage-adjusted exits instead of booking impossible proceeds", () => {
+  const t = 1_800_000_000_000;
+  for (const slippageTicks of [100, 200]) {
+    const value = input(spot, [bar(t, 1, { low: 0.9 }), bar(t + MINUTE, 1, { low: 0.9 }),
+      bar(t + 2 * MINUTE, 1, { low: 0.9 })],
+      method({ costs: { commissionRate: 0.001, commissionFixed: 0, slippageTicks } }));
+    value.orders = [
+      { id: "buy", decisionTime: close(t), side: "BUY", effect: "OPEN", quantity: 1 },
+      { id: "sell", decisionTime: close(t + MINUTE), side: "SELL", effect: "CLOSE", reduceOnly: true },
+    ];
+    assert.throws(() => runCanonicalBacktest(value), /fill price|slippage/i);
+  }
+});
+
 test("linear perpetual supports short contracts, leverage, mark funding and reduce-only close", () => {
   const t = 1_800_000_300_000;
   const perp = instrument({

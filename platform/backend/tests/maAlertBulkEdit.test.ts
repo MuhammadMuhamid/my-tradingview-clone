@@ -86,6 +86,24 @@ test("nothing is written when any row refuses the patch", async () => {
   assert.equal(writes.length, 0, "a refused bulk edit must write nothing at all");
 });
 
+test("unreadable gates refuse a bulk condition edit before any selected row is written", async () => {
+  const rows = [
+    ROW({ id: A }),
+    ROW({ id: B, timeframe: "4h", filters: [{ kind: "future_gate" }] }),
+  ];
+  const refused = await request({ ids: [A, B], patch: { maLength: 50 } }, rows);
+  assert.equal(refused.response.statusCode, 400);
+  assert.match(refused.response.json().error, /BTCUSDT 4h.*stored filters.*replace/);
+  assert.equal(refused.writes.length, 0);
+
+  const repaired = await request(
+    { ids: [A, B], patch: { maLength: 50, filters: [] } }, rows,
+  );
+  assert.equal(repaired.response.statusCode, 200, repaired.response.body);
+  assert.equal(repaired.writes.length, 2);
+  for (const write of repaired.writes) assert.equal(write.patch.filters, null);
+});
+
 test("a patch that would make two selected alerts identical is refused", async () => {
   // Two alerts that differ ONLY by their gates, given the same gates. Without
   // the dry run this is a unique-index violation after the first write.

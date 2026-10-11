@@ -68,8 +68,8 @@ export function toBacktestRow(r: DbBacktest): BacktestRow {
   };
 }
 
-export async function createBacktest(req: BacktestRequest): Promise<BacktestRow> {
-  const { rows } = await query<DbBacktest>(
+export async function createBacktest(req: BacktestRequest, runQuery: typeof query = query): Promise<BacktestRow> {
+  const { rows } = await runQuery<DbBacktest>(
     `INSERT INTO backtests
        (strategy_id, config_id, symbol, timeframe, start_time, end_time,
         params, initial_capital, commission_pct, slippage_ticks, holdout_fraction,

@@ -5,7 +5,7 @@ import * as liveSafety from "../../repositories/liveSafety";
 import { ManualBotError, manualBotRequest } from "../../manualTrading/client";
 import {
   ShariahExposureBlockedError, assertShariahExposureAllowed,
-  normalizeSpotSide, type ShariahGateDeps, type SpotSide,
+  normalizeSpotSide, type ShariahGateDeps, type ShariahRequestContext, type SpotSide,
 } from "../../shariah/gate";
 import {
   assertExecutionSupported, defaultExecutionTarget, UnsupportedExecutionError,
@@ -172,19 +172,33 @@ export async function manualTradingRoutes(
     // is not trading.
     await assertNotHalted(command, readRiskLimits);
 
-    const context = await assertShariahExposureAllowed(
-      { symbol: String(command.symbol ?? ""), side: gatedSide(command) },
-      shariahDeps
-    );
+    let context: ShariahRequestContext | undefined;
+    try {
+      context = await assertShariahExposureAllowed(
+        { symbol: String(command.symbol ?? ""), side: gatedSide(command) },
+        shariahDeps
+      );
+    } catch (error) {
+      // Healthy exits keep their provenance, but screening availability is
+      // never permission to SELL. If the read fails, send no decision rather
+      // than inventing an approval or trapping the operator's exit. The Bot
+      // independently treats a Spot SELL as an exit, without reading a block.
+      if (gatedSide(command) !== "SELL") throw error;
+      req.log.warn({ err: error }, "manual exit proceeds without unavailable Shariah provenance");
+    }
 
     /*
      * The block rides inside the signed request body — `client.ts`
      * canonicalises the WHOLE body into the HMAC — so it cannot be added,
      * removed or edited in flight, and needs no signature of its own. It ships
-     * unconditionally: an installation where the operator has turned Shariah
-     * Mode on must not depend on a second, hidden switch to actually send the
-     * evidence that lets the Bot enforce it.
+     * on every entry and whenever exit provenance is readable: an installation
+     * enforcing Shariah Mode must not depend on a second, hidden switch to send
+     * the evidence that lets the Bot enforce new exposure.
      */
+    if (!context) {
+      return sendBotRequest({ method: "POST", path: "/api/manual-trading/orders",
+        body: command, requestId });
+    }
     return sendBotRequest({ method: "POST", path: "/api/manual-trading/orders",
       body: { ...command, shariah: context }, requestId });
   }));

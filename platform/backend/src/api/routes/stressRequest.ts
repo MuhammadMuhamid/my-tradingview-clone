@@ -110,8 +110,8 @@ export function parseStressRunSettings(body: Record<string, unknown>): Parsed<St
     (n) => n >= 0 && n <= MAX_COMMISSION_PCT, `a percentage per fill from 0 to ${MAX_COMMISSION_PCT}`);
   if (!commission.ok) return refuse(commission.error);
   const slippage = number("slippageTicks", body.slippageTicks,
-    (n) => Number.isInteger(n) && n >= 0 && n <= MAX_SLIPPAGE_TICKS,
-    `a whole number of ticks from 0 to ${MAX_SLIPPAGE_TICKS}`);
+    (n) => n >= 0 && n <= MAX_SLIPPAGE_TICKS,
+    `a number of ticks from 0 to ${MAX_SLIPPAGE_TICKS}`);
   if (!slippage.ok) return refuse(slippage.error);
 
   return {

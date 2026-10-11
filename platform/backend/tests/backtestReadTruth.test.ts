@@ -54,6 +54,15 @@ test("a fingerprint is read back into the corrections it names", () => {
   assert.equal(fingerprintCorrections(null), null);
 });
 
+test("runs before fee-inclusive cash accounting retain their engine and are marked older", () => {
+  const beforeFees = correctionsFingerprint({ ...allCorrections(), feeInclusiveAffordability: false });
+  const old = row({ engineFingerprint: beforeFees });
+  const read = withReadTruth(old, "ma_rr_v9", { nowMs: NOW, activeFingerprint: ACTIVE });
+  assert.equal(read.engineFingerprint, beforeFees, "reading never relabels the accepted stored result");
+  assert.equal(read.engineCurrency!.current, false);
+  assert.deepEqual(read.engineCurrency!.missing, ["feeInclusiveAffordability"]);
+});
+
 test("C-02 a run from an older correction set is not current, and says which corrections it lacks", () => {
   const old = engineCurrency(PRE_DUST, ACTIVE)!;
   assert.equal(old.current, false);

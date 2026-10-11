@@ -22,6 +22,7 @@ import {
   alertRequestFromRow, EDITABLE_CONDITION_FIELDS, mergeConditionRequest,
 } from "../src/alerts/alertEdit";
 import { readCondition, toColumns } from "../src/alerts/alertRequest";
+import { conditionFromRow } from "../src/alerts/alertConditions";
 import { CONDITION_KINDS, type ConditionKind, type MaAlertRow } from "../src/types/maAlerts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -436,4 +437,39 @@ test("C-02 — editing gates writes the `filters` list, and removing them clears
   assert.equal(removed.status, 200, JSON.stringify(removed.body));
   assert.ok("filters" in patchColumns(removed.call!.patch), "removing every gate left the old list in place");
   assert.equal(patchColumns(removed.call!.patch).filters, null, "no gates is NULL (ungated), never []");
+});
+
+test("unreadable persisted gates cannot disappear through an unrelated condition edit", async () => {
+  for (const filters of [
+    [], { kind: "rsi" }, "not a gate list",
+    [{ kind: "future_gate", side: "above" }],
+    [{ kind: "rsi", length: 14, level: 50, side: "sideways" }],
+  ]) {
+    // Include a valid legacy gate too: falling back to it is unsafe because
+    // the authoritative list may have contained additional preconditions.
+    const row = { ...ROWS.sr_zone, filters };
+    assert.equal(conditionFromRow(row), null, "the persisted row starts fail-closed");
+    for (const body of [{ pivotLength: 12 }, { filterRsiLevel: 45 }]) {
+      const result = await patch(body, row);
+      assert.equal(result.status, 400, JSON.stringify({ filters, body }));
+      assert.match(String(result.body.error), /stored.*filters.*replace/i);
+      assert.equal(result.call, null, "a refused edit must not change the persisted gates");
+    }
+
+    const note = await patch({ note: "review gates", enabled: false }, row);
+    assert.equal(note.status, 200);
+    assert.equal(note.call!.patch.filters, undefined);
+    assert.equal(conditionFromRow({ ...row, ...note.call!.patch }), null,
+      "a common-field edit preserves the evaluator's refusal");
+
+    // Explicitly replacing/removing gates is an intentional repair.
+    for (const replacement of [
+      [{ kind: "rsi", length: 14, level: 50, side: "above", timeframe: "4h" }], [],
+    ]) {
+      const repaired = await patch({ pivotLength: 12, filters: replacement }, row);
+      assert.equal(repaired.status, 200, JSON.stringify(repaired.body));
+      assert.ok(conditionFromRow({ ...row, ...repaired.call!.patch }));
+      assert.deepEqual(repaired.call!.patch.filters, replacement.length ? replacement : null);
+    }
+  }
 });

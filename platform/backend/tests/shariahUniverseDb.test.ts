@@ -34,6 +34,7 @@ import {
 import {
   syncShariahUniverse, type BinanceSpotSymbolMeta,
 } from "../src/shariah/sync";
+import { importShariahReviewResults } from "../src/shariah/reviewImport";
 
 /** Synthetic only. Nothing here names a real project or a real Binance asset. */
 const SYNTH = { A: "SYNTHAA", B: "SYNTHBB", C: "SYNTHCC", D: "SYNTHDD", E: "SYNTHEE" };
@@ -99,6 +100,39 @@ test("SH-2 publication, history and snapshot behaviour on real PostgreSQL", asyn
 
   const client = await pool.connect();
   t.after(async () => { client.release(); await closePool(); });
+
+  // Reuse this file's freshly migrated database. A separate concurrent file
+  // would race its DROP/CREATE DATABASE setup; no extra database is needed.
+  await t.test("047 preserves fractional slippage in a backtest and its Stress coordinator", async () => {
+    await client.query("BEGIN");
+    try {
+      const columns = await client.query<{ table_name: string; data_type: string }>(
+        `SELECT table_name, data_type FROM information_schema.columns
+         WHERE table_schema = 'public' AND column_name = 'slippage_ticks'
+           AND table_name IN ('backtests', 'stress_runs') ORDER BY table_name`);
+      assert.deepEqual(columns.rows, [
+        { table_name: "backtests", data_type: "numeric" },
+        { table_name: "stress_runs", data_type: "numeric" },
+      ]);
+      const { rows: strategies } = await client.query<{ id: number }>("SELECT id FROM strategies ORDER BY id LIMIT 1");
+      assert.ok(strategies[0], "migrations seed a strategy for the synthetic run");
+      await client.query(
+        "INSERT INTO symbols (symbol, base_asset, quote_asset) VALUES ('SYNTHCOSTUSDT', 'SYNTHCOST', 'USDT')"
+      );
+      const { rows: stress } = await client.query<{ id: string; slippage_ticks: number }>(
+        `INSERT INTO stress_runs (strategy_id, symbol, timeframe, initial_capital, commission_pct,
+          slippage_ticks, benchmark_symbol, benchmark_interval, discovery, windows)
+         VALUES ($1, 'SYNTHCOSTUSDT', '1h', 1000, 0.1, 1.5, 'SYNTHCOSTUSDT', '1h', '{}', '[]')
+         RETURNING id, slippage_ticks`, [strategies[0].id]);
+      const { rows: backtest } = await client.query<{ slippage_ticks: number }>(
+        `INSERT INTO backtests (strategy_id, symbol, timeframe, start_time, end_time, params,
+          initial_capital, commission_pct, slippage_ticks, stress_run_id)
+         VALUES ($1, 'SYNTHCOSTUSDT', '1h', '2025-01-01', '2025-01-02', '{}', 1000, 0.1, 1.5, $2)
+         RETURNING slippage_ticks`, [strategies[0].id, stress[0]!.id]);
+      assert.equal(stress[0]!.slippage_ticks, 1.5);
+      assert.equal(backtest[0]!.slippage_ticks, 1.5);
+    } finally { await client.query("ROLLBACK"); }
+  });
 
   /*
    * ── P1-4: the registry's production population path ──────────────────────
@@ -540,5 +574,82 @@ test("SH-2 publication, history and snapshot behaviour on real PostgreSQL", asyn
     await assert.rejects(
       query("DELETE FROM shariah_evidence WHERE id = $1", [evidenceA1]),
       /shariah_publication_evidence/);
+  });
+
+  await t.test("reactivation holds its mapping lock through STALE, and an import revalidates after it commits", async () => {
+    const idD = await assetIdOf(SYNTH.D);
+    await query("UPDATE shariah_asset_binance_mappings SET binance_available = false WHERE asset_id = $1", [idD]);
+    let mappingWritten!: () => void;
+    const afterMapping = new Promise<void>((resolve) => { mappingWritten = resolve; });
+    let continueSync!: () => void;
+    const resumeSync = new Promise<void>((resolve) => { continueSync = resolve; });
+    const syncClient = await pool.connect();
+    const importingClient = await pool.connect();
+    const probeClient = await pool.connect();
+    const app = Fastify({ logger: false });
+    const originalQuery = syncClient.query.bind(syncClient);
+    const syncConnection = {
+      query: async (sql: string, values?: unknown[]) => {
+        const result = await originalQuery(sql, values);
+        if (sql.startsWith("UPDATE shariah_asset_binance_mappings SET binance_available = true")
+            && values?.[0] === SYNTH.D) {
+          mappingWritten();
+          await resumeSync;
+        }
+        return result;
+      },
+      // This test owns the client until all concurrent operations finish.
+      release: () => {},
+    } as unknown as PoolClient;
+    await app.register(shariahRoutes, {
+      connect: async () => syncConnection,
+      exchangeSymbols: async () => Object.values(SYNTH).map((base) => spotMeta(base)),
+    });
+    const syncing = app.inject({ method: "POST", url: "/api/shariah/universe/sync" });
+    try {
+      // Fail promptly if a future route no longer reaches this update.
+      await Promise.race([afterMapping, syncing.then(() => {
+        throw new Error("sync completed before the intended reactivation seam");
+      })]);
+      await probeClient.query("SET statement_timeout = '100ms'");
+      await assert.rejects(probeClient.query(
+        "SELECT asset_id FROM shariah_asset_binance_mappings WHERE asset_id = $1 FOR UPDATE", [idD]
+      ), /statement timeout/, "mapping reactivation must stay locked until STALE is also committed");
+      let locking!: () => void;
+      const importLockAttempt = new Promise<void>((resolve) => { locking = resolve; });
+      const importing = importShariahReviewResults({
+        query: async (sql: string, values?: unknown[]) => {
+          if (sql.includes("ORDER BY m.asset_id FOR UPDATE")) locking();
+          return importingClient.query(sql, values);
+        },
+      }, {
+        publishedBy: OPERATOR,
+        document: { format: "TS_SHARIAH_REVIEW_RESULTS_V1", policyVersion: TS_SHARIAH_V1,
+          researchCompletedAt: REVIEWED_AT, results: [{ assetId: idD, baseAsset: SYNTH.D,
+            policyVersion: TS_SHARIAH_V1, classification: "ELIGIBLE", reason: "Old synthetic research",
+            answers: { project: "Synthetic D", tokenFunction: "fixture", rightsExposure: "none",
+              coreActivities: "neutral", prohibitedEvidence: "none", evidenceSufficiency: "fixture" },
+            evidence: [{ url: "https://example.invalid/race", title: "Fixture", publisher: "Fixture",
+              retrievedAt: REVIEWED_AT, note: "Predates reactivation" }] }] },
+      });
+      // Attach the rejection assertion before releasing the competing write.
+      const refused = assert.rejects(importing, /FULL fresh screening/);
+      await Promise.race([importLockAttempt, importing.then(() => {
+        throw new Error("import completed without its transaction identity lock");
+      })]);
+      continueSync();
+      assert.equal((await syncing).statusCode, 200);
+      await refused;
+      assert.equal((await shariah.getAssetById(idD))!.lifecycle, "STALE");
+      assert.equal((await shariah.getAssetById(idD))!.effectiveStatus, "REVIEW");
+    } finally {
+      continueSync();
+      await syncing;
+      await importingClient.query("ROLLBACK");
+      await syncClient.query("ROLLBACK");
+      await probeClient.query("RESET statement_timeout");
+      syncClient.release(); importingClient.release(); probeClient.release();
+      await app.close();
+    }
   });
 });

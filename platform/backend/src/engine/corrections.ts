@@ -163,9 +163,9 @@ export const CORRECTION_KEYS = [
    * that is all of it) is SKIPPED: no fill, no commission, and any exit legs
    * issued for it are dropped with it. Each skip is recorded in
    * `rejectedEntries` so the result can say how many entries the account could
-   * not afford instead of leaving a quieter run unexplained. Commission is not
-   * added to the cash: a spot buy pays its fee out of what it receives, so an
-   * account can spend exactly what it holds.
+   * not afford instead of leaving a quieter run unexplained. This original
+   * correction checks notional alone; `feeInclusiveAffordability` below closes
+   * its fee-accounting gap without changing the reproducible original set.
    *
    * Percent-of-equity sizing at or below 100 % is unaffected while equity is
    * positive — its cash is a share of that equity by construction. An account
@@ -175,6 +175,20 @@ export const CORRECTION_KEYS = [
    * equity at some entry — every such run's trade sequence from that entry on.
    */
   "affordableEntries",
+
+  /**
+   * Nonvisual closure — a spot entry must also fund its entry commission.
+   *
+   * The broker deducts the fee from quote equity while crediting the FULL
+   * purchased quantity, so its fee is not taken from the received asset.
+   * Checking only notional let 100 cash buy 100 plus a 5 fee: borrowed cash
+   * in a declared cash/no-margin account. Fixed-cash entries are refused when
+   * their notional plus fee is unaffordable. Percent-of-equity sizing reserves
+   * fee cash when needed, keeping the 100% workflow usable without borrowing.
+   *
+   * Changes historical results only at that fee-inclusive affordability edge.
+   */
+  "feeInclusiveAffordability",
 ] as const;
 
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];

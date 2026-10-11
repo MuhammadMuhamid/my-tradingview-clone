@@ -653,6 +653,19 @@ export async function importShariahReviewResults(
   const outcomes: ReviewImportOutcome[] = [];
   await db.query("BEGIN");
   try {
+    // A sync may have reactivated a reused ticker after the cheap preflight
+    // validation. Lock the mapping rows, then re-read lifecycle under that
+    // lock: sync updates each mapping before marking its record STALE, so it
+    // cannot withdraw a decision between this check and publication. Stable
+    // ordering also keeps concurrent batch imports from locking in file order.
+    await db.query(
+      `SELECT m.asset_id FROM shariah_asset_binance_mappings m
+        WHERE m.asset_id = ANY($1::bigint[])
+        ORDER BY m.asset_id FOR UPDATE`,
+      [parsed.results.map((r) => r.assetId)]
+    );
+    const currentRegistry = await loadImportRegistry(db, parsed.results.map((r) => r.assetId));
+    validateAgainstRegistry(parsed, currentRegistry);
     for (const result of parsed.results) {
       const evidenceIds: string[] = [];
       for (const entry of result.evidence) {
