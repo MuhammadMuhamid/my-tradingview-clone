@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
+import { displaySymbol, displayTicker, displayVenue } from "@/lib/instrument";
 
 /**
  * The warning shown beside every intrabar frequency.
@@ -373,3 +374,29 @@ export function alertInactiveReason(a: MaAlert): string | null {
 /** Whether the alert is armed and will be evaluated. */
 export const isAlertActive = (a: MaAlert): boolean =>
   a.enabled && a.completedAt === null;
+
+/**
+ * The price an alert watches, in words. B-27: the group header printed the
+ * engine's own tokens (`binance-spot · last`) as its sub-label.
+ */
+const PRICE_BASIS_WORDS: Record<string, string> = {
+  last: "last price", bid: "bid", ask: "ask", mid: "mid price", mark: "mark price", index: "index price",
+};
+
+/**
+ * A coin group's header: the TICKER and a human sub-label — venue and price
+ * basis — with the canonical identity and the provider id kept for the
+ * tooltip, where the contract puts technical detail. It printed
+ * `BINANCE:BTC/USDT · SPOT` over `binance-spot · last`.
+ */
+export function alertGroupHeader(identity: string, providerId: string | null | undefined,
+  priceBasis: string | null | undefined): { ticker: string; sub: string; title: string } {
+  const venue = displayVenue(identity);
+  const basis = priceBasis ? PRICE_BASIS_WORDS[priceBasis] ?? priceBasis : null;
+  const sub = [venue, basis].filter(Boolean).join(" · ");
+  return {
+    ticker: displayTicker(identity),
+    sub: sub || "Price source not recorded",
+    title: `${displaySymbol(identity)} — ${providerId ?? "legacy provider unknown"} · ${priceBasis ?? "legacy basis unknown"}`,
+  };
+}

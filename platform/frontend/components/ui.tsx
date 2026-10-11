@@ -637,7 +637,11 @@ export function Checkbox({ checked, onChange, label, disabled = false, id }: {
  * colour, and on macOS a list that overlays the trigger. Five of them in one
  * dialog is the single loudest "this is not that product" signal in a
  * screenshot. This is a 34px `.tvc-control` button that opens the `.tvc-menu`
- * every other menu in the workstation uses, at the 32px context-menu row.
+ * every other menu in the workstation uses.
+ *
+ * B-27: at the DROPDOWN row, 40px. It opened the 32px context-menu row
+ * (`.tvc-menu--compact`), and the contract's density table is explicit that
+ * a dropdown row is 40 and only a context menu is the denser 32.
  *
  * `role="listbox"` / `role="option"`, not `menu`/`menuitem`: it has a VALUE.
  */
@@ -706,7 +710,7 @@ export function Dropdown({
               moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
             }
           }}
-          className="tvc-menu tvc-menu--compact"
+          className="tvc-menu"
         >
           {options.map((o) => (
             <button

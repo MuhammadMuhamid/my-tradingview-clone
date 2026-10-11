@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  alertColor, alertInactiveReason, alertLineLabel, describeAlert,
+  alertColor, alertGroupHeader, alertInactiveReason, alertLineLabel, describeAlert,
   frequencyWarning, isAlertActive, FREQUENCY_LABELS, INTRABAR_WARNING,
 } from "../lib/alerts";
 import type { AlertFrequency, ConditionKind, MaAlert } from "../lib/api";
@@ -365,4 +365,21 @@ test("non-default inputs are named, defaults are not", () => {
   assert.equal(
     alertLineLabel(alert({ maType: null, maLength: null, ...FAMILY_ROWS.adx, adxSmoothing: 21 })),
     "ADX 14/21");
+});
+
+test("an Alerts group header is a ticker and words, with the identity in the tooltip (B-27)", () => {
+  /*
+   * It read `BINANCE:BTC/USDT · SPOT` over `binance-spot · last` — the
+   * qualified identity and the provider id as primary copy, which the
+   * contract forbids. They are the tooltip now.
+   */
+  const head = alertGroupHeader("instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot", "binance-spot", "last");
+  assert.equal(head.ticker, "BTCUSDT");
+  assert.equal(head.sub, "Binance · last price");
+  assert.doesNotMatch(`${head.ticker} ${head.sub}`, /instrument:v1|binance-spot|BINANCE:|·\s*SPOT/);
+  assert.match(head.title, /binance-spot/, "the provider id is kept, for the tooltip");
+  // A legacy row with nothing recorded says so in words, not in placeholders.
+  const legacy = alertGroupHeader("SOLUSDT", null, null);
+  assert.equal(legacy.ticker, "SOLUSDT");
+  assert.doesNotMatch(legacy.sub, /legacy provider unknown|legacy basis unknown/);
 });

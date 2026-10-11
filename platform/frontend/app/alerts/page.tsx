@@ -23,8 +23,7 @@ import {
 } from "@/lib/alertManagement";
 import { editsInPriceDialog, leavesFilteredView } from "@/lib/alertEditing";
 import { parseScannerAlertTarget } from "@/lib/spotScene";
-import { displaySymbol } from "@/lib/instrument";
-
+import { alertGroupHeader } from "@/lib/alerts";
 /**
  * Every alert across every coin, in one place.
  *
@@ -410,10 +409,18 @@ export default function AlertsPage() {
                     onChange={() => toggleGroup(list.map((a) => a.id))}
                     aria-label={`Select all ${symbol} alerts`}
                   />
-                  <span className="text-xs font-semibold text-ink">{displaySymbol(list[0]?.canonicalInstrumentId ?? symbol)}</span>
-                  <span className="text-[10px] text-ink-faint">
-                    {list[0]?.providerId ?? "legacy provider unknown"} · {list[0]?.priceBasis ?? "legacy basis unknown"}
-                  </span>
+                  {(() => {
+                    const head = alertGroupHeader(list[0]?.canonicalInstrumentId ?? symbol,
+                      list[0]?.providerId, list[0]?.priceBasis);
+                    return (
+                      <>
+                        <span className="text-xs font-semibold text-ink" title={head.title}
+                          data-alert-group-ticker>{head.ticker}</span>
+                        <span className="text-[10px] text-ink-faint" title={head.title}
+                          data-alert-group-source>{head.sub}</span>
+                      </>
+                    );
+                  })()}
                   <span className="text-[11px] text-ink-faint">
                     {list.length} alert{list.length === 1 ? "" : "s"}
                   </span>
