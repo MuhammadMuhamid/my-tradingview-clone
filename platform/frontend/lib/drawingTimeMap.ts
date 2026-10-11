@@ -81,3 +81,28 @@ export function timeMap(times: readonly number[], stepSec: number, chartLogicalO
   };
   return { timeToLogical, logicalToTime, barIndexAt };
 }
+
+/**
+ * A logical position — whole or between two bars — to a pixel (W2D-02).
+ *
+ * B-21 made a 15m anchor on a 1d chart land at 4.25 bars, inside its day, and
+ * the drawing still painted at the far-left edge: lightweight-charts answers
+ * `logicalToCoordinate` with 0 for any index that is not a whole number. A
+ * drawing is only ever at a fraction when its anchor is off the current grid —
+ * a coarser interval, a gap — which is why every same-interval test passed.
+ * So the library is asked only for whole bars, and the fraction between them
+ * is ours.
+ */
+export function coordinateAtLogical(
+  wholeBarToCoordinate: (logical: number) => number | null | undefined,
+  logical: number,
+): number | null {
+  if (!Number.isFinite(logical)) return null;
+  const lo = Math.floor(logical);
+  const from = wholeBarToCoordinate(lo);
+  if (from === null || from === undefined) return null;
+  const frac = logical - lo;
+  if (frac === 0) return from;
+  const to = wholeBarToCoordinate(lo + 1);
+  return to === null || to === undefined ? from : from + (to - from) * frac;
+}

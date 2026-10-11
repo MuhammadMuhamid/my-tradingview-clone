@@ -84,3 +84,26 @@ test("B-21 — the canvas no longer paints price boxes inside the plot, and sets
   assert.doesNotMatch(canvas, /monospace/, "drawing text is prose; the code face is for code");
   assert.match(canvas, /new DrawingAxisLabelsPrimitive\(\)/);
 });
+
+test("W2D-02 — a position between two bars is painted between them, never at the library's 0", async () => {
+  const { coordinateAtLogical } = await import("../lib/drawingTimeMap");
+  // lightweight-charts 4.2: a non-integer index answers 0.
+  const library = (l: number): number => (Number.isInteger(l) ? 100 + l * 10 : 0);
+  assert.equal(coordinateAtLogical(library, 4), 140);
+  assert.equal(coordinateAtLogical(library, 4.25), 142.5);
+  assert.equal(coordinateAtLogical(library, -1.5), 85, "before the data, still by the interval");
+  assert.equal(coordinateAtLogical(() => null, 4.25), null);
+  assert.equal(coordinateAtLogical(library, Number.NaN), null);
+  // A 15m anchor on 1d lands inside its day — and its pixel is inside the day too.
+  const map = timeMap(days, DAY);
+  const x = coordinateAtLogical(library, map.timeToLogical(days[6]! + 17.75 * 3600));
+  assert.ok(x !== null && x > 160 && x < 170, `x=${x}`);
+});
+
+test("W2D-02 — both drawing layers ask the library for whole bars only", () => {
+  for (const file of ["components/tv/DrawingCanvas.tsx", "components/tv/PineDrawingLayer.tsx"]) {
+    const src = readFileSync(path.join(__dirname, "..", file), "utf8");
+    assert.match(src, /coordinateAtLogical\(/, file);
+    assert.doesNotMatch(src, /logicalToCoordinate\(timeToLogical\(/, file);
+  }
+});

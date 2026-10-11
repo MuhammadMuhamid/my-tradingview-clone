@@ -21,7 +21,7 @@ import { useAsk } from "@/components/AskDialog";
 import { CaretGlyph, ColourPalette, DashPicker, PopoverButton, WidthPicker } from "@/components/ui";
 import { toolbarPlacement } from "@/lib/drawingToolbarPlacement";
 import { DrawingAxisLabelsPrimitive, drawingAxisTags } from "@/lib/drawingAxisLabels";
-import { timeMap } from "@/lib/drawingTimeMap";
+import { coordinateAtLogical, timeMap } from "@/lib/drawingTimeMap";
 
 /*
  * A12: the floating toolbar's two control shapes, one height.
@@ -250,7 +250,9 @@ export function DrawingCanvas({
   const logicalToTime = useCallback((l: number): number => mapping.logicalToTime(l), [mapping]);
 
   const toPx = useCallback((a: Anchor): Pt => {
-    const x = chart?.timeScale().logicalToCoordinate(timeToLogical(a.time) as Logical);
+    // Off the grid an anchor sits BETWEEN two bars; see `coordinateAtLogical`.
+    const scale = chart?.timeScale();
+    const x = scale ? coordinateAtLogical((l) => scale.logicalToCoordinate(l as Logical), timeToLogical(a.time)) : null;
     const y = series?.priceToCoordinate(a.price);
     return { x: x ?? -1e5, y: y ?? -1e5 };
   }, [chart, series, timeToLogical]);

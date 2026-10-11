@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
 import type { PineDrawings } from "@/lib/api";
 import type { Candle } from "@/lib/types";
+import { coordinateAtLogical } from "@/lib/drawingTimeMap";
 
 /**
  * Renders the line/box/label objects a Pine script created, on a canvas above
@@ -106,8 +107,9 @@ export function PineDrawingLayer({
     ctx.rect(0, 0, plotW, plotH);
     ctx.clip();
 
+    // A time between two bars is a fractional index, which the library maps to 0.
     const xOf = (t: number): number =>
-      chart.timeScale().logicalToCoordinate(timeToLogical(t) as Logical) ?? -1e5;
+      coordinateAtLogical((l) => chart.timeScale().logicalToCoordinate(l as Logical), timeToLogical(t)) ?? -1e5;
     const yOf = (p: number): number => (series.priceToCoordinate(p) as number | null) ?? -1e5;
 
     const dash = (style: string): number[] =>
