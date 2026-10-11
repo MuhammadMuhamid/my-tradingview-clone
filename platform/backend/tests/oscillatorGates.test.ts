@@ -122,6 +122,19 @@ test("against ZERO it keeps above and below, because the mood words would lie", 
   );
 });
 
+test("an RSI gate brackets its length, so it cannot be read as a level", () => {
+  // "RSI 50 is above 50" read as two fifties; one of them is a length. The
+  // frontend's gateSentences.test.ts asserts these same literals.
+  assert.equal(
+    describeGate({ kind: "rsi", length: 50, level: 50, side: "above" }),
+    "RSI(50) is above 50"
+  );
+  assert.equal(
+    describeGate({ kind: "rsi_ma", timeframe: "1h", length: 50, maType: "ema", maLength: 14, side: "above" }),
+    "the 1h RSI(50) is above its EMA 14"
+  );
+});
+
 // ── more than one gate of a kind, on more than one timeframe ───────────────
 
 test("the same kind twice on two timeframes is two gates, not a contradiction", () => {
@@ -151,8 +164,8 @@ test("one RSI question on two timeframes costs two slots and reads as two", () =
   ];
   assert.equal(
     describeFilters(gates),
-    " — only while the 1h RSI 50 is above its EMA 14" +
-    " and the 4h RSI 50 is above its EMA 21"
+    " — only while the 1h RSI(50) is above its EMA 14" +
+    " and the 4h RSI(50) is above its EMA 21"
   );
   assert.equal(filtersPass(gates, { ...bar, filterReadings: [1, 1] }), true);
   assert.equal(filtersPass(gates, { ...bar, filterReadings: [1, -1] }), false);

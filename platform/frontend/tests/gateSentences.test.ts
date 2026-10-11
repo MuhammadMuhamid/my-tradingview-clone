@@ -47,7 +47,7 @@ test("a gate on another timeframe says so, with an article where one is due", ()
       kind: "rsi_ma", timeframe: "1h", length: 50, maType: "ema", maLength: 14,
       side: "above",
     }),
-    "the 1h RSI 50 is above its EMA 14"
+    "the 1h RSI(50) is above its EMA 14"
   );
   assert.equal(
     describeGate({ kind: "ma", timeframe: "4h", type: "ema", length: 200, side: "above" }),
@@ -58,7 +58,7 @@ test("a gate on another timeframe says so, with an article where one is due", ()
 test("a gate on the alert's own timeframe does not invent one", () => {
   assert.equal(
     describeGate({ kind: "rsi", length: 50, level: 50, side: "above" }),
-    "RSI 50 is above 50"
+    "RSI(50) is above 50"
   );
   assert.equal(
     describeGate({ kind: "ma", type: "ema", length: 200, side: "above" }),

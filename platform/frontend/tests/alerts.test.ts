@@ -223,7 +223,7 @@ test("a gated level alert reads as a precondition, not a second trigger", () => 
   });
   assert.equal(
     describeAlert(a),
-    "price 0.2–0.5% above the 1h support — only while RSI 50 is above 50 " +
+    "price 0.2–0.5% above the 1h support — only while RSI(50) is above 50 " +
     "and price is above the EMA 200"
   );
   // "and" alone would read as two things that must both HAPPEN; these must
@@ -248,7 +248,7 @@ test("one gate on its own is described on its own", () => {
     pivotAnchor: "1d", mode: "near_above", maType: null, maLength: null,
     filterRsiLength: 50, filterRsiLevel: 50, filterRsiSide: "above",
   });
-  assert.match(describeAlert(rsiOnly), /Fibonacci S1 \(1d\) — only while RSI 50 is above 50$/);
+  assert.match(describeAlert(rsiOnly), /Fibonacci S1 \(1d\) — only while RSI\(50\) is above 50$/);
 
   const maOnly = alert({
     conditionKind: "sr_zone",

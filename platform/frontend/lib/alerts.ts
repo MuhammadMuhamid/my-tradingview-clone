@@ -306,6 +306,10 @@ function gatesOf(a: MaAlert): AlertGate[] {
  * drifting the moment one is edited, so BOTH assert the same literals
  * verbatim in their tests. If you change a word here, change it there.
  *
+ * The RSI's LENGTH is bracketed — "RSI(50) is above 50" — because the bare
+ * form put two numbers side by side ("RSI 50 is above 50") and a reader could
+ * not tell which one was the period and which the level.
+ *
  * Against the SIGNAL line the MACD sides are named for the mood they describe:
  * "MACD is above signal line" is the same rule wearing a name nobody
  * recognises. Against ZERO they keep above/below, because there the mood words
@@ -318,7 +322,7 @@ export function describeGate(gate: AlertGate): string {
   const lead = gate.timeframe ? "the " : "";
   switch (gate.kind) {
     case "rsi":
-      return `${lead}${tf}RSI ${gate.length} is ${gate.side} ${gate.level}`;
+      return `${lead}${tf}RSI(${gate.length}) is ${gate.side} ${gate.level}`;
     case "ma":
       return `price is ${gate.side} the ${tf}${maLabel(gate.type, gate.length)}`;
     case "supertrend":
@@ -328,7 +332,7 @@ export function describeGate(gate: AlertGate): string {
         stAtrMethod: gate.atrMethod,
       });
     case "rsi_ma":
-      return `${lead}${tf}RSI ${gate.length} is ${gate.side} its ` +
+      return `${lead}${tf}RSI(${gate.length}) is ${gate.side} its ` +
         `${maLabel(gate.maType, gate.maLength)}`;
     case "macd": {
       const label = `MACD ${gate.fastLength}/${gate.slowLength}/${gate.signalLength}`;

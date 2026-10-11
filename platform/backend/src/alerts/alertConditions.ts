@@ -1303,7 +1303,7 @@ function filtersFromRow(row: {
   return filters.length > 0 ? { filters } : {};
 }
 
-/** "RSI 50 above 50" / "price above EMA 200" — the gates, for the UI list. */
+/** "RSI(50) is above 50" / "price is above the EMA 200" — the gates, for the UI list. */
 export function describeFilters(filters: AlertFilters | undefined): string {
   if (!filters || filters.length === 0) return "";
   const parts = filters.map(describeGate);
@@ -1315,7 +1315,7 @@ export function describeFilters(filters: AlertFilters | undefined): string {
  *
  * Deliberately WITHOUT an article: the phrases that need one already carry it
  * ("price is above the 1h EMA 200"), and the ones that start with the
- * indicator supply their own ("the 1h RSI 50 is above 50").
+ * indicator supply their own ("the 1h RSI(50) is above 50").
  */
 const tfPrefix = (gate: AlertFilter): string =>
   gate.timeframe ? `${gate.timeframe} ` : "";
@@ -1335,6 +1335,10 @@ const leading = (gate: AlertFilter): string => (gate.timeframe ? "the " : "");
  * words would be WRONG — the centreline says which way the trend leans, not
  * whether momentum has turned.
  *
+ * The RSI's LENGTH is bracketed — "RSI(50) is above 50" — because the bare
+ * form put two numbers side by side ("RSI 50 is above 50") and a reader could
+ * not tell which one was the period and which the level.
+ *
  * This sentence exists twice, here for the notification and again in the
  * frontend for the alert list. Both assert the same literals in their tests,
  * because nothing else stops them drifting the moment one is edited.
@@ -1344,13 +1348,13 @@ export function describeGate(gate: AlertFilter): string {
   const lead = leading(gate);
   switch (gate.kind) {
     case "rsi":
-      return `${lead}${tf}RSI ${gate.length} is ${gate.side} ${gate.level}`;
+      return `${lead}${tf}RSI(${gate.length}) is ${gate.side} ${gate.level}`;
     case "ma":
       return `price is ${gate.side} the ${tf}${maLabel(gate.type, gate.length)}`;
     case "supertrend":
       return `price is ${gate.side} the ${tf}${stLabel(gate)}`;
     case "rsi_ma":
-      return `${lead}${tf}RSI ${gate.length} is ${gate.side} its ` +
+      return `${lead}${tf}RSI(${gate.length}) is ${gate.side} its ` +
         `${maLabel(gate.maType, gate.maLength)}`;
     case "macd": {
       const macdLabel =

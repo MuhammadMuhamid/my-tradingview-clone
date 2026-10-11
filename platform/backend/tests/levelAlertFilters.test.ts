@@ -216,7 +216,7 @@ test("a gate that cannot be satisfied fails validation", () => {
 test("the description says the gate is a precondition, not a trigger", () => {
   assert.equal(
     describeFilters(BOTH),
-    " — only while RSI 50 is above 50 and price is above the EMA 200"
+    " — only while RSI(50) is above 50 and price is above the EMA 200"
   );
   assert.equal(describeFilters(undefined), "");
 });
