@@ -4152,7 +4152,14 @@ export function CandleChart({
         {settings.showStatusLine && settings.statusSymbol && settings.statusLogo && (
           <InstrumentLogo symbol={symbol} />
         )}
-        {settings.showStatusLine && settings.statusSymbol ? <>{identity}</> : null}
+        {/*
+          B-17: the identity slot is mounted whatever `Title` says, because it
+          carries more than the title — the `vs TICKER` chip that changes or
+          removes a comparison lives in it, and hiding the slot with the title
+          left the toolbar as the only route to it. The slot's owner hides its
+          own title (`PaneLegend`'s `titleVisible`).
+        */}
+        {settings.showStatusLine ? <>{identity}</> : null}
         {settings.showStatusLine && settings.statusSymbol && settings.statusMarketStatus
           && marketOpen(symbol) === true && (
           <span

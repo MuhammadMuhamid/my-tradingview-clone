@@ -101,6 +101,14 @@ export interface PaneLegendProps {
    * canonical `instrument:v1:…` id, which is the rule §5 exists for.
    */
   titleForm?: StatusTitleForm;
+  /**
+   * The Status-line tab's `Title` switch (B-17). Off hides the instrument's
+   * identity and its hover cluster — and NOTHING else: the `vs TICKER` chip is
+   * not part of the title, it is the only on-chart way to change or remove a
+   * comparison, and it used to vanish with the title, leaving the toolbar's
+   * Compare button as the one route back. Defaults to on.
+   */
+  titleVisible?: boolean;
 
   onOpenSymbolSearch: (paneId: string) => void;
   onInterval: (paneId: string, interval: Resolution) => void;
@@ -127,7 +135,7 @@ export interface PaneLegendProps {
 const HIT = "pointer-events-auto";
 
 export function PaneLegend(props: PaneLegendProps) {
-  const { paneId, symbol, interval, compare, dense } = props;
+  const { paneId, symbol, interval, compare, dense, titleVisible = true } = props;
   /*
    * TVP7. The legend led with `BINANCE:BTC/USDT · SPOT` — a venue, a
    * colon, a pair and an asset-class word, before any price. TradingView's
@@ -219,6 +227,7 @@ export function PaneLegend(props: PaneLegendProps) {
         data-pane-legend={paneId}
         className="pointer-events-none group/series flex max-w-full flex-wrap items-center gap-x-[5px] gap-y-0.5"
       >
+        {titleVisible && (<>
         <button
           {...{ className: `${HIT} tvc-control -mx-1 flex h-6 shrink-0 items-center rounded-md px-1 !text-[16px] leading-6 text-ink` }}
           onClick={() => props.onOpenSymbolSearch(paneId)}
@@ -265,6 +274,7 @@ export function PaneLegend(props: PaneLegendProps) {
             &middot; {venueLabel}
           </span>
         )}
+        </>)}
 
         {/*
           The comparison, stated on the pane it belongs to.
@@ -329,7 +339,7 @@ export function PaneLegend(props: PaneLegendProps) {
           the identity so it covers the start of the readout, never a control.
           Still focusable, so `focus-within` reveals it for the keyboard.
         */}
-        {!dense && (
+        {!dense && titleVisible && (
           <span className="relative h-6 w-0 shrink-0">
           <span data-series-actions=""
             className="pointer-events-none absolute left-1 top-0 flex h-6 items-center bg-surface opacity-0

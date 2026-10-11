@@ -1060,6 +1060,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 dense={!showIdentityDetail}
                 /* R6 SL-2: the Status-line tab's `Title` dropdown. */
                 titleForm={(pane.chartSettings?.statusTitle) === "symbol" ? "symbol" : "ticker"}
+                /* B-17: `Title` off hides the title, never the comparison chip. */
+                titleVisible={(pane.chartSettings ?? userDefaultChartSettings()).statusSymbol !== false}
                 onOpenSymbolSearch={props.onOpenSymbolSearch}
                 onInterval={props.onInterval}
                 onOpenCompareSettings={() => setCompareSettingsOpen(true)}
