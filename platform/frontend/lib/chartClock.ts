@@ -173,6 +173,83 @@ export function hoursFormatter(
     : (time) => hour12Formatter(time, timeZone);
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/**
+ * A date in one of the `Date format` row's patterns, in one zone.
+ *
+ * The same tokens `lightweight-charts` substitutes for `localization.dateFormat`
+ * and that `dateFormatExample` renders in the dialog: `dd` is the zero-padded
+ * day, `MMM` the short month, `MM` its number, `yyyy` the year and `yy` its
+ * last two digits after an apostrophe — Premium's `04 Oct '26`.
+ */
+export function fmtDatePattern(ms: number, pattern: string, timeZone: ChartTimeZone = "UTC"): string {
+  const w = wallClockOf(ms, timeZone);
+  return pattern
+    .replace("yyyy", String(w.year))
+    .replace("MMM", MONTHS[w.month] ?? "")
+    .replace("MM", pad(w.month + 1))
+    .replace("dd", pad(w.day))
+    .replace("yy", `'${String(w.year).slice(2)}`);
+}
+
+/** The weekday of an instant, as a wall clock in `timeZone` reads it. */
+function weekdayOf(ms: number, timeZone: ChartTimeZone): string {
+  const w = wallClockOf(ms, timeZone);
+  return WEEKDAYS[new Date(Date.UTC(w.year, w.month, w.day)).getUTCDay()] ?? "";
+}
+
+/**
+ * ── F-03: the crosshair's time label says WHEN, not only what time ────────
+ *
+ * `localization.timeFormatter` is the ONLY formatter the library calls for the
+ * time-axis crosshair label, and once it is installed the library prints
+ * exactly what it returns. R6b-14 installed `hoursFormatter`, so an intraday
+ * chart's crosshair said `22:00` and nothing else — no day, no month — where
+ * Premium says `Sun 04 Oct '26 20:00`. So the label is built here, whole:
+ *
+ * - below one day: weekday, the date in the `Date format` pattern, and the
+ *   time in the `Time hours format` (seconds for a sub-minute resolution);
+ * - one day and longer: weekday and date only (`Sun 04 Oct '26`) — a daily
+ *   bar has no meaningful minute;
+ * - the weekday follows `Day of week on labels`, as the axis ticks do;
+ * - everything in the chart's display zone.
+ *
+ * The library sizes the label to its text, so a longer string widens the
+ * label rather than clipping it.
+ */
+export interface CrosshairTimeOptions {
+  twentyFourHour: boolean;
+  timeZone?: ChartTimeZone;
+  /** The `Date format` pattern; Premium's default when omitted. */
+  dateFormat?: string;
+  /** The bar length; omitted reads as intraday. */
+  intervalMs?: number;
+  /** `Day of week on labels`; on by default, as the reference's is. */
+  dayOfWeek?: boolean;
+}
+
+export function crosshairTimeFormatter(options: CrosshairTimeOptions): (time: unknown) => string {
+  const zone = options.timeZone ?? "UTC";
+  const pattern = options.dateFormat ?? "dd MMM yy";
+  const daily = (options.intervalMs ?? 0) >= 86_400_000;
+  const seconds = options.intervalMs !== undefined && options.intervalMs > 0 && options.intervalMs < 60_000;
+  return (time) => {
+    if (typeof time !== "number" || !Number.isFinite(time)) return "";
+    const ms = time * 1000;
+    const date = fmtDatePattern(ms, pattern, zone);
+    const head = options.dayOfWeek === false ? date : `${weekdayOf(ms, zone)} ${date}`;
+    if (daily) return head;
+    let clock = options.twentyFourHour ? hour24Formatter(time, zone) : hour12Formatter(time, zone);
+    if (seconds) {
+      const secs = pad(new Date(ms).getUTCSeconds());
+      clock = options.twentyFourHour ? `${clock}:${secs}` : clock.replace(/^(\d+:\d{2})/, `$1:${secs}`);
+    }
+    return `${head} ${clock}`;
+  };
+}
+
 /** The pair the `Day of week on labels` row chooses between. */
 export function dayOfWeekFormatter(
   on: boolean, timeZone: ChartTimeZone = "UTC",

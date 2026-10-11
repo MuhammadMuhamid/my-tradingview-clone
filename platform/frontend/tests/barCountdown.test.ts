@@ -208,10 +208,17 @@ test("F-03 — the views array is stable, because the library caches on its iden
     "the packing placeholders are cached on identity too");
 });
 
-test("F-03 — the text is unchanged: hh:mm:ss, and never negative", () => {
-  assert.equal(countdownText(5 * 60_000 + 45_000), "00:05:45");
+test("F-07 — mm:ss under an hour, hh:mm:ss from an hour, and never negative", () => {
+  // Premium prints `49:20`, not `00:49:20` (measured live, 2026-10-11).
+  assert.equal(countdownText(49 * 60_000 + 20_000), "49:20");
+  assert.equal(countdownText(5 * 60_000 + 45_000), "05:45");
+  assert.equal(countdownText(59 * 60_000 + 59_000), "59:59");
+  // The hour appears exactly when an hour or more remains.
+  assert.equal(countdownText(3_600_000), "01:00:00");
   assert.equal(countdownText(3 * 3_600_000 + 61_000), "03:01:01");
-  assert.equal(countdownText(-1), "00:00:00", "a bar that has closed counts down to zero");
+  // A bar of a day or longer keeps hh:mm:ss, the hours unbounded.
+  assert.equal(countdownText(30 * 3_600_000), "30:00:00");
+  assert.equal(countdownText(-1), "00:00", "a bar that has closed counts down to zero");
 });
 
 /* ── F-03-R: one ground, one width, one plate ────────────────────────────── */

@@ -127,13 +127,18 @@ export interface ChartMenuContext {
   classicalPatterns?: boolean;
   /** Number of studies currently on the focused pane. */
   indicatorCount?: number;
+  /**
+   * Number of drawings on this pane's instrument (F-08) — the replay
+   * session's own list while a Replay runs, as everywhere else.
+   */
+  drawingCount?: number;
 }
 
 export const CHART_MENU_IDS = [
   "chart:reset-view", "chart:copy-price", "chart:paste", "chart:add-alert",
   "chart:trade-at-price", "chart:table-view", "chart:object-tree",
   "chart:toggle-candle-patterns", "chart:toggle-classical-patterns",
-  "chart:remove-indicators", "chart:chart-settings",
+  "chart:remove-drawings", "chart:remove-indicators", "chart:chart-settings",
   "chart:add-to-watchlist",
 ] as const;
 export type ChartMenuId = (typeof CHART_MENU_IDS)[number];
@@ -156,6 +161,7 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   const ticker = displayTicker(ctx.ticker);
   const on = ` on ${ticker}${at}`;
   const count = ctx.indicatorCount ?? 0;
+  const drawings = ctx.drawingCount ?? 0;
   return [
     { id: "chart:reset-view", label: "Reset chart view", glyph: "reset", hint: menuCap("reset-view", ctx.mac) },
     { id: "sep-clipboard", separator: true },
@@ -195,6 +201,18 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
     { id: "chart:toggle-candle-patterns", label: "Candlestick patterns", checked: ctx.candlePatterns },
     { id: "chart:toggle-classical-patterns", label: "Chart patterns", checked: ctx.classicalPatterns === true },
     { id: "sep-remove", separator: true },
+    /*
+     * F-08: Premium's menu carries `Remove N drawings` beside `Remove N
+     * indicators`. It asks nothing first, as the reference's does: the
+     * drawing history takes the whole removal as one step, so ⌘Z brings
+     * every one back. (`Lock vertical cursor line by time` stays absent — see
+     * the pattern rows above.)
+     */
+    {
+      id: "chart:remove-drawings",
+      label: `Remove ${drawings} drawing${drawings === 1 ? "" : "s"}`,
+      disabled: drawings === 0, disabledReason: "There are no drawings on this chart",
+    },
     { id: "chart:remove-indicators", label: `Remove ${count} indicator${count === 1 ? "" : "s"}`, disabled: count === 0, disabledReason: "There are no indicators on this chart" },
     { id: "sep-settings", separator: true },
     { id: "chart:chart-settings", label: "Settings…", glyph: "gear", hint: menuCap("chart-settings", ctx.mac) },
@@ -566,6 +584,69 @@ export function studyMenu(ctx: StudyMenuContext): MenuEntry[] {
     { id: "sep-remove", separator: true },
     { id: "study:remove", label: "Remove", destructive: true },
   ];
+}
+
+/*
+ * ── F-04: a study pane's `Manage panes` menu ───────────────────────────────
+ *
+ * The pane's top-right drew FOUR 24×24 icons in muted ink — move, remove,
+ * collapse, maximise. Live Premium draws ONE 24×24 `⋯` in ink rgb(219) that
+ * opens this, 32px rows with an 18px glyph in a 28px box: Maximize pane
+ * (Double click) · Collapse pane (⌘ Double click) · Move pane up · Move pane
+ * down · Delete pane. The ends of the stack DISABLE a move rather than
+ * dropping it, so the menu has one shape on every pane.
+ *
+ * Answered by `IndicatorPane`, which holds the four handlers this replaces.
+ */
+export const PANE_MENU_IDS = [
+  "pane:maximize", "pane:collapse", "pane:move-up", "pane:move-down", "pane:remove",
+] as const;
+export type PaneMenuId = (typeof PANE_MENU_IDS)[number];
+
+export interface PaneMenuContext {
+  mac: boolean;
+  maximized: boolean;
+  collapsed: boolean;
+  /** Which of the pane's handlers exist; a row with no handler is absent. */
+  canMaximize: boolean;
+  canCollapse: boolean;
+  canMove: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  canRemove: boolean;
+}
+
+export function paneMenu(ctx: PaneMenuContext): MenuEntry[] {
+  const entries: MenuEntry[] = [];
+  if (ctx.canMaximize) {
+    entries.push({
+      id: "pane:maximize", label: ctx.maximized ? "Restore pane" : "Maximize pane",
+      glyph: ctx.maximized ? "restore" : "maximize", hint: "Double click",
+    });
+  }
+  if (ctx.canCollapse) {
+    entries.push({
+      id: "pane:collapse", label: ctx.collapsed ? "Expand pane" : "Collapse pane",
+      glyph: ctx.collapsed ? "expand" : "collapse",
+      hint: `${ctx.mac ? "⌘" : "Ctrl"} Double click`,
+    });
+  }
+  if (ctx.canMove) {
+    entries.push(
+      {
+        id: "pane:move-up", label: "Move pane up", glyph: "arrowUp",
+        disabled: !ctx.canMoveUp, disabledReason: "This pane is already at the top",
+      },
+      {
+        id: "pane:move-down", label: "Move pane down", glyph: "arrowDown",
+        disabled: !ctx.canMoveDown, disabledReason: "This pane is already at the bottom",
+      },
+    );
+  }
+  if (ctx.canRemove) {
+    entries.push({ id: "pane:remove", label: "Delete pane", glyph: "trash", destructive: true });
+  }
+  return entries;
 }
 
 /**

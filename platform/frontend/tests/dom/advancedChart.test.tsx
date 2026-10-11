@@ -183,9 +183,19 @@ test("compare settings and removal remain reachable when the status-line Title i
   fireEvent.click(btc);
   await settle();
 
-  // With no legend chip to click, the same toolbar control must manage the
-  // comparison instead of opening a second, disconnected picker.
+  /*
+   * F-09 / §7c-ii: the toolbar's ＋ ALWAYS opens the Compare dialog, with or
+   * without a comparison on. The mode menu and Remove are the legend chip's,
+   * and B-17 keeps that chip on the chart with Title off.
+   */
   fireEvent.click(screen.getByRole("button", { name: "Compare with another instrument" }));
+  assert.ok(screen.getByRole("dialog", { name: "Compare symbol" }), "＋ did not open the dialog");
+  assertAbsent(screen.queryByRole("menu", { name: "Comparing with BTCUSDT" }),
+    "＋ opened the mode menu instead of the dialog");
+  fireEvent.keyDown(document, { key: "Escape" });
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Comparing with BTCUSDT. Change or remove." }));
+  await settle();
   const settings = screen.getByRole("menu", { name: "Comparing with BTCUSDT" });
   assert.ok(within(settings).getByRole("menuitemradio", { name: "Pair ratio" }));
   fireEvent.click(within(settings).getByRole("menuitem", { name: "Remove comparison" }));

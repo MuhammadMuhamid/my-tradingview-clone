@@ -111,18 +111,18 @@ test("W2D-01 — the countdown is the interval's grid, not a bar that has alread
   const open = Date.UTC(2026, 9, 10, 7, 0, 0);
   const close = open + HOUR - 1;
   // The forming bar is held: its own close is the answer.
-  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, open + 15 * MIN)), "00:45:00");
+  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, open + 15 * MIN)), "45:00");
   // The newest bar held CLOSED a minute ago (a cold load, a provider history
   // that ends on completed bars): the plate counts to the slot the clock is in.
-  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, close + MIN + 1)), "00:59:00");
+  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, close + MIN + 1)), "59:00");
   // Several slots behind still lands in the current slot.
-  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, close + 3 * HOUR + 30 * MIN + 1)), "00:30:00");
+  assert.equal(countdownText(barCloseCountdownMs(close, HOUR, close + 3 * HOUR + 30 * MIN + 1)), "30:00");
   // 1D: right after switching, never 00:00:00.
   const DAY = 24 * HOUR;
   const dayClose = Date.UTC(2026, 9, 10) - 1;
   assert.equal(countdownText(barCloseCountdownMs(dayClose, DAY, Date.UTC(2026, 9, 10, 14, 0, 0))), "10:00:00");
   for (let t = close + 1; t < close + 2 * HOUR; t += 7 * MIN + 13) {
-    assert.notEqual(countdownText(barCloseCountdownMs(close, HOUR, t)), "00:00:00", `at ${t}`);
+    assert.notEqual(countdownText(barCloseCountdownMs(close, HOUR, t)), "00:00", `at ${t}`);
   }
 });
 

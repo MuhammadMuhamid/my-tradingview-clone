@@ -250,7 +250,8 @@ test("an oscillator pane spends no height on a header row", () => {
    * the scale over its top tick; the cluster now sits 4px left of the axis's
    * measured width.
    */
-  assert.match(pane, /style=\{\{ right: axisWidth \+ 4 \}\}\s*className=\{`absolute top-1 z-\[?\d/,
+  // B-02: a collapsed pane's control sits at its top edge, inside its 24px.
+  assert.match(pane, /style=\{\{ right: axisWidth \+ 4 \}\}[\s\S]{0,900}?className=\{`absolute \$\{collapsed \? "top-0" : "top-1"\} z-\[?\d/,
     "the pane actions are no longer overlaid at the plot's own edge");
   assert.match(pane, /priceScale\("right"\)\.width\(\)/, "the axis width is measured, not guessed");
   assert.match(pane, /items-center gap-1 transition-opacity focus-within:opacity-100/,
@@ -268,7 +269,7 @@ test("an oscillator pane spends no height on a header row", () => {
   // Neither cluster reserves a row: both are absolutely positioned over the
   // plot, so a pane still spends zero height on chrome.
   assert.equal((pane.match(/absolute left-2 top-1 z-/g) ?? []).length, 1);
-  assert.equal((pane.match(/absolute top-1 z-/g) ?? []).length, 1);
+  assert.equal((pane.match(/absolute \$\{collapsed \? "top-0" : "top-1"\} z-/g) ?? []).length, 1);
   /*
    * And neither paints a surface. Two `bg-surface/8x` boxes — one behind the
    * legend, one behind the cluster — were the "bordered mini-toolbar" the

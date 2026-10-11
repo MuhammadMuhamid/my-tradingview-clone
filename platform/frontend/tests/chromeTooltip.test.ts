@@ -42,7 +42,8 @@ test("no chrome control asks the operating system to draw its tooltip", () => {
       .split("\n")
       .map((line, i) => ({ line: line.trim(), n: i + 1 }))
       .filter(({ line }) => /(?<![\w-])title=/.test(line))
-      .filter(({ line }) => !/^title="Open layout"$/.test(line));
+      // F-06: the `Open template…` library is a Modal too.
+      .filter(({ line }) => !/^title="(Open layout|Indicator templates)"$/.test(line));
 
     assert.deepEqual(offenders, [],
       `${file} uses a native title; name the control with data-tooltip instead`);

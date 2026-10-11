@@ -16,8 +16,9 @@
  * field below is backed by a lightweight-charts option or by markup this
  * product already renders, and `CandleChart` applies each one. Nothing here is
  * a switch that does nothing — the campaign's own standard, and the reason
- * `lockPriceToBarRatio` and `noOverlappingLabels` are absent: lightweight-
- * charts 4.2 exposes no equivalent, so offering them would be a lie.
+ * `lockPriceToBarRatio` is absent: lightweight-charts 4.2 exposes no
+ * equivalent, so offering it would be a lie. (`noOverlappingLabels` IS
+ * here: it is the library's `alignLabels` on both price scales — F-15.)
  */
 
 /** How many digits a price is drawn to; `auto` follows the instrument's tick. */

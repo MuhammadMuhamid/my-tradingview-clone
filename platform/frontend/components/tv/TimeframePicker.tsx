@@ -44,6 +44,7 @@ import {
 } from "@/lib/timeframes";
 import { describeResolution, explainResolution, type Resolution } from "@/lib/resolution";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { MENU_STAR_BOX, MenuStarGlyph } from "@/components/tv/ContextMenu";
 import { TEXT_BASELINE, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/tv/toolbarChrome";
 
 /**
@@ -229,17 +230,14 @@ function PickerRow({
          * matters most. `currentColor` is right in both places at once, and it
          * is what the reference draws (R1b-05, same rule as the style menu).
          */
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity ${
+        className={`${MENU_STAR_BOX} transition-opacity ${
           favourite ? "opacity-100" : "opacity-0 focus:opacity-100 group-hover:opacity-100"
         }`}
       >
-        {/* R1c-08: 15×15. The reference's star inks 113 px; ours at 14 on a
-            24-unit box inked 73 — the mark that says "this is on your toolbar"
-            was two thirds of the size of the one it is copied from. */}
-        <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
-          fill={favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
-          <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
-        </svg>
+        {/* F-05: the shared star — 18px in a 24px box, Premium's measure.
+            R1c-08 had grown it from 14 to 15 in a 20px box; still a step
+            below the reference's, and a size no other menu used. */}
+        <MenuStarGlyph filled={favourite} />
       </button>
     </div>
   );

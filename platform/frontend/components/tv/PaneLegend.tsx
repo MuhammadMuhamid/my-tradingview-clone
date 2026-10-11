@@ -333,20 +333,24 @@ export function PaneLegend(props: PaneLegendProps) {
           The reference reveals 28x22 actions when the pointer is on the
           series' title, as a study row does; this row revealed nothing.
 
-          It OVERLAYS rather than expands. In flow it pushed everything after
-          it — the `vs` comparison chip first — 56px sideways the moment the
-          pointer entered the row, so the chip ran away from the pointer on its
-          way to it. The reference's buttons wrapper is zero-width and its
-          buttons cover the values beside it; this is that, placed at the END of
-          the identity so it covers the start of the readout, never a control.
-          Still focusable, so `focus-within` reveals it for the keyboard.
+          ── F-02: it takes room AFTER the identity, and covers nothing ──────
+
+          This was a zero-width overlay at the end of the identity, and on
+          hover its 56px painted straight over the start of the readout —
+          `⚑ ⋯ ,991.70 H83,002.59`, the open price under `More`. Premium never
+          covers a value. So at rest it is zero-width (nothing moves), and on
+          hover or focus it takes its width in flow, as the LAST thing in the
+          identity row: the title, the interval, the venue and the `vs` chip
+          before it stay exactly where they were, and the values after it move
+          right by the cluster's width — or wrap, as they already do in a
+          narrow pane. `overflow-hidden` at rest keeps the buttons focusable,
+          so `focus-within` still reveals it for the keyboard.
         */}
         {!dense && titleVisible && (
-          <span className="relative h-6 w-0 shrink-0">
           <span data-series-actions=""
-            className="pointer-events-none absolute left-1 top-0 flex h-6 items-center bg-surface opacity-0
-              transition-opacity focus-within:pointer-events-auto focus-within:opacity-100
-              group-hover/series:pointer-events-auto group-hover/series:opacity-100">
+            className="pointer-events-none flex h-6 w-0 shrink-0 items-center overflow-hidden opacity-0
+              transition-opacity focus-within:pointer-events-auto focus-within:w-auto focus-within:opacity-100
+              group-hover/series:pointer-events-auto group-hover/series:w-auto group-hover/series:opacity-100">
             <button
               type="button"
               {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
@@ -383,7 +387,6 @@ export function PaneLegend(props: PaneLegendProps) {
                 </svg>
               </button>
             )}
-          </span>
           </span>
         )}
 

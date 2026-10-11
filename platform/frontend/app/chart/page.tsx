@@ -2117,6 +2117,8 @@ export default function TvWorkspace() {
         candlePatterns: candleOverlays[paneId]?.enabled === true,
         classicalPatterns: classicalOverlays[paneId]?.enabled === true,
         indicatorCount: activeIndicatorList.length + (activeNativeStudies?.rows?.length ?? 0),
+        // F-08: the drawings on THIS pane's instrument (or the replay's list).
+        drawingCount: drawings.length,
       }),
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
@@ -2260,6 +2262,15 @@ export default function TvWorkspace() {
       case "chart:table-view":
       case "series:table-view": setPanel("objects"); return;
       case "chart:remove-indicators": activeIndicators?.clear(); activeNativeStudies?.clear(); return;
+      /*
+       * F-08: no confirmation, as on Premium — the drawing history records
+       * the removal as one step, so Undo returns every drawing. The replay
+       * session's scratch list goes through its own history the same way.
+       */
+      case "chart:remove-drawings":
+        if (replayActive) updateReplayDrawings([], null);
+        else drawingStore.set(paneSymbol, [], null);
+        return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
       case "chart:toggle-candle-patterns":
@@ -2412,7 +2423,8 @@ export default function TvWorkspace() {
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
     copyPrice, candleOverlays, classicalOverlays, workspace, symbol, watchlists,
-    refreshWatchlists, setTool, activeIndicators, activeNativeStudies, ask, openChartSettings]);
+    refreshWatchlists, setTool, activeIndicators, activeNativeStudies, ask, openChartSettings,
+    replayActive, updateReplayDrawings]);
 
   /*
    * What the palette can reach. Every one of these is the SAME handler the

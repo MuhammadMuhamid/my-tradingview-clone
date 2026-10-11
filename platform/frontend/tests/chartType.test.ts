@@ -268,10 +268,10 @@ test("THE BAR IS A SPLIT CONTROL AND THE MENU OPENS AT THE TOP OF THE ROW", () =
    * buttons followed by a 24px caret, and the caret's menu is 273px wide,
    * opening at the caret's left edge.
    *
-   * B-16 (re-measured on Premium by two reviewers): the list drops from the
-   * caret and scrolls inside a height capped to the room below it. It used to
-   * open at y=0 over the bar with `max-h-[100vh]`, which put its 21st row
-   * (`Range`) past the bottom of a 900px viewport.
+   * F-12 (re-measured on live Premium twice, 2026-10-11): the list is a
+   * full-height column from the viewport's top — 273×900 at y=0 — the same
+   * rule as the interval menu, capped at the viewport and scrolling inside.
+   * B-16 had hung it under the caret at viewport − 48 (273×852 at y=40).
    */
   const menu = read("components/tv/ChartTypeMenu.tsx");
 
@@ -286,8 +286,8 @@ test("THE BAR IS A SPLIT CONTROL AND THE MENU OPENS AT THE TOP OF THE ROW", () =
   assert.match(menu, /aria-haspopup="menu"/);
 
   // The menu's own geometry.
-  assert.match(menu, /absolute left-0 top-full z-50 mt-\[2px\] max-h-\[calc\(100vh-48px\)\] w-\[273px\] overflow-y-auto/);
-  assert.doesNotMatch(menu, /top-0 z-50 max-h-\[100vh\]/, "the list no longer covers the bar it came from");
+  assert.match(menu, /absolute left-0 top-0 z-50 max-h-\[100vh\] w-\[273px\] overflow-y-auto/);
+  assert.doesNotMatch(menu, /max-h-\[calc\(100vh-48px\)\]/, "the list is no longer hung under the caret");
 
   /*
    * NO WRITTEN DISCLOSURE ON THE BAR, AND NOT BECAUSE IT STOPPED MATTERING.

@@ -160,6 +160,50 @@ await page.keyboard.press("Escape");
 await page.waitForTimeout(300);
 check("context menu", "Escape dismisses", !(await page.$('[role="menu"]')));
 
+// ── F-05 / F-12: the toolbar's three dropdowns share the mark and star ─────
+// Every menu row mark is an 18px glyph in a 28px box (W2A-07); Premium's
+// favourite stars are 18px in a 24px box; the chart-type menu, like the
+// interval menu, is a full-height column from the viewport top (273×900).
+async function dropdown(trigger, menuSelector) {
+  await page.locator(trigger).first().click();
+  await page.waitForTimeout(400);
+  return page.evaluate((sel) => {
+    const m = document.querySelector(sel);
+    if (!m) return null;
+    const b = m.getBoundingClientRect();
+    const size = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+    return {
+      top: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height),
+      boxes: [...m.querySelectorAll("[data-menu-mark]")].map(size),
+      glyphs: [...m.querySelectorAll("[data-menu-mark] svg[data-menu-glyph]")].map((s) => size(s)[0]),
+      actions: [...m.querySelectorAll("[data-menu-action]")].map(size),
+      stars: [...m.querySelectorAll("svg[data-menu-star]")].map((s) => [size(s)[0], size(s.parentElement)[0]]),
+    };
+  }, menuSelector);
+}
+const layouts = await dropdown('button[aria-label="Manage layouts"]', '[role="menu"][aria-label="Saved layouts"]');
+check("manage layouts", "opens", layouts !== null);
+check("manage layouts", "row marks are 18px glyphs in 28px boxes",
+  layouts && layouts.boxes.length > 0 && layouts.boxes.every(([w, h]) => w === 28 && h === 28)
+    && layouts.glyphs.length > 0 && layouts.glyphs.every((w) => w === 18),
+  JSON.stringify({ boxes: layouts?.boxes, glyphs: layouts?.glyphs }));
+await page.keyboard.press("Escape");
+await page.waitForTimeout(250);
+const intervalMenu = await dropdown('button[aria-label^="Chart interval"]', '[role="menu"][aria-label="All timeframes"]');
+check("interval menu", "favourite stars are 18px in a 24px box",
+  intervalMenu && intervalMenu.stars.length > 0 && intervalMenu.stars.every(([g, box]) => g === 18 && box === 24),
+  JSON.stringify(intervalMenu?.stars.slice(0, 3)));
+await page.keyboard.press("Escape");
+await page.waitForTimeout(250);
+const typeMenu = await dropdown('button[aria-label="Chart style"]', '[role="menu"][aria-label="Chart style"]');
+check("chart-type menu", "favourite stars are 18px in a 24px box",
+  typeMenu && typeMenu.stars.length > 0 && typeMenu.stars.every(([g, box]) => g === 18 && box === 24),
+  JSON.stringify(typeMenu?.stars.slice(0, 3)));
+check("chart-type menu", "is a full-height column from the viewport top (273×900)",
+  typeMenu && typeMenu.top === 0 && typeMenu.w === 273 && typeMenu.h === 900, JSON.stringify(typeMenu && { top: typeMenu.top, w: typeMenu.w, h: typeMenu.h }));
+await page.keyboard.press("Escape");
+await page.waitForTimeout(250);
+
 // ── Study legend: zero-width cluster at rest, 28x22 actions on hover ───────
 const study = await page.evaluate(() => {
   const cluster = document.querySelector("[data-study-actions]");
@@ -210,17 +254,78 @@ if (study) {
   }
 }
 
-// ── Series legend: Flag symbol + More, More is the chart's menu ────────────
-const readoutX = () => page.evaluate(() => {
-  const o = [...document.querySelectorAll("span")].find((s) => (s.childNodes[0]?.nodeValue ?? "").trim() === "O");
-  return o ? Math.round(o.getBoundingClientRect().x) : null;
+// ── Study pane: one Manage panes `⋯` (F-04) ────────────────────────────────
+const paneControl = await page.evaluate(() => {
+  const cluster = document.querySelector("section[aria-label$=' indicator pane'] [data-pane-buttons]");
+  if (!cluster) return null;
+  const section = cluster.closest("section").getBoundingClientRect();
+  return { hover: { x: section.x + section.width / 2, y: section.y + section.height / 2 } };
 });
-const readoutBefore = await readoutX();
+if (paneControl) {
+  await page.mouse.move(paneControl.hover.x, paneControl.hover.y);
+  await page.waitForTimeout(400);
+  const pc = await page.evaluate(() => {
+    const buttons = [...document.querySelector("section[aria-label$=' indicator pane'] [data-pane-buttons]").querySelectorAll("button")];
+    return buttons.map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), getComputedStyle(b).color, b.getAttribute("aria-label")]; });
+  });
+  check("study pane", "one 24×24 Manage panes button in ink",
+    pc.length === 1 && pc[0][0] === 24 && pc[0][1] === 24 && pc[0][2] === "rgb(219, 219, 219)" && /^Manage panes/.test(pc[0][3]),
+    JSON.stringify(pc));
+  if (pc.length === 1) {
+    await page.locator("section[aria-label$=' indicator pane'] [data-pane-buttons] button").first().click();
+    await page.waitForTimeout(400);
+    const pm = await page.evaluate(() => {
+      const m = document.querySelector('[role="menu"][aria-label="Manage panes"]');
+      if (!m) return null;
+      const rows = [...m.querySelectorAll(".tvc-menu-row")];
+      return {
+        labels: rows.map((r) => r.querySelector(".whitespace-nowrap")?.textContent),
+        rowH: rows.map((r) => Math.round(r.getBoundingClientRect().height)),
+        marks: [...m.querySelectorAll("[data-menu-mark]")].map((s) => Math.round(s.getBoundingClientRect().width)),
+        glyphs: [...m.querySelectorAll("[data-menu-mark] svg[data-menu-glyph]")].map((s) => Math.round(s.getBoundingClientRect().width)),
+      };
+    });
+    check("study pane", "Manage panes: Premium's five 32px rows, 18px glyphs in 28px boxes",
+      pm && JSON.stringify(pm.labels) === JSON.stringify(["Maximize pane", "Collapse pane", "Move pane up", "Move pane down", "Delete pane"])
+        && pm.rowH.every((h) => h === 32) && pm.marks.every((w) => w === 28) && pm.glyphs.every((w) => w === 18),
+      JSON.stringify(pm));
+    await page.keyboard.press("Escape");
+    await page.mouse.move(5, 880);
+    await page.waitForTimeout(300);
+  }
+}
+
+// ── Series legend: Flag symbol + More, in flow, covering no value ──────────
+// F-02 (2026-10-11): the cluster was a zero-width overlay that painted More
+// over the open price. It now takes its width after the identity row, so the
+// identity (title · interval · venue · vs chip) must not move and no value may
+// sit under a cluster button.
+const identityBoxes = () => page.evaluate(() => {
+  const legend = document.querySelector("[data-pane-legend]");
+  if (!legend) return null;
+  return [...legend.children].filter((c) => !c.hasAttribute("data-series-actions"))
+    .map((c) => { const b = c.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width)]; });
+});
+const identityBefore = await identityBoxes();
 const title = await page.locator('button[aria-label^="Change symbol for the"]').first().boundingBox();
 await page.mouse.move(title.x + 30, title.y + title.height / 2);
 await page.waitForTimeout(400);
-check("series legend", "hovering the title moves nothing after it (the cluster overlays)",
-  readoutBefore !== null && readoutBefore === await readoutX(), `${readoutBefore} → ${await readoutX()}`);
+const identityAfter = await identityBoxes();
+check("series legend", "hovering the title moves nothing in the identity row (incl. the vs chip)",
+  identityBefore !== null && JSON.stringify(identityBefore) === JSON.stringify(identityAfter),
+  `${JSON.stringify(identityBefore)} → ${JSON.stringify(identityAfter)}`);
+const covered = await page.evaluate(() => {
+  const cluster = document.querySelector("[data-series-actions]");
+  if (!cluster) return null;
+  const buttons = [...cluster.querySelectorAll("button")].map((b) => b.getBoundingClientRect());
+  const row = document.querySelector("[data-pane-legend]")?.parentElement;
+  const values = [...(row?.querySelectorAll(".tabular span, .tabular > span") ?? [])]
+    .filter((s) => s.offsetParent && s.textContent.trim() !== "");
+  const hit = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+  return values.filter((v) => buttons.some((b) => hit(v.getBoundingClientRect(), b))).map((v) => v.textContent.trim());
+});
+check("series legend", "no value element intersects the hover cluster",
+  covered !== null && covered.length === 0, JSON.stringify(covered));
 const series = await page.evaluate(() => [...(document.querySelector("[data-series-actions]")?.querySelectorAll("button") ?? [])]
   .map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), b.getAttribute("aria-label")]; }));
 check("series legend", "hover reveals Flag and More at 28x22",

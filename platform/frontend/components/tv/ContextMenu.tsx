@@ -94,13 +94,68 @@ const GLYPH_PATHS: Record<MenuGlyph, React.ReactNode> = {
   clock: <><circle cx="8" cy="8" r="6" /><path d="M8 4.8V8l2.3 1.6" /></>,
   calendar: <><rect x="2.5" y="3.5" width="11" height="10" rx="1" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></>,
   flag: <><path d="M3.5 14V2.5M3.5 3h8l-1.6 2.6L11.5 8.2h-8" /></>,
+  // F-04: corners out to maximise, in to restore; chevrons in to collapse.
+  maximize: <><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" /></>,
+  restore: <><path d="M6 2.5V6H2.5M10 2.5V6h3.5M13.5 10H10v3.5M2.5 10H6v3.5" /></>,
+  collapse: <><path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5" /></>,
+  expand: <><path d="M4.5 6 8 2.5 11.5 6M4.5 10 8 13.5l3.5-3.5" /></>,
+  arrowUp: <><path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7" /></>,
+  arrowDown: <><path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" /></>,
+  rename: <><path d="M2.5 13.5V11l8-8 2.5 2.5-8 8z" /><path d="M9 4.5 11.5 7" /></>,
+  folder: <><path d="M1.5 12.5v-9h4.5L7.5 5h7v7.5z" /></>,
+  newLayout: <><rect x="2" y="2.5" width="12" height="11" rx="1.5" /><path d="M8 5.5v5M5.5 8h5" /></>,
+  save: <><path d="M2.5 2.5h8.5l2.5 2.5v8.5h-11z" /><path d="M5 2.5v3h5.5v-3M5 13.5v-4h6v4" /></>,
+  close: <><path d="M4 4l8 8M12 4l-8 8" /></>,
 };
 
-function Glyph({ name }: { name: MenuGlyph }) {
+/**
+ * A menu row's mark, as an 18px glyph (W2A-07).
+ *
+ * Exported so a dropdown that is not a `ContextMenu` — Manage layouts,
+ * Indicator templates — draws the SAME glyph at the same size rather than a
+ * 15px copy of it in an 18px gutter (F-05). `qa/premiumLock.mjs` reads every
+ * one of these by `data-menu-glyph`.
+ */
+export function MenuGlyphIcon({ name }: { name: MenuGlyph }) {
   return (
     <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
       strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-menu-glyph="">
       {GLYPH_PATHS[name]}
+    </svg>
+  );
+}
+const Glyph = MenuGlyphIcon;
+
+/**
+ * The 28px leading column every menu row carries (W2A-07, F-05).
+ *
+ * One definition. Manage layouts drew its own 18px gutter with 15px glyphs,
+ * and the interval and chart-type menus drew their stars at 15 and 16 — three
+ * menus, three sizes, beside a contract that names one. A row with no mark
+ * still draws the box, which is what keeps every label in one column.
+ */
+export function MenuMark({ children }: { children?: React.ReactNode }) {
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center" data-menu-mark="" aria-hidden="true">
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A row's favourite star: 18px, in a 24px box (F-05).
+ *
+ * Measured on Premium's interval and chart-type menus (2026-10-11): an 18px
+ * star in a 24×24 hit box at the row's right edge, inheriting the row's ink,
+ * filled when the row is on the toolbar. Ours were 15 in 20 and 16 in 24.
+ */
+export const MENU_STAR_BOX = "flex h-6 w-6 shrink-0 items-center justify-center rounded";
+
+export function MenuStarGlyph({ filled }: { filled: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" data-menu-star=""
+      fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
+      <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
     </svg>
   );
 }
@@ -447,10 +502,10 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
           reference. The column inherits the row's colour, so a disabled row's
           mark greys with its label.
         */}
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center" data-menu-mark="">
+        <MenuMark>
           {entry.checked && <Check />}
           {!entry.checked && entry.glyph && <Glyph name={entry.glyph} />}
-        </span>
+        </MenuMark>
         {/*
           TVP8 round two: the LABEL never truncates; the hint does.
 

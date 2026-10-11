@@ -38,6 +38,7 @@ import {
 import { isChartType, type ChartType } from "./chartType";
 import { defaultMaLines, maId, type MaLine, type MaType } from "./movingAverages";
 import type { SyncOptions } from "./paneSync";
+import { displayTicker } from "./instrument";
 import { isResolution, type Resolution } from "./resolution";
 import {
   isDefaultPriceScale, normalizePriceScale, resetPriceScale, type PriceScaleState,
@@ -439,7 +440,27 @@ export function applyPaneSymbol(
 ): ChartWorkspace {
   if (!ws.panes.some((p) => p.id === originId)) return ws;
   const targets = new Set([originId, ...syncTargets(ws, originId, sync, "symbol")]);
-  return { ...ws, panes: ws.panes.map((p) => (targets.has(p.id) ? { ...p, symbol } : p)) };
+  let next: ChartWorkspace = {
+    ...ws, panes: ws.panes.map((p) => (targets.has(p.id) ? { ...p, symbol } : p)),
+  };
+  /*
+   * F-09: a pane that now IS the instrument it was compared with drops the
+   * comparison, through the same removal `vs … › Remove` uses. With BTCUSDT
+   * compared on a SOL chart, switching the chart to BTCUSDT drew BTCUSDT vs
+   * BTCUSDT — two identical lines, a comparison that compares nothing.
+   */
+  for (const pane of next.panes) {
+    if (targets.has(pane.id) && pane.compare && compareIsBase(symbol, pane.compare.symbol)) {
+      next = setPaneCompare(next, pane.id, null);
+    }
+  }
+  return next;
+}
+
+/** Whether a comparison's instrument is the pane's own (by ticker). */
+export function compareIsBase(base: string, compareSymbol: string): boolean {
+  const clean = (s: string): string => displayTicker(s).toUpperCase().replace(/[^A-Z0-9.]/g, "");
+  return clean(base) !== "" && clean(base) === clean(compareSymbol);
 }
 
 /**

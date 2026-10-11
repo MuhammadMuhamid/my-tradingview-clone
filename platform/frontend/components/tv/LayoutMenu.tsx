@@ -9,6 +9,7 @@ import { TOOL_BUTTON, TOOL_CARET_BUTTON, TOOL_CARET_GLYPH } from "@/components/t
 import { displayTicker } from "@/lib/instrument";
 import { isMacPlatform } from "@/lib/shortcuts";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { MenuGlyphIcon, MenuMark } from "@/components/tv/ContextMenu";
 
 /**
  * The saved layout this workspace is on, and what can be done with it.
@@ -45,46 +46,18 @@ import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
  * the writes, the autosave and the authority over what a layout is.
  */
 /**
- * The three glyphs the reference draws in this menu's left gutter.
+ * The glyphs the reference draws in this menu's left gutter.
  *
- * 15-unit boxes at 15px and a 1px stroke, on the same one-unit-one-pixel grid
- * as every other icon in the workstation (R1c-02): two overlapping sheets for
- * a copy, a pencil for a rename, a framed plus for a new layout. The rows that
- * carry no glyph still reserve the gutter, which is what keeps the labels in
- * one column.
+ * F-05: through the SHARED mark column — an 18px glyph in a 28px box, the
+ * contract's one rule for every menu row's mark. These were 15px glyphs in an
+ * 18px gutter of this menu's own, the one menu in the product that had kept a
+ * second size. The rows that carry no glyph still draw the box, which is what
+ * keeps the labels in one column.
  */
-const GUTTER_GLYPH = {
-  width: 15, height: 15, viewBox: "0 0 15 15", fill: "none",
-  stroke: "currentColor", strokeWidth: 1,
-  strokeLinecap: "round", strokeLinejoin: "round",
-} as const;
-
-const COPY_GLYPH = (
-  <svg {...GUTTER_GLYPH}>
-    <rect x="5.5" y="1.5" width="8" height="8" rx="1.5" />
-    <path d="M10.5 12.5h-7a1 1 0 0 1-1-1v-7" />
-  </svg>
-);
-
-const RENAME_GLYPH = (
-  <svg {...GUTTER_GLYPH}>
-    <path d="M2.5 12.5v-2.5l7.5-7.5 2.5 2.5-7.5 7.5z" />
-    <path d="M9 3.5l2.5 2.5" />
-  </svg>
-);
-
-const OPEN_GLYPH = (
-  <svg {...GUTTER_GLYPH}>
-    <path d="M1.5 12.5V3.5a1 1 0 0 1 1-1h3l1.5 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1z" />
-  </svg>
-);
-
-const NEW_GLYPH = (
-  <svg {...GUTTER_GLYPH}>
-    <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" />
-    <path d="M7.5 5.5v4M5.5 7.5h4" />
-  </svg>
-);
+const COPY_GLYPH = <MenuGlyphIcon name="copy" />;
+const RENAME_GLYPH = <MenuGlyphIcon name="rename" />;
+const OPEN_GLYPH = <MenuGlyphIcon name="folder" />;
+const NEW_GLYPH = <MenuGlyphIcon name="newLayout" />;
 
 export function LayoutMenu({
   layouts, recents = [], currentId, autosave, dirty, autosaveError,
@@ -241,11 +214,10 @@ export function LayoutMenu({
       role="menuitem"
       onClick={() => { if (!disabled) { setOpen(false); onClick(); } }}
       disabled={disabled}
-      className="tvc-menu-row w-full gap-2 px-2.5 text-left text-sm text-ink disabled:opacity-40"
+      /* F-05: the context menu's own geometry — box 8px in, label 4px after. */
+      className="tvc-menu-row w-full gap-1 px-2 text-left text-sm text-ink disabled:opacity-40"
     >
-      <span className="flex w-[18px] shrink-0 items-center justify-center" aria-hidden="true">
-        {glyph}
-      </span>
+      <MenuMark>{glyph}</MenuMark>
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {cap !== undefined && (
         <span className="shrink-0 text-[12px] text-ink-faint">{cap}</span>
@@ -376,9 +348,9 @@ export function LayoutMenu({
               onClick={onToggleAutosave}
               role="switch"
               aria-checked={autosave}
-              className="tvc-menu-row w-full gap-2 px-2.5 text-left text-sm text-ink"
+              className="tvc-menu-row w-full gap-1 px-2 text-left text-sm text-ink"
             >
-              <span className="w-[18px] shrink-0" aria-hidden="true" />
+              <MenuMark />
               {/*
                 R1c-11: the switch says it, so the word does not.
 
@@ -490,13 +462,18 @@ export function LayoutMenu({
                             setOpen(false);
                             onDelete(l.id);
                           }}
-                          className="mr-1.5 hidden rounded p-1 text-ink-faint hover:text-down focus-visible:block group-hover:block"
+                          /*
+                            F-05: the row's trailing action is the shared
+                            mark too — an 18px glyph in a 28px box. It was a
+                            12px × in a 20px box, the smallest target on the
+                            menu and the one that deletes something.
+                          */
+                          data-menu-action=""
+                          className="mr-1 hidden h-7 w-7 shrink-0 items-center justify-center rounded text-ink-faint hover:text-down focus-visible:flex group-hover:flex"
                           data-tooltip={`Delete “${l.name}”`}
                           aria-label={`Delete the layout “${l.name}”`}
                         >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" />
-                          </svg>
+                          <MenuGlyphIcon name="close" />
                         </button>
                       )}
                     </div>

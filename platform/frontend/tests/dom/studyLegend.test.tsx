@@ -178,15 +178,13 @@ test("R3b-19 — `⋯` opens the product's own menu, and every row in it acts", 
     "the menu routes through the same resolver the glyphs do");
 });
 
-test("R3b-21 — a revealed pane control is a bordered box, and collapse is two chevrons", async () => {
+test("F-04 — the pane's controls are ONE bordered `⋯` in ink, opening Manage panes", async () => {
   /*
-   * The pane cluster was four transparent glyphs until each was itself
-   * hovered, so a pane whose cluster had appeared showed no targets; the
-   * reference draws four bordered 24×24 boxes over the chart's ground the
-   * moment the cluster is revealed. And its collapse glyph is the ⤡ pair —
-   * two chevrons pointing inward — not the single chevron every dropdown in
-   * the product opens with.
+   * R3b-21 drew four bordered 24×24 boxes here. Live Premium draws ONE
+   * 24×24 `Manage panes` button in ink rgb(219), still a box over the
+   * chart's own ground, and the four actions are rows of its menu.
    */
+  const acted: string[] = [];
   const view = render(
     <IndicatorPane
       id="indicator:nat_rsi"
@@ -198,33 +196,89 @@ test("R3b-21 — a revealed pane control is a bordered box, and collapse is two 
       onHover={() => {}}
       onReady={() => {}}
       onRangeChange={() => {}}
-      onAction={() => {}}
-      onToggleCollapsed={() => {}}
-      onToggleMaximized={() => {}}
+      onAction={(_id, action) => acted.push(action)}
+      onToggleCollapsed={() => acted.push("collapse")}
+      onToggleMaximized={() => acted.push("maximize")}
+      onMove={(_id, d) => acted.push(`move:${d}`)}
+      canMoveDown
       canMaximize
     />);
   await settle();
 
-  const cluster = [...view.container.querySelectorAll<HTMLElement>("span")]
-    .find((el) => /group-hover\/studypane:opacity-100/.test(el.className));
+  const cluster = view.container.querySelector<HTMLElement>("[data-pane-buttons]");
   assert.ok(cluster, "the pane cluster is gone");
-  // W2D-11: 4px from the PLOT's edge — the price axis's width plus 4 (see
-  // `tests/dom/paneButtonsAxis.test.tsx`), not 4px from the section's.
-  assert.match(cluster.style.right, /^\d+px$/, "4px from the pane's content edge");
-  assert.match(cluster.className, /gap-1/, "4px between the boxes");
-
+  // W2D-11: 4px from the PLOT's edge (`tests/dom/paneButtonsAxis.test.tsx`).
+  assert.match(cluster.style.right, /^\d+px$/);
   const buttons = [...cluster.querySelectorAll("button")];
-  assert.ok(buttons.length >= 2, `expected the pane's own controls, saw ${buttons.length}`);
-  for (const button of buttons) {
-    assert.match(button.className, /border-border-strong/,
-      "revealed means drawn as a box — rgb(74,74,74) in dark, as the reference measures");
-    assert.match(button.className, /bg-surface/, "over the chart's own ground");
-    assert.doesNotMatch(button.className, /border-transparent/);
-  }
+  assert.equal(buttons.length, 1, "one Manage panes button, not four icons");
+  const manage = buttons[0]!;
+  assert.equal(manage.getAttribute("aria-label"), "Manage panes — Relative Strength Index");
+  assert.equal(manage.getAttribute("aria-haspopup"), "menu");
+  assert.match(manage.className, /\bh-6\b/);
+  assert.match(manage.className, /\bw-6\b/);
+  assert.match(manage.className, /border-border-strong/, "a box, as R3b-21 measured");
+  assert.match(manage.className, /\btext-ink\b/, "in ink, not the muted rgb(140)");
+  assert.doesNotMatch(manage.className, /text-ink-faint|text-ink-muted/);
 
-  const collapse = buttons
-    .find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Collapse"));
-  assert.ok(collapse, "the pane cannot be collapsed");
-  assert.equal(collapse.querySelectorAll("path").length, 2,
-    "⤡ is two chevrons; one chevron is the glyph every dropdown opens with");
+  fireEvent.click(manage);
+  await settle();
+  const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Manage panes"]');
+  assert.ok(menu, "the button opened nothing");
+  assert.equal(manage.getAttribute("aria-expanded"), "true");
+  const rows = [...menu.querySelectorAll<HTMLButtonElement>("button.tvc-menu-row")];
+  assert.deepEqual(rows.map((r) => r.querySelector("span.shrink-0.whitespace-nowrap")?.textContent),
+    ["Maximize pane", "Collapse pane", "Move pane up", "Move pane down", "Delete pane"]);
+  // The shared 32px rows: an 18px glyph in a 28px box on every row.
+  for (const row of rows) {
+    const mark = row.querySelector<HTMLElement>("[data-menu-mark]");
+    assert.match(mark?.className ?? "", /\bh-7 w-7\b/);
+    assert.equal(mark?.querySelector("svg[data-menu-glyph]")?.getAttribute("width"), "18");
+  }
+  assert.match(rows[0]!.textContent ?? "", /Double click/);
+  // The top pane cannot move up: disabled, not dropped.
+  assert.equal(rows[2]!.disabled, true);
+  assert.equal(rows[3]!.disabled, false);
+  fireEvent.click(rows[3]!);
+  await settle();
+  assert.deepEqual(acted, ["move:1"], "a row reaches the handler the old icon called");
+  assert.equal(document.querySelector('[role="menu"][aria-label="Manage panes"]'), null);
+
+  for (const [index, expected] of [[0, "maximize"], [1, "collapse"], [4, "remove"]] as const) {
+    fireEvent.click(manage);
+    await settle();
+    const again = [...document.querySelectorAll<HTMLButtonElement>(
+      '[role="menu"][aria-label="Manage panes"] button.tvc-menu-row')];
+    fireEvent.click(again[index]!);
+    await settle();
+    assert.equal(acted[acted.length - 1], expected);
+  }
+});
+
+test("F-04 — double-click maximises the pane; ⌘/Ctrl double-click collapses it", async () => {
+  const acted: string[] = [];
+  const view = render(
+    <IndicatorPane
+      id="indicator:nat_rsi"
+      title="Relative Strength Index"
+      params="Length 14"
+      overlays={[overlay(61.18)]}
+      decorations={[]}
+      hoverTime={null}
+      onHover={() => {}}
+      onReady={() => {}}
+      onRangeChange={() => {}}
+      onToggleCollapsed={() => acted.push("collapse")}
+      onToggleMaximized={() => acted.push("maximize")}
+      canMaximize
+    />);
+  await settle(4);
+  const plot = view.container.querySelector<HTMLElement>("section > div.absolute.inset-0");
+  assert.ok(plot, "no plot host");
+  fireEvent.doubleClick(plot, { clientX: 100, clientY: 40 });
+  fireEvent.doubleClick(plot, { clientX: 100, clientY: 40, metaKey: true });
+  fireEvent.doubleClick(plot, { clientX: 100, clientY: 40, ctrlKey: true });
+  assert.deepEqual(acted, ["maximize", "collapse", "collapse"]);
+  // The Manage panes button keeps its own double-click.
+  fireEvent.doubleClick(view.container.querySelector<HTMLElement>("[data-pane-buttons] button")!);
+  assert.equal(acted.length, 3);
 });

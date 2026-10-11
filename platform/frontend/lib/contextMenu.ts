@@ -134,7 +134,11 @@ export function placeMenu(geometry: MenuGeometry): MenuPlacement {
 export type MenuGlyph =
   | "alarm" | "order" | "indicator" | "info" | "copy" | "paste" | "note"
   | "watchlist" | "gear" | "clone" | "lock" | "eye" | "trash" | "reset"
-  | "template" | "tree" | "clock" | "calendar" | "flag";
+  | "template" | "tree" | "clock" | "calendar" | "flag"
+  // F-04: the study pane's `Manage panes` menu.
+  | "maximize" | "restore" | "collapse" | "expand" | "arrowUp" | "arrowDown"
+  // F-05 / F-06: the Manage layouts and Indicator templates dropdowns.
+  | "rename" | "folder" | "newLayout" | "save" | "close";
 
 export interface MenuItem {
   id: string;

@@ -16,11 +16,14 @@ import {
   resolveBackgroundGradient, type ChartTimeZone, type DateFormatName, type LineStyleName,
   type ScaleButtonsMode,
 } from "@/lib/chartSettings";
-import { axisTickFormatter, hoursFormatter } from "@/lib/chartClock";
+import { axisTickFormatter, crosshairTimeFormatter } from "@/lib/chartClock";
 import { createDisposalGuard, useDetachChartObserver } from "@/lib/chartLifecycle";
 import { clampPaneHeight, MAX_PANE_HEIGHT, MIN_PANE_HEIGHT } from "@/lib/indicatorPaneLayout";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 import { PineVisualLayer } from "@/components/tv/PineVisualLayer";
+import { ContextMenu } from "@/components/tv/ContextMenu";
+import { paneMenu, type PaneMenuId } from "@/lib/menuPayloads";
+import { isMacPlatform } from "@/lib/shortcuts";
 
 export type SeriesEntry =
   | { kind: "Line"; api: ISeriesApi<"Line">; data: ChartPoint[] }
@@ -158,6 +161,7 @@ export function IndicatorPane({
   dateFormat,
   timeFormat24h = true,
   timeZone = "UTC",
+  intervalMs,
   backgroundColor = "",
   backgroundColor2 = "",
   backgroundGradient = false,
@@ -279,6 +283,12 @@ export function IndicatorPane({
   timeFormat24h?: boolean;
   /** IANA display zone shared with the price chart's axis. */
   timeZone?: ChartTimeZone;
+  /**
+   * The chart's bar length (F-03): the crosshair label prints the date alone
+   * at 1D and up, and the date with the time below it. Omitted reads as
+   * intraday.
+   */
+  intervalMs?: number;
   backgroundColor?: string;
   backgroundColor2?: string;
   backgroundGradient?: boolean;
@@ -695,8 +705,14 @@ export function IndicatorPane({
            * The same pair the price chart uses, from `lib/chartClock`: two
            * functions, so 12-hours and 24-hours are both reachable. With a
            * study open this is the axis a user is actually reading.
+           *
+           * F-03: the whole crosshair label — weekday, date and time below
+           * one day, the date alone at 1D and up — as the price chart's is.
            */
-          timeFormatter: hoursFormatter(timeFormat24h, timeZone),
+          timeFormatter: crosshairTimeFormatter({
+            twentyFourHour: timeFormat24h, timeZone, dateFormat, intervalMs,
+            dayOfWeek: dayOfWeekOnLabels,
+          }),
           ...(dateFormat === undefined ? {} : { dateFormat }),
         },
       });
@@ -708,6 +724,7 @@ export function IndicatorPane({
     showCrosshair, crosshairColor, crosshairWidth, crosshairStyle,
     scaleTextColor, scaleLineColor, scaleFontSize,
     dateFormat, timeFormat24h, timeZone, noOverlappingLabels, ready,
+    intervalMs, dayOfWeekOnLabels,
   ]);
 
   /*
@@ -747,8 +764,59 @@ export function IndicatorPane({
 
   const resizable = !collapsed && !fill;
 
+  /*
+   * ── F-04: one `⋯`, one menu ─────────────────────────────────────────────
+   *
+   * The four icons this replaces called these same four handlers; the menu
+   * is the reference's grouping of them, not new behaviour.
+   */
+  const [paneMenuAt, setPaneMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const paneEntries = paneMenu({
+    mac: isMacPlatform(),
+    maximized, collapsed,
+    canMaximize: !!onToggleMaximized && canMaximize,
+    canCollapse: !!onToggleCollapsed,
+    canMove: !!onMove,
+    canMoveUp, canMoveDown,
+    canRemove: !!onAction,
+  });
+  const onPaneMenu = (choice: string): void => {
+    switch (choice as PaneMenuId) {
+      case "pane:maximize": onToggleMaximized?.(id); return;
+      case "pane:collapse": onToggleCollapsed?.(id); return;
+      case "pane:move-up": onMove?.(id, -1); return;
+      case "pane:move-down": onMove?.(id, 1); return;
+      case "pane:remove": onAction?.(id, "remove"); return;
+    }
+  };
+  /*
+   * F-04: the gestures the menu's hints name. A double-click on the pane's
+   * plot maximises it (or restores it); with ⌘ — Ctrl elsewhere — it
+   * collapses (or expands). The price axis keeps the library's own
+   * double-click, which resets the scale, and a control in the legend or the
+   * cluster keeps its own.
+   */
+  const onPaneDoubleClick = (event: React.MouseEvent<HTMLElement>): void => {
+    const target = event.target as HTMLElement;
+    const host = containerRef.current;
+    // The plot (or the cover a collapsed pane draws over it), and nothing else.
+    if (!host?.contains(target) && !target.closest("[data-pane-collapsed-cover]")) return;
+    if (host && host.contains(target)) {
+      const rect = host.getBoundingClientRect();
+      let scaleWidth = 0;
+      try { scaleWidth = chartRef.current?.priceScale("right").width() ?? 0; } catch { /* gone */ }
+      if (event.clientX - rect.left > host.clientWidth - scaleWidth && scaleWidth > 0) return;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      if (onToggleCollapsed) { event.preventDefault(); onToggleCollapsed(id); }
+      return;
+    }
+    if (onToggleMaximized && canMaximize) { event.preventDefault(); onToggleMaximized(id); }
+  };
+
   return (
     <section
+      onDoubleClick={onPaneDoubleClick}
       /*
         ── FG-02/FG-03: `shrink-0` is what cut the stack in half ─────────────
         
@@ -780,7 +848,14 @@ export function IndicatorPane({
         ancestor that can match — this section.
       */
       className={`group/studypane relative border-t border-border bg-surface ${
-        fill ? "min-h-0 flex-1" : "min-h-0 shrink"
+        /*
+          B-02: a COLLAPSED pane holds its header's height. With `shrink` it
+          gave ground with the others under the stack's cap — 24px became
+          12 — and its own controls then hung over the next pane's resize
+          grip, so the click meant to Expand it started a resize instead and
+          the pane stayed shut.
+        */
+        fill ? "min-h-0 flex-1" : collapsed ? "min-h-0 shrink-0" : "min-h-0 shrink"
       }`}
       style={{
         ...(fill ? {} : { height }),
@@ -844,7 +919,7 @@ export function IndicatorPane({
         crash `lib/chartLifecycle` exists to prevent — and recreating it on
         expand would lose the series the study has already drawn.
       */}
-      {collapsed && <div className="absolute inset-0 z-[2] bg-surface" />}
+      {collapsed && <div data-pane-collapsed-cover="" className="absolute inset-0 z-[2] bg-surface" />}
       {!collapsed && (
         <PineVisualLayer
           container={containerRef.current}
@@ -891,145 +966,68 @@ export function IndicatorPane({
         />
       </div>
       {/*
-        The pane's own controls, at the pane's top-right edge.
+        ── F-04: the pane's own controls are ONE `⋯` ──────────────────────────
+
+        R3b-21 drew four 24×24 bordered boxes here — move, remove, collapse,
+        maximise — in muted ink. Live Premium draws one 24×24 `Manage panes`
+        button in the full ink rgb(219) at the pane's top-right, and the four
+        actions are rows of the menu it opens (`paneMenu`), each with the
+        gesture that does the same thing as its hint.
 
         Revealed on hover or focus rather than reserving a row: a pane is
         94–144px tall by default and a permanent toolbar would be a tenth of
-        the oscillator it sits on. Each is a real button so the stack can be
-        rearranged from the keyboard.
+        the oscillator it sits on. It is a real button, so the stack can still
+        be rearranged from the keyboard.
       */}
-      {/*
-        R3b-21: 4px gaps, and the last box 4px from the pane's content edge.
-
-        The cluster ran at `gap-0.5` (2px) inset `right-2` (8px); the
-        reference's four boxes sit at a 28px pitch with 4px between them and
-        the right-most one ends 4px before the axis.
-      */}
-      {paneButtons !== "hidden" && <span
+      {paneButtons !== "hidden" && paneEntries.length > 0 && <span
         data-pane-buttons={paneButtons}
         /* W2D-11: 4px left of the price axis, not over it — see `axisWidth`. */
         style={{ right: axisWidth + 4 }}
-        className={`absolute top-1 z-[3] flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 ${
-          paneButtons === "always" ? "opacity-100" : "opacity-0 group-hover/studypane:opacity-100"
+        /*
+          B-02: above every pane's resize grip (`z-20`) and the workspace's
+          column splitter (`z-10`): a grip or a splitter that paints over the
+          button turns its click into a drag, which is how Expand — and, on
+          the left chart of two columns, Maximize — did nothing. A collapsed
+          pane's button sits at its top edge so all of it is inside the 24px.
+        */
+        className={`absolute ${collapsed ? "top-0" : "top-1"} z-[21] flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 ${
+          paneButtons === "always" || paneMenuAt !== null
+            ? "opacity-100" : "opacity-0 group-hover/studypane:opacity-100"
         }`}
       >
-        {/*
-          ── R3-12: only the direction that is possible ──────────────────────
-
-          Both arrows were always drawn and the impossible one was rendered
-          `disabled` at 30% opacity — a permanently dead control on the top
-          pane and another on the bottom one. The reference draws the one that
-          works. A control that cannot act is not a state; it is absence.
-        */}
-        {onMove && canMoveUp && (
-          <PaneButton label={`Move ${title} up`} onClick={() => onMove(id, -1)}>
-            <path d="M7 11V3M3.5 6.5L7 3l3.5 3.5" />
-          </PaneButton>
-        )}
-        {onMove && canMoveDown && (
-          <PaneButton label={`Move ${title} down`} onClick={() => onMove(id, 1)}>
-            <path d="M7 3v8M3.5 7.5L7 11l3.5-3.5" />
-          </PaneButton>
-        )}
-        {onAction && (
-          <PaneButton
-            label={`Remove ${title} from the chart`}
-            danger
-            onClick={() => onAction(id, "remove")}
-          >
-            <path d="M2.5 3.5h9M5 3.5V2h4v1.5M3.5 3.5l.6 8h5.8l.6-8" />
-          </PaneButton>
-        )}
-        {onToggleCollapsed && (
-          <PaneButton
-            label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
-            pressed={collapsed}
-            onClick={() => onToggleCollapsed(id)}
-          >
-            {/*
-              R3b-21: collapse is TWO chevrons pointing inward, expand is two
-              pointing outward — the reference's ⤡ / ⤢ pair. One chevron is
-              the "open this dropdown" glyph the whole product uses, and on a
-              pane-height control it said nothing about which way the pane was
-              about to move.
-            */}
-            {collapsed
-              ? <><path d="M3.5 3L7 6.5L10.5 3" /><path d="M3.5 12L7 8.5L10.5 12" /></>
-              : <><path d="M3.5 6.5L7 3l3.5 3.5" /><path d="M3.5 8.5L7 12l3.5-3.5" /></>}
-          </PaneButton>
-        )}
-        {onToggleMaximized && canMaximize && (
-          <PaneButton
-            label={maximized ? `Restore ${title} to the pane stack` : `Maximize ${title}`}
-            pressed={maximized}
-            onClick={() => onToggleMaximized(id)}
-          >
-            {maximized
-              ? <path d="M5.5 2.5v3h-3M8.5 11.5v-3h3" />
-              : <path d="M2.5 5.5v-3h3M11.5 8.5v3h-3" />}
-          </PaneButton>
-        )}
+        <button
+          type="button"
+          aria-label={`Manage panes — ${title}`}
+          title="Manage panes"
+          aria-haspopup="menu"
+          aria-expanded={paneMenuAt !== null}
+          onClick={(event) => {
+            if (paneMenuAt) { setPaneMenuAt(null); return; }
+            const box = event.currentTarget.getBoundingClientRect();
+            setPaneMenuAt({ x: Math.round(box.left), y: Math.round(box.bottom + 4) });
+          }}
+          /*
+            24×24, hairline box over the chart's own ground (R3b-21), and the
+            glyph in INK: Premium's is rgb(219), where the four it replaces
+            were muted rgb(140).
+          */
+          className="flex h-6 w-6 items-center justify-center rounded-sm border border-border-strong bg-surface text-ink transition-colors hover:bg-state-hover"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6" cy="12" r="1.5" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+            <circle cx="18" cy="12" r="1.5" fill="currentColor" />
+          </svg>
+        </button>
       </span>}
+      <ContextMenu
+        at={paneMenuAt}
+        entries={paneEntries}
+        label="Manage panes"
+        onSelect={onPaneMenu}
+        onClose={() => setPaneMenuAt(null)}
+      />
       {params && <span className="sr-only">{params}</span>}
     </section>
-  );
-}
-
-/**
- * One pane control.
- *
- * Icon-only, so each carries a real accessible name rather than relying on the
- * tooltip — an icon button with no name is announced as "button" and nothing
- * else, which on a control that removes an indicator is not acceptable.
- */
-function PaneButton({
-  label, onClick, danger = false, pressed, children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  /** Set on the toggles, so their state is announced and not only drawn. */
-  pressed?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
-      /*
-        24×24 with a 14px glyph, hairline on hover — the reference's pane-action
-        size, measured. It was 20×20 with an 11px glyph inside a filled pill;
-        the pill is gone (R3-10) and hover is now an outline, so nothing here
-        paints a surface over the plot.
-      */
-      /*
-        No `disabled` state, by construction (R3-12). Both arrows used to be
-        drawn always and the impossible one greyed to 30% — a permanently dead
-        control on the top pane and another on the bottom one. A control that
-        cannot act is absent; there is therefore nothing here to style.
-      */
-      /*
-        ── R3b-21: revealed means DRAWN AS A BOX ──────────────────────────────
-
-        Each button was transparent until it was itself hovered, so a pane
-        whose cluster had appeared showed four floating glyphs and no targets;
-        the reference draws four bordered 24×24 boxes — border rgb(74,74,74)
-        over the chart's own ground — the moment the cluster is revealed, and
-        spends hover on the INK rather than on discovering the button.
-      */
-      className={`flex h-6 w-6 items-center justify-center rounded-sm border bg-surface transition-colors ${
-        danger ? "border-border-strong text-ink-faint hover:border-down/60 hover:text-down"
-          : pressed ? "border-border-strong bg-state-active text-ink"
-          : "border-border-strong text-ink-faint hover:text-ink"
-      }`}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
-        strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">
-        {children}
-      </svg>
-    </button>
   );
 }

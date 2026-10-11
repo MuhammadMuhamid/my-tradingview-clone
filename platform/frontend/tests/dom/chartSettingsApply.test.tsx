@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { closeBrowser, compactSeries, render, resetBrowser, server, settle } from "./harness/env";
 import { chooseInDropdown, mountChart, type MountedChart } from "./harness/chart";
+import { chartsIn } from "./harness/timeScales";
 import { IndicatorLegend } from "@/components/tv/IndicatorLegend";
 
 beforeEach(() => {
@@ -200,9 +201,24 @@ test("C-03/C-04 — timezone, countdown, and the required scales rows operate on
   assert.ok(screen.getByRole("button", { name: "Previous day close" }));
   assert.ok(screen.getByRole("button", { name: "High and low" }));
   assert.match(chart.container.querySelector<HTMLElement>("[data-bar-close-countdown]")?.textContent ?? "",
-    /^\d{2}:\d{2}:\d{2}$/);
+    /^(\d{2}:)?\d{2}:\d{2}$/, "mm:ss under an hour, hh:mm:ss from one (F-07)");
   await toggle("Countdown to bar close");
   assert.equal(chart.container.querySelector("[data-bar-close-countdown]") === null, true);
+
+  /*
+   * F-15: `No overlapping labels` is not a control that moves nothing — it is
+   * the library's own `alignLabels`, which packs the axis pills off each
+   * other, and it reaches the price chart's scale. (Contract §6a used to list
+   * it as omitted; that line was stale.)
+   */
+  const price = chartsIn(chart.container).get("price");
+  assert.ok(price, "no price chart");
+  assert.equal(price.priceScale("right").options().alignLabels, true);
+  await toggle("No overlapping labels");
+  assert.equal(price.priceScale("right").options().alignLabels, false,
+    "the row did not reach the price scale");
+  await toggle("No overlapping labels");
+  assert.equal(price.priceScale("right").options().alignLabels, true);
 });
 
 test("C-04/C-06 — Canvas has effective colour wells, styled lines, and both button modes", async () => {

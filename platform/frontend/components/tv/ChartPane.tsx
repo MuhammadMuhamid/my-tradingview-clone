@@ -530,10 +530,6 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const compare = pane.compare ?? null;
   const compareRequested = props.comparePaneId === pane.id;
   const [compareSettingsOpen, setCompareSettingsOpen] = useState(false);
-  const [changingCompareSymbol, setChangingCompareSymbol] = useState(false);
-  useEffect(() => {
-    if (!compareRequested) setChangingCompareSymbol(false);
-  }, [compareRequested]);
   const compareSeries = useCompareSeries(
     visibleCandles, compare?.symbol ?? "", pane.interval, pane.bars,
     { enabled: compare !== null });
@@ -1347,43 +1343,38 @@ function ChartPaneImpl(props: ChartPaneProps) {
           {/*
             The picker and the settings menu belong to the pane, not to the visible status line.
             Mounting them inside PaneLegend made the toolbar route disappear
-            when Status line → Title was off. The legend chip still opens the
-            same settings, while a second toolbar click manages an existing
-            comparison and can switch back to the shared symbol picker.
+            when Status line → Title was off.
+
+            F-09 / contract §7c-ii: the toolbar's Compare ＋ ALWAYS opens the
+            Compare dialog — it is the way to choose an instrument, and with a
+            comparison already on, picking a row replaces it. It used to open
+            the mode menu instead whenever a comparison existed, so ＋ meant
+            two different things depending on state. Which comparison, over
+            what window, and Remove are the menu on the legend's own `vs …`
+            chip, which B-17 keeps on the chart whatever Title says.
           */}
           <CompareControl
-            open={compareRequested && (compare === null || changingCompareSymbol)}
+            open={compareRequested}
             current={compare}
             baseTicker={displayTicker(pane.symbol)}
-            onClose={() => {
-              setChangingCompareSymbol(false);
-              props.onComparePaneId?.(null);
-            }}
+            onClose={() => props.onComparePaneId?.(null)}
             onApply={(next) => props.onCompareChange?.(paneId, next)}
           />
           <CompareSettings
-            open={(compareRequested && compare !== null && !changingCompareSymbol)
-              || compareSettingsOpen}
+            open={compareSettingsOpen}
             current={compare}
             baseTicker={displayTicker(pane.symbol)}
             /*
-              The menu hangs from whatever opened it: this pane's own `vs …`
-              chip when the legend draws one, otherwise the toolbar's Compare
-              button — the only route in when Status line → Title is off.
-              Found by accessible name because both controls belong to other
-              components, and a name is what they already promise to keep.
+              The menu hangs from the chip that opened it. Found by accessible
+              name because the chip belongs to the legend, and a name is what
+              it already promises to keep.
             */
             anchor={() =>
               rootRef.current?.querySelector<HTMLElement>('button[aria-label^="Comparing with "]')
               ?? document.querySelector<HTMLElement>('button[aria-label="Compare with another instrument"]')}
-            onClose={() => {
-              setCompareSettingsOpen(false);
-              setChangingCompareSymbol(false);
-              if (compareRequested) props.onComparePaneId?.(null);
-            }}
+            onClose={() => setCompareSettingsOpen(false)}
             onChangeSymbol={() => {
               setCompareSettingsOpen(false);
-              setChangingCompareSymbol(true);
               props.onComparePaneId?.(paneId);
             }}
             onApply={(next) => props.onCompareChange?.(paneId, next)}

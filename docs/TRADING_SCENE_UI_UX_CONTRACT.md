@@ -380,9 +380,10 @@ Three separate concepts, three separate surfaces, never one generic shell:
   that owns them. Not under "Canvas", which is about the drawing surface.
 
 **A control that moves nothing must not exist.** If the engine cannot honour
-it, leave it out and say why in a comment — `lockPriceToBarRatio` and
-`noOverlappingLabels` are absent for exactly this reason. If the capability
-exists and the control does not, add the control.
+it, leave it out and say why in a comment — `lockPriceToBarRatio` is absent
+for exactly this reason. If the capability exists and the control does not,
+add the control. (`No overlapping labels` was once listed beside it; it is the
+library's own `alignLabels` on both price scales and has a test — F-15.)
 
 Conversely: if a control renders, it must reach the object it names. Body /
 Borders / Wick appear only for presentations that have them; a study pane's
@@ -401,11 +402,14 @@ back is a decision rather than a drift:
   `Buy/sell buttons` (no on-chart order entry), indicator `Background` and its
   opacity slider (the legend's ground is a token, and this dialog has no
   slider control type).
-- **Scales and lines** — `Currency and Unit`, `Plus button`, `Countdown to bar
-  close`, `Value according to scale`, `Previous day close`, `High and low`
-  (the price-line primitive exists; the data does not), `Lock price to bar
-  ratio` and `No overlapping labels` (lightweight-charts 4.2 exposes no
-  equivalent).
+- **Scales and lines** — `Currency and Unit`, `Value according to scale` and
+  `Lock price to bar ratio` (lightweight-charts 4.2 exposes no equivalent).
+  NOT omitted, and verified to move the chart (F-15, 2026-10-11): `No
+  overlapping labels` (the price scales' `alignLabels`) and `Countdown to bar
+  close` (the last-price plate's countdown row), both pinned in
+  `tests/dom/chartSettingsApply.test.tsx`. This list named them as absent
+  long after they shipped; `Plus button`, `Previous day close` and `High and
+  low` are dialog rows too and are not omissions either.
 - **Canvas** — `Pane separators` (a theme token), the `BUTTONS` section
   (`Navigation`, `Pane`: no navigation overlay).
 - **Trading** — `Buy/sell buttons`, `One-click trading`, `Execution sound`,
@@ -548,13 +552,54 @@ recorded below in §7c once finalised, and are not to be "tidied" back.
   acting on the focused chart (the focused pane renders its own row into the
   workspace's host), never one per pane (C11). The price
   scale's controls live at the foot of the price axis as the reference's
-  square chips — `A` (auto) and `L` (log) side by side, with `%` beside them
+  chips — 20 × 22, the letter at weight 400 (F-11) — `A` (auto) and `L`
+  (log) side by side, with `%` beside them
   and `reset` above while there is something to undo; an ON chip is the
   inverted chip (`[data-axis-chip]`). They reveal while the pointer is
   ANYWHERE on the axis, not only over their own box (W2A-02); a non-price
   scale mode still declares itself. The axis `⊕` sits on the plot side of the
   chart/axis boundary at the crosshair's price, never over a tick or the
   crosshair's label (W2A-01, `tests/dom/axisPlusButton.test.tsx`).
+
+### 7b-ii. The chart's own surfaces (M2, measured on live Premium 2026-10-11)
+
+- **The series legend's hover cluster covers nothing** (F-02). `Flag` and
+  `More` (28 × 22 each) are zero-width at rest and, on hover or focus, take
+  their width IN FLOW as the last item of the identity row — after the
+  title, interval, venue and the `vs …` chip, none of which moves. The values
+  that follow shift right by the cluster's width (or wrap, as they already do
+  in a narrow pane). It used to be a zero-width overlay that painted over the
+  open price; Premium never covers a value.
+- **The time-axis crosshair label says when** (F-03): `Sun 04 Oct '26 20:00`
+  below one day, `Sun 04 Oct '26` at 1D and up — the weekday per `Day of week
+  on labels`, the date per `Date format`, the time per `Time hours format`,
+  in the chart's zone (`crosshairTimeFormatter`). The library sizes the label
+  to its text.
+- **A study pane has ONE pane control** (F-04): a 24 × 24 bordered `⋯` in ink
+  rgb(219), 4px left of the price axis, opening `Manage panes` — Maximize
+  pane (`Double click`) · Collapse pane (`⌘ Double click`) · Move pane up ·
+  Move pane down · Delete pane — on the shared 32px context-menu rows. A move
+  at the end of the stack is DISABLED, not dropped. Double-click on the
+  pane's plot maximises/restores it; ⌘/Ctrl double-click collapses/expands.
+  A collapsed pane holds its 24px (it never shrinks under the stack cap) and
+  its control paints above every resize grip (B-02).
+- **Every menu row mark is an 18px glyph in a 28px box** (W2A-07, F-05),
+  including Manage layouts, whose row actions use the same 28 / 18; and a
+  favourite star is 18px in a 24px box in the interval and chart-type menus.
+  `MenuMark`, `MenuGlyphIcon`, `MenuStarGlyph` in `components/tv/ContextMenu`
+  are the one definition.
+- **Indicator templates** (F-06) is `Save indicator template…` · `Open
+  template…`, 32px rows with marks, 219 wide; the saved and default templates
+  are in the `Open template…` dialog.
+- **The last-price countdown** (F-07) is `mm:ss` under an hour (`49:20`) and
+  `hh:mm:ss` from an hour; the day form is unverified and stays `hh:mm:ss`.
+- **The chart menu offers `Remove N drawings`** beside `Remove N indicators`
+  (F-08), with no confirmation; the drawing history makes it one Undo step.
+- **Compare** (F-09): the toolbar ＋ always opens the Compare dialog; the mode
+  menu is the `vs …` chip's (§7c-ii). A pane switched to the instrument it
+  was compared with drops the comparison.
+- **The chart-type menu** (F-12) is Premium's full-height column from the
+  viewport top (273 × 900 at y=0), as the interval menu is.
 
 ### 7c. Left-rail grouping contract (TVP8, measured 2026-09-14)
 
@@ -888,8 +933,13 @@ from being lost — §9 has the test:
 | a study settings dialog (built-in and Pine) is one fixed size on every tab; its tab panel scrolls | `tests/dom/studySettings.test.tsx`, `tests/dom/pineStudySettings.test.tsx` |
 | the interval menu is Premium's full-height column from the viewport top (re-measured on Premium 2026-10-11: 196×900 at y=0) — not a dropdown under the caret | `tests/dom/intervals.test.tsx` |
 | a study pane's buttons end 4px left of its price axis | `tests/dom/paneButtonsAxis.test.tsx` |
+| a study pane's control is one `⋯` opening `Manage panes`; double-click / ⌘ double-click; collapse ↔ expand restores the height; each chart of a layout acts on its own panes | `tests/dom/studyLegend.test.tsx`, `tests/dom/paneCollapse.test.tsx`, `tests/premiumFindingsM2.test.ts` |
+| the series legend's hover cluster is in flow after the identity and covers no value | `tests/dom/premiumFindingsM2.test.tsx`, `qa/premiumLock.mjs` |
+| the crosshair time label carries weekday and date; the countdown is `mm:ss` under an hour | `tests/premiumFindingsM2.test.ts`, `tests/barCountdown.test.ts` |
+| the chart-type menu is a full-height column from the viewport top | `tests/dom/premiumFindingsM2.test.tsx`, `tests/chartType.test.ts` |
+| the toolbar Compare ＋ always opens the dialog; a comparison equal to the chart is dropped | `tests/dom/premiumFindingsM2.test.tsx`, `tests/premiumFindingsM2.test.ts` |
 | the axis `⊕` sits outside the price axis; the axis chips reveal for the whole axis | `tests/dom/axisPlusButton.test.tsx` |
-| a menu row's mark is an 18px glyph in a 28px box in the row's own ink | `tests/dom/contextMenu.test.tsx`, `qa/premiumLock.mjs` |
+| a menu row's mark is an 18px glyph in a 28px box in the row's own ink — chart, Manage layouts, Indicator templates, Manage panes; stars 18 in 24 | `tests/dom/contextMenu.test.tsx`, `tests/dom/premiumFindingsM2.test.tsx`, `qa/premiumLock.mjs` |
 | a right-click on a legend row is the legend's display menu; the study's own menu is its `⋯` | `tests/dom/legendStudyActions.test.tsx` |
 | an alert dialog confirms in `contrast` and names its symbol in ink | `tests/alertEditing.test.ts` |
 | a text tool types inline at the click (no dialog); Escape / empty removal; one undo per placed text; its keys never reach a shortcut; the floating toolbar's widget set is per tool, with no Clone or Hide | `tests/dom/drawingTextInline.test.tsx`, `tests/drawingRail.test.ts` |

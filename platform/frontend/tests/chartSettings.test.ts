@@ -848,7 +848,10 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
   assert.doesNotMatch(chart, /tickMarkFormatter: undefined/);
   assert.doesNotMatch(chart, /timeFormatter: settings\.timeFormat24h \? undefined/);
   assert.match(chart, /tickMarkFormatter: axisTickFormatter\(\s*settings\.dayOfWeekOnLabels, settings\.timeFormat24h, settings\.timeZone\)/);
-  assert.match(chart, /timeFormatter: hoursFormatter\(settings\.timeFormat24h, settings\.timeZone\)/);
+  // F-03: the crosshair label is the whole label — date, weekday and time —
+  // built from the same 12/24-hour pair, so both directions still exist.
+  assert.match(chart, /timeFormatter: crosshairTimeFormatter\(\{\s*twentyFourHour: settings\.timeFormat24h, timeZone: settings\.timeZone,/);
+  assert.match(clock, /export function crosshairTimeFormatter/);
   assert.match(clock, /export function defaultTickFormatter/);
   assert.match(clock, /export function hour12Formatter/);
   assert.match(clock, /export function hour24Formatter/);
@@ -856,7 +859,7 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
   const pane = strip("components/tv/IndicatorPane.tsx");
   assert.doesNotMatch(pane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
   assert.match(pane, /tickMarkFormatter: axisTickFormatter\(dayOfWeekOnLabels, timeFormat24h, timeZone\)/);
-  assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h, timeZone\)/);
+  assert.match(pane, /timeFormatter: crosshairTimeFormatter\(\{\s*twentyFourHour: timeFormat24h, timeZone, dateFormat, intervalMs,/);
 });
 
 test("A10 — the chart settings dialog is ONE size on every tab, and only its tab panel scrolls", () => {

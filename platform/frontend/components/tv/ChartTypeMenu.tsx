@@ -11,6 +11,7 @@ import {
   TOOLBAR_H,
 } from "@/components/tv/toolbarChrome";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import { MENU_STAR_BOX, MenuStarGlyph } from "@/components/tv/ContextMenu";
 
 /**
  * One glyph per type, drawn rather than imported, on the toolbar's own grid.
@@ -505,17 +506,15 @@ export function ChartTypeMenu({
            * row where "is this a favourite" matters most stays readable
            * without hard-coding a colour for it.
            */
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-opacity ${
+          className={`${MENU_STAR_BOX} transition-opacity ${
             starred
               ? "opacity-100"
               : `opacity-0 focus:opacity-100 group-hover:opacity-100 ${
                 full ? "opacity-40" : ""}`
           }`}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
-            fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
-            <path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z" />
-          </svg>
+          {/* F-05: the shared star, 18px in the 24px box (Premium's). */}
+          <MenuStarGlyph filled={starred} />
         </button>
       </div>
     );
@@ -589,12 +588,17 @@ export function ChartTypeMenu({
             */
             style={edgeClamp}
             /*
-              B-16: under the caret, capped, scrolling inside. It opened at
-              `top-0`/`max-h-[100vh]` over the bar, and `Range` fell off a
-              900px screen. The bar is the first row, so the caret ends at 38:
-              start 2px below it and scroll past viewport − 48.
+              F-12: Premium's full-height column from the viewport's top —
+              273×900 at y=0 on a 1440×900 screen, the same rule the interval
+              menu follows (`tests/dom/intervals.test.tsx`), re-measured by
+              the reviewer twice against live Premium. B-16 had hung it 2px
+              under the caret at viewport − 48 (273×852 at y=40) because the
+              21st row (`Range`) sat below a 900px fold; the column is capped
+              at the viewport and scrolls inside, so `Range` is one scroll
+              away exactly as on the reference, and the list starts where the
+              reference's does.
             */
-            className="absolute left-0 top-full z-50 mt-[2px] max-h-[calc(100vh-48px)] w-[273px] overflow-y-auto tvc-menu"
+            className="absolute left-0 top-0 z-50 max-h-[100vh] w-[273px] overflow-y-auto tvc-menu"
           >
             {CHART_TYPES.flatMap((t) => (
               GROUP_STARTS.has(t.value)

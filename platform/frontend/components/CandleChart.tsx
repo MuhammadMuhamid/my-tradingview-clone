@@ -120,11 +120,13 @@ const SYNTHETIC_AXIS_HINT: Partial<Record<ChartType, string>> = {
 };
 
 /**
- * One axis chip (`A`, `L`, `%`): a 20px square on the control border. The ON
+ * One axis chip (`A`, `L`, `%`): 20 wide × 22 tall on the control border, the
+ * letter at weight 400 — Premium's chips, measured (F-11); ours were 20×20 at
+ * 600, so the foot of the axis read heavier than anything around it. The ON
  * paint is declared by `aria-pressed` and drawn by `[data-axis-chip]` in
  * globals.css, never swapped in here.
  */
-const AXIS_CHIP = "flex h-5 min-w-5 items-center justify-center rounded border border-control-border px-0.5 text-[12px] font-semibold leading-none text-ink hover:bg-state-hover";
+const AXIS_CHIP = "flex h-[22px] w-5 items-center justify-center rounded border border-control-border text-[12px] font-normal leading-none text-ink hover:bg-state-hover";
 
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
@@ -151,8 +153,13 @@ import {
 } from "@/lib/indicatorPaneLayout";
 import type { PaneViewport } from "@/lib/workspace";
 import {
-  axisTickFormatter, chartTimeZoneLabel, fmtChartBarTime, fmtChartClock, hoursFormatter,
+  axisTickFormatter, chartTimeZoneLabel, crosshairTimeFormatter, fmtChartBarTime, fmtChartClock,
 } from "@/lib/chartClock";
+
+/** A resolution's bar length for the crosshair label, or undefined if unknown. */
+function crosshairIntervalMs(interval: Resolution): number | undefined {
+  try { return resolutionMs(interval); } catch { return undefined; }
+}
 
 export type { ChartOverlay } from "@/lib/chartSeries";
 
@@ -1782,8 +1789,17 @@ export function CandleChart({
          * going back to 24-hours left the 12-hour formatter installed — the
          * row moved once, in one direction, and never again. `lib/chartClock`
          * owns the pair, because the visible axis is not always this chart's.
+         *
+         * F-03: and it is the WHOLE crosshair label, not its time half — the
+         * library prints what this returns and nothing else, so it carries
+         * the weekday and the date too (`Sun 04 Oct '26 20:00`; date alone
+         * at 1D and up). See `crosshairTimeFormatter`.
          */
-        timeFormatter: hoursFormatter(settings.timeFormat24h, settings.timeZone),
+        timeFormatter: crosshairTimeFormatter({
+          twentyFourHour: settings.timeFormat24h, timeZone: settings.timeZone,
+          dateFormat: settings.dateFormat, dayOfWeek: settings.dayOfWeekOnLabels,
+          intervalMs: crosshairIntervalMs(interval),
+        }),
         // TVP8: the reference offers five, and a reader who writes dates
         // day-first should not have to read an axis that writes them
         // month-first. `dateFormat` is a library option, so this is one line.
@@ -1799,7 +1815,7 @@ export function CandleChart({
     settings.watermark, settings.watermarkMode, settings.watermarkColor, replaying,
     settings.scaleTextColor, settings.scaleLineColor, settings.dayOfWeekOnLabels,
     settings.noOverlappingLabels,
-    settings.dateFormat, settings.timeZone, symbol, chartReady,
+    settings.dateFormat, settings.timeZone, symbol, chartReady, interval,
     /*
      * TVP8 round two: and on a theme change.
      *
@@ -5200,6 +5216,7 @@ export function CandleChart({
                 dateFormat={settings.dateFormat}
                 timeFormat24h={settings.timeFormat24h}
                 timeZone={settings.timeZone}
+                intervalMs={crosshairIntervalMs(interval)}
                 backgroundColor={settings.backgroundColor}
                 backgroundColor2={settings.backgroundColor2}
                 backgroundGradient={settings.backgroundGradient}

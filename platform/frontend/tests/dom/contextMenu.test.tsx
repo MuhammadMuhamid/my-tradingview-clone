@@ -266,7 +266,9 @@ test("every enabled item in the chart menu is answered by a handler", async () =
   await press("Escape");
   await rightClickAt(chart.plot, EMPTY.x, EMPTY.y);
   const labels = menuItems().map((i) => i.label.replace(/⌥R|⌘V|⌘,/g, "").replace(/Copy a drawing first — there is nothing on the clipboard/g, "").replace(/There are no indicators on this chart/g, "").trim());
-  assert.equal(labels.filter((label) => label && !label.startsWith("—")).length, 10);
+  // F-08: eleven, with `Remove 1 drawing` beside `Remove N indicators`.
+  assert.equal(labels.filter((label) => label && !label.startsWith("—")).length, 11);
+  assert.ok(labels.includes("Remove 1 drawing"), JSON.stringify(labels));
   assert.ok(labels.includes("Reset chart view"));
   assert.ok(labels.includes("Object tree"));
   /*

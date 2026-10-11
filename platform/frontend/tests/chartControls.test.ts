@@ -852,20 +852,21 @@ test("PANES — every control is a real button with a name, and none is inert", 
    * So this reads both files: the rule is that every control exists, is
    * named and is wired, not that they are all declared in one component.
    */
-  for (const label of [
-    "Collapse ${title}", "Expand ${title}", "Move ${title} up", "Move ${title} down",
-    "Maximize ${title}", "Restore ${title} to the pane stack",
-    "Remove ${title} from the chart",
-  ]) {
-    assert.ok(PANE.includes(label), `missing control: ${label}`);
-  }
+  /*
+   * F-04: the PANE half is one `Manage panes` button whose menu
+   * (`paneMenu`) holds the four actions; each menu id reaches the handler the
+   * old icon called.
+   */
+  assert.ok(PANE.includes("Manage panes — ${title}"), "missing control: Manage panes");
+  assert.match(PANE, /paneMenu\(\{/);
   for (const label of ["Hide ${group.title}", "${group.title} settings", "Remove ${group.title}"]) {
     assert.ok(LEGEND.includes(label), `missing legend control: ${label}`);
   }
   // Each is wired to a handler rather than being decoration.
   for (const call of [
-    "onToggleCollapsed(id)", "onMove(id, -1)", "onMove(id, 1)", "onToggleMaximized(id)",
-    'onAction(id, "remove")',
+    'case "pane:collapse": onToggleCollapsed?.(id)', 'case "pane:move-up": onMove?.(id, -1)',
+    'case "pane:move-down": onMove?.(id, 1)', 'case "pane:maximize": onToggleMaximized?.(id)',
+    'case "pane:remove": onAction?.(id, "remove")',
   ]) {
     assert.ok(PANE.includes(call), `control not wired: ${call}`);
   }
@@ -878,20 +879,17 @@ test("PANES — every control is a real button with a name, and none is inert", 
   assert.match(PANE, /onAction=\{onAction && \(\(_instanceId, action\) => onAction\(id, action\)\)\}/);
 
   /*
-   * R3-12: never a disabled arrow.
-   *
-   * Both directions used to render always, with the impossible one drawn
-   * `disabled` at 30% opacity — a permanently dead control on the top pane and
-   * another on the bottom one. The reference draws only the one that works.
+   * F-04 supersedes R3-12 here: the moves are MENU ROWS now, and Premium's
+   * menu disables the impossible one (with a reason) rather than dropping
+   * it, so the menu has one shape on every pane — `paneMenu` in
+   * `tests/powerUx.test.ts` pins that.
    */
-  assert.match(PANE, /onMove && canMoveUp &&/);
-  assert.match(PANE, /onMove && canMoveDown &&/);
-  assert.doesNotMatch(PANE, /disabled=\{!canMove(Up|Down)\}/,
-    "an arrow that cannot act is absent, not greyed out");
+  assert.match(PANE, /canMoveUp, canMoveDown,/);
 
-  // Toggles announce their state; the stack is reachable from the keyboard
-  // because the controls are buttons revealed on focus, not only on hover.
-  assert.match(PANE, /"aria-pressed": pressed/);
+  // The button announces its menu; the stack is reachable from the keyboard
+  // because the button is revealed on focus, not only on hover.
+  assert.match(PANE, /aria-haspopup="menu"/);
+  assert.match(PANE, /aria-expanded=\{paneMenuAt !== null\}/);
   /*
    * R3-13: the group is `studypane`, not `pane`.
    *
@@ -923,7 +921,7 @@ test("PANES — a maximised study never destroys a chart to take the column", ()
   assert.match(CHART, /const collapsed = paneCollapsed\(pane\.id\);/);
   // A collapsed pane keeps its chart at a small but non-zero height.
   assert.ok(COLLAPSED_PANE_HEIGHT > 0);
-  assert.match(PANE, /\{collapsed && <div className="absolute inset-0 z-\[2\] bg-surface" \/>\}/);
+  assert.match(PANE, /\{collapsed && <div data-pane-collapsed-cover="" className="absolute inset-0 z-\[2\] bg-surface" \/>\}/);
 });
 
 test("PANES — measurement is switched off through one shared helper", () => {

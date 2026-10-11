@@ -12,7 +12,8 @@
  * of them unreachable without scrolling past the other (R3-06).
  *
  * The reference puts a 2×2-grid button on the toolbar immediately after
- * Indicators, opening a menu of `Save indicator template…` and then the saved
+ * Indicators, opening a menu of `Save indicator template…` and `Open
+ * template…` (F-06), the second a dialog holding the saved and the default
  * templates. That is what this is. Nothing about the template FORMAT changed:
  * `lib/indicatorTemplates` is the same module, with the same round-trip and
  * the same refusal to keep a template it cannot prove.
@@ -28,6 +29,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
+import { Modal } from "@/components/Modal";
+import { MenuGlyphIcon, MenuMark } from "@/components/tv/ContextMenu";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import {
@@ -76,17 +79,16 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const defaultsRef = useRef<HTMLDivElement>(null);
   const ask = useAsk();
   const [templates, setTemplates] = useState<IndicatorTemplate[]>([]);
-  /** R3b-14: whether the shipped sets' submenu is showing. */
-  const [defaultsOpen, setDefaultsOpen] = useState(false);
+  /** F-06: the `Open template…` library dialog. */
+  const [browseOpen, setBrowseOpen] = useState(false);
 
   // Read on every open: another tab may have saved one since the last look.
   useEffect(() => {
-    if (!open) { setDefaultsOpen(false); return; }
+    if (!open && !browseOpen) return;
     setTemplates(loadTemplates());
-  }, [open]);
+  }, [open, browseOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -242,9 +244,18 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
         </svg>
       </button>
 
+      {/*
+        ── F-06: two 32px verbs with the shared mark column, 219 wide ────────
+
+        This was two 40px rows with no mark column, 260 wide, the second a
+        `Default templates ›` flyout — and the user's own templates listed
+        underneath. Premium's menu is `Save indicator template…` and `Open
+        template…`, 32px rows, a 28px glyph box, 219 wide; the library itself
+        (the defaults and the user's own) is behind `Open template…`.
+      */}
       {open && (
         <div ref={menuRef} role="menu" aria-label="Indicator templates" onKeyDown={onMenuKeyDown}
-          className="absolute left-0 top-[38px] z-50 w-[260px] tvc-menu">
+          className="absolute left-0 top-[38px] z-50 w-[219px] tvc-menu tvc-menu--compact">
           <button
             role="menuitem"
             onClick={() => void save()}
@@ -252,76 +263,52 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
             data-tooltip={onChart === 0
               ? "Put at least one study on the chart first"
               : `Save the ${onChart} stud${onChart === 1 ? "y" : "ies"} on this chart as a template`}
-            className="tvc-menu-row w-full px-3 text-left text-[13px] text-ink disabled:opacity-40"
+            className="tvc-menu-row w-full gap-1 px-2 text-left text-sm text-ink disabled:opacity-40"
           >
-            Save indicator template…
+            <MenuMark><MenuGlyphIcon name="save" /></MenuMark>
+            <span className="min-w-0 flex-1 truncate">Save indicator template…</span>
           </button>
-          <div role="separator" className="tvc-menu-sep" />
-          {/*
-            ── R3b-14: the shipped sets ──────────────────────────────────────
-
-            The reference's menu is `Save indicator template…`, then a set of
-            DEFAULT templates, then the user's own. Ours had the first and the
-            third, and when the third was empty it printed a paragraph
-            explaining what to do about it — an apology where the reference has
-            a library. Every study in these four sets is a built-in this
-            installation computes; see `defaultTemplates`.
-          */}
-          <div
-            className="relative"
-            onMouseEnter={() => setDefaultsOpen(true)}
-            onMouseLeave={() => setDefaultsOpen(false)}
+          <button
+            role="menuitem"
+            onClick={() => { setOpen(false); setBrowseOpen(true); }}
+            data-tooltip={templates.length > 0
+              ? `${templates.length} saved, and the default sets`
+              : "The default sets, and any you save"}
+            className="tvc-menu-row w-full gap-1 px-2 text-left text-sm text-ink"
           >
-            <button
-              role="menuitem"
-              aria-haspopup="menu"
-              aria-expanded={defaultsOpen}
-              onClick={() => setDefaultsOpen((v) => !v)}
-              onKeyDown={(e) => {
-                if (e.key !== "ArrowRight" && e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                e.stopPropagation();
-                setDefaultsOpen(true);
-                requestAnimationFrame(() => menuItems(defaultsRef.current)[0]?.focus());
-              }}
-              className="tvc-menu-row w-full justify-between gap-2 px-3 text-left text-[13px] text-ink"
-            >
-              Default templates
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
-                strokeWidth="1.5" aria-hidden="true"><path d="M3.5 2l3 3-3 3" /></svg>
-            </button>
-            {defaultsOpen && (
-              <div ref={defaultsRef} role="menu" aria-label="Default templates"
-                className="absolute left-full top-0 z-50 ml-1 w-[220px] tvc-menu">
-                {defaultTemplates().map((t) => (
-                  <button
-                    key={t.name}
-                    role="menuitem"
-                    onClick={() => { setOpen(false); void apply(t); }}
-                    data-tooltip={`Apply the ${t.name} set — ${t.studies.length} built-in studies`}
-                    className="tvc-menu-row w-full px-3 text-left text-[13px] text-ink"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {templates.length > 0 && <div role="separator" className="tvc-menu-sep" />}
+            <MenuMark><MenuGlyphIcon name="folder" /></MenuMark>
+            <span className="min-w-0 flex-1 truncate">Open template…</span>
+          </button>
+        </div>
+      )}
+
+      {/*
+        `Open template…`: the user's own templates first, then the shipped
+        sets (R3b-14 — every study in them is a built-in this installation
+        computes; see `defaultTemplates`). A row applies; the trash on the
+        user's own rows deletes, behind the same confirmation as before.
+      */}
+      <Modal
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        title="Indicator templates"
+        panelClassName="!max-w-[520px]"
+      >
+        <div className="max-h-[420px] overflow-y-auto" data-template-library="">
+          <div className="tvc-menu-heading">My templates</div>
+          {templates.length === 0 && (
+            <p className="px-2 py-3 text-[13px] text-ink-faint">
+              None saved yet. Save indicator template… keeps the studies on this chart.
+            </p>
+          )}
           {templates.map((t) => (
-            /*
-              The row applies; the trash appears on hover only, which is the
-              grammar every other removable row in this product uses. A delete
-              button sitting permanently beside a template a user reaches for
-              daily is a mis-click waiting on a 260px menu.
-            */
-            <div key={t.name} className="tvc-menu-row group/row gap-1 px-3">
+            <div key={t.name} className="group/row flex items-center gap-1 rounded-md px-2 hover:bg-state-hover">
               <button
-                role="menuitem"
-                onClick={() => { setOpen(false); void apply(t); }}
+                onClick={() => { setBrowseOpen(false); void apply(t); }}
+                data-template-row={t.name}
                 data-tooltip={`Apply “${t.name}” — this chart's studies become the `
                   + `${t.indicators.length + t.studies.length} in this template`}
-                className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+                className="flex h-10 min-w-0 flex-1 items-center truncate text-left text-sm text-ink"
               >
                 {t.name}
               </button>
@@ -329,19 +316,28 @@ export function IndicatorTemplatesMenu({ studies, onApply }: IndicatorTemplatesM
                 onClick={(e) => { e.stopPropagation(); void remove(t); }}
                 aria-label={`Delete the template ${t.name}`}
                 data-tooltip="Delete this template"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint
-                  opacity-0 transition-opacity focus-visible:opacity-100 hover:text-down
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-faint
+                  opacity-0 transition-opacity focus-visible:opacity-100 hover:text-ink
                   group-hover/row:opacity-100"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 6.5h16M9.5 6.5V4h5v2.5M6.5 6.5l1 13.5h9l1-13.5" />
-                </svg>
+                <MenuGlyphIcon name="trash" />
               </button>
             </div>
           ))}
+          <div className="tvc-menu-heading mt-2">Default templates</div>
+          {defaultTemplates().map((t) => (
+            <button
+              key={t.name}
+              onClick={() => { setBrowseOpen(false); void apply(t); }}
+              data-template-row={t.name}
+              data-tooltip={`Apply the ${t.name} set — ${t.studies.length} built-in studies`}
+              className="flex h-10 w-full items-center rounded-md px-2 text-left text-sm text-ink hover:bg-state-hover"
+            >
+              {t.name}
+            </button>
+          ))}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

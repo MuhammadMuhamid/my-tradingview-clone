@@ -105,15 +105,22 @@ test("R6b-14 — the pane's axis takes the date and hour formats", async () => {
     "the visible axis is drawn by the LOWEST pane, so the date format has to reach it");
   const formatter = options.localization.timeFormatter;
   assert.equal(typeof formatter, "function");
-  // 2026-08-31 15:00 UTC.
-  assert.equal((formatter as (t: number) => string)(1_788_188_400), "3:00 pm");
+  // 2026-08-31 15:00 UTC, a Monday. F-03: the crosshair label is the whole
+  // label — weekday, the date in the chosen pattern, and the time.
+  assert.equal((formatter as (t: number) => string)(1_788_188_400), "Mon 2026-08-31 3:00 pm");
 
   resetBrowser();
   const back = await mountPane({ timeFormat24h: true });
   const twentyFour = back.options().localization.timeFormatter;
   assert.equal(typeof twentyFour, "function",
     "24-hours must be a function too, or the row moves once and never back");
-  assert.equal((twentyFour as (t: number) => string)(1_788_188_400), "15:00");
+  assert.equal((twentyFour as (t: number) => string)(1_788_188_400), "Mon 31 Aug '26 15:00");
+
+  // F-03: at 1D and up the label is the date alone.
+  resetBrowser();
+  const daily = await mountPane({ timeFormat24h: true, intervalMs: 86_400_000 });
+  assert.equal((daily.options().localization.timeFormatter as (t: number) => string)(1_788_134_400),
+    "Mon 31 Aug '26");
 });
 
 test("R6b-19 — the Canvas tab reaches the study pane's ground, grid, axes and crosshair", async () => {

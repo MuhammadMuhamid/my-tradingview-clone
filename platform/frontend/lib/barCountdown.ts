@@ -119,13 +119,6 @@ import {
 } from "./priceAxisText";
 
 /**
- * `hh:mm:ss` until the bar closes.
- *
- * Moved here from `CandleChart` unchanged — the format is what the interval
- * chip's own tests read, and F-03 is about WHERE the countdown is drawn, not
- * what it says.
- */
-/**
  * Time until the CURRENT bar closes, from the clock and the interval.
  *
  * W2D-01: the plate read `last.closeTime - now`, and the newest bar a window
@@ -148,12 +141,23 @@ export function barCloseCountdownMs(
   return lastCloseTime + slots * intervalMs - nowMs;
 }
 
+/**
+ * The countdown's text (F-07).
+ *
+ * `mm:ss` while less than an hour remains — Premium prints `49:20`, where
+ * this printed `00:49:20`, a pair of zeros that says nothing on every chart
+ * of an hour or less. `hh:mm:ss` once an hour or more remains (`03:01:01`).
+ * A bar a day or more long keeps `hh:mm:ss` with the hours unbounded: the
+ * reference's day form could not be verified, and an invented one would be
+ * a second unmeasured format.
+ */
 export function countdownText(ms: number): string {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const rest = seconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  const mmss = `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  return hours === 0 ? mmss : `${String(hours).padStart(2, "0")}:${mmss}`;
 }
 
 /* ── the plate's colour ───────────────────────────────────────────────────
