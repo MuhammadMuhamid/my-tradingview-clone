@@ -161,6 +161,23 @@ test("the form refuses impossible numbers and a future window before sending", (
   assert.equal(runFormProblem({ ...ok, params: { rrRatio: -2 }, strategyKey: "no_such_strategy" }, NOW), null);
 });
 
+test("C-01 the form refuses an order size larger than the initial capital", () => {
+  const NOW = Date.parse("2026-10-10T12:00:00Z");
+  const ok = { capital: 1000, commissionPct: 0.1, slippageTicks: 2, start: "2026-09-01", end: "2026-10-10", params: {} };
+  // The form sends no qty_cash, so the CHOSEN strategy's engine default runs:
+  // 930 for ma_rr_v9, 1,000 for mtf_lean.
+  assert.equal(runFormProblem({ ...ok, strategyKey: "ma_rr_v9" }, NOW), null);
+  assert.equal(runFormProblem({ ...ok, capital: 100, strategyKey: "ma_rr_v9" }, NOW),
+    "The order size (930 per entry) is more than the initial capital (100). "
+    + "A spot account cannot spend more than it holds — lower the order size or raise the initial capital.");
+  assert.equal(runFormProblem({ ...ok, capital: 950, strategyKey: "ma_rr_v9" }, NOW), null);
+  assert.match(runFormProblem({ ...ok, capital: 950, strategyKey: "mtf_lean" }, NOW) ?? "",
+    /order size \(1,000 per entry\)/);
+  // A preset's own snapshot wins over the default, either way.
+  assert.equal(runFormProblem({ ...ok, capital: 100, params: { qty_cash: 90 } }, NOW), null);
+  assert.equal(runFormProblem({ ...ok, capital: 100, params: { qty_pct_equity: 50 } }, NOW), null);
+});
+
 // ── C-7: two runs side by side ──────────────────────────────────────────────
 
 test("a comparison puts the differing settings and every window side by side", () => {

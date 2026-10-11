@@ -89,12 +89,25 @@ export interface ClosedLeg extends TradeRecord {
   intendedTriggerPrice?: number | null;
 }
 
+/** An entry skipped because its cash exceeded the account's equity. */
+export interface RejectedEntry {
+  bar: number;
+  /** Bar open time the entry would have filled at. */
+  time: number;
+  /** Quote the entry would have spent. */
+  cash: number;
+  /** Equity the account held at that moment. */
+  equity: number;
+}
+
 export class Broker {
   readonly opts: BrokerOptions;
   private slip: number;
   private readonly corrections: CorrectionSet;
   /** Legs the exchange would have rejected, for the report. */
   readonly rejectedLegs: { bar: number; id: string; qty: number; reason: string }[] = [];
+  /** Entries the account could not pay for (`affordableEntries`), for the report. */
+  readonly rejectedEntries: RejectedEntry[] = [];
 
   positionQty = 0;
   avgPrice = NaN;
@@ -235,9 +248,19 @@ export class Broker {
     if (order.action === "entry" && this.positionQty === 0) {
       const fillPx = px + this.slip;
       const pct = this.opts.qtyPctEquity ?? 0;
+      // Flat when entering, so realised equity is all the account holds.
+      const equity = this.opts.initialCapital + this.realizedNet;
       const cash = pct > 0
-        ? (this.opts.initialCapital + this.realizedNet) * (pct / 100)
+        ? equity * (pct / 100)
         : this.opts.qtyCash;
+      // C-01: spot has no margin — an order larger than the account is not a
+      // trade anyone could have placed, and an empty account places none.
+      if (this.corrections.affordableEntries && (cash > equity * (1 + 1e-12) || cash <= 0)) {
+        this.rejectedEntries.push({ bar: i, time: bars.time[i]!, cash, equity });
+        // Brackets issued for an entry that never filled belong to nothing.
+        this.legs = [];
+        return;
+      }
       const qty = cash / fillPx;
       const commission = fillPx * qty * (this.opts.commissionPct / 100);
       this.positionQty = qty;

@@ -268,6 +268,20 @@ export const SCHEMAS: Record<string, Group[]> = {
   ],
 };
 
+/**
+ * The order size each strategy's ENGINE spends per entry when a request names
+ * none. Not a form field — the research form sends no `qty_cash` — so it is
+ * not in the schema; it is here so the form can refuse a run whose account is
+ * smaller than its own order size before the server does (C-01: capital 100
+ * against the default 930 ran 39 trades a spot account could never have
+ * placed). `tests/paramSchema.test.ts` pins these to the engine's defaults.
+ */
+export const ENGINE_ORDER_SIZE: Record<string, { qty_cash: number; qty_pct_equity: number }> = {
+  ma_rr_v9: { qty_cash: 930, qty_pct_equity: 0 },
+  mtf_lean: { qty_cash: 1000, qty_pct_equity: 0 },
+  srtrend_v10: { qty_cash: 930, qty_pct_equity: 0 },
+};
+
 export function groupsFor(strategyKey: string): Group[] | null {
   return SCHEMAS[strategyKey] ?? null;
 }

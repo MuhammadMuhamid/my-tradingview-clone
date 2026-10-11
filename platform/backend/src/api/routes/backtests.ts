@@ -7,7 +7,8 @@ import type { StrategyParams } from "../../types/strategy";
 import * as deploymentRepo from "../../repositories/deployments";
 import * as alertRepo from "../../repositories/alerts";
 import { compareParity, type ParitySignal } from "../../engine/parityReport";
-import { isBacktestId, paramsProblem, runSettingsProblem } from "../backtestRequest";
+import { isBacktestId, paramsProblem, runSettingsProblem, sizingProblem } from "../backtestRequest";
+import { engineDefaultParams } from "../../engine/backtester";
 
 /**
  * Cost model applied when the caller does not state one.
@@ -63,6 +64,18 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
     if (settingsProblem) return reply.code(400).send({ error: settingsProblem });
     const bodyParamsProblem = paramsProblem(body.params);
     if (bodyParamsProblem) return reply.code(400).send({ error: bodyParamsProblem });
+    /*
+     * C-01: an order size the account cannot pay for. Without a config the
+     * parameters are fully known now — the body's over the engine's own
+     * defaults — so this is judged before any lookup too; a config's stored
+     * size is judged once it is merged, below.
+     */
+    const initialCapital = body.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
+    const defaults = engineDefaultParams(body.strategyKey);
+    if (!body.configId) {
+      const sized = sizingProblem(body.params ?? {}, initialCapital, defaults);
+      if (sized) return reply.code(400).send({ error: sized });
+    }
 
     const strategy = await strategies.getStrategyByKey(body.strategyKey);
     if (!strategy) return reply.code(404).send({ error: "strategy not found" });
@@ -94,6 +107,8 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
     const params = { ...baseParams, ...(body.params ?? {}) };
     const mergedProblem = paramsProblem(params);
     if (mergedProblem) return reply.code(400).send({ error: mergedProblem });
+    const mergedSizing = sizingProblem(params, initialCapital, defaults);
+    if (mergedSizing) return reply.code(400).send({ error: mergedSizing });
 
     const created = await backtests.createBacktest({
       strategyId: strategy.id,
@@ -103,7 +118,7 @@ export async function backtestRoutes(app: FastifyInstance): Promise<void> {
       startTime,
       endTime,
       params,
-      initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+      initialCapital,
       commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
       slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
       holdoutFraction: body.holdoutFraction,

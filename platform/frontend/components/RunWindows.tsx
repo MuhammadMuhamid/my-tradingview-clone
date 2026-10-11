@@ -12,6 +12,30 @@ function windowLabel(w: SegmentWindow): string {
   return `${day(w.startMs)} → ${day(w.endMs)}`;
 }
 
+/**
+ * C-01: entries the account could not pay for, beside the structural zero.
+ *
+ * A run that ran out of money below its order size reads, otherwise, like a
+ * strategy that grew quieter. When it took nothing at all the engine's
+ * `noEntryReason` already says so, in the same notice, and this stays silent
+ * so the reader gets one sentence rather than two.
+ */
+function SkippedEntriesNotice({ execution }: { execution: ExecutionTruth | null }) {
+  const s = execution?.skippedEntries;
+  if (!s || s.count <= 0 || execution?.noEntryReason) return null;
+  const day = new Date(s.firstMs).toISOString().slice(0, 10);
+  return (
+    <Notice tone="warn">
+      <span className="font-medium">
+        This run could not have taken {s.count} of its {s.count === 1 ? "entry" : "entries"}.
+      </span>{" "}
+      Each would have spent {fmtNum(s.cash, 0)} while the account held less — {fmtNum(s.equity, 2)} at
+      the first, on {day}. A spot account has no margin, so they were skipped; every figure here is
+      the trades the account could pay for.
+    </Notice>
+  );
+}
+
 function days(w: SegmentWindow): number {
   return Math.max(0, Math.round((w.endMs - w.startMs) / 86_400_000));
 }
@@ -189,6 +213,9 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
             </Notice>
           </div>
         )}
+        {execution?.skippedEntries && !execution.noEntryReason && (
+          <div className="px-4 pb-4"><SkippedEntriesNotice execution={execution} /></div>
+        )}
       </Card>
     );
   }
@@ -298,6 +325,9 @@ export function RunWindows({ segments, execution, initialCapital, stressRunId = 
             {execution.noEntryReason}
           </Notice>
         </div>
+      )}
+      {execution?.skippedEntries && !execution.noEntryReason && (
+        <div className="px-4 pt-3"><SkippedEntriesNotice execution={execution} /></div>
       )}
       {short && (
         <div className="px-4 pt-3">

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Broker } from "../src/engine/broker";
 import type { Bars } from "../src/engine/mtf";
 import { allCorrections, noCorrections } from "../src/engine/corrections";
+import { allEntriesSkippedReason, skippedEntriesTruth } from "../src/engine/backtester";
 
 const approx = (a: number, b: number, eps = 1e-9): void => {
   assert.ok(Math.abs(a - b) < eps, `expected ${a} ≈ ${b}`);
@@ -248,4 +249,104 @@ test("C-01 lotDustExit — a leg that would leave less than one lot closes the w
   assert.equal(withFix.isFlat, true, "a sub-lot remainder was left open");
   assert.equal(withFix.closed.length, 1, "the dust is folded into the closing leg, not a trade of its own");
   approx(withFix.closed[0]!.qty, 930 / (100 + 0.02), 1e-9);
+});
+
+test("C-01 affordableEntries — a cash entry larger than the account is skipped, and said so", () => {
+  /*
+   * Initial capital 100 with the strategy's default 930 cash per entry: the
+   * old broker bought 930 of an asset with 100 of cash, so the run's absolute
+   * P/L was the same as a 1,000-capital run's and its percentages were ten
+   * times larger — −97.91 % over 39 trades a spot account could never have
+   * placed. Spot has no margin; the order is refused.
+   */
+  const bars = makeBars([
+    [100, 100, 100, 100],
+    [100, 101, 99, 100.5],
+  ]);
+  const run = (affordableEntries: boolean): Broker => {
+    const b = new Broker({
+      ...OPTS, initialCapital: 100,
+      corrections: { ...noCorrections(), affordableEntries },
+    });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    return b;
+  };
+  const without = run(false);
+  approx(without.positionQty, 930 / (100 + 0.02));
+  assert.equal(without.rejectedEntries.length, 0);
+
+  const withFix = run(true);
+  assert.equal(withFix.isFlat, true, "an entry spending more than the account holds was filled");
+  assert.equal(withFix.commissionPaid, 0, "a refused order pays no commission");
+  assert.equal(withFix.rejectedEntries.length, 1);
+  const rejected = withFix.rejectedEntries[0]!;
+  assert.equal(rejected.bar, 1);
+  assert.equal(rejected.time, bars.time[1]);
+  approx(rejected.cash, 930);
+  approx(rejected.equity, 100);
+});
+
+test("C-01 affordableEntries — entries stop once losses take equity below the order size", () => {
+  // 1,000 capital, 930 per entry: the first trade loses ~20 %, which leaves
+  // about 810 — and the second 930 entry is no longer affordable.
+  const bars = makeBars([
+    [100, 100, 100, 100],
+    [100, 100, 100, 100],
+    [80, 80, 80, 80],
+    [80, 80, 80, 80],
+  ]);
+  const run = (affordableEntries: boolean): Broker => {
+    const b = new Broker({ ...OPTS, corrections: { ...noCorrections(), affordableEntries } });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    b.queueClose("exit");
+    b.processOpen(bars, 2);
+    b.queueEntry("entry");
+    b.processOpen(bars, 3);
+    return b;
+  };
+  const without = run(false);
+  assert.equal(without.isFlat, false, "the baseline keeps entering");
+  const withFix = run(true);
+  assert.ok(withFix.equityAt(80) < 930, `equity ${withFix.equityAt(80)} should be below the order size`);
+  assert.equal(withFix.isFlat, true);
+  assert.equal(withFix.closed.length, 1, "the first, affordable trade is unaffected");
+  assert.equal(withFix.rejectedEntries.length, 1);
+  assert.equal(withFix.rejectedEntries[0]!.bar, 3);
+});
+
+test("C-01 affordableEntries — percent-of-equity sizing is unaffected while equity is positive", () => {
+  const bars = makeBars([
+    [100, 100, 100, 100],
+    [100, 101, 99, 100.5],
+  ]);
+  const run = (affordableEntries: boolean): Broker => {
+    const b = new Broker({
+      ...OPTS, qtyPctEquity: 100,
+      corrections: { ...noCorrections(), affordableEntries },
+    });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    return b;
+  };
+  const without = run(false);
+  const withFix = run(true);
+  approx(withFix.positionQty, without.positionQty);
+  approx(withFix.positionQty, 1000 / (100 + 0.02));
+  assert.equal(withFix.rejectedEntries.length, 0);
+});
+
+test("C-01 the run records skipped entries, and a run that skipped all of them says why", () => {
+  assert.equal(skippedEntriesTruth([]), null, "a run that skipped nothing records nothing");
+  const truth = skippedEntriesTruth([
+    { bar: 3, time: 900_000, cash: 930, equity: 100 },
+    { bar: 9, time: 2_700_000, cash: 930, equity: 100 },
+  ]);
+  assert.deepEqual(truth, { count: 2, cash: 930, equity: 100, firstMs: 900_000 });
+  assert.equal(allEntriesSkippedReason(truth!),
+    "Every entry would have spent 930 while the account held 100. "
+    + "A spot account has no margin, so all 2 entries were skipped.");
+  assert.match(allEntriesSkippedReason({ count: 1, cash: 930, equity: 42.5, firstMs: 0 }),
+    /held 42\.50\. .* all 1 entry was skipped\.$/);
 });

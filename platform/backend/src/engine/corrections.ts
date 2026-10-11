@@ -146,6 +146,35 @@ export const CORRECTION_KEYS = [
    * fractions of a cent per trade — and their open-trade / trade-count shape.
    */
   "lotDustExit",
+
+  /**
+   * C-01 (product-readiness reviewer) — an entry the account cannot pay for.
+   *
+   * Cash sizing spends `qty_cash` per entry whatever the account holds. With an
+   * initial capital of 100 and the default 930 per entry the broker bought 930
+   * of an asset with 100 of cash, 39 times — the absolute P/L of a 1,000-capital
+   * run printed as −97.91 % of 100 — and a run that lost its way below the
+   * order size kept entering at full size. This engine models spot, long-only,
+   * with no margin (`provenance.margin = cash, leverage 1`), so an order larger
+   * than the equity is not a trade anyone could have placed.
+   *
+   * With this on, an entry whose cash exceeds the available equity
+   * (`initialCapital + realizedNet` — the broker is flat when it enters, so
+   * that is all of it) is SKIPPED: no fill, no commission, and any exit legs
+   * issued for it are dropped with it. Each skip is recorded in
+   * `rejectedEntries` so the result can say how many entries the account could
+   * not afford instead of leaving a quieter run unexplained. Commission is not
+   * added to the cash: a spot buy pays its fee out of what it receives, so an
+   * account can spend exactly what it holds.
+   *
+   * Percent-of-equity sizing at or below 100 % is unaffected while equity is
+   * positive — its cash is a share of that equity by construction. An account
+   * with nothing left takes no further entries under either sizing.
+   *
+   * Changes historical results: only runs whose order size exceeded their
+   * equity at some entry — every such run's trade sequence from that entry on.
+   */
+  "affordableEntries",
 ] as const;
 
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];

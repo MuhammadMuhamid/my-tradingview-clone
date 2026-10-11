@@ -41,7 +41,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SCHEMAS, defaultParamsFor, groupsFor } from "../lib/paramSchema";
+import { ENGINE_ORDER_SIZE, SCHEMAS, defaultParamsFor, groupsFor } from "../lib/paramSchema";
 import { MA_RR_V9_DEFAULTS } from "../../backend/src/engine/strategies/ma_rr_v9/params";
 import { MTF_LEAN_DEFAULTS } from "../../backend/src/engine/strategies/mtf_lean/params";
 import { SRTREND_V10_DEFAULTS } from "../../backend/src/engine/strategies/srtrend_v10/params";
@@ -61,6 +61,16 @@ test("every registered strategy has a schema and non-empty defaults", () => {
     const groups = groupsFor(key);
     assert.ok(groups && groups.length > 0, `${key} has no groups`);
     assert.ok(Object.keys(defaultParamsFor(key)).length > 0, `${key} has no defaults`);
+  }
+});
+
+test("C-01 the order size the form checks against is the engine's own", () => {
+  // The research form sends no qty_cash, so the engine default is the one a
+  // run spends; the form's affordability check must use the same number.
+  for (const key of KEYS) {
+    const engine = ENGINE_DEFAULTS[key]!;
+    assert.deepEqual(ENGINE_ORDER_SIZE[key],
+      { qty_cash: engine.qty_cash, qty_pct_equity: engine.qty_pct_equity }, key);
   }
 });
 

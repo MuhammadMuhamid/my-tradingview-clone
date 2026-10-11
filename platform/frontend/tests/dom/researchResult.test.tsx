@@ -168,6 +168,37 @@ test("a run that took nothing does not claim an infinite profit factor", () => {
   assertPresent(screen.queryByText("no trades"), "it says why there is no figure");
 });
 
+test("C-01 entries the account could not pay for are counted where a structural zero is said", () => {
+  const execution = {
+    requested: { startMs: T0, endMs: T0 + 100 * DAY },
+    covered: { startMs: T0, endMs: T0 + 100 * DAY },
+    barsProcessed: 2400,
+    sizing: { mode: "fixed_cash" as const, value: 930 },
+    fillTiming: "next_bar_open" as const,
+    skippedEntries: { count: 12, cash: 930, equity: 812.4, firstMs: T0 + 30 * DAY },
+  };
+  render(<RunWindows segments={run().segments} execution={execution} initialCapital={1000} />);
+  assertPresent(screen.queryByText("This run could not have taken 12 of its entries."),
+    "a run that ran out of money must not read like a strategy that grew quieter");
+  assertPresent(screen.queryByText(/would have spent 930 while the account held less — 812\.40 at the first, on 2026-01-31/),
+    "and it says why, with the first one");
+});
+
+test("C-01 a run that skipped every entry says so once, in the engine's sentence", () => {
+  const execution = {
+    requested: { startMs: T0, endMs: T0 + 100 * DAY },
+    covered: { startMs: T0, endMs: T0 + 100 * DAY },
+    barsProcessed: 2400,
+    sizing: { mode: "fixed_cash" as const, value: 930 },
+    fillTiming: "next_bar_open" as const,
+    noEntryReason: "Every entry would have spent 930 while the account held 100. A spot account has no margin, so all 39 entries were skipped.",
+    skippedEntries: { count: 39, cash: 930, equity: 100, firstMs: T0 },
+  };
+  render(<RunWindows segments={run().segments} execution={execution} initialCapital={100} />);
+  assert.equal(screen.queryAllByText(/could not have taken/).length, 1, "one notice, not two");
+  assertPresent(screen.queryByText(/all 39 entries were skipped/), "the engine's own sentence carries the count");
+});
+
 // ── C-2: reproducible from the page ─────────────────────────────────────────
 
 test("the result page states its settings and re-runs the same request", async () => {

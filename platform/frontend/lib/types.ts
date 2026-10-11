@@ -263,6 +263,12 @@ export interface ExecutionTruth {
    * it was.
    */
   noEntryReason?: string;
+  /**
+   * Entries the engine skipped because each would have spent more than the
+   * account held (`affordableEntries`). Absent when none was, and on runs
+   * recorded before the engine checked.
+   */
+  skippedEntries?: { count: number; cash: number; equity: number; firstMs: number };
 }
 
 /** One adverse period, and the benchmark statistics that selected it. */

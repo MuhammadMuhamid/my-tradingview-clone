@@ -14,7 +14,7 @@
  * Every surface now asks this file, so a rule is fixed once.
  */
 import type { Backtest, BacktestMetrics, Strategy, StrategyParams } from "./types";
-import { groupsFor } from "./paramSchema";
+import { ENGINE_ORDER_SIZE, groupsFor } from "./paramSchema";
 
 // ── One denominator per row ─────────────────────────────────────────────────
 
@@ -479,7 +479,29 @@ export function runFormProblem(v: RunFormValues, nowMs: number): string | null {
     if (f.min !== undefined && raw < f.min) return `${f.label} must be at least ${f.min}.`;
     if (f.max !== undefined && raw > f.max) return `${f.label} must be at most ${f.max}.`;
   }
-  return null;
+  return orderSizeProblem(v.params, v.capital, ENGINE_ORDER_SIZE[v.strategyKey ?? "ma_rr_v9"] ?? null);
+}
+
+/**
+ * C-01: an order size larger than the account — the server's sentence, said
+ * before the request is sent. The run's own snapshot wins over the strategy's
+ * engine default; percent-of-equity sizing is a share of the account by
+ * construction and is not judged.
+ */
+function orderSizeProblem(
+  params: StrategyParams,
+  capital: number,
+  defaults: { qty_cash: number; qty_pct_equity: number } | null,
+): string | null {
+  const pick = (key: "qty_cash" | "qty_pct_equity"): number =>
+    Number(params[key] ?? defaults?.[key] ?? Number.NaN);
+  const pct = pick("qty_pct_equity");
+  if (Number.isFinite(pct) && pct > 0) return null;
+  const cash = pick("qty_cash");
+  if (!Number.isFinite(cash) || cash <= capital) return null;
+  const n = (x: number): string => x.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `The order size (${n(cash)} per entry) is more than the initial capital (${n(capital)}). `
+    + "A spot account cannot spend more than it holds — lower the order size or raise the initial capital.";
 }
 
 // ── Comparing two runs ──────────────────────────────────────────────────────

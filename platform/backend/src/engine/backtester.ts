@@ -11,6 +11,7 @@ import * as strategyRepo from "../repositories/strategies";
 import { ensureCandles, syncExchangeFilters } from "../data/binanceRest";
 import { assertNoInternalCandleGaps } from "../data/candleSeries";
 import { FeedStore, subBarsFor, toBars, type Bars } from "./mtf";
+import type { RejectedEntry } from "./broker";
 import { computeMetrics, computeSegmentMetrics, downsampleEquity, entryFigures, toTradeRecords } from "./metrics";
 import { DEFAULT_HOLDOUT_FRACTION, splitWindows, type WindowSplit } from "./holdout";
 import { ACTIVE_CORRECTIONS, assertCorrectedEngine, correctionsFingerprint, describeCorrections } from "./corrections";
@@ -34,6 +35,17 @@ const MODULES: Record<string, unknown> = {
   [mtfLeanModule.key]: mtfLeanModule,
 };
 
+/**
+ * The parameters a registered strategy runs with when a request sends none,
+ * or null for a key this engine does not run. Read by the request checks: the
+ * research form sends no order size, so the strategy's default is the one a
+ * run would spend.
+ */
+export function engineDefaultParams(key: string): StrategyParams | null {
+  const module = MODULES[key] as { defaultParams?: StrategyParams } | undefined;
+  return module?.defaultParams ?? null;
+}
+
 export interface BacktestOutput {
   metrics: BacktestMetrics;
   equityCurve: EquityPoint[];
@@ -52,6 +64,8 @@ export interface BacktestOutput {
   provenance: Record<string, unknown>;
   /** Exit legs the exchange filters refused, when `exchangeFilters` is on. */
   rejectedLegs: { bar: number; id: string; qty: number; reason: string }[];
+  /** Entries the account could not pay for, when `affordableEntries` is on. */
+  rejectedEntries: RejectedEntry[];
   /** IS / OOS / frozen-holdout scores, or why this run cannot honestly split. */
   segments: BacktestSegments;
   /** What actually ran, as against what was asked for. */
@@ -112,6 +126,44 @@ export interface ExecutionTruth {
    * only when the run did in fact take nothing.
    */
   noEntryReason?: string;
+  /**
+   * Entries the broker skipped because each would have spent more than the
+   * account held (`affordableEntries`). Absent when none was.
+   *
+   * Without it a run that ran out of money reads like a strategy that grew
+   * quieter: the count of entries the market offered and the account could
+   * not pay for is the difference, and it is this run's to state.
+   */
+  skippedEntries?: {
+    count: number;
+    /** Quote the first skipped entry would have spent. */
+    cash: number;
+    /** What the account held at the first skipped entry. */
+    equity: number;
+    /** When the first one would have filled. */
+    firstMs: number;
+  };
+}
+
+/** A quote amount for a sentence: whole units from 100 up, cents below. */
+function fmtCash(n: number): string {
+  return Math.abs(n) >= 100 ? Math.round(n).toLocaleString("en-US") : n.toFixed(2);
+}
+
+/** The broker's skipped entries as the run records them, or null when none was. */
+export function skippedEntriesTruth(
+  rejected: readonly RejectedEntry[],
+): ExecutionTruth["skippedEntries"] | null {
+  const first = rejected[0];
+  if (!first) return null;
+  return { count: rejected.length, cash: first.cash, equity: first.equity, firstMs: first.time };
+}
+
+/** Why a run whose every entry was unaffordable took no trade, as a sentence. */
+export function allEntriesSkippedReason(s: NonNullable<ExecutionTruth["skippedEntries"]>): string {
+  return `Every entry would have spent ${fmtCash(s.cash)} while the account held `
+    + `${fmtCash(s.equity)}. A spot account has no margin, so all ${s.count} `
+    + `${s.count === 1 ? "entry was" : "entries were"} skipped.`;
 }
 
 /** The finest already-loaded feed strictly below `chartTf`, or null. */
@@ -283,11 +335,20 @@ export async function executeBacktest(
    * second-guessed, and only of a module that can answer — the others simply
    * do not implement it and say nothing rather than guessing.
    */
+  const rejectedEntries = (result.broker as { rejectedEntries?: RejectedEntry[] })
+    .rejectedEntries ?? [];
+  const skipped = skippedEntriesTruth(rejectedEntries);
+  if (skipped) executionTruth.skippedEntries = skipped;
   if (metrics.totalTrades === 0) {
     const explain = (module as { explainNoEntries?: (p: StrategyParams) => string | null })
       .explainNoEntries;
     const reason = explain ? explain(row.params) : null;
     if (reason) executionTruth.noEntryReason = reason;
+    // C-01: an account too small for its own order size is a structural zero
+    // as much as an entry condition that can never be met — the strategy
+    // signalled and the account could not pay. Said in the same place, so the
+    // stress table and the result page both carry it.
+    else if (skipped) executionTruth.noEntryReason = allEntriesSkippedReason(skipped);
   }
 
   /*
@@ -363,6 +424,12 @@ export async function executeBacktest(
       "the position stayed open on those bars (BE-07)"
     );
   }
+  if (rejectedEntries.length > 0) {
+    log(
+      `${rejectedEntries.length} entr${rejectedEntries.length === 1 ? "y" : "ies"} skipped — ` +
+      "each would have spent more than the account held (affordableEntries)"
+    );
+  }
   log(describeCorrections(ACTIVE_CORRECTIONS));
 
   return {
@@ -393,6 +460,7 @@ export async function executeBacktest(
       dataCompleteness: "internal_gaps_rejected; incomplete_live_bars_not_persisted",
     },
     rejectedLegs,
+    rejectedEntries,
     segments,
     executionTruth,
   };

@@ -163,6 +163,38 @@ export function paramsProblem(params: unknown): string | null {
 }
 
 /**
+ * An order size larger than the account, as a sentence, or null.
+ *
+ * C-01: an initial capital of 100 with the strategy's default 930 per entry
+ * was queued and simulated as though the account could buy 930 of an asset
+ * with 100 — 39 trades, −97.91 %, the same absolute P/L as a 1,000-capital run.
+ * This engine models spot with no margin, so the request is refused here, in
+ * a sentence the form can show; the engine's `affordableEntries` correction
+ * covers the run that only falls below its order size after losses.
+ *
+ * `params` is the merged parameter set the run would store; `defaults` is the
+ * strategy's own, which supply the order size when the request does not —
+ * the research form sends no `qty_cash`, so the engine's default is the one
+ * that runs. Percent-of-equity sizing is a share of the account by
+ * construction and is not judged here.
+ */
+export function sizingProblem(
+  params: Record<string, unknown>,
+  initialCapital: number,
+  defaults: Record<string, unknown> | null,
+): string | null {
+  const pick = (key: string): number => Number(params[key] ?? defaults?.[key] ?? Number.NaN);
+  const pct = pick("qty_pct_equity");
+  if (Number.isFinite(pct) && pct > 0) return null;
+  const cash = pick("qty_cash");
+  if (!Number.isFinite(cash) || !Number.isFinite(initialCapital)) return null;
+  if (cash <= initialCapital) return null;
+  const n = (v: number): string => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `The order size (${n(cash)} per entry) is more than the initial capital (${n(initialCapital)}). `
+    + "A spot account cannot spend more than it holds — lower the order size or raise the initial capital.";
+}
+
+/**
  * A backtest id is a UUID. Anything else names no row — and handing it to
  * Postgres raised `invalid input syntax for type uuid`, which the route
  * reported as a 500: a server fault for what is a wrong address.

@@ -31,6 +31,8 @@ import {
 } from "../../engine/stress";
 import { targetReturn, type TargetReturn } from "../../engine/stressTarget";
 import { isUuid, parseStressRunSettings } from "./stressRequest";
+import { sizingProblem } from "../backtestRequest";
+import { engineDefaultParams } from "../../engine/backtester";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import {
   DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
@@ -242,6 +244,17 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
     if (!timeframe || !isInterval(timeframe)) {
       return reply.code(400).send({ error: `invalid timeframe: ${timeframe}` });
     }
+    /*
+     * C-01: an order size the account cannot pay for, refused once rather
+     * than queued as up to ten runs that each skip every entry. Judged on the
+     * strategy's settings alone — discovery has already been handed all it
+     * will ever see.
+     */
+    const sized = sizingProblem(
+      { ...baseParams, ...settings.params },
+      settings.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+      engineDefaultParams(settings.strategyKey));
+    if (sized) return reply.code(400).send({ error: sized });
 
     await ensureCandles(benchmark.symbol, interval, startMs, endMs,
       (msg) => req.log.info({ benchmark: benchmark.symbol }, msg));

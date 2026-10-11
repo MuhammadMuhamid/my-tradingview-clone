@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
 import {
-  BACKTEST_LIMITS, isBacktestId, paramsProblem, runSettingsProblem,
+  BACKTEST_LIMITS, isBacktestId, paramsProblem, runSettingsProblem, sizingProblem,
 } from "../src/api/backtestRequest";
 import { backtestRoutes } from "../src/api/routes/backtests";
 
@@ -92,6 +92,24 @@ test("strategy inputs that the engine cannot honour are refused", () => {
   assert.equal(paramsProblem({ qty_cash: 0, qty_pct_equity: 100 }), null);
 });
 
+test("C-01 an order size larger than the account is refused, the strategy's default included", () => {
+  // The research form sends no qty_cash; ma_rr_v9's default 930 is what runs.
+  const maDefaults = { qty_cash: 930, qty_pct_equity: 0 };
+  assert.equal(sizingProblem({}, 1000, maDefaults), null);
+  assert.equal(sizingProblem({}, 930, maDefaults), null, "spending exactly the account is affordable");
+  assert.equal(sizingProblem({}, 100, maDefaults),
+    "The order size (930 per entry) is more than the initial capital (100). "
+    + "A spot account cannot spend more than it holds — lower the order size or raise the initial capital.");
+  // A stated size wins over the default, either way.
+  assert.equal(sizingProblem({ qty_cash: 90 }, 100, maDefaults), null);
+  assert.match(sizingProblem({ qty_cash: 5000 }, 1000, maDefaults) ?? "", /5,000 per entry/);
+  // Percent of equity is a share of the account by construction.
+  assert.equal(sizingProblem({ qty_pct_equity: 50 }, 100, maDefaults), null);
+  assert.equal(sizingProblem({}, 100, { qty_cash: 930, qty_pct_equity: 25 }), null);
+  // An unregistered strategy with no stated size has nothing to judge.
+  assert.equal(sizingProblem({}, 100, null), null);
+});
+
 test("a backtest id is a UUID", () => {
   assert.equal(isBacktestId("8f6d2c1e-3b4a-4f5e-9a7b-1c2d3e4f5a6b"), true);
   for (const bad of ["not-a-uuid", "123", "", "8f6d2c1e-3b4a-4f5e-9a7b-1c2d3e4f5a6b' OR 1=1"]) {
@@ -116,6 +134,8 @@ test("the route answers a bad request with 400 and the sentence, before any look
       [{ params: { rrRatio: -1 } }, /rrRatio/],
       [{ endTime: "2999-01-01T00:00:00.000Z" }, /in the future/],
       [{ holdoutFraction: 0.9 }, /validation window/],
+      [{ initialCapital: 100 }, /order size \(930 per entry\) is more than the initial capital \(100\)/],
+      [{ initialCapital: 500, params: { qty_cash: 600 } }, /order size \(600 per entry\)/],
     ] as const) {
       const res = await post(payload);
       assert.equal(res.statusCode, 400, JSON.stringify(payload));
