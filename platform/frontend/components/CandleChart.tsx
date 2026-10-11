@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from "react-dom";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
-  BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText,
+  BarCountdownPrimitive, countdownText,
 } from "@/lib/barCountdown";
 import { PointFigurePrimitive } from "@/lib/pointFigurePrimitive";
 import { VolumeCandlePrimitive } from "@/lib/volumeCandlePrimitive";
@@ -1261,25 +1261,29 @@ export function CandleChart({
      the whole settings object, which changes identity on every keystroke. */
   const precision = settings.precision;
   /*
-   * ── TVP8 F-03-R ───────────────────────────────────────────────────────────
+   * ── TVP8 F-03-R, and A8 ───────────────────────────────────────────────────
    *
-   * While the countdown is on, the last-price plate is drawn by ONE object —
-   * `BarCountdownPrimitive`, which owns both rows — and the series' own chip
+   * The last-price plate is drawn by ONE object — `BarCountdownPrimitive`,
+   * which owns the price row and the countdown row — and the series' own chip
    * stands down. Two labels the library colours and sizes independently can
-   * never be one plate: the chip takes `priceLineColor`, the countdown took
-   * the bar's direction, and each sized itself to its own text, so the
-   * countdown overhung the price by 19px.
+   * never be one plate: the chip took `priceLineColor`, the countdown took the
+   * bar's direction, and each sized itself to its own text, so the countdown
+   * overhung the price by 19px.
    *
    * In EVERY scale mode (F-03-R2). The price row's text is not the
    * primitive's to decide: it formats through `lib/priceAxisText`, which
    * derives what the axis itself would print — grouped through this chart's
    * `localization.priceFormatter` in Regular and Logarithmic, the percentage
    * of the first visible close in Percentage, the indexed value in
-   * Indexed-to-100 — from the same public state the axis formats from. So no
-   * mode is excepted, and no mode leaves the library's chip on the price
-   * coordinate under a row of ours.
+   * Indexed-to-100 — from the same public state the axis formats from.
+   *
+   * And whether the countdown is on or not (A8). With the countdown off the
+   * library's chip used to come back, and it is a different label: on the last
+   * VISIBLE bar rather than the last bar, and in the price line's slate rather
+   * than the series' colour — so turning the countdown off moved the price tag
+   * and recoloured it. The plate is the price tag in every state; with the
+   * countdown off it is simply one row.
    */
-  const countdownOwnsChip = settings.countdownToBarClose;
   /*
    * The decimals the price AXIS labels with.
    *
@@ -1883,16 +1887,15 @@ export function CandleChart({
         priceLineColor: settings.lastValueLineColor,
         priceLineWidth: settings.lastValueLineWidth as 1 | 2 | 3 | 4,
         priceLineStyle: lineStyleOf(settings.lastValueLineStyle),
-        // F-03-R: off while `BarCountdownPrimitive` draws the price row, so
-        // the plate has one colour and one width instead of the chip's and
-        // the countdown's.
-        lastValueVisible: settings.lastValueLabel && !countdownOwnsChip,
+        // F-03-R / A8: always off. `BarCountdownPrimitive` is the price tag,
+        // and `settings.lastValueLabel` reaches it as `ownsPriceRow` — one
+        // label, one colour, one anchor, whatever the countdown is doing.
+        lastValueVisible: false,
       });
     } catch { /* the series went away between render and effect */ }
   }, [
     settings.lastValueLine, settings.lastValueLineColor, settings.lastValueLineWidth,
-    settings.lastValueLineStyle, settings.lastValueLabel, countdownOwnsChip,
-    chartType, chartReady,
+    settings.lastValueLineStyle, chartType, chartReady,
   ]);
 
   /*
@@ -3830,64 +3833,66 @@ export function CandleChart({
   }, [chartReady, chartType, candles, transformSettings]);
 
   const countdownRef = useRef<BarCountdownPrimitive | null>(null);
+  /*
+   * The plate, then E2's tick clearance, attached in ONE effect so their order
+   * is stated rather than inherited from where two effects happen to sit.
+   *
+   * Both draw from the price axis's top pass, and the library runs a series'
+   * primitives in the order they were attached. The plate paints onto the
+   * axis's main canvas there (A8, `lib/barCountdown`); the clearance then reads
+   * that canvas and removes any tick run a label box touched
+   * (`lib/axisTickClearance`). The other way round, the clearance would look
+   * at an axis the plate had not been drawn on yet, and a tick half under the
+   * plate would survive.
+   */
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
     const primitive = new BarCountdownPrimitive();
     countdownRef.current = primitive;
     try { series.attachPrimitive(primitive); }
-    catch { countdownRef.current = null; return; }
+    catch { countdownRef.current = null; }
+    const clearance = new AxisTickClearancePrimitive();
+    let clearing = true;
+    try { series.attachPrimitive(clearance); } catch { clearing = false; }
     return () => {
       countdownRef.current = null;
       try { series.detachPrimitive(primitive); }
       catch { /* the series went away first; the primitive went with it */ }
-    };
-  }, [chartReady, chartType]);
-  /*
-   * E2: a pill on the price axis never leaves half a tick label showing. See
-   * `lib/axisTickClearance` — it reads what the axis drew and removes any tick
-   * run a label box touched.
-   */
-  useEffect(() => {
-    const series = seriesRef.current;
-    if (!series) return;
-    const primitive = new AxisTickClearancePrimitive();
-    try { series.attachPrimitive(primitive); } catch { return; }
-    return () => {
-      try { series.detachPrimitive(primitive); }
-      catch { /* the series went away first; the primitive went with it */ }
+      if (clearing) {
+        try { series.detachPrimitive(clearance); }
+        catch { /* likewise */ }
+      }
     };
   }, [chartReady, chartType]);
   useEffect(() => {
     const primitive = countdownRef.current;
     if (!primitive) return;
     const last = candles[candles.length - 1];
-    const on = settings.countdownToBarClose && !priceHidden && last !== undefined;
-    /*
-     * F-03-R: the chip's OWN ground, read the way `SeriesPriceAxisView` reads
-     * it — `priceLineColor || lastBarColor` — rather than from the bar's
-     * direction. The bar-direction colour is what made the countdown red under
-     * a slate price; one value here is what makes the two rows one plate.
-     */
-    const backColor = chipBackColor(
-      settings.lastValueLineColor,
-      last && last.close >= last.open ? upColor : downColor,
-    );
+    const shown = !priceHidden && last !== undefined;
+    const counting = shown && settings.countdownToBarClose;
     primitive.update({
       /*
        * The last CANDLE's close, the anchor the primitive falls back to when
-       * it cannot read the visible range — one price, one coordinate, so the
-       * two rows cannot describe different rows of the axis.
+       * it cannot read the series — one price, one coordinate, so the two
+       * rows cannot describe different rows of the axis. While the series can
+       * be read, the primitive takes the price from its last bar at draw
+       * time, so a live tick moves the plate in the frame it is drawn in.
        */
-      price: on ? last.close : null,
-      text: on ? countdownText(last.closeTime - nowMs) : null,
-      backColor,
-      textColor: chipTextColor(backColor),
-      ownsPriceRow: on && countdownOwnsChip && settings.lastValueLabel,
+      price: shown ? last.close : null,
+      text: counting ? countdownText(last.closeTime - nowMs) : null,
+      /*
+       * A8: the SERIES' colours, from which the primitive picks the last
+       * bar's at draw time — up or down for a bar with an open, the line's
+       * for a line. Not `lastValueLineColor`: that is the dashed line's
+       * setting, and taking it first is what made every plate slate.
+       */
+      palette: { up: upColor, down: downColor, line: CHART_ACCENT },
+      ownsPriceRow: shown && settings.lastValueLabel,
     });
   }, [
-    nowMs, candles, settings.countdownToBarClose, settings.lastValueLineColor,
-    settings.lastValueLabel, countdownOwnsChip, priceHidden, upColor, downColor,
+    nowMs, candles, settings.countdownToBarClose,
+    settings.lastValueLabel, priceHidden, upColor, downColor,
     // Re-stated after a re-attach: a rebuilt primitive starts empty, and
     // waiting for the next second to fill it is a second with no plate.
     chartReady, chartType,
@@ -4524,10 +4529,20 @@ export function CandleChart({
               above is never any of the three — an axis that is not showing
               prices has to say so whatever this is set to.
             */}
+            {/*
+              B-13: on the chart's own ground, not on the axis's ticks.
+
+              The strip was transparent, so on hover `auto log %` was drawn
+              straight across whichever tick labels sat at the foot of the
+              axis, and the two sets of text read as one. The reference's
+              buttons carry an opaque backdrop; this is the chart surface the
+              axis is painted on, so the strip reads as lifted off it rather
+              than as a coloured box.
+            */}
             {settings.scaleButtons !== "hidden" && (
             <span
               data-axis-buttons={settings.scaleButtons}
-              className={`flex flex-col items-center gap-px transition-opacity duration-75 ${
+              className={`flex flex-col items-center gap-px rounded-md bg-surface p-0.5 transition-opacity duration-75 ${
                 settings.scaleButtons === "always"
                   ? "opacity-100"
                   : "opacity-0 focus-within:opacity-100 group-hover/axis:opacity-100"

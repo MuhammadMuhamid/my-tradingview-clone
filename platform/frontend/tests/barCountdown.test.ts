@@ -43,7 +43,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText, platePlan,
+  BarCountdownPrimitive, chipTextColor, countdownText, plateGround, platePlan,
 } from "../lib/barCountdown";
 import { fmtPriceAt } from "../lib/format";
 import { PRICE_SCALE_MODE } from "../lib/priceAxisText";
@@ -84,7 +84,9 @@ interface Fake {
  * on a chart configured the way `CandleChart` configures it: the product's
  * grouping `fmtPriceAt` as `localization.priceFormatter`, two decimals.
  */
-function attach(bars: { close: number }[] = [{ close: 98.14 }]): Fake {
+type Bar = { close: number; open?: number; color?: string };
+
+function attach(bars: Bar[] = [{ close: 98.14 }]): Fake {
   const state = {
     y: 100 as number | null, from: 0, to: bars.length - 1,
     mode: PRICE_SCALE_MODE.normal as number, chipVisible: false,
@@ -121,8 +123,9 @@ function attach(bars: { close: number }[] = [{ close: 98.14 }]): Fake {
   };
 }
 
+const PALETTE = { up: "#2ebd85", down: "#f6465d", line: "#4f8cff" } as const;
 const PLATE = {
-  price: 98.14, text: "00:03:20", backColor: "#758696", textColor: "white", ownsPriceRow: true,
+  price: 98.14, text: "00:03:20", palette: PALETTE, ownsPriceRow: true,
 } as const;
 
 /* ── F-03: the liveness the repair bought ────────────────────────────────── */
@@ -168,10 +171,14 @@ test("F-03 — the setting turning the countdown off turns the ROW off", () => {
   fake.primitive.update({ ...PLATE });
   assert.equal(fake.plan()!.rows.length, 2);
   /*
-   * `Chart settings › Scales and lines › Countdown to bar close`. The chart
-   * hands the price back to the series' own chip in the same breath, so the
-   * primitive draws nothing at all rather than a second price.
+   * `Chart settings › Scales and lines › Countdown to bar close`. A8: the
+   * chart no longer hands the price back to the series' own chip — the plate
+   * stays the price tag, one row tall, on the same price.
    */
+  fake.primitive.update({ ...PLATE, text: null });
+  assert.deepEqual(fake.plan()!.rows.map((row) => row.text), ["98.14"]);
+  assert.equal(fake.plan()!.rows[0]!.centreY, 100);
+  // And with `Price label` off as well, there is nothing left to draw.
   fake.primitive.update({ ...PLATE, text: null, ownsPriceRow: false });
   assert.equal(fake.plan(), null);
 });
@@ -197,6 +204,8 @@ test("F-03 — the views array is stable, because the library caches on its iden
   assert.equal(primitive.priceAxisPaneViews(), primitive.priceAxisPaneViews(),
     "a fresh array every frame defeats the library's own cache");
   assert.equal(primitive.priceAxisPaneViews().length, 1, "one plate, one view");
+  assert.equal(primitive.priceAxisViews(), primitive.priceAxisViews(),
+    "the packing placeholders are cached on identity too");
 });
 
 test("F-03 — the text is unchanged: hh:mm:ss, and never negative", () => {
@@ -207,19 +216,32 @@ test("F-03 — the text is unchanged: hh:mm:ss, and never negative", () => {
 
 /* ── F-03-R: one ground, one width, one plate ────────────────────────────── */
 
-test("F-03-R — both rows are painted on the same ground, up bar and down bar", () => {
+test("A8 — the plate is in the SERIES' colour: the last bar's direction, or the line's", () => {
   /*
-   * The defect was a slate price over a bar-direction countdown: red under
-   * slate on a down bar, green under slate on an up bar, never the same. The
-   * chip's colour is `priceLineColor || lastBarColor`, so with the setting at
-   * its default both bar directions give ONE value — and whatever the value,
-   * one rect can only be painted in one of them.
+   * F-03-R made both rows one ground. Which ground was `priceLineColor ||
+   * lastBarColor`, and `priceLineColor` is the dashed line's setting — slate
+   * by default — so every plate was slate whatever the bar did. Premium's is
+   * the series' colour: green under 83,040.22 on a rising bar.
    */
-  const slate = "#758696";
-  assert.equal(chipBackColor(slate, "#f6465d"), slate, "a down bar cannot redden the plate");
-  assert.equal(chipBackColor(slate, "#2ebd85"), slate, "an up bar cannot green it");
-  assert.equal(chipBackColor("", "#f6465d"), "#f6465d",
-    "and with no line colour the library's own fallback is the bar's");
+  assert.equal(plateGround({ open: 100, close: 101 }, PALETTE), PALETTE.up);
+  assert.equal(plateGround({ open: 100, close: 100 }, PALETTE), PALETTE.up, "an unchanged bar is an up bar");
+  assert.equal(plateGround({ open: 101, close: 100 }, PALETTE), PALETTE.down);
+  assert.equal(plateGround({ value: 100 }, PALETTE), PALETTE.line, "a line series has no direction");
+  assert.equal(plateGround({ open: 101, close: 100, color: "#ffcc00" }, PALETTE), "#ffcc00",
+    "a per-bar colour (a script's barcolor) wins, as the library's own bar colourer has it");
+  assert.equal(plateGround(null, PALETTE), PALETTE.line);
+});
+
+test("A8 — the colour is decided at DRAW time, so a tick that turns the bar turns the plate", () => {
+  const bars: Bar[] = [{ open: 98, close: 99 }];
+  const fake = attach(bars);
+  fake.primitive.update({ ...PLATE });
+  assert.equal(fake.primitive.colors().backColor, PALETTE.up);
+  // What `series.update()` does to the forming bar: no React render between.
+  bars[0] = { open: 98, close: 97.5 };
+  assert.equal(fake.primitive.colors().backColor, PALETTE.down);
+  assert.equal(fake.primitive.colors().textColor, chipTextColor(PALETTE.down),
+    "and the ink is contrasted onto the ground actually drawn");
 });
 
 test("F-03-R — the ink is the one the library would contrast onto that ground", () => {
@@ -291,17 +313,30 @@ test("F-03-R — one row alone is a normal single-line chip", () => {
   assert.equal(one.left, two.left);
 });
 
-test("F-03-R — the price row is the last VISIBLE bar's close, as the chip was", () => {
+test("A8 — the price row is the LAST bar's close, wherever the view is", () => {
   /*
-   * `SeriesPriceAxisView` reads `lastValueData(false)` — the last bar inside
-   * the visible range, not the last bar there is. Panning back moved the
-   * library's chip; taking the chip over has to move ours the same way.
+   * The defect, as measured: SOLUSDT 15m, the newest bar (open 109.56, last
+   * 109.70) one bar right of the visible range. The plate read the previous
+   * bar's close, 109.56 — while the status line, the watchlist and the dashed
+   * price line (`priceLineSource: LastBar`) all read 109.70. The reference's
+   * label is the live price.
    */
-  const fake = attach([{ close: 90 }, { close: 95 }, { close: 98.14 }]);
-  fake.primitive.update({ ...PLATE });
-  assert.equal(fake.plan()!.rows[0]!.text, "98.14");
+  const fake = attach([{ close: 109.2 }, { close: 109.56 }, { open: 109.56, close: 109.7 }]);
+  fake.primitive.update({ ...PLATE, price: 109.7 });
   fake.setVisibleTo(1);
-  assert.equal(fake.plan()!.rows[0]!.text, "95.00", "the chip did not follow the pan");
+  assert.equal(fake.plan()!.rows[0]!.text, "109.70", "the plate lagged the live price");
+  fake.setVisibleTo(0);
+  assert.equal(fake.plan()!.rows[0]!.text, "109.70", "panning back does not move the price tag");
+});
+
+test("A8 — a live tick moves the price row with no update() from React", () => {
+  const bars: Bar[] = [{ close: 100 }, { open: 100, close: 100.5 }];
+  const fake = attach(bars);
+  fake.primitive.update({ ...PLATE, price: 100.5 });
+  assert.equal(fake.plan()!.rows[0]!.text, "100.50");
+  bars[1] = { open: 100, close: 100.9 };
+  assert.equal(fake.plan()!.rows[0]!.text, "100.90",
+    "the row is read from the series at draw time, not from the last React render");
 });
 
 test("F-03-R — the price row falls back to the close React handed it", () => {
@@ -376,14 +411,6 @@ test("F-03-R2 — a mode switched between two draws changes the text: nothing is
   assert.equal(texts(), "2,416.65", "and back, with no formatter state left behind");
 });
 
-test("F-03-R2 — the price is the bar the library's strict range ends on: ceil(to), searched leftwards", () => {
-  const fake = attach([{ close: 90 }, { close: 95 }, { close: 98.14 }]);
-  fake.primitive.update({ ...PLATE });
-  fake.setVisibleTo(0.4);
-  assert.equal(fake.plan()!.rows[0]!.text, "95.00",
-    "`lastValueData` searches from ceil(0.4) = 1 leftwards, so bar 1 is the chip's bar");
-});
-
 test("F-03-R2 — a plate that does not own the price row is never on the price coordinate while the chip is", () => {
   /*
    * The Percentage failure at 52c47bb: the primitive stepped aside, the
@@ -413,4 +440,97 @@ test("F-03-R2 — a plate that does not own the price row is never on the price 
   fake.primitive.update({ ...PLATE, ownsPriceRow: true });
   assert.equal(fake.primitive.chipVisible(), false);
   assert.equal(fake.plan()!.rows[0]!.centreY, 100);
+});
+
+/* ── A8: above every other pill, and inside the label packing ─────────────── */
+
+test("A8 — the plate paints from the axis's TOP pass, after the library's labels", () => {
+  /*
+   * A `normal` price-axis pane view is drawn before the library's labels, so
+   * a moving-average pill at 109.68 was painted on top of a plate at 109.70.
+   */
+  const view = new BarCountdownPrimitive().priceAxisPaneViews()[0]!;
+  assert.equal(view.zOrder?.(), "top");
+});
+
+test("A8 — it is painted onto the axis's MAIN canvas, where the tick clearance reads labels", () => {
+  /*
+   * The top pass hands over the TOP canvas. Drawn there, the plate would be
+   * invisible to `lib/axisTickClearance` (which reads the main canvas for
+   * label boxes) so a tick half under it would survive, and the crosshair's
+   * own label, drawn on the top canvas, would end up under it.
+   */
+  const fills: { canvas: string; style: string }[] = [];
+  const recorder = (canvas: string): Record<string, unknown> => {
+    const ctx: Record<string, unknown> = {
+      fillStyle: "", font: "", textAlign: "", textBaseline: "",
+      save() {}, restore() {}, setTransform() {}, beginPath() {}, moveTo() {}, lineTo() {},
+      quadraticCurveTo() {}, closePath() {},
+      fill() { fills.push({ canvas, style: String(ctx.fillStyle) }); },
+      fillRect() { fills.push({ canvas, style: String(ctx.fillStyle) }); },
+      fillText() { fills.push({ canvas, style: String(ctx.fillStyle) }); },
+      measureText: (text: string) => ({
+        width: measure(text), actualBoundingBoxAscent: 9, actualBoundingBoxDescent: 0,
+      }),
+    };
+    return ctx;
+  };
+  class FakeCanvas {
+    width = 70;
+    height = 400;
+    constructor(private readonly ctx: unknown) {}
+    getContext(): unknown { return this.ctx; }
+  }
+  const globals = globalThis as { HTMLCanvasElement?: unknown };
+  const before = globals.HTMLCanvasElement;
+  globals.HTMLCanvasElement = FakeCanvas;
+  try {
+    const main = new FakeCanvas(recorder("main"));
+    const top = recorder("top");
+    top.canvas = { previousElementSibling: main };
+    const fake = attach([{ open: 98, close: 98.14 }]);
+    fake.primitive.update({ ...PLATE });
+    const target = {
+      useBitmapCoordinateSpace: (draw: (scope: unknown) => void) => draw({
+        context: top, bitmapSize: { width: 70, height: 400 },
+        horizontalPixelRatio: 1, verticalPixelRatio: 1,
+      }),
+    };
+    (fake.primitive.priceAxisPaneViews()[0]!.renderer() as unknown as {
+      draw(t: unknown): void;
+    }).draw(target);
+  } finally {
+    globals.HTMLCanvasElement = before;
+  }
+  assert.ok(fills.length > 0, "nothing was painted");
+  assert.ok(fills.every((fill) => fill.canvas === "main"), JSON.stringify(fills));
+  assert.equal(fills[0]!.style, PALETTE.up, "the ground is the rising bar's colour");
+});
+
+test("A8 — one transparent placeholder per row holds the plate's place in the label packing", () => {
+  /*
+   * With `No overlapping labels` the library moves labels off each other —
+   * but only labels it knows of. The placeholders are the plate, as labels:
+   * the same rows and text, painting nothing, and pinned by `fixedCoordinate`
+   * so the packing moves the OTHER pills rather than them.
+   */
+  const fake = attach();
+  fake.primitive.update({ ...PLATE });
+  const plan = fake.plan()!;
+  const views = fake.primitive.priceAxisViews();
+  assert.equal(views.length, 2);
+  for (const [index, view] of views.entries()) {
+    assert.equal(view.visible?.(), true);
+    assert.equal(view.coordinate(), plan.rows[index]!.centreY);
+    assert.equal(view.fixedCoordinate?.(), plan.rows[index]!.centreY);
+    assert.equal(view.text(), plan.rows[index]!.text, "the row's text, so the axis is sized for it");
+    assert.equal(view.backColor(), "rgba(0, 0, 0, 0)");
+    assert.equal(view.textColor(), "rgba(0, 0, 0, 0)");
+    assert.equal(view.tickVisible?.(), false, "the plate has the one tick");
+  }
+  // A one-row plate has one placeholder; no plate has none.
+  fake.primitive.update({ ...PLATE, text: null });
+  assert.deepEqual(views.map((view) => view.visible?.()), [true, false]);
+  fake.setCoordinate(null);
+  assert.deepEqual(views.map((view) => view.visible?.()), [false, false]);
 });

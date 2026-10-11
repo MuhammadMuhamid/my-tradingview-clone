@@ -259,6 +259,25 @@ export function lastVisibleClose(chart: AxisChartLike | null, series: AxisSeries
   catch { return null; }
 }
 
+/**
+ * The series' LAST bar, whatever is in view: `lastValueData(true)`, the bar
+ * the library's own dashed price line is drawn from (`priceLineSource:
+ * LastBar`, its default).
+ *
+ * A search leftwards from past the end of any series lands on its final row,
+ * so this is one binary search and no copy of the data.
+ */
+export function lastBar(series: AxisSeriesLike): unknown {
+  if (typeof series.dataByIndex !== "function") return null;
+  try { return series.dataByIndex(Number.MAX_SAFE_INTEGER, NEAREST_LEFT) ?? null; }
+  catch { return null; }
+}
+
+/** The close of `lastBar` — the live last price while a feed is running. */
+export function lastClose(series: AxisSeriesLike): number | null {
+  return closeOf(lastBar(series));
+}
+
 function visibleRange(chart: AxisChartLike | null): { from: number; to: number } | null {
   if (chart === null) return null;
   try { return chart.timeScale().getVisibleLogicalRange(); } catch { return null; }

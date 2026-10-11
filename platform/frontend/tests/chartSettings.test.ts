@@ -125,7 +125,9 @@ test("THE LINES TAB HAS LINE CONTROLS, AND EVERY ONE REACHES THE ENGINE", () => 
     ["lastValueLineColor", /priceLineColor: settings\.lastValueLineColor/, /lastValueLineColor: next\.color/],
     ["lastValueLineWidth", /priceLineWidth: settings\.lastValueLineWidth/, /lastValueLineWidth: next\.width/],
     ["lastValueLineStyle", /priceLineStyle: lineStyleOf\(settings\.lastValueLineStyle\)/, /lastValueLineStyle: next\.style/],
-    ["lastValueLabel", /lastValueVisible: settings\.lastValueLabel/, /lastValueLabel: v === "valueLine"/],
+    // A8: the price tag is `BarCountdownPrimitive`, so the setting reaches it
+    // as `ownsPriceRow` rather than as the series chip it replaced.
+    ["lastValueLabel", /ownsPriceRow: shown && settings\.lastValueLabel/, /lastValueLabel: v === "valueLine"/],
     ["dateFormat", /dateFormat: settings\.dateFormat/, /set\("dateFormat"/],
     ["crosshairColor", /settings\.crosshairColor \? \{ color: settings\.crosshairColor \}/, /crosshairColor: next\.color/],
     ["crosshairWidth", /width: settings\.crosshairWidth as/, /crosshairWidth: next\.width/],

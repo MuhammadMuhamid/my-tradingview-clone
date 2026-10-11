@@ -69,14 +69,53 @@
  * visible closes — and prints whatever the axis would. Every mode, Percentage
  * included, so there is no mode in which the library's chip and a row of ours
  * have to share the price coordinate.
+ *
+ * ── A8: the LIVE price, in the SERIES' colour, above every other pill ─────
+ *
+ * Measured against Premium on SOLUSDT 15m, the plate read `109.56 / 00:03:28`
+ * in slate while the status line, the watchlist and the plate's own dashed
+ * price line all said 109.70 — and a blue moving-average pill at 109.68 sat on
+ * top of it, so what showed was a blue pill with a grey sliver of countdown
+ * under it. Three defects, which read as one: "two labels, one of them stale".
+ *
+ *   The price. The row followed `lastValueData(false)` — the last bar INSIDE
+ *   the visible range, which is what the library's own chip reads. But the
+ *   library draws its dashed price line from `lastValueData(true)`, the last
+ *   bar there is (`priceLineSource: LastBar`), so whenever the newest bar was
+ *   not in view the plate described the bar before it and sat a row away from
+ *   its own line. The reference's label is the live price, always. The row is
+ *   now `lastClose`: the series' final bar, read at draw time, so a tick moves
+ *   it in the frame the tick is drawn in.
+ *
+ *   The colour. It was `priceLineColor || lastBarColor`, and `priceLineColor`
+ *   is the `Last price line` setting — slate by default — so the second half
+ *   never ran. The reference paints the label in the SERIES' colour: the last
+ *   bar's own colour for candles and bars (up, down, or the per-bar colour a
+ *   script set), the line's for a line. `plateGround` decides it from the same
+ *   final bar, at draw time.
+ *
+ *   The stacking. A primitive's normal price-axis pane view paints BEFORE the
+ *   library's labels, so every study pill landed on top of the plate. The
+ *   plate now paints from the axis's TOP pass — after every label — onto the
+ *   axis's main canvas, where `lib/axisTickClearance` (attached after this
+ *   one, and run from the same pass) still sees it as a label box and clears
+ *   any tick it touches. It also holds its place in the library's own label
+ *   packing: one transparent axis view per row, pinned by `fixedCoordinate`,
+ *   so with `No overlapping labels` on the other pills are moved off the plate
+ *   the way they are moved off each other, rather than painted over.
+ *
+ * The series' own chip is now off in EVERY state (`CandleChart`), not only
+ * while the countdown runs: with the countdown off the plate is a single row —
+ * the same price, the same ground — rather than a library chip with another
+ * anchor and another colour.
  */
 import type {
-  IChartApiBase, ISeriesApi, ISeriesPrimitive, ISeriesPrimitivePaneRenderer,
+  IChartApiBase, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, ISeriesPrimitivePaneRenderer,
   ISeriesPrimitivePaneView, SeriesAttachedParameter, SeriesType, Time,
 } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import {
-  firstVisibleClose, lastVisibleClose, priceAxisText, readPriceAxisFormatting,
+  firstVisibleClose, lastBar, lastClose, priceAxisText, readPriceAxisFormatting,
 } from "./priceAxisText";
 
 /**
@@ -96,19 +135,40 @@ export function countdownText(ms: number): string {
 
 /* ── the plate's colour ───────────────────────────────────────────────────
  *
- * Read from the same two values the library reads, in the same order, so the
- * plate cannot disagree with a chip drawn by `SeriesPriceAxisView`:
+ * The SERIES' colour at its last bar (A8), which is the reference's: green
+ * over a rising candle, red over a falling one, the line's own colour on a
+ * line. Not `priceLineColor` — that is the `Last price line` setting, slate by
+ * default, and taking it first is what painted every plate slate whatever the
+ * bar did.
  *
- *   const lastValueColor = source.priceLineColor(lastValueData.color);
- *   const colors = generateContrastColors(lastValueColor);
- *
- * where `Series.priceLineColor(lastBarColor)` is `options.priceLineColor ||
- * lastBarColor`, and `generateContrastColors` picks its ink by luminance.
+ * Decided from the bar itself at draw time, so a tick that turns the bar
+ * round turns the plate round in the same frame, with no React render.
  */
 
-/** The ground the library would paint the last-value chip with. */
-export function chipBackColor(priceLineColor: string, lastBarColor: string): string {
-  return priceLineColor || lastBarColor;
+/** The colours a plate can take, in the chart's own current settings. */
+export interface PlatePalette {
+  /** A bar that closed at or above its open. */
+  up: string;
+  /** A bar that closed below its open. */
+  down: string;
+  /** A series with no open — line, area, histogram, baseline. */
+  line: string;
+}
+
+/**
+ * The ground for a plate over `bar`.
+ *
+ * In the order the library's own bar colourer uses: a per-bar `color` (a
+ * script's `barcolor`, or `Color bars based on previous close`) wins, then the
+ * direction of an OHLC bar, then the series' line.
+ */
+export function plateGround(bar: unknown, palette: PlatePalette): string {
+  const item = bar as { color?: unknown; open?: unknown; close?: unknown } | null | undefined;
+  if (typeof item?.color === "string" && item.color !== "") return item.color;
+  if (typeof item?.open === "number" && typeof item.close === "number") {
+    return item.close >= item.open ? palette.up : palette.down;
+  }
+  return palette.line;
 }
 
 /** The ink the library would pick for that ground. */
@@ -227,17 +287,24 @@ const DEFAULT_FONT_SIZE = 12;
 const DEFAULT_FONT_FAMILY = `-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif`;
 
 export interface CountdownState {
-  /** The last candle's close — the anchor when the visible range cannot be read. */
+  /** The last candle's close — the anchor when the series cannot be read. */
   price: number | null;
   /** What the countdown row reads, or null while there is nothing to count down to. */
   text: string | null;
-  /** ONE ground for the plate. That single value is the "one plate" property. */
-  backColor: string;
-  /** The ink for that ground. */
-  textColor: string;
+  /**
+   * What the ONE ground is chosen from. One ground for both rows is the "one
+   * plate" property; which colour it is follows the last bar (`plateGround`).
+   */
+  palette: PlatePalette;
   /** Whether this primitive draws the price row itself, the series' chip being off. */
   ownsPriceRow: boolean;
 }
+
+/** Ground and ink, as one decision. */
+export interface PlateColors { backColor: string; textColor: string }
+
+/** A ground nothing paints with: the packing placeholders' (see `axisViews`). */
+const INVISIBLE = "rgba(0, 0, 0, 0)";
 
 /**
  * The last-price plate, drawn on the price axis.
@@ -249,23 +316,49 @@ export interface CountdownState {
  */
 export class BarCountdownPrimitive implements ISeriesPrimitive {
   private state: CountdownState = {
-    price: null, text: null, backColor: "#2a2e39", textColor: "#d1d4dc", ownsPriceRow: false,
+    price: null, text: null, palette: { up: "#2a2e39", down: "#2a2e39", line: "#2a2e39" },
+    ownsPriceRow: false,
   };
   private series: ISeriesApi<SeriesType> | null = null;
   private chart: IChartApiBase<Time> | null = null;
   private requestUpdate: (() => void) | null = null;
   private readonly views: readonly ISeriesPrimitivePaneView[];
+  private readonly axisViews: readonly ISeriesPrimitiveAxisView[];
 
   constructor() {
     /*
      * One view object in one array for the life of the primitive. The library
      * caches on the ARRAY's identity — its own docs say so — so rebuilding
      * either would defeat that cache every frame.
+     *
+     * `top`, so the plate is painted after the library's labels (A8): a pane
+     * view in the `normal` layer is drawn before them, and every study pill
+     * that came near the last price was painted over it.
      */
     const renderer: ISeriesPrimitivePaneRenderer = {
       draw: (target: CanvasRenderingTarget2D) => { this.paint(target); },
     };
-    this.views = [{ renderer: () => renderer }];
+    this.views = [{ zOrder: () => "top", renderer: () => renderer }];
+    /*
+     * The plate's place in the library's label packing (A8).
+     *
+     * The plate is drawn by this primitive, not as a library label, so the
+     * packing that keeps labels off each other (`alignLabels`, the
+     * `No overlapping labels` setting) did not know it was there. One
+     * placeholder per row tells it: transparent, so it paints nothing, the
+     * row's own text, so it is the row's width and the axis is sized to fit
+     * the plate, and `fixedCoordinate`, so the packing moves the OTHER labels
+     * around it rather than it — the library's own reading of that field.
+     */
+    this.axisViews = [0, 1].map((index): ISeriesPrimitiveAxisView => ({
+      coordinate: () => this.rowCentre(index) ?? -1e6,
+      fixedCoordinate: () => this.rowCentre(index) ?? undefined,
+      text: () => this.rowTexts()[index] ?? "",
+      textColor: () => INVISIBLE,
+      backColor: () => INVISIBLE,
+      visible: () => this.rowCentre(index) !== null,
+      tickVisible: () => false,
+    }));
   }
 
   attached(param: SeriesAttachedParameter<Time, SeriesType>): void {
@@ -288,13 +381,33 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
     const before = this.state;
     this.state = next;
     if (before.text !== next.text || before.price !== next.price
-      || before.backColor !== next.backColor || before.textColor !== next.textColor
+      || before.palette.up !== next.palette.up || before.palette.down !== next.palette.down
+      || before.palette.line !== next.palette.line
       || before.ownsPriceRow !== next.ownsPriceRow) {
       this.requestUpdate?.();
     }
   }
 
   priceAxisPaneViews(): readonly ISeriesPrimitivePaneView[] { return this.views; }
+
+  priceAxisViews(): readonly ISeriesPrimitiveAxisView[] { return this.axisViews; }
+
+  /**
+   * Where row `index` of the plate is centred, or null when it has none —
+   * what the packing placeholders report, so they cannot describe a different
+   * plate from the one `draw` paints.
+   */
+  rowCentre(index: number): number | null {
+    const plan = this.plan((text) => text.length);
+    return plan?.rows[index]?.centreY ?? null;
+  }
+
+  /** The plate's ground and ink right now, from the series' last bar (A8). */
+  colors(): PlateColors {
+    const series = this.series;
+    const backColor = plateGround(series === null ? null : lastBar(series), this.state.palette);
+    return { backColor, textColor: chipTextColor(backColor) };
+  }
 
   /** The rows the plate has right now: the price, the countdown, both or neither. */
   rowTexts(): string[] {
@@ -318,16 +431,19 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
   }
 
   /**
-   * The price the library's own chip would be on: the close of the last bar
-   * inside the visible range, not the last bar there is. They are the same bar
-   * until the chart is panned back, and the difference is the chip following
-   * the pan — which is the behaviour the series' chip had and this replaces.
+   * The price the plate is on: the LAST bar's close, wherever the view is —
+   * the live price, and the bar the dashed price line is drawn from (A8).
+   *
+   * It used to be the last bar inside the visible range, which is the
+   * library's chip's reading. That put the plate a bar behind its own price
+   * line whenever the newest bar was out of view, which on a running feed is
+   * the moment it opens, until the chart is scrolled to meet it.
    */
   private chipPrice(): number | null {
     const series = this.series;
     if (series === null) return null;
     // A read that fails is a read we do without: the close React handed us.
-    return lastVisibleClose(this.chart, series) ?? this.state.price;
+    return lastClose(series) ?? this.state.price;
   }
 
   /**
@@ -380,38 +496,67 @@ export class BarCountdownPrimitive implements ISeriesPrimitive {
     try { return this.chart?.options().layout ?? null; } catch { return null; }
   }
 
+  /**
+   * Paint the plate onto the axis's MAIN canvas, from the axis's top pass.
+   *
+   * The top pass runs after the main canvas has its ground, ticks and every
+   * library label, which is the only moment the plate can be drawn over the
+   * study pills (A8). It is drawn onto the MAIN canvas rather than the top one
+   * because the main canvas is where the axis's labels live: that is the one
+   * `lib/axisTickClearance` reads to find label boxes and the ticks they
+   * half-cover, and the one a crosshair-only repaint leaves alone — so the
+   * plate is never wiped by the crosshair moving, and never covers the
+   * crosshair's own label, which is drawn on the top canvas.
+   *
+   * Repainting it on a crosshair-only pass is idempotent: the plate is an
+   * opaque rect with its text drawn fresh on it, at a position that only a
+   * full repaint (data, scale, or `requestUpdate`) can move.
+   */
   private paint(target: CanvasRenderingTarget2D): void {
-    const font = this.font();
-    const { backColor, textColor } = this.state;
-    target.useMediaCoordinateSpace(({ context, mediaSize }) => {
-      context.save();
+    target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio, verticalPixelRatio }) => {
+      const sibling = (context.canvas as HTMLCanvasElement | undefined)?.previousElementSibling;
+      const main = typeof HTMLCanvasElement !== "undefined" && sibling instanceof HTMLCanvasElement
+        && sibling.width === bitmapSize.width && sibling.height === bitmapSize.height
+        ? sibling.getContext("2d") : null;
+      const ctx = main ?? context;
+      ctx.save();
       try {
-        context.font = font;
-        /*
-         * Measured on the canvas the plate is about to be drawn on. That is
-         * the whole point: a width read here and a width drawn here cannot be
-         * two different numbers.
-         */
-        const plan = this.plan((text) => context.measureText(text).width);
-        // Nothing to draw for a plate the scale has moved out of the axis.
-        if (plan === null || plan.bottom < 0 || plan.top > mediaSize.height) return;
-        context.fillStyle = backColor;
-        roundedRect(context, plan.left, plan.top, plan.right - plan.left, plan.bottom - plan.top);
-        context.fill();
-        context.fillStyle = textColor;
-        // The stub the library draws at the labelled price, and only there.
-        // Snapped to a whole row, or a one-pixel line straddling two of them
-        // is drawn as two half-lit ones.
-        if (plan.tickY !== null) context.fillRect(plan.left, Math.round(plan.tickY) - 1, TICK, 1);
-        context.textAlign = "left";
-        context.textBaseline = "middle";
-        for (const row of plan.rows) {
-          context.fillText(row.text, plan.textX, row.centreY + midCorrection(context, row.text));
-        }
+        ctx.setTransform(horizontalPixelRatio, 0, 0, verticalPixelRatio, 0, 0);
+        this.paintMedia(ctx, {
+          width: bitmapSize.width / horizontalPixelRatio,
+          height: bitmapSize.height / verticalPixelRatio,
+        });
       } finally {
-        context.restore();
+        ctx.restore();
       }
     });
+  }
+
+  /** The plate, in CSS pixels, on a context the caller has saved and will restore. */
+  private paintMedia(context: CanvasRenderingContext2D, mediaSize: { width: number; height: number }): void {
+    const { backColor, textColor } = this.colors();
+    context.font = this.font();
+    /*
+     * Measured on the canvas the plate is about to be drawn on. That is the
+     * whole point: a width read here and a width drawn here cannot be two
+     * different numbers.
+     */
+    const plan = this.plan((text) => context.measureText(text).width);
+    // Nothing to draw for a plate the scale has moved out of the axis.
+    if (plan === null || plan.bottom < 0 || plan.top > mediaSize.height) return;
+    context.fillStyle = backColor;
+    roundedRect(context, plan.left, plan.top, plan.right - plan.left, plan.bottom - plan.top);
+    context.fill();
+    context.fillStyle = textColor;
+    // The stub the library draws at the labelled price, and only there.
+    // Snapped to a whole row, or a one-pixel line straddling two of them
+    // is drawn as two half-lit ones.
+    if (plan.tickY !== null) context.fillRect(plan.left, Math.round(plan.tickY) - 1, TICK, 1);
+    context.textAlign = "left";
+    context.textBaseline = "middle";
+    for (const row of plan.rows) {
+      context.fillText(row.text, plan.textX, row.centreY + midCorrection(context, row.text));
+    }
   }
 }
 
