@@ -178,9 +178,16 @@ if (study) {
 }
 
 // ── Series legend: Flag symbol + More, More is the chart's menu ────────────
+const readoutX = () => page.evaluate(() => {
+  const o = [...document.querySelectorAll("span")].find((s) => (s.childNodes[0]?.nodeValue ?? "").trim() === "O");
+  return o ? Math.round(o.getBoundingClientRect().x) : null;
+});
+const readoutBefore = await readoutX();
 const title = await page.locator('button[aria-label^="Change symbol for the"]').first().boundingBox();
 await page.mouse.move(title.x + 30, title.y + title.height / 2);
 await page.waitForTimeout(400);
+check("series legend", "hovering the title moves nothing after it (the cluster overlays)",
+  readoutBefore !== null && readoutBefore === await readoutX(), `${readoutBefore} → ${await readoutX()}`);
 const series = await page.evaluate(() => [...(document.querySelector("[data-series-actions]")?.querySelectorAll("button") ?? [])]
   .map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), b.getAttribute("aria-label")]; }));
 check("series legend", "hover reveals Flag and More at 28x22",

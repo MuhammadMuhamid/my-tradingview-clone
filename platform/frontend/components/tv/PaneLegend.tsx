@@ -267,53 +267,6 @@ export function PaneLegend(props: PaneLegendProps) {
         )}
 
         {/*
-          ── E6: the series' hover cluster — `Flag symbol` and `More` ─────────
-
-          The reference reveals 28x22 actions after the venue when the pointer
-          is on the series' title, exactly as a study row does; this row
-          revealed nothing. Zero-width at rest, like the study cluster (E3), so
-          the resting line is unchanged; still focusable, so `focus-within`
-          opens it for the keyboard.
-        */}
-        {!dense && (
-          <span data-series-actions=""
-            className="flex w-0 shrink-0 items-center overflow-hidden opacity-0 transition-opacity
-              focus-within:w-auto focus-within:opacity-100
-              group-hover/series:w-auto group-hover/series:opacity-100">
-            <button
-              type="button"
-              {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
-              aria-label={flag ? `Unflag ${tickerLabel}` : `Flag ${tickerLabel}`}
-              aria-pressed={flag !== null}
-              onClick={() => { setFlag(readFlags(), flagSymbol, flag ? null : FLAG_COLOURS[0].id); }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M6 21V4M6 4.5h11l-2.2 3.8L17 12H6"
-                  fill={flagFill ?? "none"} stroke={flagFill ?? "currentColor"} />
-              </svg>
-            </button>
-            {props.onOpenSeriesMenu && (
-              <button
-                type="button"
-                {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
-                aria-label={`More for ${tickerLabel}`}
-                onClick={(event) => {
-                  const box = event.currentTarget.getBoundingClientRect();
-                  props.onOpenSeriesMenu?.({ x: Math.round(box.left), y: Math.round(box.bottom + 4) });
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="5" cy="12" r="1.6" fill="currentColor" />
-                  <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-                  <circle cx="19" cy="12" r="1.6" fill="currentColor" />
-                </svg>
-              </button>
-            )}
-          </span>
-        )}
-
-        {/*
           The comparison, stated on the pane it belongs to.
 
           A chart whose price line is a percentage against a second instrument
@@ -362,6 +315,60 @@ export function PaneLegend(props: PaneLegendProps) {
             loading…
           </span>
         )}
+        {/*
+          ── E6: the series' hover cluster — `Flag symbol` and `More` ─────────
+
+          The reference reveals 28x22 actions when the pointer is on the
+          series' title, as a study row does; this row revealed nothing.
+
+          It OVERLAYS rather than expands. In flow it pushed everything after
+          it — the `vs` comparison chip first — 56px sideways the moment the
+          pointer entered the row, so the chip ran away from the pointer on its
+          way to it. The reference's buttons wrapper is zero-width and its
+          buttons cover the values beside it; this is that, placed at the END of
+          the identity so it covers the start of the readout, never a control.
+          Still focusable, so `focus-within` reveals it for the keyboard.
+        */}
+        {!dense && (
+          <span className="relative h-6 w-0 shrink-0">
+          <span data-series-actions=""
+            className="pointer-events-none absolute left-1 top-0 flex h-6 items-center bg-surface opacity-0
+              transition-opacity focus-within:pointer-events-auto focus-within:opacity-100
+              group-hover/series:pointer-events-auto group-hover/series:opacity-100">
+            <button
+              type="button"
+              {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
+              aria-label={flag ? `Unflag ${tickerLabel}` : `Flag ${tickerLabel}`}
+              aria-pressed={flag !== null}
+              onClick={() => { setFlag(readFlags(), flagSymbol, flag ? null : FLAG_COLOURS[0].id); }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 21V4M6 4.5h11l-2.2 3.8L17 12H6"
+                  fill={flagFill ?? "none"} stroke={flagFill ?? "currentColor"} />
+              </svg>
+            </button>
+            {props.onOpenSeriesMenu && (
+              <button
+                type="button"
+                {...{ className: `${HIT} flex h-[22px] w-7 items-center justify-center rounded-sm border border-transparent text-ink-faint transition-colors hover:border-border hover:text-ink` }}
+                aria-label={`More for ${tickerLabel}`}
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  props.onOpenSeriesMenu?.({ x: Math.round(box.left), y: Math.round(box.bottom + 4) });
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                  <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+                </svg>
+              </button>
+            )}
+          </span>
+          </span>
+        )}
+
       </div>
 
       {/*
