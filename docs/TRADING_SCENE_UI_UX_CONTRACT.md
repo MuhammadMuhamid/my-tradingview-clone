@@ -221,6 +221,28 @@ definition of any of them is a bug:
   stacks above the legend (`z-30`), and a dragged position is kept for the tab.
   `Template` opens the template menu (Save Drawing Template As… / Apply Default
   Drawing Template / this tool's saved ones), never the settings dialog.
+  **The widget set is the tool's** (M1 / F-10, measured on Premium): a line is
+  drag · Template · Line colour · (Text colour, once it has text) · Width ·
+  Style · per-tool controls (Fill, AVWAP bands, profile) · Settings · Lock ·
+  Delete · More; a text-carrying tool (Text, Note, Comment, Callout, Price
+  note, Signpost, Flag) is drag · Template · (Line colour — not on the plain
+  Text, which is nothing but its text) · Text colour · font size (`14`, a
+  32px-row list of 10 11 12 14 16 20 24 28 32 40, shared with the Text tab) ·
+  Settings · Lock · Delete · More. **Clone and Hide are not on the bar** —
+  the reference's has neither; they are in More and the right-click menu.
+  Premium's `Add alert` is offered only where an alert can be made, so a
+  sloped drawing has no dead alert widget.
+- **Text is typed on the chart** (M1 / F-01). A click with a text-carrying
+  tool places the drawing at the click (a new one at 14px) and opens an
+  inline editor over the canvas at its anchor, in the drawing's own face,
+  size and text colour, with the floating toolbar beside it — never a modal.
+  Enter, a blur or a click anywhere else commits; Shift+Enter is a new line;
+  Escape cancels (a fresh drawing is taken away again). An empty `Text` is
+  removed. Placing and typing is ONE undo step, and a cancelled placement is
+  none. Double-clicking an existing text edits it inline the same way (a
+  locked one opens its settings, as every other drawing's double-click does);
+  the full options stay behind the toolbar's gear. The editor owns its keys
+  (`data-owns-keys`): no keystroke typed into it reaches a chart shortcut.
 - `NumberField` — 70 × 28 tabular with the unit beside it.
 
 `Button` gains one variant: **`contrast`** — a light fill with dark text, for a
@@ -870,6 +892,7 @@ from being lost — §9 has the test:
 | a menu row's mark is an 18px glyph in a 28px box in the row's own ink | `tests/dom/contextMenu.test.tsx`, `qa/premiumLock.mjs` |
 | a right-click on a legend row is the legend's display menu; the study's own menu is its `⋯` | `tests/dom/legendStudyActions.test.tsx` |
 | an alert dialog confirms in `contrast` and names its symbol in ink | `tests/alertEditing.test.ts` |
+| a text tool types inline at the click (no dialog); Escape / empty removal; one undo per placed text; its keys never reach a shortcut; the floating toolbar's widget set is per tool, with no Clone or Hide | `tests/dom/drawingTextInline.test.tsx`, `tests/drawingRail.test.ts` |
 | a backtest result counts one population (entries) per row and names it; the last window is "Validation", never "frozen"; a failed run leads with the reader's sentence and keeps the engine's words behind a disclosure; a run can be reproduced from its page | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts` |
 | a backtest compares and names its engine CORRECTION SET, not just "v2-corrected"; a run from an older correction set is never called "Reproducible" and says what it lacks; a run whose stored settings the server now refuses leads with that sentence, hides its figures behind a disclosure and offers no Re-run or Stress; an unfinished run is "Not finished yet" | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts`, `backend/tests/backtestReadTruth.test.ts` |
 

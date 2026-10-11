@@ -45,6 +45,8 @@ geometry and behaviour, never pixels of market data.
 | price axis | no tick label half-covered by a pill | ticks a label touches are hidden | `[price scale]` (8 zoom states) |
 | panes | pan keeps every pane on one time axis; no update-depth loop | — | `[panes]` |
 | compare | opens immediately on Recent / your symbols, never the catalogue alphabet, never the chart itself | RECENT SYMBOLS list on open | `[compare]` |
+| drawing toolbar | per-tool widget set: line = Template · Colour · (Text colour) · Width · Style · Settings · Lock · Delete · More; text = Template · Text colour · `14` · Settings · Lock · Delete · More; no Clone / Hide on the bar (M1 / F-10) | reviewer, live Premium, verified twice: trend line drag · Template · Colour · Text colour · Width · Style · Settings · Add alert · Lock · Delete · More; Text drag · Template · Text colour · `14` · Settings · Lock · Delete · More (`Add alert` withheld here: no sloped alerts) | DOM `tests/dom/drawingTextInline.test.tsx` |
+| text tool | a click places the text and opens an inline editor on the canvas at the click, toolbar beside it; no modal (M1 / F-01) | reviewer, live Premium, verified twice: inline text box at the click point, floating toolbar shown | DOM `tests/dom/drawingTextInline.test.tsx` |
 | layout menu | one row per count, every arrangement as an outline glyph in ink; the chosen one the inverted chip (W2A-15) | per-count rows of outline grids; re-measured 2026-10-11: outlines rgb(219), chosen cell rgb(242) with dark line work | DOM `advancedChart.test.tsx` + `chartToolbar.test.ts` |
 
 Screenshots for the final acceptance round are stored with the campaign

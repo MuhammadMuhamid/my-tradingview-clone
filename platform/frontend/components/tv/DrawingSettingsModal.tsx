@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import {
-  applyDrawingTemplate, defaultDrawingTemplate, FILLABLE_TOOLS, loadDrawingTemplates,
+  applyDrawingTemplate, defaultDrawingTemplate, FILLABLE_TOOLS, loadDrawingTemplates, TEXT_SIZES,
   TOOL_POINTS, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTemplate,
 } from "@/lib/drawings";
 import {
@@ -457,7 +457,7 @@ export function DrawingSettingsModal({
                 label="Text size"
                 width={100}
                 onChange={(v) => patchStyle({ fontSize: Number(v) })}
-                options={[10, 11, 12, 14, 16, 20, 24, 32]
+                options={TEXT_SIZES
                   .map((n) => ({ value: String(n), label: String(n) }))} />
               <ToggleButton label="Bold" pressed={style.bold === true}
                 onClick={() => patchStyle({ bold: !(style.bold === true) })}>

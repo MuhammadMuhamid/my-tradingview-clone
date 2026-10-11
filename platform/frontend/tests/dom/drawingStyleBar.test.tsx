@@ -116,7 +116,7 @@ test("A12 — right-clicking the toolbar opens the Drawing menu, not the chart's
 
 test("A12 — Delete removes the selection while focus sits on a toolbar button", async () => {
   const { bar } = await drawRisingLine();
-  const lock = bar.querySelector<HTMLButtonElement>('button[aria-label="Clone this drawing"]')!;
+  const lock = bar.querySelector<HTMLButtonElement>('button[aria-label="Lock this drawing"]')!;
   lock.focus();
   assert.equal(document.activeElement, lock);
   await press("Delete", {}, lock);

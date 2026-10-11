@@ -91,6 +91,21 @@ class SymbolHistory {
     if (!coalesce) {
       this.past.push(this.present);
       if (this.past.length > MAX_HISTORY) this.past.shift();
+    } else {
+      /*
+       * M1 / F-01: a gesture that ends where it began is no step at all.
+       *
+       * Placing a text drawing opens its inline editor and records the empty
+       * drawing under one gesture; Escape removes it under the same one. The
+       * two collapse into a single entry whose before and after are the same
+       * list — an undo that would do nothing, and that the user never made.
+       */
+      const before = this.past[this.past.length - 1];
+      if (before && sameDrawings(before.drawings, next)) {
+        this.past.pop();
+        this.present = { drawings: next, gesture: null };
+        return;
+      }
     }
     this.present = { drawings: next, gesture };
   }
@@ -225,6 +240,34 @@ export function sameDrawings(a: readonly Drawing[], b: readonly Drawing[]): bool
     const px = x.style.profile ?? {}, py = y.style.profile ?? {};
     const profileKeys = ["layout", "rowSize", "valueAreaPercent", "allocation", "split", "side", "widthPercent", "showValueArea", "showPoc"] as const;
     for (const key of profileKeys) if (px[key] !== py[key]) return false;
+    if (!sameRemainingStyle(x.style, y.style)) return false;
+  }
+  return true;
+}
+
+/** The style keys `sameDrawings` already compares, with their own defaults. */
+const COMPARED_STYLE_KEYS = new Set(["color", "width", "dashed", "filled", "text", "bands", "profile"]);
+
+/**
+ * M1 / F-10: every OTHER style key, compared by value.
+ *
+ * The list above predates the Text tab and the toolbar's font-size and text
+ * colour widgets, so a change to `fontSize`, `textColor`, `lineStyle` or any
+ * other later key compared as "nothing changed": the history recorded no step,
+ * and undo skipped straight past the edit to the one before it. An unset key
+ * and an `undefined` one are the same; anything else is compared exactly
+ * (these are numbers, strings and booleans, or arrays of them).
+ */
+function sameRemainingStyle(a: Drawing["style"], b: Drawing["style"]): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (COMPARED_STYLE_KEYS.has(key)) continue;
+    const va = (a as unknown as Record<string, unknown>)[key];
+    const vb = (b as unknown as Record<string, unknown>)[key];
+    if (va === vb) continue;
+    if (Array.isArray(va) && Array.isArray(vb)
+      && va.length === vb.length && va.every((v, i) => v === vb[i])) continue;
+    return false;
   }
   return true;
 }

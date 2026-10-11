@@ -730,6 +730,30 @@ test("recording an identical list is not an edit", () => {
   assert.equal(sameDrawings([line("a", 1)], []), false);
 });
 
+test("M1 — a gesture that ends where it began records no step", () => {
+  // Placing a text records it under a gesture; Escape removes it under the same.
+  const history = new DrawingHistory();
+  history.reset("S", [line("a", 1)]);
+  history.record("S", [line("a", 1), line("t", 2)], "text:t");
+  history.record("S", [line("a", 1)], "text:t");
+  assert.equal(history.state("S").canUndo, false, "a cancelled placement left an undo that does nothing");
+  // And a placement that is typed is one step.
+  history.record("S", [line("a", 1), line("u", 3)], "text:u");
+  history.record("S", [line("a", 1), { ...line("u", 3), style: { ...line("u", 3).style, text: "hi" } }], "text:u");
+  assert.equal(history.state("S").depth, 1);
+  assert.deepEqual(history.undo("S")!.map((d) => d.id), ["a"]);
+});
+
+test("M1 — a font size, text colour or line style change is an edit", () => {
+  const base = line("a", 1);
+  for (const patch of [{ fontSize: 20 }, { textColor: "#ff0000" }, { lineStyle: "dotted" as const }]) {
+    assert.equal(sameDrawings([base], [{ ...base, style: { ...base.style, ...patch } }]), false,
+      `${Object.keys(patch)[0]} compared as unchanged, so undo skipped it`);
+  }
+  // An absent key and an undefined one are the same.
+  assert.equal(sameDrawings([base], [{ ...base, style: { ...base.style, fontSize: undefined } }]), true);
+});
+
 test("loading a symbol's drawings is not undoable", () => {
   const history = new DrawingHistory();
   history.record("S", [line("a", 1)]);

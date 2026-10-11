@@ -472,10 +472,22 @@ export const TOOL_POINTS: Record<DrawingTool, number> = {
   avprofile: 1,
 };
 
-/** Tools whose creation asks the user for a caption. */
+/**
+ * Tools that carry a caption, typed into the inline editor at the click
+ * (M1 / F-01) — and re-opened there by a double-click.
+ */
 export const TEXT_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>([
   "text", "note", "priceNote", "comment", "callout", "signpost", "flagMark",
 ]);
+
+/**
+ * The font sizes the reference offers for a drawing's text — the floating
+ * toolbar's size widget and the settings dialog's Text tab use this one list.
+ */
+export const TEXT_SIZES: readonly number[] = [10, 11, 12, 14, 16, 20, 24, 28, 32, 40];
+
+/** The size a NEW text drawing is placed at: the reference's `14`. */
+export const NEW_TEXT_SIZE = 14;
 
 /** Tools that are transient measurements — cleared when the tool is switched. */
 export const EPHEMERAL_TOOLS: ReadonlySet<DrawingTool> = new Set<DrawingTool>(["ruler"]);

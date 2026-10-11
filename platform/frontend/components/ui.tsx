@@ -1086,6 +1086,34 @@ export function WidthPicker({ value, onChange, layout = "row" }: {
   );
 }
 
+/**
+ * M1 / F-10: the floating toolbar's font-size list for a text drawing — the
+ * reference's `14` widget. The same 32px labelled rows as `WidthPicker`'s list
+ * layout, the current size on the selected chip.
+ */
+export function FontSizePicker({ value, sizes, onChange }: {
+  value: number;
+  sizes: readonly number[];
+  onChange: (next: number) => void;
+}) {
+  return (
+    <div role="listbox" aria-label="Font size" className="tvc-menu--compact max-h-[328px] overflow-y-auto py-1.5 text-sm">
+      {sizes.map((size) => (
+        <button
+          key={size}
+          type="button"
+          role="option"
+          aria-selected={size === value}
+          onClick={() => onChange(size)}
+          className="tvc-menu-row tabular min-w-[64px] pl-3 pr-5 text-left text-ink"
+        >
+          {size}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** The reference's names for the three patterns, in its order. */
 const DASH_NAMES: readonly { value: "solid" | "dotted" | "dashed"; label: string }[] = [
   { value: "solid", label: "Line" },

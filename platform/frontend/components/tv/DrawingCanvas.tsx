@@ -8,24 +8,24 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
-  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, TEXT_TOOLS, TOOL_POINTS,
+  DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, NEW_TEXT_SIZE, TEXT_SIZES,
+  TEXT_TOOLS, TOOL_POINTS,
   applyDrawingTemplate, currentIconGlyph, defaultDrawingTemplate, distToEllipse, distToLine, distToRay,
   distToRect, drawingVisibleOnTimeframe, distToSegment, isCursorMode, loadDrawingTemplates, newId,
   type Anchor, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
-import { cloneDrawing } from "@/lib/drawingHistory";
 import {
   CHART_FONT, chartInkMuted, chartNegative, chartPositive, chartSurface, readableOn,
 } from "@/lib/chartTheme";
 import { useAsk } from "@/components/AskDialog";
-import { ColourPalette, DashPicker, PopoverButton, WidthPicker } from "@/components/ui";
+import { ColourPalette, DashPicker, FontSizePicker, PopoverButton, WidthPicker } from "@/components/ui";
 import {
   deleteDrawingTemplateAsk, DrawingTemplateMenuPanel, saveDrawingTemplateAs,
 } from "@/components/tv/DrawingTemplateMenu";
 import { clampPlacement, toolbarPlacement, type Box } from "@/lib/drawingToolbarPlacement";
 import { recallJson, rememberJson } from "@/lib/browserStorage";
-import { opaque } from "@/lib/colorAlpha";
+import { opaque, withAlpha } from "@/lib/colorAlpha";
 import { DrawingAxisLabelsPrimitive, drawingAxisTags } from "@/lib/drawingAxisLabels";
 import { coordinateAtLogical, timeMap } from "@/lib/drawingTimeMap";
 
@@ -149,11 +149,86 @@ function lineStyleOf(style: DrawingStyle): "solid" | "dotted" | "dashed" {
   return style.lineStyle ?? (style.dashed ? "dashed" : "solid");
 }
 
-/** What the text dialog calls itself, per tool. */
-const TEXT_TOOL_TITLES: Partial<Record<DrawingTool, string>> = {
-  text: "Text", note: "Note", callout: "Callout", comment: "Comment",
-  priceNote: "Price note", signpost: "Signpost", flagMark: "Flag",
-};
+/**
+ * M1 / F-01: a text drawing being typed into, in place.
+ *
+ * `fresh` is a drawing the click has just placed: Escape takes it away again.
+ * `gesture` is the undo-history gesture the edit records under — for a fresh
+ * drawing, the SAME one its placement was recorded under, so placing a text
+ * and typing it is one undo step, and placing one and pressing Escape is none.
+ */
+interface TextEdit {
+  id: string;
+  fresh: boolean;
+  original: string;
+  gesture: string;
+}
+
+/** The size a text drawing paints at when it never set one (see `textFont`). */
+function textSizeOf(style: DrawingStyle, tool: DrawingTool): number {
+  return style.fontSize ?? (tool === "callout" ? 12 : 13);
+}
+
+/** One line of a text drawing's caption, top to top, in pixels. */
+function textLineHeight(size: number): number {
+  return Math.round(size * 1.25);
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+/** A caption line's width in `font`, or an estimate where nothing can measure. */
+function measureCaption(text: string, font: string, size: number): number {
+  if (measureContext === undefined) {
+    try { measureContext = document.createElement("canvas").getContext("2d"); }
+    catch { measureContext = null; }
+  }
+  if (measureContext) {
+    measureContext.font = font;
+    const width = measureContext.measureText(text).width;
+    if (Number.isFinite(width) && width > 0) return width;
+  }
+  return text.length * size * 0.6;
+}
+
+/**
+ * Where the inline editor sits for a text drawing, in pane pixels: over the
+ * caption the canvas would paint, so typing happens where the text will be.
+ * Mirrors the per-tool geometry in `drawOne`.
+ */
+function textEditorBox(d: Drawing, a: Pt, text: string): {
+  left: number; top: number; translate: string; align: "left" | "center" | "right";
+  boxed: boolean; padX: number; padY: number; minHeight: number; size: number; lineHeight: number;
+} {
+  const size = textSizeOf(d.style, d.tool);
+  const lineHeight = textLineHeight(size);
+  const rows = Math.max(1, text.split("\n").length);
+  const boxed = { translate: "", align: "left" as const, boxed: true, size, lineHeight };
+  switch (d.tool) {
+    case "note": case "comment":
+      return { ...boxed, left: a.x + 10, top: a.y - 30, padX: 6, padY: 2, minHeight: 20 };
+    case "priceNote":
+      return { ...boxed, left: a.x + 18, top: a.y - 30, padX: 5, padY: 2, minHeight: 20 };
+    case "callout":
+      return { ...boxed, left: a.x + 26, top: a.y - 44, padX: 7, padY: 3, minHeight: 24 };
+    case "signpost":
+      return { ...boxed, translate: "translateX(-50%)", left: a.x, top: a.y - 45, padX: 6, padY: 1, minHeight: 18 };
+    default: {
+      const hAlign = d.style.textHAlign ?? "left";
+      const vAlign = d.style.textVAlign ?? "bottom";
+      const firstBaseline = a.y - (vAlign === "bottom" ? (rows - 1) * lineHeight
+        : vAlign === "middle" ? ((rows - 1) * lineHeight) / 2 : 0);
+      const top = vAlign === "top" ? firstBaseline - (lineHeight - size) / 2
+        : vAlign === "middle" ? firstBaseline - lineHeight / 2
+          : firstBaseline - Math.round(size * 0.97);
+      return {
+        left: hAlign === "left" ? a.x + 4 : a.x,
+        top,
+        translate: hAlign === "center" ? "translateX(-50%)" : hAlign === "right" ? "translateX(-100%)" : "",
+        align: hAlign,
+        boxed: false, padX: 0, padY: 0, minHeight: lineHeight, size, lineHeight,
+      };
+    }
+  }
+}
 import {
   barsPatternGeometry, fibChannelGeometry, gannSquareGeometry, patternLabels, positionForecastGeometry,
   pitchforkGeometry, regression as regressionGeometry, timeProjection,
@@ -317,8 +392,6 @@ export function DrawingCanvas({
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
   const ask = useAsk();
-  const askRef = useRef(ask);
-  askRef.current = ask;
   const onToolDoneRef = useRef(onToolDone);
   onToolDoneRef.current = onToolDone;
   /*
@@ -329,6 +402,81 @@ export function DrawingCanvas({
    */
   const chartRef = useRef(chart);
   chartRef.current = chart;
+
+  // ── the inline text editor (M1 / F-01) ───────────────────────────────────
+  /*
+   * State for the render, refs for the imperative handlers — and the refs are
+   * written WITH the state rather than from it on render, because a commit
+   * from one event and a re-open from the next can both land before React
+   * renders in between.
+   */
+  const [textEdit, setTextEditState] = useState<TextEdit | null>(null);
+  const [editText, setEditTextState] = useState("");
+  const textEditRef = useRef<TextEdit | null>(null);
+  const editTextRef = useRef("");
+  /** Whether the edited drawing has reached `drawings` yet — see the effect below. */
+  const editSeenRef = useRef(false);
+  const setTextEdit = useCallback((next: TextEdit | null): void => {
+    textEditRef.current = next;
+    setTextEditState(next);
+  }, []);
+  const setEditText = useCallback((next: string): void => {
+    editTextRef.current = next;
+    setEditTextState(next);
+  }, []);
+
+  /**
+   * Close the editor. `commit` writes what was typed; `cancel` puts back what
+   * was there, which for a drawing the click has just placed is nothing.
+   *
+   * An empty `Text` is removed either way: it is a drawing with nothing to
+   * draw, which nobody could see to select or delete. The other text tools
+   * keep their shape — a note, a flag, a signpost — with no caption.
+   */
+  const finishTextEdit = useCallback((mode: "commit" | "cancel"): void => {
+    const edit = textEditRef.current;
+    if (!edit) return;
+    setTextEdit(null);
+    const list = drawingsRef.current;
+    const target = list.find((d) => d.id === edit.id);
+    if (!target) return;
+    const text = mode === "cancel" ? edit.original : editTextRef.current;
+    const discard = (mode === "cancel" && edit.fresh) || (target.tool === "text" && text.trim() === "");
+    /*
+     * The list is written back to `drawingsRef` at once, not on the next
+     * render: a click elsewhere commits here and then, in the SAME event, may
+     * place the next drawing from `drawingsRef` — which would otherwise still
+     * be the list from before this commit, and would write the text away.
+     */
+    const write = (next: Drawing[]): void => {
+      drawingsRef.current = next;
+      onChangeRef.current(next, edit.gesture);
+    };
+    if (discard) {
+      write(list.filter((d) => d.id !== edit.id));
+      setSelected((current) => (current === edit.id ? null : current));
+      return;
+    }
+    if ((target.style.text ?? "") === text) return;
+    write(list.map((d) => (d.id === edit.id ? { ...d, style: { ...d.style, text } } : d)));
+  }, [setTextEdit]);
+
+  /**
+   * Open the editor on `d`. A fresh drawing passes the gesture its placement
+   * was recorded under; an existing one gets a gesture of its own, so editing
+   * it is one undo step whatever is typed.
+   */
+  const beginTextEdit = useCallback((d: Drawing, fresh: boolean, gesture?: string): void => {
+    if (textEditRef.current?.id === d.id) return;
+    if (textEditRef.current) finishTextEdit("commit");
+    const original = d.style.text ?? "";
+    editSeenRef.current = !fresh;
+    setEditText(original);
+    setTextEdit({ id: d.id, fresh, original, gesture: gesture ?? `text-edit:${d.id}:${Date.now()}` });
+    setSelected(d.id);
+  }, [finishTextEdit, setEditText, setTextEdit]);
+  const beginTextEditRef = useRef(beginTextEdit);
+  beginTextEditRef.current = beginTextEdit;
 
   // ── time ↔ logical-index mapping ──────────────────────────────────────────
   // Stored anchors use bar time; the chart positions by logical index. Bars may
@@ -438,53 +586,43 @@ export function DrawingCanvas({
       const risk = (points[1]!.price - points[0]!.price) / 2;
       pts = [...points, { time: points[1]!.time, price: points[0]!.price - risk }];
     }
-    const place = (text?: string): void => {
-      const d: Drawing = {
-        id: newId(),
-        tool: tl,
-        points: pts,
-        style: {
-          ...styleRef.current,
-          ...(text !== undefined ? { text } : {}),
-          // The emoji the rail's picker last armed. See `armIconGlyph`.
-          ...(tl === "icon" ? { glyph: currentIconGlyph() } : {}),
-        },
-      };
-      // Measurement tools are one-at-a-time, like TV's measure.
-      const kept = EPHEMERAL_TOOLS.has(tl)
-        ? drawingsRef.current.filter((x) => x.tool !== tl)
-        : drawingsRef.current;
-      onChangeRef.current([...kept, d]);
-      draftRef.current = null;
-      previewRef.current = null;
-      setSelected(d.id);
-      onToolDoneRef.current();
-    };
-
     /*
-     * TVP8: the text tools used to open `window.prompt`.
+     * M1 / F-01: a text tool places its drawing AT THE CLICK and opens the
+     * inline editor there, as the reference does.
      *
-     * Placing a piece of text on a chart is one of the most ordinary things
-     * the annotation rail is for, and it dropped a native browser sheet from
-     * the top of the window with "localhost:3000 says" printed above it. It is
-     * the loudest tell in the product, and it froze the live chart behind it
-     * until the user answered. `useAsk` is the product's own, through the same
-     * `Modal` as every other dialog.
+     * It used to open a modal `Text` dialog (one field, Cancel / Place) and
+     * draw nothing until Place — before that, `window.prompt`. Either way the
+     * user typed somewhere other than where the text was going. Now the
+     * drawing exists the moment the click lands, carrying the reference's
+     * `14` unless a size is already armed, and is typed into in place; the
+     * settings dialog is still one click away on the toolbar's gear.
      */
-    if (TEXT_TOOLS.has(tl)) {
-      void askRef.current.promptFor({
-        title: TEXT_TOOL_TITLES[tl] ?? "Text",
-        label: "Text",
-        placeholder: tl === "callout" ? "What this points at" : "",
-        multiline: tl === "note" || tl === "callout",
-        confirmLabel: "Place",
-      }).then((input) => {
-        if (input === null) { draftRef.current = null; onToolDoneRef.current(); return; }
-        place(input);
-      });
-      return;
-    }
-    place();
+    const carriesText = TEXT_TOOLS.has(tl);
+    const d: Drawing = {
+      id: newId(),
+      tool: tl,
+      points: pts,
+      style: {
+        ...styleRef.current,
+        ...(carriesText ? { text: "", fontSize: styleRef.current.fontSize ?? NEW_TEXT_SIZE } : {}),
+        // The emoji the rail's picker last armed. See `armIconGlyph`.
+        ...(tl === "icon" ? { glyph: currentIconGlyph() } : {}),
+      },
+    };
+    // Measurement tools are one-at-a-time, like TV's measure.
+    const kept = EPHEMERAL_TOOLS.has(tl)
+      ? drawingsRef.current.filter((x) => x.tool !== tl)
+      : drawingsRef.current;
+    // The placement and the typing that follows are one undo step: see `TextEdit`.
+    const gesture = carriesText ? `text:${d.id}` : null;
+    const next = [...kept, d];
+    if (carriesText) drawingsRef.current = next; // the editor reads it before the next render
+    onChangeRef.current(next, gesture);
+    draftRef.current = null;
+    previewRef.current = null;
+    setSelected(d.id);
+    onToolDoneRef.current();
+    if (carriesText) beginTextEditRef.current(d, true, gesture ?? undefined);
   }, []);
 
   // Switching tools clears an unfinished draft and any ephemeral measurement.
@@ -785,10 +923,21 @@ export function DrawingCanvas({
     const DOUBLE_PX = 4;
     let lastPress: { x: number; y: number; at: number } | null = null;
 
-    /** Open `id`'s settings by the same route the floating toolbar's gear takes. */
+    /**
+     * Open `id`'s settings by the same route the floating toolbar's gear takes
+     * — or, for a drawing that carries text, its inline editor (M1 / F-01):
+     * the reference edits a text in place on a double-click, and keeps the
+     * dialog behind the gear. A locked text is not edited, so it gets the
+     * dialog, as every other drawing does.
+     */
     const openSettingsFor = (id: string, e: MouseEvent): void => {
-      setSelected(id);
-      onOpenSettings?.(id);
+      const target = drawingsRef.current.find((d) => d.id === id);
+      if (target && TEXT_TOOLS.has(target.tool) && !lockedRef.current && !target.locked) {
+        beginTextEditRef.current(target, false);
+      } else {
+        setSelected(id);
+        onOpenSettings?.(id);
+      }
       // And claim the event, so the chart's own double-click (autoscale reset)
       // does not also fire underneath the dialog that just opened.
       e.stopPropagation();
@@ -999,10 +1148,12 @@ export function DrawingCanvas({
       const fp = `${w}|${h}|${x0}|${x1}|${y0}|${drawings.length}|${selected}|${hidden}` +
         `|${interval}` +
         `|${draftRef.current?.points.length ?? -1}|${previewRef.current?.time ?? 0}` +
-        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${geometryDigest(drawings)}`;
+        `|${previewRef.current?.price ?? 0}|${hoverRef.current}|${geometryDigest(drawings)}` +
+        `|${textEditRef.current?.id ?? ""}`;
       if (fp === last) return;
       last = fp;
       paint(canvas, w, h);
+      placeEditorRef.current();
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -1036,7 +1187,9 @@ export function DrawingCanvas({
       // it can be un-hidden from the drawings panel; it is simply not on the
       // chart, and `hitTest` agrees so it cannot be grabbed by an empty click.
       if (d.hidden || !drawingVisibleOnTimeframe(d, interval)) continue;
-      drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current, candles);
+      // The caption of a text being typed is the editor's to show, not the canvas's.
+      drawOne(ctx, d, toPx, plotW, plotH, d.id === selected, d.id === hoverRef.current, candles,
+        d.id === textEditRef.current?.id);
     }
     // In-progress geometry follows the pointer.
     const draft = draftRef.current;
@@ -1196,9 +1349,148 @@ export function DrawingCanvas({
     styleBarRef.current?.querySelector<HTMLElement>("button")?.focus();
   }, [styleFocusSignal, sel]);
 
+  // ── the inline text editor (M1 / F-01) ───────────────────────────────────
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editTarget = textEdit ? drawings.find((d) => d.id === textEdit.id) ?? null : null;
+  const editAnchor = editTarget ? toPx(editTarget.points[0]!) : null;
+  const editBox = editTarget && editAnchor ? textEditorBox(editTarget, editAnchor, editText) : null;
+
+  /*
+   * The editor follows its anchor through a pan or a zoom: the render loop
+   * calls this whenever it repaints, which is whenever the scales move.
+   */
+  const placeEditorRef = useRef<() => void>(() => {});
+  placeEditorRef.current = () => {
+    const el = editorRef.current;
+    if (!el || !editTarget) return;
+    const box = textEditorBox(editTarget, toPx(editTarget.points[0]!), editTextRef.current);
+    el.style.left = `${box.left}px`;
+    el.style.top = `${box.top}px`;
+  };
+
+  // Focus on open, with the caret after what is already there.
+  const editorShown = editTarget !== null;
+  useLayoutEffect(() => {
+    const el = editorRef.current;
+    if (!textEdit || !editorShown || !el) return;
+    el.focus();
+    const end = el.value.length;
+    try { el.setSelectionRange(end, end); } catch { /* not a text control in this environment */ }
+  }, [textEdit, editorShown]);
+
+  /*
+   * Clicking anywhere else commits — on the chart too, where the drawing
+   * layer's own presses call `preventDefault` and so would never move focus
+   * out of the editor to blur it. Capture phase, so the commit lands before
+   * the press that caused it places, selects or drags anything. The style bar
+   * is part of the edit: changing the text colour or size is not leaving it.
+   */
+  useEffect(() => {
+    if (!textEdit) return;
+    const outside = (event: Event): void => {
+      const target = event.target as Node | null;
+      if (target && (editorRef.current?.contains(target) || styleBarRef.current?.contains(target))) return;
+      finishTextEdit("commit");
+    };
+    document.addEventListener("mousedown", outside, true);
+    document.addEventListener("touchstart", outside, true);
+    return () => {
+      document.removeEventListener("mousedown", outside, true);
+      document.removeEventListener("touchstart", outside, true);
+    };
+  }, [textEdit, finishTextEdit]);
+
+  // Selecting something else, or hiding every drawing, ends the edit.
+  useEffect(() => {
+    const edit = textEditRef.current;
+    if (!edit) return;
+    if (selected !== edit.id || hidden) finishTextEdit("commit");
+  }, [selected, hidden, finishTextEdit]);
+
+  /*
+   * And a drawing that went away underneath the editor — an undo from the
+   * toolbar, a symbol change, a sync — closes it without writing anything.
+   * Only once the drawing has been SEEN: a freshly placed one reaches
+   * `drawings` a render after the editor opens on it.
+   */
+  useEffect(() => {
+    const edit = textEditRef.current;
+    if (!edit) return;
+    if (drawings.some((d) => d.id === edit.id)) { editSeenRef.current = true; return; }
+    if (editSeenRef.current) setTextEdit(null);
+  }, [drawings, textEdit, setTextEdit]);
+
+  const editRows = editText.split("\n");
+  const editColour = editTarget ? editTarget.style.textColor || editTarget.style.color : "";
+  const editFont = editTarget
+    ? textFont({ ...editTarget.style, fontSize: textSizeOf(editTarget.style, editTarget.tool) }) : "";
+  const editWidth = editBox
+    ? Math.ceil(Math.max(editBox.size * 2,
+      ...editRows.map((row) => measureCaption(row, editFont, editBox.size)))) + 2 * editBox.padX + 4
+    : 0;
+
   return (
     <>
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 z-10" />
+      {textEdit && editTarget && editBox && !hidden && (
+        <textarea
+          ref={editorRef}
+          aria-label="Drawing text"
+          data-drawing-text-editor=""
+          /*
+           * Every key typed here is the text's. `data-owns-keys` and the
+           * textarea itself are what `isTypingTarget` reads, so the workspace's
+           * shortcuts — a bare letter opening the symbol search, Delete
+           * removing the selection, ⌘Z undoing a drawing — stand back.
+           */
+          data-owns-keys=""
+          spellCheck={false}
+          wrap="off"
+          rows={editRows.length}
+          value={editText}
+          onChange={(event) => setEditText(event.target.value)}
+          onKeyDown={(event) => {
+            // Bare keys are the text's alone; a modified one (⌘S) still
+            // reaches the workspace, which asks `isTypingTarget` itself.
+            if (!event.metaKey && !event.ctrlKey) event.stopPropagation();
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              finishTextEdit("cancel");
+            } else if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              finishTextEdit("commit");
+            }
+          }}
+          onBlur={(event) => {
+            if (styleBarRef.current?.contains(event.relatedTarget as Node | null)) return;
+            finishTextEdit("commit");
+          }}
+          onContextMenu={(event) => event.stopPropagation()}
+          className="absolute z-30 m-0 resize-none overflow-hidden whitespace-pre outline-none"
+          style={{
+            left: editBox.left,
+            top: editBox.top,
+            transform: editBox.translate || undefined,
+            width: editWidth,
+            minHeight: editBox.minHeight,
+            height: editRows.length * editBox.lineHeight + 2 * editBox.padY + (editBox.boxed ? 2 : 0),
+            padding: `${editBox.padY}px ${editBox.padX}px`,
+            font: editFont,
+            lineHeight: `${editBox.lineHeight}px`,
+            textAlign: editBox.align,
+            color: editColour,
+            caretColor: editColour,
+            // A boxed tool's box, drawn by the editor while the canvas leaves
+            // it out; a plain caption is outlined so the place to type shows.
+            background: editBox.boxed ? withAlpha(editTarget.style.color, 16) : "transparent",
+            border: editBox.boxed ? `1px solid ${editTarget.style.color}` : "none",
+            boxShadow: editBox.boxed ? "none" : `0 0 0 1px ${withAlpha(editColour, 50)}`,
+            borderRadius: 2,
+          }}
+        />
+      )}
       {sel && styleBarAt && !hidden && !sel.hidden && (
         <div
           ref={styleBarRef}
@@ -1305,6 +1597,19 @@ export function DrawingCanvas({
             pencil over a bar OF that colour, width as its own sample beside
             `2px`, style as a sample of the pattern.
           */}
+          {/*
+            M1 / F-10: the widget set is the TOOL's, as the reference's is.
+            Measured on Premium: a trend line's bar is Template · Colour · Text
+            colour · Width · Style · Settings · (Add alert) · Lock · Delete ·
+            More, and a Text's is Template · Text colour · `14` · Settings ·
+            Lock · Delete · More. So a text drawing gets a font size where a
+            line gets width and style, and the plain Text — which is nothing
+            but its text — no line colour at all. Clone and Hide are not on the
+            reference's bar; they stay in More and the right-click menu. Add
+            alert is only offered where an alert can be made: a sloped
+            drawing cannot have one here, so it has no dead control either.
+          */}
+          {sel.tool !== "text" && (
           <PopoverButton
             label="Line color"
             className={BAR_ICON_BUTTON}
@@ -1318,6 +1623,7 @@ export function DrawingCanvas({
               <path d="M13.5 6.5l3 3" />
             </ColourGlyph>
           </PopoverButton>
+          )}
           {/*
             The reference's text colour, on a drawing that HAS text — a
             control that moved nothing on an unlabelled line must not exist.
@@ -1336,6 +1642,20 @@ export function DrawingCanvas({
               </ColourGlyph>
             </PopoverButton>
           )}
+          {TEXT_TOOLS.has(sel.tool) && (
+            <PopoverButton
+              label="Font size"
+              className={BAR_TEXT_BUTTON}
+              popover={(close) => (
+                <FontSizePicker sizes={TEXT_SIZES} value={textSizeOf(sel.style, sel.tool)}
+                  onChange={(fontSize) => { applyStyle({ fontSize }); close(); }} />
+              )}
+            >
+              <span className="tabular">{textSizeOf(sel.style, sel.tool)}</span>
+            </PopoverButton>
+          )}
+          {!TEXT_TOOLS.has(sel.tool) && (
+          <>
           <PopoverButton
             label="Line width"
             className={BAR_TEXT_BUTTON}
@@ -1368,6 +1688,8 @@ export function DrawingCanvas({
                   : lineStyleOf(sel.style) === "dotted" ? "1.5 3" : "5 3"} />
             </BarGlyph>
           </PopoverButton>
+          </>
+          )}
           {/*
             Anchored VWAP's standard-deviation bands, on the tool that has
             them. A control here rather than in a dialog for the same reason
@@ -1480,15 +1802,13 @@ export function DrawingCanvas({
           </button>
           )}
           {/*
-            TVP8: Settings and Clone.
+            TVP8: Settings.
 
-            The reference's floating toolbar over a selected drawing carries
-            colour, width, style, SETTINGS, CLONE, lock, delete and a "more"
-            menu. This one had the style half and the lock/delete half, and the
-            settings dialog was reachable only by right-clicking — so the
+            The settings dialog was reachable only by right-clicking — so the
             Coordinates tab, the text tab and every per-tool option were behind
-            a gesture nobody had been told about. Clone had no route at all
-            outside ⌘D.
+            a gesture nobody had been told about. (Clone sat here too until
+            M1 / F-10 measured the reference's bar without it; it is in More,
+            the right-click menu and ⌘D.)
           */}
           <button
             onClick={() => {
@@ -1512,21 +1832,6 @@ export function DrawingCanvas({
             </BarGlyph>
           </button>
           <button
-            onClick={() => {
-              const copy = cloneDrawing(sel, newId, resolutionMs(interval) / 1000);
-              onChange([...drawings, copy]);
-              setSelected(copy.id);
-            }}
-            className={BAR_ICON_BUTTON}
-            title="Clone (⌘D)"
-            aria-label="Clone this drawing"
-          >
-            <BarGlyph>
-              <rect x="3.5" y="3.5" width="12" height="12" rx="2" />
-              <rect x="8.5" y="8.5" width="12" height="12" rx="2" />
-            </BarGlyph>
-          </button>
-          <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
             className={BAR_ICON_BUTTON}
             title={sel.locked ? "Unlock" : "Lock"}
@@ -1538,21 +1843,6 @@ export function DrawingCanvas({
               {/* An open shackle leans clear of the body, so locked and unlocked
                   differ in SHAPE and not only in tint. */}
               <path d={sel.locked ? "M8 10.5V7.5a4 4 0 0 1 8 0v3" : "M8 10.5V7.5a4 4 0 0 1 7.8-1.1"} />
-            </BarGlyph>
-          </button>
-          <button type="button" onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, hidden: !d.hidden } : d)))}
-            className={BAR_ICON_BUTTON}
-            title={sel.hidden ? "Show" : "Hide"} aria-label={sel.hidden ? "Show this drawing" : "Hide this drawing"}>
-            {/*
-              Drawn, not typed. `◉`/`◌` were text characters taking the font's
-              metrics rather than the icon grammar's, and neither reads as an
-              eye. These are the legend's own eye and eye-slash paths, so the
-              same idea looks the same in both places.
-            */}
-            <BarGlyph>
-              <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
-              <circle cx="12" cy="12" r="2.6" />
-              {sel.hidden && <path d="M4 20L20 4" />}
             </BarGlyph>
           </button>
           <button
@@ -1876,7 +2166,12 @@ function distToDrawing(p: Pt, d: Drawing, toPx: ToPx, candles: Candle[] = []): n
  */
 export function drawOne(
   ctx: CanvasRenderingContext2D, d: Drawing, toPx: ToPx,
-  w: number, h: number, selected: boolean, hovered: boolean, candles: Candle[] = []
+  w: number, h: number, selected: boolean, hovered: boolean, candles: Candle[] = [],
+  /**
+   * M1 / F-01: paint the drawing without its caption (and a note's box), for
+   * the one being typed into — the inline editor sits where they would be.
+   */
+  omitText = false,
 ): void {
   const q = d.points.map(toPx);
   if (q.length === 0) return;
@@ -2287,10 +2582,20 @@ export function drawOne(
        * alignments were controls that changed the stored drawing and nothing
        * else. The line colour is still the fallback for `textColor`, so a
        * drawing that never set one looks exactly as it did.
+       *
+       * M1 / F-10: and the TEXT colour is the text's on every one of these.
+       * The note, comment, signpost and price note painted their caption in
+       * the line colour, so the toolbar's Text colour moved nothing on them.
+       * Their box and stem stay in the line colour. A caption may now hold
+       * line breaks (Shift+Enter in the inline editor): the plain caption and
+       * the note's box stack them; the one-line chips join them with spaces.
        */
-      ctx.fillStyle = d.style.textColor || color;
+      const textColour = d.style.textColor || color;
+      ctx.fillStyle = textColour;
       ctx.font = textFont(d.style);
       const caption = d.style.text ?? "";
+      const lineHeight = textLineHeight(textSizeOf(d.style, d.tool));
+      const widest = (rows: string[]): number => Math.max(0, ...rows.map((row) => ctx.measureText(row).width));
       if (d.tool === "pin") {
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - 8, a.y - 18);
         ctx.lineTo(a.x, a.y - 28); ctx.lineTo(a.x + 8, a.y - 18); ctx.closePath(); ctx.fill();
@@ -2298,34 +2603,47 @@ export function drawOne(
         break;
       }
       if (d.tool === "priceNote") {
-        const text = `${fmtPrice(d.points[0]!.price)}${caption ? ` · ${caption}` : ""}`;
-        const tw = ctx.measureText(text).width + 10;
         line(a, { x: a.x + 18, y: a.y - 18 });
+        if (omitText) break;
+        const text = `${fmtPrice(d.points[0]!.price)}${caption ? ` · ${caption.replace(/\n/g, " ")}` : ""}`;
+        const tw = ctx.measureText(text).width + 10;
+        ctx.fillStyle = color;
         fillAlpha(() => ctx.fillRect(a.x + 18, a.y - 30, tw, 20), 0.16);
         ctx.strokeRect(a.x + 18, a.y - 30, tw, 20);
-        ctx.fillStyle = color; ctx.fillText(text, a.x + 23, a.y - 16);
+        ctx.fillStyle = textColour; ctx.fillText(text, a.x + 23, a.y - 16);
         break;
       }
       if (d.tool === "note" || d.tool === "comment") {
-        const text = caption || (d.tool === "note" ? "Note" : "Comment");
-        const tw = ctx.measureText(text).width + 12;
+        if (omitText) break;
+        const rows = (caption || (d.tool === "note" ? "Note" : "Comment")).split("\n");
+        const tw = widest(rows) + 12;
+        const bh = 20 + (rows.length - 1) * lineHeight;
         const bx = a.x + 10, by = a.y - 30;
-        fillAlpha(() => ctx.fillRect(bx, by, tw, 20), 0.16);
-        ctx.strokeRect(bx, by, tw, 20);
-        ctx.beginPath(); ctx.moveTo(bx + 8, by + 20); ctx.lineTo(bx + 3, by + 26); ctx.lineTo(bx + 15, by + 20); ctx.stroke();
-        ctx.fillStyle = color; ctx.fillText(text, bx + 6, by + 14);
+        ctx.fillStyle = color;
+        fillAlpha(() => ctx.fillRect(bx, by, tw, bh), 0.16);
+        ctx.strokeRect(bx, by, tw, bh);
+        ctx.beginPath(); ctx.moveTo(bx + 8, by + bh); ctx.lineTo(bx + 3, by + bh + 6); ctx.lineTo(bx + 15, by + bh); ctx.stroke();
+        ctx.fillStyle = textColour;
+        rows.forEach((row, i) => ctx.fillText(row, bx + 6, by + 14 + i * lineHeight));
         break;
       }
       if (d.tool === "signpost") {
         line(a, { x: a.x, y: a.y - 28 });
-        const text = caption || "Signpost";
+        if (omitText) break;
+        const text = caption.replace(/\n/g, " ") || "Signpost";
         const tw = ctx.measureText(text).width + 12;
+        ctx.fillStyle = color;
         fillAlpha(() => ctx.fillRect(a.x - tw / 2, a.y - 45, tw, 18), 0.16);
         ctx.strokeRect(a.x - tw / 2, a.y - 45, tw, 18);
-        ctx.fillStyle = color; ctx.fillText(text, a.x - tw / 2 + 6, a.y - 32);
+        ctx.fillStyle = textColour; ctx.fillText(text, a.x - tw / 2 + 6, a.y - 32);
         break;
       }
-      if (d.tool === "flagMark") { line(a, { x: a.x, y: a.y - 24 }); ctx.beginPath(); ctx.moveTo(a.x, a.y - 24); ctx.lineTo(a.x + 22, a.y - 16); ctx.lineTo(a.x, a.y - 8); ctx.closePath(); ctx.fill(); }
+      if (d.tool === "flagMark") {
+        line(a, { x: a.x, y: a.y - 24 });
+        ctx.beginPath(); ctx.moveTo(a.x, a.y - 24); ctx.lineTo(a.x + 22, a.y - 16); ctx.lineTo(a.x, a.y - 8); ctx.closePath(); ctx.fill();
+      }
+      if (omitText) break;
+      ctx.fillStyle = textColour;
       // Alignment is set for this draw only and put back, because the context
       // is shared with every branch below and a leaked `textAlign` would move
       // labels that never asked to be moved.
@@ -2333,7 +2651,12 @@ export function drawOne(
       const vAlign = d.style.textVAlign ?? "bottom";
       ctx.textAlign = hAlign === "center" ? "center" : hAlign === "right" ? "right" : "left";
       ctx.textBaseline = vAlign === "top" ? "top" : vAlign === "middle" ? "middle" : "alphabetic";
-      ctx.fillText(caption, hAlign === "left" ? a.x + 4 : a.x, a.y);
+      // Several lines stack from the anchor the way the alignment says: a
+      // bottom-aligned caption keeps its LAST line on the anchor.
+      const rows = caption.split("\n");
+      const firstY = a.y - (vAlign === "bottom" ? (rows.length - 1) * lineHeight
+        : vAlign === "middle" ? ((rows.length - 1) * lineHeight) / 2 : 0);
+      rows.forEach((row, i) => ctx.fillText(row, hAlign === "left" ? a.x + 4 : a.x, firstY + i * lineHeight));
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       break;
@@ -2366,15 +2689,23 @@ export function drawOne(
       break;
     }
     case "callout": {
-      const text = d.style.text ?? "";
-      ctx.font = `12px ${CHART_FONT}`;
-      const tw = ctx.measureText(text).width + 14;
+      /*
+       * M1 / F-10: the callout reads its Text tab too — size, weight, slant
+       * and the text colour — with the 12px it always had as the default.
+       */
+      const size = textSizeOf(d.style, d.tool);
+      const rows = (d.style.text ?? "").split("\n");
+      const lineHeight = textLineHeight(size);
+      ctx.font = textFont({ ...d.style, fontSize: size });
+      const tw = Math.max(0, ...rows.map((row) => ctx.measureText(row).width)) + 14;
+      const bh = 24 + (rows.length - 1) * lineHeight;
       const bx = a.x + 26, by = a.y - 44;
       line(a, { x: bx, y: by + 22 });
-      fillAlpha(() => { ctx.fillStyle = color; ctx.fillRect(bx, by, tw, 24); }, 0.18);
-      ctx.strokeRect(bx, by, tw, 24);
-      ctx.fillStyle = color;
-      ctx.fillText(text, bx + 7, by + 16);
+      if (omitText) break;
+      fillAlpha(() => { ctx.fillStyle = color; ctx.fillRect(bx, by, tw, bh); }, 0.18);
+      ctx.strokeRect(bx, by, tw, bh);
+      ctx.fillStyle = d.style.textColor || color;
+      rows.forEach((row, i) => ctx.fillText(row, bx + 7, by + 16 + i * lineHeight));
       break;
     }
     case "pricelabel": {

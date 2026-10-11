@@ -329,29 +329,29 @@ test("RAIL — every icon-only control has a NAME, not only a tooltip", () => {
   assert.match(src, /const Icon = [\s\S]{0,320}aria-hidden="true"/);
 });
 
-test("THE SELECTED-DRAWING TOOLBAR OFFERS SETTINGS AND CLONE", () => {
+test("THE SELECTED-DRAWING TOOLBAR OFFERS SETTINGS; CLONE AND HIDE LIVE IN ITS MENU", () => {
   /*
-   * TVP8. The reference's floating toolbar over a selected drawing carries
-   * colour, width, style, Settings, Clone, lock, delete and a "more" menu.
-   * This one had the style half and the lock/delete half — so the Coordinates
-   * tab, the text tab and every per-tool option lived behind a right-click
-   * nobody had been told about, and Clone had no route at all outside ⌘D.
+   * TVP8 put Settings on the floating toolbar — the Coordinates tab, the text
+   * tab and every per-tool option lived behind a right-click nobody had been
+   * told about. M1 / F-10 then measured the reference's bar: it carries no
+   * Clone and no Hide, so both left the bar for the drawing's menu (More, and
+   * the right-click), where ⌘D and Hide already were.
    */
   const canvas = read("components/tv/DrawingCanvas.tsx")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const menus = read("lib/menuPayloads.ts");
 
   assert.match(canvas, /aria-label="Settings for this drawing"/);
-  assert.match(canvas, /aria-label="Clone this drawing"/);
+  assert.doesNotMatch(canvas, /aria-label="Clone this drawing"/, "Clone is back on the floating toolbar");
+  assert.doesNotMatch(canvas, /aria-label=\{sel\.hidden \? "Show this drawing" : "Hide this drawing"\}/,
+    "Hide is back on the floating toolbar");
+  assert.match(menus, /id: "drawing:clone", label: "Clone"/, "Clone left the drawing menu too");
+  assert.match(menus, /id: "drawing:toggle-hidden", label: "Hide"/, "Hide left the drawing menu too");
 
-  // Settings opens the SAME menu the right-click opens, rather than a second
-  // route into the dialog that could drift from it.
+  // Settings opens the SAME menu the right-click opens when there is no
+  // dialog route, rather than a second route that could drift from it.
   assert.match(canvas, /handler\(\{\s*x: Math\.round\(box\.left\), y: Math\.round\(box\.bottom \+ 4\),/);
   assert.match(canvas, /drawingId: sel\.id, price: null, region: "plot",/);
-
-  // Clone goes through `cloneDrawing`, which is what ⌘D uses — a second copy
-  // of "offset it so it does not land exactly on the original" would be one
-  // more thing to keep in step.
-  assert.match(canvas, /cloneDrawing\(sel, newId, resolutionMs\(interval\) \/ 1000\)/);
 });
 
 test("FILL IS OFFERED ONLY WHERE THERE IS AN INTERIOR TO FILL", () => {
