@@ -32,7 +32,8 @@ import {
   type NativeParams, type NativeStudyDef,
 } from "../lib/native/registry";
 import {
-  computeWindow, describeParams, newNativeStudy, runNativeStudy, StudyCache,
+  computeWindow, describeParams, mergeTailSegment, newNativeStudy, planStudyWindows,
+  runNativeStudy, StudyCache,
   studySignature, type AppliedNativeStudy,
 } from "../lib/native/compute";
 import {
@@ -388,6 +389,87 @@ test("the window tracks a viewport panned back into history", () => {
     series[0]);
   const past = computeWindow(series, 150, { firstVisibleIndex: 9_950, visibleBars: 300 }, false);
   assert.equal(past[past.length - 1], series[series.length - 1]);
+});
+
+/**
+ * B-01: a window that follows the viewport must not take the NEWEST bar away.
+ *
+ * Panned back, the viewport window stopped at the screen's right edge, so the
+ * resting legend (which promises the last bar) printed that edge bar instead.
+ * The planner adds a tail window of the same size, ending at the newest bar —
+ * bounded, so a pan never costs a full-history computation.
+ */
+test("B-01: panned back, a study is also computed over the newest bars, at windowed cost", () => {
+  const series = bars(10_000);
+  const atEnd = planStudyWindows(series, 150, { firstVisibleIndex: 9_700, visibleBars: 300 }, false);
+  assert.equal(atEnd.tail, null, "at the newest bars there is nothing to add");
+  assert.equal(atEnd.view.length, 450);
+
+  const back = planStudyWindows(series, 150, { firstVisibleIndex: 4_000, visibleBars: 300 }, false);
+  assert.equal(back.view.length, 450, "the viewport window is unchanged");
+  assert.equal(back.view[back.view.length - 1], series[4_299]);
+  assert.ok(back.tail, "a second window covers the newest bars");
+  assert.equal(back.tail!.length, 450, "of the same bounded size — never the whole history");
+  assert.equal(back.tail![back.tail!.length - 1], series[series.length - 1]);
+  assert.equal(back.tailLead, 150);
+  assert.equal(back.viewEnd, 4_300);
+
+  // Close to the end: one contiguous window to the newest bar, at most twice
+  // the windowed size, and no seam.
+  const near = planStudyWindows(series, 150, { firstVisibleIndex: 9_300, visibleBars: 300 }, false);
+  assert.equal(near.tail, null);
+  assert.equal(near.view[near.view.length - 1], series[series.length - 1]);
+  assert.ok(near.view.length <= 900);
+
+  // A visible-range study is about the viewport only, and an unbounded one
+  // already has the whole series.
+  assert.equal(planStudyWindows(series, 150, { firstVisibleIndex: 4_000, visibleBars: 300 },
+    false, true).tail, null);
+  assert.equal(planStudyWindows(series, 0, { firstVisibleIndex: 4_000, visibleBars: 300 },
+    true).view.length, 10_000);
+});
+
+test("B-01: the merged output reads the newest bar at rest and the viewport's bar on hover", () => {
+  const series = bars(4_000, 5);
+  let checked = 0;
+  for (const id of ["rsi", "atr", "bb", "macd", "ichimoku"]) {
+    const def = studyById(id);
+    if (!def) continue;
+    const params = defaultParams(def);
+    const full = def.compute({ candles: series, params, interval: "1m" });
+    const plan = planStudyWindows(series, def.warmup(params),
+      { firstVisibleIndex: 1_500, visibleBars: 300 }, def.unbounded === true);
+    if (!plan.tail) continue;
+    const study = applied(def);
+    const gap = series[plan.viewEnd]!.openTime / 1000;
+    const from = plan.tail[plan.tailLead]!.openTime / 1000;
+    const merged = mergeTailSegment(
+      runNativeStudy(def, study, plan.view, "1m" as Interval, 2),
+      runNativeStudy(def, study, plan.tail, "1m" as Interval, 2), gap, from);
+    for (const plot of def.plots) {
+      const overlay = merged.overlays.find((o) => o.id === `${study.key}:${plot.id}`);
+      if (!overlay || (plot.offset ?? 0) !== 0) continue;
+      const truth = full.plots[plot.id]!;
+      const newest = [...truth].reverse().find((v) => Number.isFinite(v));
+      if (newest === undefined) continue;
+      const last = [...overlay.data].reverse().find((p) => p.value !== null && Number.isFinite(p.value));
+      assert.ok(last && Math.abs(last.value! - newest) <= Math.max(1e-9, Math.abs(newest) * 1e-6),
+        `${id}:${plot.id} rests on ${last?.value} instead of the newest bar's ${newest}`);
+      assert.equal(merged.values[plot.id], last!.value, `${id}:${plot.id} panel value`);
+      // The seam is whitespace, so a line breaks instead of bridging the gap.
+      const seam = overlay.data.find((p) => p.time === gap);
+      assert.ok(seam && seam.value === null, `${id}:${plot.id} has no gap at the seam`);
+      for (let i = 1; i < overlay.data.length; i++) {
+        assert.ok(overlay.data[i]!.time > overlay.data[i - 1]!.time, `${id}:${plot.id} order`);
+      }
+      checked++;
+    }
+    for (const level of merged.overlays.filter((o) => o.constantValue !== undefined)) {
+      assert.equal(level.data[level.data.length - 1]!.time, series[series.length - 1]!.openTime / 1000,
+        `${id} level stops short of the newest bar`);
+    }
+  }
+  assert.ok(checked >= 4, `only ${checked} plots were checked`);
 });
 
 /**

@@ -96,6 +96,13 @@ export interface NativeStudyOutput {
    * pays to retain arrays it will never look at.
    */
   series?: Record<string, readonly number[]>;
+  /**
+   * B-01: the same arrays over the TAIL window, when the study was computed
+   * over a viewport window and a tail window (`planStudyWindows`). A dependent
+   * computed over the tail reads these, bar for bar, exactly as it reads
+   * `series` over the viewport.
+   */
+  tailSeries?: Record<string, readonly number[]>;
 }
 
 const EMPTY: NativeStudyOutput = {
@@ -177,6 +184,140 @@ export function computeWindow(
   const end = Math.min(candles.length, Math.max(1, Math.ceil(viewport.firstVisibleIndex) + visible));
   const start = Math.max(0, end - visible - lead);
   return start === 0 && end === candles.length ? candles : candles.slice(start, end);
+}
+
+/**
+ * The windows one study group is computed over: where the user is looking,
+ * and — when that is not the end of the series — the newest bars as well
+ * (B-01).
+ *
+ * ── Why a viewport window alone is not enough ──────────────────────────────
+ *
+ * `computeWindow` follows the viewport, so a chart panned back six hundred
+ * bars computed its RSI and ATR only up to the right edge of the screen. The
+ * plotted line ended there, the price-axis label showed that bar's reading,
+ * and the legend with no crosshair — which promises the NEWEST value — printed
+ * a bar the user was not looking at while the SMA and Pine rows beside it
+ * printed the last one. One legend, two bars. The reference never does that:
+ * its resting legend is always the last bar and its plots run to the end.
+ *
+ * Computing the whole history instead is not free: measured at 10,000 1m bars
+ * the 57 studies cost ~450 ms together against ~28 ms windowed, and the worst
+ * single ones (linear-regression curve/channel, S/R zones) cost 40-50 ms each
+ * — once per live tick while panned back. So the tail is computed as a SECOND
+ * window of exactly the size the viewport one is, ending at the newest bar.
+ *
+ * When the two windows touch or overlap they are one contiguous window — at
+ * most twice the bars, and no seam to stitch. Otherwise `tail` is set and
+ * `mergeTailSegment` joins the two outputs with a gap between them, which is
+ * off-screen to the right of where the user is looking.
+ */
+export interface StudyWindows {
+  /** The window that covers the viewport. */
+  view: readonly Candle[];
+  /** The newest bars, when `view` does not reach them. */
+  tail: readonly Candle[] | null;
+  /** How many of `tail`'s leading bars are warmup, not values to draw. */
+  tailLead: number;
+  /** Index of the first bar after `view` — where the seam's gap goes. */
+  viewEnd: number;
+}
+
+export function planStudyWindows(
+  candles: readonly Candle[], warmup: number, viewport: Viewport, unbounded: boolean,
+  viewportOnly = false,
+): StudyWindows {
+  const view = computeWindow(candles, warmup, viewport, unbounded);
+  const n = candles.length;
+  if (unbounded || viewportOnly || n === 0 || view.length === 0
+    || view[view.length - 1] === candles[n - 1]) {
+    return { view, tail: null, tailLead: 0, viewEnd: n };
+  }
+  // The same arithmetic `computeWindow` used, so the indices name its slice.
+  const visible = Math.max(1, Math.ceil(viewport.visibleBars));
+  const lead = Math.max(0, Math.ceil(warmup));
+  const viewEnd = Math.min(n, Math.max(1, Math.ceil(viewport.firstVisibleIndex) + visible));
+  const viewStart = Math.max(0, viewEnd - visible - lead);
+  const tailStart = Math.max(0, n - visible - lead);
+  if (viewEnd >= tailStart) {
+    // Touching or overlapping: one window, from the viewport's warmup to the
+    // newest bar. Never more than twice the windowed cost.
+    return {
+      view: viewStart === 0 ? candles : candles.slice(viewStart),
+      tail: null, tailLead: 0, viewEnd: n,
+    };
+  }
+  return { view, tail: candles.slice(tailStart), tailLead: lead, viewEnd };
+}
+
+/** Points of one plot at or after `from` (seconds). */
+const pointsFrom = (points: readonly ChartPoint[], from: number) =>
+  points.filter((point) => point.time >= from);
+/** Points of one plot strictly before `before` (seconds). */
+const pointsBefore = (points: readonly ChartPoint[], before: number) =>
+  points.filter((point) => point.time < before);
+
+/**
+ * One study's output over a viewport window and a tail window, as one output.
+ *
+ * - every plot is the viewport's points, ONE whitespace point at `gapTime` —
+ *   the first bar after the viewport window, so the line breaks instead of
+ *   drawing a straight segment across bars nobody computed — and the tail's
+ *   points from `tailFrom`, the tail's first converged bar;
+ * - a level spans from the viewport window's first bar to the newest bar;
+ * - `values` and `insufficient` are the tail's, because they mean "now";
+ * - fills join the same way; a profile is the viewport's (it is about it).
+ */
+export function mergeTailSegment(
+  view: NativeStudyOutput, tail: NativeStudyOutput, gapTime: number, tailFrom: number,
+): NativeStudyOutput {
+  const tailById = new Map(tail.overlays.map((overlay) => [overlay.id, overlay]));
+  const overlays: ChartOverlay[] = view.overlays.map((overlay) => {
+    const later = tailById.get(overlay.id);
+    if (!later) return overlay;
+    if (overlay.constantValue !== undefined) {
+      const first = overlay.data[0];
+      const last = later.data[later.data.length - 1];
+      return {
+        ...overlay,
+        data: first && last && last.time > first.time ? [first, last] : later.data,
+      };
+    }
+    return {
+      ...overlay,
+      data: [
+        ...pointsBefore(overlay.data, gapTime),
+        { time: gapTime, value: null },
+        ...pointsFrom(later.data, tailFrom),
+      ],
+    };
+  });
+  const viewIds = new Set(view.overlays.map((overlay) => overlay.id));
+  for (const overlay of tail.overlays) {
+    if (!viewIds.has(overlay.id)) {
+      overlays.push({ ...overlay, data: pointsFrom(overlay.data, tailFrom) });
+    }
+  }
+  const tailDecorations = new Map(tail.decorations.map((d) => [d.id, d]));
+  const decorations: ChartDecoration[] = view.decorations.map((decoration) => {
+    const later = tailDecorations.get(decoration.id);
+    if (decoration.kind === "profile" || !later || later.kind === "profile") return decoration;
+    return {
+      ...decoration,
+      data: [
+        ...decoration.data.filter((point) => point.time < gapTime),
+        ...later.data.filter((point) => point.time >= tailFrom),
+      ],
+    };
+  });
+  return {
+    overlays,
+    decorations,
+    values: tail.values,
+    insufficient: tail.insufficient,
+    ...(view.series ? { series: view.series } : {}),
+    ...(tail.series ? { tailSeries: tail.series } : {}),
+  };
 }
 
 /**

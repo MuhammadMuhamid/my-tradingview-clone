@@ -32,8 +32,8 @@ import {
   normalizeParams, type NativeInputValue, type NativeParams,
 } from "./native/registry";
 import {
-  computeWindow, HIDDEN_OUTPUT, newNativeStudy, runNativeStudy, StudyCache,
-  studySignature,
+  HIDDEN_OUTPUT, mergeTailSegment, newNativeStudy, planStudyWindows, runNativeStudy,
+  StudyCache, studySignature,
   type AppliedNativeStudy, type NativeStudyOutput, type PlotStyleOverride,
   type Viewport,
 } from "./native/compute";
@@ -330,11 +330,26 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     for (const edges of graph.edges.values()) {
       for (const edge of edges) readBy.add(edge.key);
     }
-    const windows = graph.componentWarmup.map((warmup, index) => computeWindow(
-      ctx.candles, warmup, viewport, graph.componentUnbounded[index] === true));
+    /*
+     * B-01: a group whose viewport window stops short of the newest bar is
+     * ALSO computed over the newest bars, so its plot runs to the last candle
+     * and its resting legend, axis label and Data window read the last bar.
+     * A group holding a visible-range study is about the viewport only — its
+     * answer IS the range on screen — so it keeps the one window.
+     */
+    const viewportOnly = graph.componentWarmup.map(() => false);
+    for (const study of list) {
+      const index = graph.component.get(study.key);
+      if (index !== undefined && studyById(study.defId)?.usesVisibleRange) viewportOnly[index] = true;
+    }
+    const windows = graph.componentWarmup.map((warmup, index) => planStudyWindows(
+      ctx.candles, warmup, viewport, graph.componentUnbounded[index] === true,
+      viewportOnly[index] === true));
 
     /** Resolved plot arrays, keyed by the token a dependent names them with. */
     const series: Record<string, readonly number[]> = {};
+    /** The same, over each group's tail window. */
+    const tailSeries: Record<string, readonly number[]> = {};
     /** Each study's full signature, so a dependent's key follows its source's. */
     const signatures = new Map<string, string>();
 
@@ -373,11 +388,11 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
       }
 
       const cached = cache.current.get(study, ctx.candles, signature);
-      const result = cached ?? runNativeStudy(
-        def, study, windows[index] ?? ctx.candles, ctx.interval, precision,
-        {
+      const planned = windows[index];
+      const run = (bars: readonly Candle[], sources: Record<string, readonly number[]>) =>
+        runNativeStudy(def, study, bars, ctx.interval, precision, {
           visibleRange: ctx.visibleRange,
-          sources: series,
+          sources,
           sourceLabels: labels,
           captureSeries: readBy.has(key),
           ...(def.id === "vrvp" && profileRefinement.candles.length > 0
@@ -387,11 +402,31 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
               }
             : {}),
         });
-      if (!cached) cache.current.set(study, ctx.candles, signature, result);
+      let result = cached;
+      if (!result) {
+        const viewOut = run(planned?.view ?? ctx.candles, series);
+        const tailBars = planned?.tail ?? null;
+        if (tailBars && tailBars.length > 0 && planned) {
+          const gapBar = ctx.candles[planned.viewEnd];
+          const fromBar = tailBars[Math.min(planned.tailLead, tailBars.length - 1)]!;
+          result = gapBar
+            ? mergeTailSegment(viewOut, run(tailBars, tailSeries),
+              Math.floor(gapBar.openTime / 1000), Math.floor(fromBar.openTime / 1000))
+            : viewOut;
+        } else {
+          result = viewOut;
+        }
+        cache.current.set(study, ctx.candles, signature, result);
+      }
       out.set(key, result);
       if (result.series) {
         for (const [plotId, values] of Object.entries(result.series)) {
           series[studySourceToken(key, plotId)] = values;
+        }
+      }
+      if (result.tailSeries) {
+        for (const [plotId, values] of Object.entries(result.tailSeries)) {
+          tailSeries[studySourceToken(key, plotId)] = values;
         }
       }
     }
