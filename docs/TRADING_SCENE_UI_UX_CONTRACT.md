@@ -334,7 +334,12 @@ dialogs and status lines.
 Three separate concepts, three separate surfaces, never one generic shell:
 
 - **Chart settings** — `ChartSettingsModal`, the pane's own `ChartSettings`.
-- **Indicator settings** — `NativeStudySettings` (built-ins) / the panel (Pine).
+- **Indicator settings** — one dialog family for every study, as on Premium:
+  `NativeStudySettings` (built-ins: Inputs / Style / Visibility) and
+  `PineStudySettings` beside it (Pine: Inputs from the script's `input()`s,
+  grouped by `group=`; Style and Visibility absent because nothing stores a
+  Pine plot override or timeframe allow-list). The Indicators panel's inline
+  form is a secondary path, never where the gear lands.
 - **Drawing settings** — `DrawingSettingsModal`.
 - **Chart-type parameters** — filed under the Symbol tab, beside the chart type
   that owns them. Not under "Canvas", which is about the drawing surface.

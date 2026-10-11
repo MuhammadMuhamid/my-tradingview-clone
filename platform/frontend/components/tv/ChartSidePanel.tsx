@@ -75,6 +75,8 @@ export interface ChartSidePanelProps {
   nativeStudies: NativeStudiesApi | null;
   /** Open the Inputs/Style dialog for one built-in instance. */
   onEditNative: (key: string) => void;
+  /** Open the Inputs dialog for one of the focused pane's Pine studies. */
+  onEditPine?: (key: string) => void;
   indicatorCount: number;
   indicatorFocusKey: string | null;
   onOpenInEditor: (script: PineScript) => void;
@@ -245,6 +247,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 indicators={props.indicators}
                 nativeStudies={props.nativeStudies}
                 onEditNative={props.onEditNative}
+                onEditPine={props.onEditPine}
                 onOpenInEditor={props.onOpenInEditor}
                 onEditIndicator={props.onEditIndicator}
                 focusKey={props.indicatorFocusKey}

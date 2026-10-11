@@ -203,6 +203,12 @@ export interface ChartPaneProps {
   onFocusIndicator: (paneId: string, key: string) => void;
   /** Open a built-in study's own settings dialog, by instance key. */
   onEditNative?: (key: string) => void;
+  /**
+   * Open a Pine study's settings dialog — the same dialog family the
+   * built-ins open. With the pane, because the dialog has to edit the list
+   * that owns the instance, not whichever pane is focused.
+   */
+  onEditPine?: (paneId: string, key: string) => void;
   /** Open the objects panel — the legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
 
@@ -624,16 +630,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
     if (action === "hide") { api.toggleVisible(key); return; }
     if (action === "remove") { api.remove(key); return; }
     /*
-     * Settings. A built-in opens its own dialog directly; a Pine study still
-     * goes through the panel, which is where its source and inputs live.
-     * The gear used to open the side panel for both, so retuning an RSI meant
-     * finding it in a list and clicking a second gear.
+     * Settings. Every study opens a DIALOG, as every study does on the
+     * reference: a built-in its Inputs/Style/Visibility, a Pine study its
+     * Inputs. The gear used to open the side panel for both, then for Pine
+     * alone — so one gear meant two different surfaces depending on which
+     * engine drew the line. The panel stays as the fallback for a caller that
+     * wires no dialog, and as the panel's own secondary path.
      */
     if (isNative && props.onEditNative) { props.onEditNative(key); return; }
+    if (!isNative && props.onEditPine) { props.onEditPine(paneId, key); return; }
     props.onFocusIndicator(paneId, key);
-    // `props.onFocusIndicator` and `props.onEditNative` are stable in the workspace.
+    // `props.onFocusIndicator`, `props.onEditNative` and `props.onEditPine`
+    // are stable in the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, props.onFocusIndicator, props.onEditNative]);
+  }, [paneId, props.onFocusIndicator, props.onEditNative, props.onEditPine]);
 
   /*
    * The other half of `paneAction`: whether a key names a study at all.

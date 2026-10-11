@@ -9,6 +9,7 @@ import type { AppliedIndicator } from "@/lib/indicators";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import { studyMenu } from "@/lib/menuPayloads";
 import type { MenuEntry } from "@/lib/contextMenu";
+import { labelDuplicateInstances } from "@/lib/chartSeries";
 
 /**
  * TradingView's "Indicators" dialog, as a side panel: a library of saved Pine
@@ -19,7 +20,8 @@ import type { MenuEntry } from "@/lib/contextMenu";
  * which is most of them.
  */
 export function IndicatorsPanel({
-  indicators, nativeStudies, onOpenInEditor, onEditIndicator, onEditNative, focusKey = null,
+  indicators, nativeStudies, onOpenInEditor, onEditIndicator, onEditNative, onEditPine,
+  focusKey = null,
 }: {
   indicators: IndicatorsApi;
   /** The focused pane's built-in studies, or null while it is still mounting. */
@@ -30,6 +32,14 @@ export function IndicatorsPanel({
   onEditIndicator: (indicator: AppliedIndicator) => void;
   /** open the Inputs/Style dialog for one built-in instance */
   onEditNative: (key: string) => void;
+  /**
+   * Open the Inputs dialog for one Pine instance — the menu's `Settings…`.
+   *
+   * It opened the Pine EDITOR, which is what the row below it (`Open source
+   * in the Pine Editor`) is for: two rows, one destination. Optional so a
+   * surface with no dialog still gets the editor rather than nothing.
+   */
+  onEditPine?: (key: string) => void;
   /**
    * Open this instance's settings when the panel appears. Set by the gear on a
    * pane, so "settings" from the chart lands on the fields rather than on a
@@ -81,6 +91,7 @@ export function IndicatorsPanel({
     switch (id) {
       case "study:settings":
         if (native) onEditNative(open.key);
+        else if (onEditPine) onEditPine(open.key);
         else {
           const ind = indicators.list.find((i) => i.key === open.key);
           if (ind) onEditIndicator(ind);
@@ -119,7 +130,7 @@ export function IndicatorsPanel({
         return;
       default: return;
     }
-  }, [studyMenuAt, nativeStudies, indicators, library, onEditNative, onEditIndicator,
+  }, [studyMenuAt, nativeStudies, indicators, library, onEditNative, onEditPine, onEditIndicator,
     onOpenInEditor]);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -131,6 +142,22 @@ export function IndicatorsPanel({
     try { setLibrary(await api.listPineScripts()); } catch { /* backend offline */ }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  /**
+   * What each applied Pine study is called on its card.
+   *
+   * The card used to print `My Strategy · peefk`: the title and the last five
+   * characters of the instance's storage key — an opaque machine id that means
+   * nothing to the reader, where Premium names the study and nothing else.
+   * The suffix existed to tell two instances of one script apart, which is the
+   * legend's problem too, so this uses the legend's own rule: an ordinal
+   * appears only when two instances share a title AND their inputs.
+   */
+  const pineTitles = useMemo(() => new Map(labelDuplicateInstances(
+    indicators.list.map((ind) => ({
+      key: ind.key, title: ind.shortTitle || ind.name, params: JSON.stringify(ind.params),
+    })),
+  ).map((row) => [row.key, row.title])), [indicators.list]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -336,6 +363,7 @@ export function IndicatorsPanel({
             <IndicatorRow
               key={ind.key}
               ind={ind}
+              title={pineTitles.get(ind.key) ?? (ind.shortTitle || ind.name)}
               open={expanded === ind.key}
               onToggleOpen={() => setExpanded((k) => (k === ind.key ? null : ind.key))}
               indicators={indicators}
@@ -464,9 +492,11 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
 
 /** One applied study: visibility, error state, and its input() settings. */
 function IndicatorRow({
-  ind, open, onToggleOpen, indicators, onEdit, onContextMenu,
+  ind, title, open, onToggleOpen, indicators, onEdit, onContextMenu,
 }: {
   ind: AppliedIndicator;
+  /** The card's name: the study's own title, with an ordinal only when needed. */
+  title: string;
   open: boolean;
   onToggleOpen: () => void;
   indicators: IndicatorsApi;
@@ -500,7 +530,7 @@ function IndicatorRow({
         </button>
         <button onClick={onToggleOpen}
           className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px]">
-          {ind.shortTitle || ind.name} · {ind.key.slice(-5)}
+          {title}
           {ind.loading && <span className="ml-1 text-[10px] text-ink-faint">running…</span>}
           {!ind.loading && !ind.error && (
             <span className="ml-1 text-[10px] text-ink-faint">

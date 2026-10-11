@@ -50,8 +50,10 @@ import type { AppliedNativeStudy, PlotStyleOverride } from "@/lib/native/compute
 import type { SourceOption } from "@/lib/native/graph";
 import type { Resolution } from "@/lib/resolution";
 import {
-  Button, CaretGlyph, Checkbox, Dropdown, LineStyleButton, NumberField, Swatch,
+  Button, CaretGlyph, Checkbox, Dropdown, LineStyleButton, NumberField, Swatch, TextInput,
 } from "@/components/ui";
+import type { AppliedIndicator, PineParams } from "@/lib/indicators";
+import type { PineInputDef } from "@/lib/api";
 import {
   resolutionsForRanges, visibilityRanges, type VisibilityRanges,
 } from "@/components/tv/DrawingSettingsModal";
@@ -339,6 +341,233 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
         })}
       </section>
     </Modal>
+  );
+}
+
+/* ── the same dialog, for a Pine study ───────────────────────────────────── */
+
+/**
+ * The series a Pine `input.source` may name — exactly the interpreter's
+ * `builtinSeries` set (`backend/src/pine/interpreter.ts`), so the dropdown
+ * cannot offer a name the engine would resolve to nothing.
+ */
+const PINE_SOURCES = ["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "hlcc4"];
+
+/** No bounds declared: the field must not clamp what the script allows. */
+const PINE_NUMBER_LIMIT = 1_000_000_000;
+
+export interface PineStudySettingsProps {
+  /** The instance being edited, or null when the dialog is closed. */
+  study: AppliedIndicator | null;
+  onClose: () => void;
+  onParam: (key: string, param: string, value: PineParams[string]) => void;
+  /** Drop every override, so each input reads its `defval` again. */
+  onReset: (key: string) => void;
+}
+
+/**
+ * Inputs for a Pine study, in the built-in study's dialog.
+ *
+ * ── Why this exists ────────────────────────────────────────────────────────
+ *
+ * A built-in's gear opened `NativeStudySettings`; a Pine study's gear swapped
+ * the right rail to the Indicator library and unfolded a stack of 10px native
+ * `<input>`s and `<select>`s inside its card. Premium opens ONE dialog for
+ * every study, and the same gear meaning two different surfaces depending on
+ * which engine computed the line is the inconsistency a user notices first.
+ * The card's inline form stays, as the panel's own secondary path.
+ *
+ * ── Which tabs, and why only one ───────────────────────────────────────────
+ *
+ * `Inputs` is the script's own `input()` declarations, grouped by their
+ * `group=` as the reference groups them, with the same row primitives the
+ * built-in dialog uses. `Style` and `Visibility` are ABSENT, not greyed: a
+ * Pine study's plots are drawn from what the script returns and
+ * `useIndicators` has no per-plot override and no timeframe allow-list to
+ * write to. A colour well that the next run silently repaints would be a
+ * control that moves nothing (contract §6).
+ *
+ * ── Live, and revertible ───────────────────────────────────────────────────
+ *
+ * Every change is applied as it is made (`useIndicators` debounces the
+ * re-run), and `Cancel` puts back the overrides the study had when the dialog
+ * opened — reset to defaults first, then the entry overrides on top, so an
+ * input first touched during this visit returns to its default rather than
+ * keeping the new value.
+ */
+export function PineStudySettings(props: PineStudySettingsProps) {
+  const { study, onClose } = props;
+  const entry = useRef<AppliedIndicator | null>(null);
+  useEffect(() => {
+    entry.current = study;
+    // Captured once per study, deliberately: this must be the state on ENTRY.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [study?.key]);
+
+  const cancel = useCallback((): void => {
+    const was = entry.current;
+    if (was) {
+      props.onReset(was.key);
+      for (const [param, value] of Object.entries(was.params)) props.onParam(was.key, param, value);
+    }
+    onClose();
+  }, [onClose, props]);
+
+  if (!study) return null;
+
+  const isDefault = Object.keys(study.params).length === 0;
+  /*
+   * Grouped in declaration order, the ungrouped first — the order the script
+   * declares them is the order its author meant them read in.
+   */
+  const groups: { name: string; inputs: PineInputDef[] }[] = [];
+  for (const input of study.inputs) {
+    const name = input.group ?? "";
+    const group = groups.find((g) => g.name === name);
+    if (group) group.inputs.push(input);
+    else groups.push({ name, inputs: [input] });
+  }
+
+  return (
+    <Modal
+      open
+      onClose={cancel}
+      title={study.name}
+      panelClassName="!max-w-[550px]"
+      headerClassName="!h-[54px]"
+      contentClassName="!px-5 !pt-0 !pb-4"
+      footerClassName="!py-4"
+      scrollBody={false}
+      footer={
+        <div className="flex w-full items-center gap-2">
+          <DefaultsMenu disabled={isDefault} onReset={() => props.onReset(study.key)} />
+          <span className="flex-1" />
+          <Button variant="default" onClick={cancel} className="w-[74px]">Cancel</Button>
+          <Button variant="contrast" onClick={onClose} className="w-[44px] px-0">Ok</Button>
+        </div>
+      }
+    >
+      <div role="tablist" aria-label="Settings sections"
+        className="mb-2 flex h-8 items-stretch gap-4 border-b border-border">
+        <button
+          role="tab"
+          aria-selected
+          className="relative -mb-px border-b-2 border-[var(--ts-menu-selected-bg)] px-0.5 text-sm font-medium text-[var(--ts-menu-selected-bg)]"
+        >
+          Inputs
+        </button>
+      </div>
+      <section
+        role="tabpanel"
+        aria-label="Inputs"
+        className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto"
+        style={{ gridTemplateColumns: "minmax(150px, max-content) 1fr" }}
+      >
+        {groups.map((group) => (
+          <PineGroup key={group.name || "\u0000"} name={group.name}>
+            {group.inputs.map((input) => (
+              <PineInputRow
+                key={input.key}
+                input={input}
+                value={study.params[input.key] ?? input.defval}
+                onChange={(value) => props.onParam(study.key, input.key, value)}
+              />
+            ))}
+          </PineGroup>
+        ))}
+        {study.inputs.length === 0 && (
+          <Note>
+            {study.loading
+              ? "Reading the script's inputs…"
+              : "This script declares no inputs."}
+          </Note>
+        )}
+      </section>
+    </Modal>
+  );
+}
+
+function PineGroup({ name, children }: { name: string; children: ReactNode }) {
+  return <>{name && <Section>{name}</Section>}{children}</>;
+}
+
+function PineInputRow({ input, value, onChange }: {
+  input: PineInputDef;
+  value: PineParams[string];
+  onChange: (value: PineParams[string]) => void;
+}) {
+  const label = input.title || input.key;
+  if (input.type === "bool") {
+    return <CheckRow label={label} checked={value === true} onChange={onChange} />;
+  }
+  if (input.options && input.options.length > 0) {
+    const options = input.options;
+    return (
+      <Row label={label} hint={input.tooltip}>
+        <Dropdown
+          value={String(value)}
+          label={label}
+          width={150}
+          /* An option list of numbers hands back a number, as the script declared it. */
+          onChange={(next) => {
+            const match = options.find((o) => String(o) === next);
+            onChange(match ?? next);
+          }}
+          options={options.map((o) => ({ value: String(o), label: String(o) }))}
+        />
+      </Row>
+    );
+  }
+  if (input.type === "int" || input.type === "float") {
+    return (
+      <Row label={label} hint={input.tooltip}>
+        <NumberField
+          value={Number(value)}
+          min={input.minval ?? -PINE_NUMBER_LIMIT}
+          max={input.maxval ?? PINE_NUMBER_LIMIT}
+          step={input.step ?? (input.type === "int" ? 1 : 0.1)}
+          label={label}
+          onChange={(next) => onChange(input.type === "int" ? Math.trunc(next) : next)}
+        />
+      </Row>
+    );
+  }
+  if (input.type === "source") {
+    const current = String(value);
+    return (
+      <Row label={label} hint={input.tooltip}>
+        <Dropdown
+          value={current}
+          label={label}
+          width={100}
+          onChange={onChange}
+          options={[
+            // A stored name the engine no longer offers is still SHOWN, as itself.
+            ...(PINE_SOURCES.includes(current) ? [] : [{ value: current, label: current }]),
+            ...PINE_SOURCES.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+          ]}
+        />
+      </Row>
+    );
+  }
+  if (input.type === "color") {
+    return (
+      <Row label={label} hint={input.tooltip}>
+        <Swatch label={label} id={`pine-input-color:${input.key}`} value={String(value)}
+          allowTheme={false} onChange={onChange} />
+      </Row>
+    );
+  }
+  // `string` and `timeframe`: what the script reads is the text itself.
+  return (
+    <Row label={label} hint={input.tooltip}>
+      <TextInput
+        aria-label={label}
+        value={String(value)}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-[180px]"
+      />
+    </Row>
   );
 }
 

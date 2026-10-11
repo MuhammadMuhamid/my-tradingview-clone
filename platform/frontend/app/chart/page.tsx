@@ -41,7 +41,7 @@ import { CommandPalette } from "@/components/tv/CommandPalette";
 import {
   compositePane, copyCanvasToClipboard, downloadCanvas, snapshotFilename,
 } from "@/lib/chartSnapshot";
-import { NativeStudySettings } from "@/components/tv/NativeStudySettings";
+import { NativeStudySettings, PineStudySettings } from "@/components/tv/NativeStudySettings";
 import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
@@ -898,6 +898,25 @@ export default function TvWorkspace() {
   const editingNativeValues = useMemo(
     () => activeNativeStudies?.rows.find((r) => r.study.key === editingNativeKey)?.values,
     [activeNativeStudies, editingNativeKey]);
+
+  /**
+   * The Pine instance whose Inputs dialog is open, and the pane that owns it.
+   *
+   * Keyed and resolved fresh for the same reasons as the built-in above — and
+   * by PANE as well, because Pine lists are per pane and the gear that opened
+   * the dialog belongs to one of them; removing the study or closing its pane
+   * closes the dialog rather than editing a ghost.
+   */
+  const [editingPine, setEditingPine] = useState<{ paneId: string; key: string } | null>(null);
+  const editingPineStudy = useMemo(
+    () => (editingPine
+      ? indicatorLists[editingPine.paneId]?.find((i) => i.key === editingPine.key) ?? null
+      : null),
+    [editingPine, indicatorLists]);
+  const editPine = useCallback((paneId: string, key: string) => {
+    setWorkspace((ws) => setActivePane(ws, paneId));
+    setEditingPine({ paneId, key });
+  }, []);
 
   /**
    * The price-alert dialog, and the level it opened with.
@@ -2441,6 +2460,7 @@ export default function TvWorkspace() {
         /* The same destination the chart menu's own `Object tree` row uses. */
         onOpenObjectTree={() => setPanel("objects")}
         onEditNative={setEditingNativeKey}
+        onEditPine={editPine}
         compact={isMobile}
         rangeRowTarget={sharedRangeRow ? (isActive ? rangeRowHost : null) : undefined}
       />
@@ -2450,7 +2470,7 @@ export default function TvWorkspace() {
     sync, publishCrosshair, publishRange, tool, clearDrawingTool, magnetMode, drawLocked,
     drawHidden, pickingLevel, pickLevel, pineStartTime, pineEndTime, registerIndicatorsApi,
     registerNativeApi, registerNativeChanged, noteDrawingSelection, openChartMenu,
-    registerIndicatorList, focusIndicator, isMobile, overlays.select, overlays.setViewport,
+    registerIndicatorList, focusIndicator, editPine, isMobile, overlays.select, overlays.setViewport,
     paneScale, setPaneScale, paneResets, goTo, paneStyleFocus, changePaneCompare,
     maAlerts, candleOverlays, classicalOverlays, resolutions, replayPickerOpen, beginReplay,
     replayActive, candles, setReplayPlaying, setReplaySpeed, changeBars,
@@ -2813,6 +2833,7 @@ export default function TvWorkspace() {
         indicators={activeIndicators}
         nativeStudies={activeNativeStudies}
         onEditNative={setEditingNativeKey}
+        onEditPine={(key) => editPine(active.id, key)}
         indicatorCount={activeIndicatorList.length}
         indicatorFocusKey={indicatorFocusKey}
         onOpenInEditor={openInEditor}
@@ -2888,6 +2909,15 @@ export default function TvWorkspace() {
         /* R6b-29: the study dialog's Visibility tab, backed by the pane. */
         onVisibleOn={(key, visibleOn) => activeNativeStudies?.setVisibleOn(key, visibleOn)}
         sourceOptions={(key) => activeNativeStudies?.sourceOptions(key) ?? []}
+      />
+      {/* The same dialog family, for a Pine study: its gear lands here too. */}
+      <PineStudySettings
+        study={editingPineStudy}
+        onClose={() => setEditingPine(null)}
+        onParam={(key, param, value) => editingPine
+          && indicatorApis.current.get(editingPine.paneId)?.().setParam(key, param, value)}
+        onReset={(key) => editingPine
+          && indicatorApis.current.get(editingPine.paneId)?.().resetParams(key)}
       />
 
       {/*
