@@ -198,18 +198,45 @@ export function ChartSettingsModal(props: {
    * control applies live, and Cancel undoes the whole visit.
    */
   const [entry, setEntry] = useState<{ settings: ChartSettings; scale: PriceScaleState } | null>(null);
+  /*
+   * B-07: what THIS visit wrote, so Cancel undoes only that.
+   *
+   * Cancel used to write the entry scale back whether or not anything in the
+   * dialog had touched it. The price scale is not the dialog's alone — the
+   * chart reconciles `autoScale` with the library on every pointer move (an
+   * axis drag turns it off, a double-click back on) — so a visit that changed
+   * nothing on the Scales tab could still put back a stale `Auto scale` and
+   * leave the axis frozen. The dialog writes the scale only when the user
+   * changes a scale control, and Cancel restores only what it wrote.
+   */
+  const touched = useRef({ settings: false, scale: false });
   useEffect(() => {
     if (!open) { setEntry(null); return; }
     setTab("symbol");
     setEntry({ settings, scale });
+    touched.current = { settings: false, scale: false };
     // Captured once per opening, deliberately: this must be the state on ENTRY.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const writeSettings = (next: ChartSettings): void => {
+    touched.current.settings = true;
+    onSettings(next);
+  };
+  /**
+   * A scale control's own write. `patch` names only the field the control
+   * owns, applied to the scale AS IT IS NOW, so changing the mode can never
+   * carry a stale `autoScale` along with it.
+   */
+  const writeScale = (patch: Partial<PriceScaleState>): void => {
+    touched.current.scale = true;
+    onScale({ ...scale, ...patch });
+  };
+
   const set = <K extends keyof ChartSettings>(key: K, value: ChartSettings[K]): void =>
-    onSettings({ ...settings, [key]: value });
+    writeSettings({ ...settings, [key]: value });
   /** Two keys that describe one control, written together. */
-  const setMany = (patch: Partial<ChartSettings>): void => onSettings({ ...settings, ...patch });
+  const setMany = (patch: Partial<ChartSettings>): void => writeSettings({ ...settings, ...patch });
 
   /** The same condition `CandleChart`'s series-appearance effect applies. */
   /*
@@ -256,7 +283,8 @@ export function ChartSettingsModal(props: {
   const directionColoursApply = seriesColoursApply || volumeTakesDirectionColours;
 
   const cancel = (): void => {
-    if (entry) { onSettings(entry.settings); onScale(entry.scale); }
+    if (entry && touched.current.settings) onSettings(entry.settings);
+    if (entry && touched.current.scale) onScale(entry.scale);
     onClose();
   };
 
@@ -271,7 +299,7 @@ export function ChartSettingsModal(props: {
 
   const applyTemplate = (name: string): void => {
     const found = templates.find((t) => t.name === name);
-    if (found) onSettings(found.settings);
+    if (found) writeSettings(found.settings);
   };
 
   const saveTemplate = async (): Promise<void> => {
@@ -306,12 +334,17 @@ export function ChartSettingsModal(props: {
       title="Chart settings"
       wide
       /*
-       * R6 CH-5: the dialog's height is the active tab's content, floored by
-       * the seven-tab rail and capped where the reference's is — it sits at
-       * y=20…860 in a 900px viewport. `min-h-[440px]` used to hold a one-row
-       * tab open at 595px with 240px of nothing in it.
+       * A10: ONE size for every tab, and the tab panel scrolls.
+       *
+       * R6 CH-5 sized the dialog to the active tab's content, so it resized
+       * and re-centred on every tab click — Symbol 750×545 at y=134, Scales
+       * 750×773 at y=20, Trading 750×453 at y=180 — and the tab list jumped
+       * out from under the pointer that had just clicked it. Premium's chart
+       * settings is a fixed-size dialog with a scrolling body. 700px, or the
+       * viewport less 40 where that is shorter; the rail and the footer stay
+       * put and only the tab panel below scrolls (`scrollBody={false}`).
        */
-      panelClassName="!max-h-[calc(100vh-40px)]"
+      panelClassName="!h-[min(700px,calc(100vh-40px))] !max-h-[calc(100vh-40px)]"
       headerClassName="!h-[62px]"
       /*
        * Only the TAB PANEL scrolls. `scrollBody={false}` turns the body into a
@@ -344,7 +377,7 @@ export function ChartSettingsModal(props: {
             onDelete={(name) => void removeTemplate(name)}
             onApplyDefaults={() => {
               clearUserDefaultChartSettings();
-              onSettings(DEFAULT_CHART_SETTINGS);
+              writeSettings(DEFAULT_CHART_SETTINGS);
             }}
             onSaveAsDefault={() => saveUserDefaultChartSettings(settings)}
           />
@@ -750,13 +783,13 @@ export function ChartSettingsModal(props: {
               </FieldRow>
               <FieldRow label="Scale mode">
                 <Dropdown value={scale.mode} label="Scale mode" width={150}
-                  onChange={(v) => onScale({ ...scale, mode: v as PriceScaleMode })}
+                  onChange={(v) => writeScale({ mode: v as PriceScaleMode })}
                   options={PRICE_SCALE_MODES.map((m) => ({ value: m.value, label: priceScaleModeLabel(m.value) }))} />
               </FieldRow>
               <CheckRow label="Auto scale" checked={scale.autoScale}
-                onChange={(v) => onScale({ ...scale, autoScale: v })} />
+                onChange={(v) => writeScale({ autoScale: v })} />
               <CheckRow label="Invert scale" checked={scale.invert === true}
-                onChange={(v) => onScale({ ...scale, invert: v })} />
+                onChange={(v) => writeScale({ invert: v })} />
 
               <Section>Price labels &amp; lines</Section>
               <CheckRow label="No overlapping labels" checked={settings.noOverlappingLabels}

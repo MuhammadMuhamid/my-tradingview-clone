@@ -479,8 +479,11 @@ test("NO NATIVE SELECT SURVIVES INSIDE THE CHART SETTINGS DIALOG", () => {
   const ui = read("components/ui.tsx");
   assert.match(ui, /export function Dropdown\(/);
   assert.match(ui, /role="listbox"/);
-  assert.match(ui, /className="tvc-menu tvc-menu--compact"/,
-    "a dropdown opens the shared popover at the 32px row");
+  // B-27: at the contract's DROPDOWN row (40px), not the 32px context-menu row.
+  const dropdown = ui.slice(ui.indexOf("export function Dropdown("));
+  const listbox = dropdown.slice(dropdown.indexOf('role="listbox"'), dropdown.indexOf("{options.map"));
+  assert.match(listbox, /className="tvc-menu"/, "a dropdown opens the shared popover at the 40px row");
+  assert.doesNotMatch(listbox, /tvc-menu--compact/, "32px is a context menu's row, not a dropdown's");
 });
 
 test("no settings row can outgrow the dialog's content column", () => {
@@ -854,4 +857,19 @@ test("R6b-13/14/19 — the reach rows are applied to the STUDY PANES, not only t
   assert.doesNotMatch(pane, /tickMarkFormatter: dayOfWeekOnLabels \? dayOfWeekTickFormatter : undefined/);
   assert.match(pane, /tickMarkFormatter: axisTickFormatter\(dayOfWeekOnLabels, timeFormat24h, timeZone\)/);
   assert.match(pane, /timeFormatter: hoursFormatter\(timeFormat24h, timeZone\)/);
+});
+
+test("A10 — the chart settings dialog is ONE size on every tab, and only its tab panel scrolls", () => {
+  /*
+   * Sized to the active tab, it resized and re-centred on every click —
+   * Symbol 750×545 at y=134, Scales 750×773 at y=20, Trading 750×453 at
+   * y=180 — so the tab list moved out from under the pointer. Premium's is a
+   * fixed-size dialog with a scrolling body.
+   */
+  const dialog = read("components/tv/ChartSettingsModal.tsx");
+  const panel = /panelClassName="([^"]+)"/.exec(dialog)?.[1] ?? "";
+  assert.match(panel, /!h-\[min\(700px,calc\(100vh-40px\)\)\]/, "a fixed height, capped by the viewport");
+  assert.doesNotMatch(panel, /\b(sm|md|lg):!?h-/, "the same at every width, the 390px phone included");
+  assert.match(dialog, /scrollBody=\{false\}/, "the body does not scroll as a whole");
+  assert.match(dialog, /role="tabpanel"\s+className="[^"]*overflow-y-auto/, "the tab panel does");
 });
