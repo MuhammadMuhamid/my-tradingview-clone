@@ -192,6 +192,22 @@ test("a comparison puts the differing settings and every window side by side", (
   assert.ok(cmp.windows.some((r) => r.label.startsWith("Validation")), "the validation window is compared too");
 });
 
+test("C-09 a run that errored says it has no result, not that it predates provenance", () => {
+  const failed = run({
+    status: "error", error: "invalid SOLUSDT 1h backfill: empty_series", metrics: null,
+    engineFingerprint: null, resultProvenance: null, semanticsStatus: "historical_unversioned",
+  });
+  const rows = runSettings(failed, STRATEGIES);
+  const value = (label: string) => rows.find((r) => r.label === label)?.value;
+  for (const label of ["Data source", "Engine", "Result provenance"]) {
+    assert.equal(value(label), "No result — the run did not finish", label);
+  }
+  // A finished historical run keeps its own wording.
+  const old = runSettings(run({ engineFingerprint: null, resultProvenance: null, semanticsStatus: "historical_unversioned" }), STRATEGIES);
+  assert.equal(old.find((r) => r.label === "Engine")?.value, "Not recorded on this run");
+  assert.equal(old.find((r) => r.label === "Result provenance")?.value, "Recorded before results carried an engine version");
+});
+
 test("C-08 a trade's P/L % is net of costs, like the P/L beside it", () => {
   // The reviewer's row: the price moved +0.16 % while the trade lost 0.33 net.
   const trade = {

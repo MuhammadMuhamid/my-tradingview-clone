@@ -318,6 +318,7 @@ export function runSettings(bt: Backtest, strategies: readonly Strategy[]): Sett
   };
   const tick = typeof prov.costs?.tickSize === "number" ? prov.costs.tickSize : null;
   const { fraction, stated } = validationFractionOf(bt);
+  const noResult = bt.status === "error" ? "No result — the run did not finish" : null;
   const sizing = bt.executionTruth?.sizing;
   const qtyPct = Number(bt.params.qty_pct_equity ?? 0);
   const qtyCash = bt.params.qty_cash;
@@ -359,19 +360,25 @@ export function runSettings(bt: Backtest, strategies: readonly Strategy[]): Sett
         ? bt.executionTruth.fillTiming === "next_bar_open" ? "at the next bar's open" : "at the signal bar's close"
         : bt.params.fill_bar_close ? "at the signal bar's close" : "at the next bar's open",
     },
+    /*
+     * C-09: a run that errored has no result for these to describe. It read
+     * "Not recorded on this run" and "Recorded before results carried an
+     * engine version" — the words for an OLD finished run — about a run from
+     * this morning that failed in its backfill.
+     */
     {
       label: "Data source",
-      value: provider ? (PROVIDERS[provider] ?? provider) : "Not recorded on this run",
+      value: noResult ?? (provider ? (PROVIDERS[provider] ?? provider) : "Not recorded on this run"),
       ...(provider || feed ? { title: [provider, feed].filter(Boolean).join(" · ") } : {}),
     },
     {
       label: "Engine",
-      value: engineVersion ?? (bt.engineFingerprint ? "Recorded" : "Not recorded on this run"),
+      value: noResult ?? engineVersion ?? (bt.engineFingerprint ? "Recorded" : "Not recorded on this run"),
       ...(bt.engineFingerprint ? { title: bt.engineFingerprint } : {}),
     },
     {
       label: "Result provenance",
-      value: SEMANTICS[bt.semanticsStatus ?? "historical_unversioned"],
+      value: noResult ?? SEMANTICS[bt.semanticsStatus ?? "historical_unversioned"],
     },
     { label: "Created", value: utcStamp(bt.createdAt) },
   ];
