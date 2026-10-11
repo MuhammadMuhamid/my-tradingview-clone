@@ -77,9 +77,8 @@ import {
   displaySymbol, displayTicker, isCanonicalInstrumentId, legacyBinanceSpotTicker,
 } from "@/lib/instrument";
 import { resolvePriceTick } from "@/lib/priceTick";
-import { computeTpoProfile, computeVolumeProfile, DEFAULT_PROFILE_SETTINGS } from "@/lib/volumeProfile";
+import { sessionProfileDecorations as sessionProfiles } from "@/lib/sessionProfiles";
 import { DEFAULT_CHART_SETTINGS, userDefaultChartSettings } from "@/lib/chartSettings";
-import { PROFILE_COLORS } from "@/lib/native/profile";
 
 export interface ChartPaneProps {
   pane: PaneState;
@@ -544,74 +543,24 @@ function ChartPaneImpl(props: ChartPaneProps) {
     cs?.profileSplit, cs?.profileShowPoc, cs?.profileShowValueArea, cs?.profileWidthPercent,
     cs?.tpoBlockMinutes]);
 
+  /*
+   * One profile per UTC-day session over the loaded bars, each inside its own
+   * session's span — see `lib/sessionProfiles`. Both used to filter to the
+   * latest day only, so scrolling back one session left its candles with no
+   * profile at all.
+   *
+   * The pane's own settings, not `DEFAULT_PROFILE_SETTINGS`: the renderer was
+   * fully parameterised long before there was a way to say what the
+   * parameters should be.
+   */
   const sessionProfileDecorations = useMemo(() => {
     if (pane.chartType !== "sessionVolumeProfile" || visibleCandles.length === 0) return [];
-    const latest = visibleCandles[visibleCandles.length - 1]!;
-    const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
-    const session = visibleCandles.filter((c) => c.openTime >= dayStart);
-    /*
-     * The pane's own settings, not `DEFAULT_PROFILE_SETTINGS`.
-     *
-     * Every literal below used to be written here — 24 rows, 70% value area,
-     * total split, right side, 0.3 width — while `VolumeProfileLayer` already
-     * branched on all of them. The renderer was fully parameterised and the
-     * only thing missing was a way to say what the parameters should be.
-     */
-    const profile = computeVolumeProfile(session, {
-      ...DEFAULT_PROFILE_SETTINGS,
-      rowSize: profileSettings.profileRows,
-      valueAreaPercent: profileSettings.profileValueAreaPercent,
-      allocation: profileSettings.profileAllocation,
-    }, pane.interval, "chart");
-    if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
-    return [{
-      kind: "profile" as const, id: `session-profile:${paneId}`, paneId: "price",
-      title: "Session Volume Profile", basis: profile.basis,
-      sourceInterval: profile.sourceInterval,
-      basisNotice: `UTC session estimate from ${profile.bars} ${profile.sourceInterval} bars`,
-      from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
-      rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
-      peakVolume: profile.peakVolume,
-      split: profileSettings.profileSplit,
-      showValueArea: profileSettings.profileShowValueArea,
-      showPoc: profileSettings.profileShowPoc,
-      showRange: false,
-      side: profileSettings.profileSide,
-      widthRatio: profileSettings.profileWidthPercent / 100,
-      colors: { ...PROFILE_COLORS },
-    }];
+    return sessionProfiles("sessionVolumeProfile", visibleCandles, profileSettings, pane.interval, paneId);
   }, [pane.chartType, pane.interval, paneId, visibleCandles, profileSettings]);
 
   const tpoDecorations = useMemo(() => {
     if (pane.chartType !== "tpo" || visibleCandles.length === 0) return [];
-    const latest = visibleCandles[visibleCandles.length - 1]!;
-    const dayStart = Math.floor(latest.openTime / 86_400_000) * 86_400_000;
-    const session = visibleCandles.filter((c) => c.openTime >= dayStart);
-    const profile = computeTpoProfile(session, {
-      ...DEFAULT_PROFILE_SETTINGS,
-      rowSize: profileSettings.profileRows,
-      valueAreaPercent: profileSettings.profileValueAreaPercent,
-      allocation: profileSettings.profileAllocation,
-      tpoBlockMinutes: profileSettings.tpoBlockMinutes,
-    }, pane.interval, "chart");
-    if (profile.rows.length === 0 || profile.from === null || profile.to === null) return [];
-    return [{
-      kind: "profile" as const, id: `tpo:${paneId}`, paneId: "price",
-      title: "Time Price Opportunity", basis: profile.basis,
-      sourceInterval: profile.sourceInterval,
-      basisNotice: `TPO count from ${profile.bars} ${profile.sourceInterval} bars; each bar contributes one opportunity to every row its range touched`,
-      from: Math.floor(profile.from / 1000), to: Math.floor(profile.to / 1000) + 1,
-      rows: profile.rows, pocIndex: profile.pocIndex, valueAreaRows: profile.valueAreaRows,
-      labels: profile.tpoLabels,
-      peakVolume: profile.peakVolume,
-      split: profileSettings.profileSplit,
-      showValueArea: profileSettings.profileShowValueArea,
-      showPoc: profileSettings.profileShowPoc,
-      showRange: false,
-      side: profileSettings.profileSide,
-      widthRatio: profileSettings.profileWidthPercent / 100,
-      colors: { ...PROFILE_COLORS, total: "#a855f7", valueArea: "#a855f7" },
-    }];
+    return sessionProfiles("tpo", visibleCandles, profileSettings, pane.interval, paneId);
   }, [pane.chartType, pane.interval, paneId, visibleCandles, profileSettings]);
 
   const baseOverlays = useMemo(

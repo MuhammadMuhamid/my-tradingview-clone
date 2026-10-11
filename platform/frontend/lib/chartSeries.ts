@@ -78,8 +78,23 @@ export interface ChartProfileDecoration {
   to: number;
   /** Which edge of the range the rows grow from. */
   side: "left" | "right";
-  /** Share of the plot's width the widest row may take, 0.05–1. */
+  /**
+   * Share of the plot's width the widest row may take, 0.05–1 — or, with
+   * `fitToRange`, share of this profile's own `from`–`to` span.
+   */
   widthRatio: number;
+  /**
+   * Size against the profile's own span and clip to it. A session profile is
+   * one of many side by side; sized against the plot, each would reach across
+   * its neighbours.
+   */
+  fitToRange?: boolean;
+  /**
+   * Draw the value-area high and low as labelled edge lines. Only for the
+   * profiles that have no VAH/VAL series of their own — the visible-range
+   * study and the fixed range already plot theirs on the price scale.
+   */
+  showValueAreaEdges?: boolean;
   /** Rows, low price first. `high` is the row's upper price edge. */
   rows: readonly { low: number; high: number; total: number; up: number; down: number }[];
   /** Optional bracket letters for a TPO profile. */

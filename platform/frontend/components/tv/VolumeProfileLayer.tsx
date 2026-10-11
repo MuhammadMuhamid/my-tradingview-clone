@@ -46,6 +46,9 @@ const GAP_THRESHOLD_PX = 3;
 const IN_AREA_ALPHA = 0.45;
 const OUT_AREA_ALPHA = 0.2;
 
+/** A value-area edge shorter than this is drawn without its VAH/VAL label. */
+const MIN_EDGE_LABEL_SPAN_PX = 28;
+
 export function VolumeProfileLayer({
   container, chart, series, profiles,
 }: {
@@ -114,10 +117,25 @@ export function VolumeProfileLayer({
 
     for (const profile of profilesRef.current) {
       if (profile.rows.length === 0 || !(profile.peakVolume > 0)) continue;
-      const xFrom = Math.max(0, Math.min(plotWidth, xOf(profile.from, 0)));
-      const xTo = Math.max(0, Math.min(plotWidth, xOf(profile.to, plotWidth)));
+      /*
+       * A profile sized to its own span keeps its true edges even when one is
+       * off screen: clamping them would shrink a half-scrolled session's
+       * histogram as it slid out, where the clip below just cuts it off. The
+       * plot-sized profiles keep the clamp they always had.
+       */
+      const fit = profile.fitToRange === true;
+      const edge = (x: number): number => fit ? x : Math.max(0, Math.min(plotWidth, x));
+      const xFrom = edge(xOf(profile.from, 0));
+      const xTo = edge(xOf(profile.to, plotWidth));
       const left = Math.min(xFrom, xTo);
       const right = Math.max(xFrom, xTo);
+      if (fit && (right <= 0 || left >= plotWidth || right - left < 1)) continue;
+      if (fit) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, 0, right - left, plotHeight);
+        ctx.clip();
+      }
 
       if (profile.showRange) {
         ctx.save();
@@ -134,7 +152,9 @@ export function VolumeProfileLayer({
         ctx.restore();
       }
 
-      const maxWidth = Math.max(8, plotWidth * clamp(profile.widthRatio, 0.05, 1));
+      const maxWidth = fit
+        ? (right - left) * clamp(profile.widthRatio, 0.05, 1)
+        : Math.max(8, plotWidth * clamp(profile.widthRatio, 0.05, 1));
       const anchor = profile.side === "left" ? left : right;
       const direction = profile.side === "left" ? 1 : -1;
       const valueArea = new Set(profile.valueAreaRows);
@@ -213,6 +233,53 @@ export function VolumeProfileLayer({
           ctx.restore();
         }
       }
+
+      /*
+       * The value area's two edges, as lines and not only as a change of
+       * shade.
+       *
+       * Shading says "these rows are in the value area"; it does not say
+       * WHERE the area stops closely enough to trade against, and the two
+       * prices a session profile is read for are exactly those edges. They
+       * span what the POC spans, in the value-area colour at the weight of a
+       * hairline, so the POC stays the strongest line in the profile, and the
+       * label sits outside the area — above the high, below the low — where
+       * it covers no row that is in it.
+       */
+      if (profile.showValueAreaEdges && profile.valueAreaRows.length > 0) {
+        const highRow = profile.rows[profile.valueAreaRows[profile.valueAreaRows.length - 1]!];
+        const lowRow = profile.rows[profile.valueAreaRows[0]!];
+        const edges = [
+          { label: "VAH", price: highRow?.high, above: true },
+          { label: "VAL", price: lowRow?.low, above: false },
+        ];
+        const far = anchor + direction * maxWidth;
+        const labelled = maxWidth >= MIN_EDGE_LABEL_SPAN_PX;
+        ctx.save();
+        ctx.strokeStyle = profile.colors.valueArea;
+        ctx.fillStyle = profile.colors.valueArea;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.85;
+        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.textAlign = direction < 0 ? "left" : "right";
+        for (const { label, price, above } of edges) {
+          if (typeof price !== "number") continue;
+          const coordinate = series.priceToCoordinate(price) as number | null;
+          if (coordinate === null) continue;
+          const y = Math.round(coordinate) + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(anchor, y);
+          ctx.lineTo(far, y);
+          ctx.stroke();
+          if (labelled) {
+            ctx.textBaseline = above ? "bottom" : "top";
+            ctx.fillText(label, far - direction * 2, above ? y - 2 : y + 2);
+          }
+        }
+        ctx.restore();
+      }
+
+      if (fit) ctx.restore();
     }
 
     ctx.restore();

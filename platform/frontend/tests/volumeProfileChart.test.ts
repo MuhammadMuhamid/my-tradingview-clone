@@ -24,6 +24,10 @@ import {
   MAX_PROFILE_REFINEMENT_BARS, profileRefinementPlan,
 } from "../lib/useVolumeProfileRefinement";
 import { computeTpoProfile, DEFAULT_PROFILE_SETTINGS } from "../lib/volumeProfile";
+import {
+  lettersByRow, MAX_SESSION_PROFILES, sessionProfileDecorations, utcDaySessions,
+  type SessionProfileSettings,
+} from "../lib/sessionProfiles";
 
 const MINUTE = 60_000;
 const T0 = 1_700_000_000_000;
@@ -339,4 +343,91 @@ test("a range with no bars in it draws nothing at all", () => {
   const far = range("a", 500, 600);
   assert.equal(fixedRangeDecorations([far], series, "1m").length, 0);
   assert.equal(fixedRangeOverlays([far], series, "1m", 2).length, 0);
+});
+
+// ── The session chart types: one profile per UTC-day session ──────────────
+
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+/** Midnight UTC, so day `d` starts exactly on a session boundary. */
+const D0 = Math.floor(T0 / DAY) * DAY;
+const SESSION_SETTINGS: SessionProfileSettings = {
+  profileRows: 12, profileValueAreaPercent: 70, profileAllocation: "range",
+  profileSide: "right", profileSplit: "total", profileShowPoc: true,
+  profileShowValueArea: true, profileWidthPercent: 30, tpoBlockMinutes: 30,
+};
+
+/** `days` UTC days of hourly bars; day `d` trades around `100 + 10·d`. */
+function hourlyDays(days: number): Candle[] {
+  return Array.from({ length: days * 24 }, (_, i) => {
+    const d = Math.floor(i / 24);
+    const base = 100 + d * 10 + (i % 24) * 0.1;
+    return {
+      openTime: D0 + i * HOUR, closeTime: D0 + (i + 1) * HOUR - 1,
+      open: base, high: base + 0.5, low: base - 0.5, close: base + 0.1, volume: 5 + (i % 7),
+    };
+  }) as Candle[];
+}
+
+test("a session chart type draws one profile per UTC day, not only the latest", () => {
+  for (const kind of ["sessionVolumeProfile", "tpo"] as const) {
+    const out = sessionProfileDecorations(kind, hourlyDays(3), SESSION_SETTINGS, "1h", "p1");
+    assert.equal(out.length, 3, `${kind}: one profile per session`);
+    // Each sits over its own day's prices: day d trades around 100 + 10·d.
+    out.forEach((profile, d) => {
+      assert.ok(profile.rows[0]!.low >= 99 + d * 10 && profile.rows.at(-1)!.high <= 103 + d * 10,
+        `${kind}: session ${d} profiles its own bars only`);
+    });
+    assert.equal(new Set(out.map((p) => p.id)).size, 3, `${kind}: ids are distinct`);
+  }
+});
+
+test("each session spans its own day and is sized and clipped to that span", () => {
+  const out = sessionProfileDecorations("sessionVolumeProfile", hourlyDays(3), SESSION_SETTINGS, "1h", "p1");
+  for (let d = 0; d < 3; d++) {
+    const profile = out[d]!;
+    assert.equal(profile.from, (D0 + d * DAY) / 1000, "from is the session's first bar");
+    // Ends at the next session's first bar — a real bar the time scale can
+    // place — and the last session at the close of its last bar.
+    assert.equal(profile.to, (D0 + (d + 1) * DAY) / 1000);
+    assert.equal(profile.fitToRange, true);
+    assert.equal(profile.widthRatio, 0.3);
+  }
+});
+
+test("only the twenty most recent sessions are profiled", () => {
+  const out = sessionProfileDecorations("tpo", hourlyDays(25), SESSION_SETTINGS, "1h", "p1");
+  assert.equal(out.length, MAX_SESSION_PROFILES);
+  assert.equal(out[0]!.from, (D0 + 5 * DAY) / 1000, "the oldest five are dropped");
+  assert.equal(utcDaySessions(hourlyDays(25)).length, 20);
+  assert.equal(utcDaySessions(hourlyDays(25), 0).length, 25, "0 keeps every session");
+});
+
+test("session profiles share one notice, so the chart shows one chip, not twenty", () => {
+  const out = sessionProfileDecorations("sessionVolumeProfile", hourlyDays(4), SESSION_SETTINGS, "1h", "p1");
+  assert.equal(new Set(out.map((p) => `${p.title}|${p.basisNotice}`)).size, 1);
+  assert.match(out[0]!.basisNotice, /UTC-day/);
+});
+
+test("session profiles ask for their value-area edges; the toggle turns them off", () => {
+  const on = sessionProfileDecorations("sessionVolumeProfile", hourlyDays(1), SESSION_SETTINGS, "1h", "p1");
+  assert.equal(on[0]!.showValueAreaEdges, true);
+  assert.ok(on[0]!.valueAreaRows.length > 0);
+  const off = sessionProfileDecorations("sessionVolumeProfile", hourlyDays(1),
+    { ...SESSION_SETTINGS, profileShowValueArea: false }, "1h", "p1");
+  assert.equal(off[0]!.showValueAreaEdges, false);
+});
+
+test("TPO letters restart at A each session and arrive one string per row", () => {
+  const out = sessionProfileDecorations("tpo", hourlyDays(2), SESSION_SETTINGS, "1h", "p1");
+  for (const profile of out) {
+    const labels = profile.labels ?? [];
+    assert.ok(labels.length > 0);
+    assert.equal(new Set(labels.map((l) => l.rowIndex)).size, labels.length, "one entry per row");
+    assert.ok(labels.some((l) => l.label.startsWith("A")), "each session starts its own A bracket");
+  }
+  assert.deepEqual(
+    lettersByRow([{ rowIndex: 0, label: "A" }, { rowIndex: 0, label: "B" }, { rowIndex: 0, label: "A" },
+      { rowIndex: 1, label: "B" }]),
+    [{ rowIndex: 0, label: "AB" }, { rowIndex: 1, label: "B" }]);
 });
