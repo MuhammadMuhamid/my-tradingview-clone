@@ -15,6 +15,7 @@ import {
   Button, Card, CardHeader, Checkbox, Dropdown, Empty, Field, Notice, PageShell, Select,
   TextInput, PageHeader,
 } from "@/components/ui";
+import { fmtUtcStamp } from "@/lib/format";
 
 /**
  * The private Shariah review console.
@@ -707,7 +708,7 @@ export default function ShariahPage() {
                 <div className="truncate font-mono text-[11px] text-ink-muted" title={s.contentHash}>
                   {s.contentHash}
                 </div>
-                <div className="text-[11px] text-ink-faint">{new Date(s.createdAt).toLocaleString()}</div>
+                <div className="text-[11px] text-ink-faint">{fmtUtcStamp(s.createdAt)}</div>
               </div>
             ))}
             <p className="px-3 py-2 text-[11px] text-ink-faint">
@@ -935,7 +936,7 @@ function BatchReviewCard({
           <div className="mt-3 rounded-md border border-border bg-surface-2 px-3 py-2">
             <div className="mb-1 text-xs text-ink-muted">
               {preview.assetCount} asset{preview.assetCount === 1 ? "" : "s"} · researched{" "}
-              {new Date(preview.researchCompletedAt).toLocaleString()}
+              {fmtUtcStamp(preview.researchCompletedAt)}
             </div>
             <div className="flex flex-wrap gap-3 text-sm">
               <span className="text-up">{preview.counts.ELIGIBLE} ELIGIBLE</span>
@@ -958,8 +959,8 @@ function BatchReviewCard({
             {packCheck?.differentPack && (
               <p role="status" className="mt-1 text-[11px] text-warn">
                 This file says it answers the pack generated{" "}
-                {new Date(preview.packGeneratedAt ?? "").toLocaleString()}, not the one you last
-                downloaded ({new Date(lastPack?.generatedAt ?? "").toLocaleString()}).
+                {fmtUtcStamp(preview.packGeneratedAt)}, not the one you last
+                downloaded ({fmtUtcStamp(lastPack?.generatedAt)}).
               </p>
             )}
             {packCheck && packCheck.notInPack.length > 0 && (
@@ -1092,7 +1093,7 @@ function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, dis
                         {e.title}
                       </a>
                     : <span className="font-medium text-ink">{e.title}</span>}
-                  <span className="text-ink-faint"> · {e.publisher} · retrieved {new Date(e.retrievedAt).toLocaleString()}</span>
+                  <span className="text-ink-faint"> · {e.publisher} · retrieved {fmtUtcStamp(e.retrievedAt)}</span>
                   <span className="block break-all text-ink-faint">{e.url}</span>
                   {e.note && <span className="block">{e.note}</span>}
                 </li>
@@ -1195,7 +1196,14 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
         />
         <div className="px-4 py-3 text-xs text-ink-muted">
           <p><span className="font-medium text-ink">{asset.lifecycle}</span> — {LIFECYCLE_NOTE[asset.lifecycle]}</p>
-          {asset.reason && <p className="mt-1">Current reason: {asset.reason}</p>}
+          {/*
+            An imported decision's reason is STRUCTURED text — the researcher's
+            reason, then "TS_SHARIAH_V1 review answers:" and one line per
+            answer (`composeReason` on the server). Rendered as an ordinary
+            paragraph its line breaks collapsed and six answers ran together
+            into one block; `pre-line` keeps the lines and still wraps them.
+          */}
+          {asset.reason && <p className="mt-1 whitespace-pre-line">Current reason: {asset.reason}</p>}
           {!asset.binanceAvailable && <p className="mt-1">Not currently a qualifying Binance Spot USDT base asset.</p>}
         </div>
       </Card>
@@ -1301,7 +1309,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={p.classification} />
               <span className="text-ink-faint">
-                {new Date(p.publishedAt).toLocaleString()} · {p.publishedBy} · {p.policyVersion}
+                {fmtUtcStamp(p.publishedAt)} · {p.publishedBy} · {p.policyVersion}
               </span>
               {/*
                 How the decision got here. The operator's name is on a typed
@@ -1316,7 +1324,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
                 <span className="text-warn">ticker then: {p.baseAssetAtPublication}</span>
               )}
             </div>
-            <p className="mt-1 text-ink-muted">{p.reason}</p>
+            <p className="mt-1 whitespace-pre-line text-ink-muted" data-publication-reason>{p.reason}</p>
             {p.prohibitedCategories.length > 0 && (
               <p className="text-ink-faint">Categories: {p.prohibitedCategories.join(", ")}</p>
             )}

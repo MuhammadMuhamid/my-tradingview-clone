@@ -134,6 +134,22 @@ export function fmtDate(ms: number | string | null | undefined): string {
 }
 
 /** Names the zone `fmtDate` uses, for a nearby label. */
+/**
+ * A RECORD's instant, printed in UTC and saying so: "2026-09-02 08:15 UTC".
+ *
+ * For timestamps that are provenance rather than events in the reader's day —
+ * when a decision was published, a snapshot frozen, a source retrieved. These
+ * are cited and compared across people, so they print the same everywhere and
+ * name their zone, as the result page's run settings do. `toLocaleString()`
+ * printed them in the browser's zone and 12-hour clock with no zone at all.
+ */
+export function fmtUtcStamp(ms: number | string | null | undefined): string {
+  if (ms === null || ms === undefined || ms === "") return "—";
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 export const UTC_DATE_NOTE =
   "Backtest windows are UTC, matching the exchange bar timestamps the run evaluated.";
 

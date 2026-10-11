@@ -322,3 +322,32 @@ test("the decision history says how each decision arrived", async () => {
   // A row from before the column existed is unknown, never presented as manual.
   assert.match(text, /Source not recorded/);
 });
+
+test("a published decision keeps its answers on their own lines, stamped in UTC", async () => {
+  /*
+   * C-07 / C-08. An imported reason is the researcher's reason followed by one
+   * line per answer; as a plain paragraph the six answers ran together. And
+   * every stamp was the browser's zone and 12-hour clock with no zone named.
+   */
+  const reason = "Ledger only.\n\nTS_SHARIAH_V1 review answers:\n- Project: A ledger.\n- Token function: Gas.";
+  server.routes.set("GET /api/shariah/assets/2", () => ({
+    asset: { ...ASSETS[1], reason },
+    evidence: [],
+    publications: [
+      { publicationId: "12", assetId: "2", policyVersion: "TS_SHARIAH_V1", classification: "REVIEW",
+        lifecycle: "SCREENED", reason, prohibitedCategories: [], baseAssetAtPublication: "BBB",
+        reviewedAt: "2026-09-01T00:00:00.000Z", publishedAt: "2026-09-02T15:04:00.000Z",
+        publishedBy: "owner", evidenceIds: [], source: "review_import" },
+    ],
+  }));
+  await openScreening();
+  fireEvent.click(screen.getByRole("button", { name: /^BBB/ }));
+  await settle();
+  const shown = document.querySelector("[data-publication-reason]") as HTMLElement;
+  assert.equal(shown.textContent, reason, "the text is the published text, line breaks included");
+  assert.match(shown.className, /whitespace-pre-line/, "and its line breaks are rendered, not collapsed");
+  const history = screen.getByText("Published decision history").closest("div")!.parentElement!;
+  assert.match(history.textContent ?? "", /2026-09-02 15:04 UTC · owner/,
+    "a publication is stamped in UTC, 24-hour, and says so");
+  assert.doesNotMatch(history.textContent ?? "", /\b(AM|PM)\b/);
+});
