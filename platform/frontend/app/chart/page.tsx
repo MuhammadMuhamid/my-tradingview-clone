@@ -70,7 +70,8 @@ import { cloneDrawing } from "@/lib/drawingHistory";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
 import {
-  CHART_ADD_TO_LIST_PREFIX, SERIES_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu, drawingToolName, priceAxisMenu,
+  CHART_ADD_TO_LIST_PREFIX, DRAWING_TEMPLATE_APPLY_PREFIX, SERIES_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu,
+  drawingToolName, priceAxisMenu,
   seriesLegendMenu, TIME_ZONE_MENU_PREFIX, timeAxisMenu,
 } from "@/lib/menuPayloads";
 import { CHART_TIME_ZONES } from "@/lib/chartClock";
@@ -78,7 +79,11 @@ import { useShortcuts } from "@/lib/useShortcuts";
 import { ChromeTooltip } from "@/components/ui";
 import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import { useFullscreen } from "@/lib/fullscreen";
-import { newId, type Drawing, type DrawingTool } from "@/lib/drawings";
+import {
+  applyDrawingTemplate, defaultDrawingTemplate, intervalVisibilityOf, loadDrawingTemplates, newId,
+  templatesForTool, visibleOnFor, type Drawing, type DrawingTool, type IntervalVisibility,
+} from "@/lib/drawings";
+import { saveDrawingTemplateAs } from "@/components/tv/DrawingTemplateMenu";
 import {
   api, type MaAlert, type ManualTradingState, type OptimizerBest, type PineScript,
 } from "@/lib/api";
@@ -2000,6 +2005,11 @@ export default function TvWorkspace() {
           // Order is the array order, which every drawing shares — but a
           // drawing already alone in the list has nothing to move past.
           canReorder: drawings.length > 1,
+          // W2A-10: this tool's saved templates, and which of the four
+          // interval shortcuts the drawing's allow-list already is.
+          templates: drawing
+            ? templatesForTool(loadDrawingTemplates(), drawing.tool).map((t) => t.name) : [],
+          intervalVisibility: drawing ? intervalVisibilityOf(drawing.visibleOn, interval) : "all",
         }),
       });
       return;
@@ -2042,7 +2052,7 @@ export default function TvWorkspace() {
     });
   }, [activatePane, workspace, symbol, replayActive, replayDrawings, drawHidden, drawLocked,
     paneScale, manualState, candleOverlays, classicalOverlays, watchlists, activeIndicatorList.length,
-    activeNativeStudies?.rows?.length]);
+    activeNativeStudies?.rows?.length, interval]);
 
   /*
    * One handler per menu, keyed by the menu's own namespace.
@@ -2237,6 +2247,15 @@ export default function TvWorkspace() {
     const drawings = currentDrawings;
     const target = drawings.find((d) => d.id === menu.drawingId);
     if (!target) return;
+    if (id.startsWith(DRAWING_TEMPLATE_APPLY_PREFIX)) {
+      // A saved template, by name, on this tool — read fresh, as the menu was.
+      const name = id.slice(DRAWING_TEMPLATE_APPLY_PREFIX.length);
+      const found = templatesForTool(loadDrawingTemplates(), target.tool).find((t) => t.name === name);
+      if (!found || target.locked) return;
+      writeDrawings(drawings.map((d) => (d.id === target.id
+        ? { ...d, style: applyDrawingTemplate(d.style, found.style) } : d)));
+      return;
+    }
     switch (id) {
       case "drawing:settings":
         // The quick style bar remains available, while Settings opens the
@@ -2268,6 +2287,29 @@ export default function TvWorkspace() {
       case "drawing:send-back":
         writeDrawings([target, ...drawings.filter((d) => d.id !== target.id)], "reorder");
         return;
+      /*
+       * W2A-10: the reference's middle block. Each is the same operation the
+       * toolbar or the settings dialog already performs — a template is
+       * `applyDrawingTemplate`, a visibility shortcut writes the `visibleOn`
+       * list the Visibility tab edits, and Object tree is the chart menu's.
+       */
+      case "drawing:object-tree": setPanel("objects"); return;
+      case "drawing:template-save": void saveDrawingTemplateAs(ask, target); return;
+      case "drawing:template-default":
+        if (target.locked) return;
+        writeDrawings(drawings.map((d) => (d.id === target.id
+          ? { ...d, style: applyDrawingTemplate(d.style, defaultDrawingTemplate()) } : d)));
+        return;
+      case "drawing:visibility-above":
+      case "drawing:visibility-below":
+      case "drawing:visibility-only":
+      case "drawing:visibility-all": {
+        if (target.locked) return;
+        const choice = id.slice("drawing:visibility-".length) as IntervalVisibility;
+        const visibleOn = visibleOnFor(choice, interval);
+        writeDrawings(drawings.map((d) => (d.id === target.id ? { ...d, visibleOn } : d)));
+        return;
+      }
       case "drawing:add-alert": {
         // The DRAWING's level, never the pointer's price. That distinction is
         // the whole reason these ids are namespaced.
@@ -2279,7 +2321,7 @@ export default function TvWorkspace() {
     }
   }, [menu, currentDrawings, interval, writeDrawings, pickLevel, paneScale, setPaneScale,
     copyPrice, candleOverlays, classicalOverlays, workspace, symbol, watchlists,
-    refreshWatchlists, setTool, activeIndicators, activeNativeStudies]);
+    refreshWatchlists, setTool, activeIndicators, activeNativeStudies, ask]);
 
   /*
    * What the palette can reach. Every one of these is the SAME handler the

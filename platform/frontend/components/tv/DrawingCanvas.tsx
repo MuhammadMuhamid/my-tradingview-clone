@@ -1,4 +1,5 @@
 "use client";
+import type React from "react";
 import type { MagnetMode } from "@/components/tv/DrawingToolbar";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
@@ -8,8 +9,8 @@ import { fmtPrice } from "@/lib/format";
 import { isTypingTarget } from "@/lib/shortcuts";
 import {
   DEFAULT_STYLE, EPHEMERAL_TOOLS, FIB_EXT_LEVELS, FIB_LEVELS, FILLABLE_TOOLS, TEXT_TOOLS, TOOL_POINTS,
-  currentIconGlyph, distToEllipse, distToLine, distToRay, distToRect, drawingVisibleOnTimeframe,
-  distToSegment, isCursorMode, newId,
+  applyDrawingTemplate, currentIconGlyph, defaultDrawingTemplate, distToEllipse, distToLine, distToRay,
+  distToRect, drawingVisibleOnTimeframe, distToSegment, isCursorMode, loadDrawingTemplates, newId,
   type Anchor, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTool, type Pt,
 } from "@/lib/drawings";
 import { DEFAULT_VP_RANGE_STYLE } from "@/lib/volumeProfileDrawing";
@@ -18,8 +19,13 @@ import {
   CHART_FONT, chartInkMuted, chartNegative, chartPositive, chartSurface, readableOn,
 } from "@/lib/chartTheme";
 import { useAsk } from "@/components/AskDialog";
-import { CaretGlyph, ColourPalette, DashPicker, PopoverButton, WidthPicker } from "@/components/ui";
-import { toolbarPlacement } from "@/lib/drawingToolbarPlacement";
+import { ColourPalette, DashPicker, PopoverButton, WidthPicker } from "@/components/ui";
+import {
+  deleteDrawingTemplateAsk, DrawingTemplateMenuPanel, saveDrawingTemplateAs,
+} from "@/components/tv/DrawingTemplateMenu";
+import { clampPlacement, toolbarPlacement, type Box } from "@/lib/drawingToolbarPlacement";
+import { recallJson, rememberJson } from "@/lib/browserStorage";
+import { opaque } from "@/lib/colorAlpha";
 import { DrawingAxisLabelsPrimitive, drawingAxisTags } from "@/lib/drawingAxisLabels";
 import { coordinateAtLogical, timeMap } from "@/lib/drawingTimeMap";
 
@@ -30,11 +36,113 @@ import { coordinateAtLogical, timeMap } from "@/lib/drawingTimeMap";
  * buttons with 28px icon buttons, so its row of controls had two baselines.
  * Both are `.tvc-control` — transparent, with the inset chip on hover — as
  * every other toolbar button in the workstation is.
+ *
+ * W2A-05: and in the reference's INK, not muted. Measured on Premium, every
+ * widget's glyph is rgb(219) at rest — the bar is a set of tools in hand, not
+ * secondary chrome — and each glyph sits in a 28px box. This bar's were
+ * 16px in the muted grey, so it read as disabled next to the reference's.
  */
 const BAR_ICON_BUTTON =
-  "tvc-control flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink-muted hover:text-ink";
+  "tvc-control flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink";
 const BAR_TEXT_BUTTON =
-  "tvc-control flex h-[38px] min-w-[38px] items-center justify-center gap-1 rounded-md px-1.5 text-[13px] text-ink-muted hover:text-ink";
+  "tvc-control flex h-[38px] min-w-[38px] items-center justify-center gap-2 rounded-md px-2 text-[13px] text-ink";
+
+/**
+ * A bar glyph: a 28px box drawing a 24-unit icon at one pixel per unit, so
+ * the art is the reference's ~18px with a 1.25px line rather than 16px at
+ * two-thirds scale.
+ */
+function BarGlyph({ children, fill = "none" }: { children: React.ReactNode; fill?: string }) {
+  return (
+    <svg width="28" height="28" viewBox="-2 -2 28 28" fill={fill} stroke="currentColor"
+      strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+/**
+ * A colour widget's glyph: the tool's mark over a bar OF the colour, as the
+ * reference draws its pencil and its `T`. The bar is the colour at its own
+ * opacity, so a translucent line reads as translucent on the toolbar too.
+ */
+function ColourGlyph({ colour, children }: { colour: string; children: React.ReactNode }) {
+  return (
+    <svg width="28" height="28" viewBox="-2 -2 28 28" fill="none" stroke="currentColor"
+      strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+      <rect x="4" y="20.5" width="16" height="3" rx="1" fill={colour} stroke="none" />
+    </svg>
+  );
+}
+
+/**
+ * The floating toolbar's `Template` menu (W2A-03): the reference's 239px menu
+ * of `Save Drawing Template As…`, `Apply Default Drawing Template` and this
+ * tool's saved templates. Read from storage when it opens, so a template saved
+ * from the settings dialog or the context menu is already here.
+ */
+function ToolbarTemplateMenu({ drawing, readOnly, close, onRestyle, ask }: {
+  drawing: Drawing;
+  readOnly: boolean;
+  close: () => void;
+  onRestyle: (look: DrawingStyle) => void;
+  ask: ReturnType<typeof useAsk>;
+}) {
+  const [templates] = useState(() => loadDrawingTemplates());
+  return (
+    <DrawingTemplateMenuPanel
+      className="w-[239px] py-1.5"
+      long
+      tool={drawing.tool}
+      templates={templates}
+      disabled={readOnly}
+      onSaveAs={() => { close(); void saveDrawingTemplateAs(ask, drawing); }}
+      onApplyDefault={() => { close(); onRestyle(defaultDrawingTemplate()); }}
+      onApply={(template) => { close(); onRestyle(template.style); }}
+      onDelete={(template) => { close(); void deleteDrawingTemplateAsk(ask, template); }}
+    />
+  );
+}
+
+/** Where a dragged toolbar is remembered: this tab, until it closes (W2A-05). */
+const BAR_POSITION_KEY = "tv.drawingToolbarPosition.v1";
+
+function recallBarPosition(): { left: number; top: number } | null {
+  const raw = recallJson<unknown>(BAR_POSITION_KEY, null, "session");
+  if (!raw || typeof raw !== "object") return null;
+  const { left, top } = raw as { left?: unknown; top?: unknown };
+  return typeof left === "number" && Number.isFinite(left) && typeof top === "number" && Number.isFinite(top)
+    ? { left, top } : null;
+}
+
+/**
+ * W2D-03: the pane's legend column(s), in the same pane pixels the bar uses.
+ *
+ * Found by what is IN them — the series legend (`data-pane-legend`) and the
+ * study rows' action clusters — walked up to the child of the pane host that
+ * holds them, because that column is what is positioned and what the legend
+ * text paints across. `offset*` rather than a client rect: the column and the
+ * bar share the host as their offset parent, and a rect would be in viewport
+ * pixels.
+ */
+function legendBoxes(host: HTMLElement | null): Box[] {
+  if (!host) return [];
+  const columns = new Set<HTMLElement>();
+  for (const mark of host.querySelectorAll<HTMLElement>(
+    "[data-pane-legend], [data-study-actions], [data-series-actions]",
+  )) {
+    let node: HTMLElement | null = mark;
+    while (node && node.parentElement !== host) node = node.parentElement;
+    if (node) columns.add(node);
+  }
+  return [...columns]
+    .filter((column) => column.offsetWidth > 0 && column.offsetHeight > 0)
+    .map((column) => ({
+      left: column.offsetLeft, top: column.offsetTop,
+      right: column.offsetLeft + column.offsetWidth, bottom: column.offsetTop + column.offsetHeight,
+    }));
+}
 
 /** The dash pattern a drawing draws with, from the key that has it or the boolean before it. */
 function lineStyleOf(style: DrawingStyle): "solid" | "dotted" | "dashed" {
@@ -996,15 +1104,69 @@ export function DrawingCanvas({
    * settles in one extra pass and then stops.
    */
   const [styleBarSize, setStyleBarSize] = useState({ width: 0, height: 0 });
+  /*
+   * W2D-03: the legend column, measured with the bar. See `legendBoxes` and
+   * `PlacementOptions.avoid` for why the bar keeps off it.
+   */
+  const [legendAvoid, setLegendAvoid] = useState<Box[]>([]);
   useLayoutEffect(() => {
     const width = styleBarRef.current?.offsetWidth ?? 0;
     const height = styleBarRef.current?.offsetHeight ?? 0;
     setStyleBarSize((previous) => (previous.width === width && previous.height === height
       ? previous : { width, height }));
+    const boxes = legendBoxes(canvasRef.current?.parentElement ?? null);
+    setLegendAvoid((previous) => (JSON.stringify(previous) === JSON.stringify(boxes) ? previous : boxes));
     // Which controls the bar holds — and so how wide it is — is decided by
     // WHICH drawing is selected and what kind it is: the profile block, the
     // Anchored-VWAP band count and the fill toggle are all per-tool.
   }, [sel?.id, sel?.tool]);
+
+  /*
+   * W2A-05: the reference's drag handle. Where the bar is dropped is kept for
+   * this tab (`BAR_POSITION_KEY`) and reused for every drawing it does not
+   * cover; the drawing it was dropped beside keeps it unconditionally, because
+   * the user has just watched it go there.
+   */
+  const [barDrag, setBarDrag] = useState<{ left: number; top: number } | null>(() => recallBarPosition());
+  const [barDropFor, setBarDropFor] = useState<string | null>(null);
+  const paneSize = {
+    width: (container?.clientWidth ?? 400) - (chart?.priceScale("right").width() ?? 0),
+    height: (container?.clientHeight ?? 300) - (chart?.timeScale().height() ?? 0),
+  };
+  const barSize = { width: styleBarSize.width || 300, height: styleBarSize.height || 38 };
+  const startBarDrag = (event: React.PointerEvent<HTMLElement>, from: { left: number; top: number }, id: string): void => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const origin = { x: event.clientX, y: event.clientY };
+    let last = from;
+    const move = (e: PointerEvent): void => {
+      last = clampPlacement(
+        { left: from.left + e.clientX - origin.x, top: from.top + e.clientY - origin.y }, barSize, paneSize,
+      );
+      setBarDrag(last);
+      setBarDropFor(id);
+    };
+    const up = (): void => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      rememberJson(BAR_POSITION_KEY, last, "session");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /*
+   * W2A-03: a template REPLACES the look and keeps what the drawing says
+   * (`applyDrawingTemplate`). A locked drawing is not restyled, as with
+   * `applyStyle`.
+   */
+  const restyle =(look: DrawingStyle): void => {
+    const target = drawings.find((d) => d.id === selected);
+    if (!target || locked || target.locked) return;
+    setStyle((s) => applyDrawingTemplate(s, look));
+    onChange(drawings.map((d) => (d.id === target.id ? { ...d, style: applyDrawingTemplate(d.style, look) } : d)));
+  };
   /*
    * A11: the bar never covers the drawing it belongs to.
    *
@@ -1016,12 +1178,16 @@ export function DrawingCanvas({
    */
   const styleBarAt = sel && selPx ? toolbarPlacement(
     sel.points.map((point) => toPx(point)),
-    { width: styleBarSize.width || 300, height: styleBarSize.height || 38 },
-    {
-      width: (container?.clientWidth ?? 400) - (chart?.priceScale("right").width() ?? 0),
-      height: (container?.clientHeight ?? 300) - (chart?.timeScale().height() ?? 0),
-    },
+    barSize,
+    paneSize,
     (point) => distToDrawing(point, sel, toPx, candles),
+    {
+      // A legend column taller than half the pane leaves nowhere useful to
+      // dock under it, and is more likely a measurement of nothing laid out
+      // yet; the bar then keeps to the drawing rule alone, as before W2D-03.
+      avoid: legendAvoid.filter((b) => b.bottom - b.top < paneSize.height / 2),
+      preferred: barDrag ? { at: barDrag, force: barDropFor === sel.id } : undefined,
+    },
   ) : null;
   const styleFocusRef = useRef(styleFocusSignal);
   useEffect(() => {
@@ -1057,13 +1223,18 @@ export function DrawingCanvas({
            * reference's measured 38px bar of 38×38 buttons. As a menu it was
            * 46px of mixed 34px and 28px buttons.
            */
-          className="tvc-popover absolute z-20 flex items-center gap-0.5 px-1"
+          className="tvc-popover absolute z-30 flex items-center gap-0.5 pr-1"
           style={{ left: styleBarAt.left, top: styleBarAt.top }}
           /*
            * A12: right-clicking the bar is right-clicking the selection. The
            * bar sits outside the chart's own container, so the canvas never
            * saw the event and the browser's menu — or the chart's — opened
            * over a selected drawing.
+           *
+           * W2D-03: `z-30`, above the legend column's `z-20`. At `z-20` and
+           * earlier in the DOM the bar lost to the legend wherever the two
+           * met: the OHLC text painted over its buttons, and a right-click on
+           * it landed on the study row underneath and opened the STUDY menu.
            */
           onContextMenu={(event) => {
             event.preventDefault();
@@ -1075,6 +1246,50 @@ export function DrawingCanvas({
           }}
         >
           {/*
+            W2A-05: the reference's drag handle, 24px of six dots in the faint
+            ink. Pointer-only, as the reference's is; every control on the bar
+            is reachable from the keyboard without moving it.
+          */}
+          <div
+            data-drawing-bar-handle=""
+            title="Drag to move"
+            aria-hidden="true"
+            onPointerDown={(event) => startBarDrag(event, styleBarAt, sel.id)}
+            className="flex h-[38px] w-6 shrink-0 cursor-grab items-center justify-center text-ink-faint opacity-70 active:cursor-grabbing"
+          >
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor">
+              <circle cx="2" cy="2" r="1" /><circle cx="6" cy="2" r="1" />
+              <circle cx="2" cy="6" r="1" /><circle cx="6" cy="6" r="1" />
+              <circle cx="2" cy="10" r="1" /><circle cx="6" cy="10" r="1" />
+            </svg>
+          </div>
+          {/*
+            W2A-03: `Template` opens the TEMPLATE menu. It opened the whole
+            settings dialog — which the gear further along already does — so
+            a control named for templates never showed one.
+          */}
+          <PopoverButton
+            label="Drawing template"
+            title="Template"
+            className={BAR_ICON_BUTTON}
+            popover={(close) => (
+              <ToolbarTemplateMenu
+                drawing={sel}
+                readOnly={locked || Boolean(sel.locked)}
+                close={close}
+                onRestyle={restyle}
+                ask={ask}
+              />
+            )}
+          >
+            <BarGlyph>
+              <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+              <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+              <path d="M17 3.5v7M13.5 7h7" />
+            </BarGlyph>
+          </PopoverButton>
+          {/*
             B-11: colour, width and style OPEN their pickers.
 
             Each carried a caret and none opened anything: a click stepped the
@@ -1084,29 +1299,74 @@ export function DrawingCanvas({
             `WidthPicker`, `DashPicker`, the pieces its `LineStyleButton`
             opens), each behind its own toolbar trigger, as the reference has
             them.
+
+            W2A-05: in the reference's widget grammar. No carets — a toolbar
+            button that opens something says so by opening it — colour as a
+            pencil over a bar OF that colour, width as its own sample beside
+            `2px`, style as a sample of the pattern.
           */}
           <PopoverButton
             label="Line color"
-            className={BAR_TEXT_BUTTON}
+            className={BAR_ICON_BUTTON}
             popover={(close) => (
-              <ColourPalette value={sel.style.color} onDone={close}
+              <ColourPalette value={sel.style.color} onDone={close} allowOpacity
                 onChange={(color) => applyStyle({ color })} />
             )}
           >
-            <span className="h-4 w-4 rounded-full border border-white/30" style={{ background: sel.style.color }} />
-            <CaretGlyph size={8} />
+            <ColourGlyph colour={sel.style.color}>
+              <path d="M15.5 4.5l3 3L9 17l-4 1 1-4z" />
+              <path d="M13.5 6.5l3 3" />
+            </ColourGlyph>
           </PopoverButton>
-          <span className="mx-0.5 h-4 w-px bg-border" />
+          {/*
+            The reference's text colour, on a drawing that HAS text — a
+            control that moved nothing on an unlabelled line must not exist.
+          */}
+          {(TEXT_TOOLS.has(sel.tool) || Boolean(sel.style.text)) && (
+            <PopoverButton
+              label="Text color"
+              className={BAR_ICON_BUTTON}
+              popover={(close) => (
+                <ColourPalette value={sel.style.textColor || sel.style.color} onDone={close} allowOpacity
+                  onChange={(textColor) => applyStyle({ textColor })} />
+              )}
+            >
+              <ColourGlyph colour={sel.style.textColor || sel.style.color}>
+                <path d="M6 4.5h12M12 4.5V18" />
+              </ColourGlyph>
+            </PopoverButton>
+          )}
           <PopoverButton
             label="Line width"
             className={BAR_TEXT_BUTTON}
             popover={(close) => (
-              <WidthPicker value={sel.style.width ?? 1}
+              <WidthPicker layout="list" value={sel.style.width ?? 1}
                 onChange={(width) => { applyStyle({ width }); close(); }} />
             )}
           >
+            <svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true">
+              <path d="M0 6h18" stroke="currentColor" strokeWidth={Math.min(4, sel.style.width ?? 1)} />
+            </svg>
             {sel.style.width ?? 1}px
-            <CaretGlyph size={8} />
+          </PopoverButton>
+          <PopoverButton
+            label="Line style"
+            className={BAR_ICON_BUTTON}
+            popover={(close) => (
+              <DashPicker layout="list" value={lineStyleOf(sel.style)} width={sel.style.width ?? 1}
+                onChange={(next) => {
+                  // `dashed` kept in step, as the settings dialog keeps it:
+                  // every renderer here reads the boolean.
+                  applyStyle({ lineStyle: next, dashed: next !== "solid" });
+                  close();
+                }} />
+            )}
+          >
+            <BarGlyph>
+              <path d="M3 12h18" strokeWidth="1.5"
+                strokeDasharray={lineStyleOf(sel.style) === "solid" ? undefined
+                  : lineStyleOf(sel.style) === "dotted" ? "1.5 3" : "5 3"} />
+            </BarGlyph>
           </PopoverButton>
           {/*
             Anchored VWAP's standard-deviation bands, on the tool that has
@@ -1205,29 +1465,6 @@ export function DrawingCanvas({
               </button>
             </>
           )}
-          <PopoverButton
-            label="Line style"
-            className={BAR_TEXT_BUTTON}
-            popover={(close) => (
-              <DashPicker value={lineStyleOf(sel.style)} width={sel.style.width ?? 1}
-                onChange={(next) => {
-                  // `dashed` kept in step, as the settings dialog keeps it:
-                  // every renderer here reads the boolean.
-                  applyStyle({ lineStyle: next, dashed: next !== "solid" });
-                  close();
-                }} />
-            )}
-          >
-            <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden="true">
-              <path d="M0 6h22" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                strokeDasharray={lineStyleOf(sel.style) === "solid" ? undefined
-                  : lineStyleOf(sel.style) === "dotted" ? "2 4" : "8 4"} />
-            </svg>
-            <CaretGlyph size={8} />
-          </PopoverButton>
-          <button type="button" onClick={() => onOpenSettings?.(sel.id)}
-            className={BAR_TEXT_BUTTON}
-            aria-label="Drawing template" title="Drawing template">Template <CaretGlyph size={8} /></button>
           {FILLABLE_TOOLS.has(sel.tool) && (
           <button
             onClick={() => applyStyle({ filled: !sel.style.filled })}
@@ -1236,17 +1473,15 @@ export function DrawingCanvas({
             aria-label={sel.style.filled ? "Remove the fill" : "Fill the shape"}
             aria-pressed={Boolean(sel.style.filled)}
           >
-            <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden="true">
-              <rect x="1.5" y="1.5" width="9" height="9" rx="1"
-                fill={sel.style.filled ? "currentColor" : "none"}
-                stroke="currentColor" strokeWidth="1.2" />
-            </svg>
+            <BarGlyph>
+              <rect x="4" y="4" width="16" height="16" rx="2"
+                fill={sel.style.filled ? "currentColor" : "none"} />
+            </BarGlyph>
           </button>
           )}
-          <span className="mx-0.5 h-4 w-px bg-border" />
           {/*
             TVP8: Settings and Clone.
-            
+
             The reference's floating toolbar over a selected drawing carries
             colour, width, style, SETTINGS, CLONE, lock, delete and a "more"
             menu. This one had the style half and the lock/delete half, and the
@@ -1271,11 +1506,10 @@ export function DrawingCanvas({
             title="Settings"
             aria-label="Settings for this drawing"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.9" aria-hidden="true">
+            <BarGlyph>
               <path d="M18.06 10.26L20.96 10.42L20.96 13.58L18.06 13.74L17.51 15.05L19.45 17.22L17.22 19.45L15.05 17.51L13.74 18.06L13.58 20.96L10.42 20.96L10.26 18.06L8.95 17.51L6.78 19.45L4.55 17.22L6.49 15.05L5.94 13.74L3.04 13.58L3.04 10.42L5.94 10.26L6.49 8.95L4.55 6.78L6.78 4.55L8.95 6.49L10.26 5.94L10.42 3.04L13.58 3.04L13.74 5.94L15.05 6.49L17.22 4.55L19.45 6.78L17.51 8.95Z" />
               <circle cx="12" cy="12" r="2.9" />
-            </svg>
+            </BarGlyph>
           </button>
           <button
             onClick={() => {
@@ -1287,11 +1521,10 @@ export function DrawingCanvas({
             title="Clone (⌘D)"
             aria-label="Clone this drawing"
           >
-            <svg width="16" height="16" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-              strokeWidth="1.2" aria-hidden="true">
-              <rect x="1.5" y="1.5" width="6.5" height="6.5" rx="1" />
-              <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
-            </svg>
+            <BarGlyph>
+              <rect x="3.5" y="3.5" width="12" height="12" rx="2" />
+              <rect x="8.5" y="8.5" width="12" height="12" rx="2" />
+            </BarGlyph>
           </button>
           <button
             onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, locked: !d.locked } : d)))}
@@ -1300,13 +1533,12 @@ export function DrawingCanvas({
             aria-label={sel.locked ? "Unlock this drawing" : "Lock this drawing"}
             aria-pressed={Boolean(sel.locked)}
           >
-            <svg width="16" height="16" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-              strokeWidth="1.2" aria-hidden="true">
-              <rect x="2" y="5.4" width="8" height="5.1" rx="1" />
+            <BarGlyph>
+              <rect x="5" y="10.5" width="14" height="10" rx="2" />
               {/* An open shackle leans clear of the body, so locked and unlocked
                   differ in SHAPE and not only in tint. */}
-              <path d={sel.locked ? "M4 5.4V3.9a2 2 0 0 1 4 0v1.5" : "M4 5.4V3.9a2 2 0 0 1 3.9-.5"} />
-            </svg>
+              <path d={sel.locked ? "M8 10.5V7.5a4 4 0 0 1 8 0v3" : "M8 10.5V7.5a4 4 0 0 1 7.8-1.1"} />
+            </BarGlyph>
           </button>
           <button type="button" onClick={() => onChange(drawings.map((d) => (d.id === selected ? { ...d, hidden: !d.hidden } : d)))}
             className={BAR_ICON_BUTTON}
@@ -1317,29 +1549,27 @@ export function DrawingCanvas({
               eye. These are the legend's own eye and eye-slash paths, so the
               same idea looks the same in both places.
             */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <BarGlyph>
               <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
               <circle cx="12" cy="12" r="2.6" />
               {sel.hidden && <path d="M4 20L20 4" />}
-            </svg>
+            </BarGlyph>
           </button>
           <button
             onClick={() => { onChange(drawings.filter((d) => d.id !== selected)); setSelected(null); }}
             disabled={locked || sel.locked}
-            className="flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink-muted hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+            className="flex h-[38px] w-[38px] items-center justify-center rounded-md text-ink hover:bg-down/15 hover:text-down disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink"
             title={locked || sel.locked ? "Unlock this drawing to delete it" : "Delete (Del)"}
             aria-label="Delete this drawing"
           >
             {/*
-              A bin, at the same 16px as its neighbours. A 10px cross was both
+              A bin, at the same size as its neighbours. A 10px cross was both
               the smallest thing on the bar and the wrong metaphor — a cross
               closes something, it does not delete it.
             */}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <BarGlyph>
               <path d="M4 6h16M9 6V4h6v2M6.5 6l1 14h9l1-14" />
-            </svg>
+            </BarGlyph>
           </button>
           {/*
             `More` opens the drawing's MENU. It used to call `onOpenSettings`,
@@ -1368,11 +1598,11 @@ export function DrawingCanvas({
             className={BAR_ICON_BUTTON}
             title="More drawing actions" aria-label="More drawing actions"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="5" cy="12" r="1.6" fill="currentColor" />
-              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-              <circle cx="19" cy="12" r="1.6" fill="currentColor" />
-            </svg>
+            <BarGlyph fill="currentColor">
+              <circle cx="5" cy="12" r="1.4" stroke="none" />
+              <circle cx="12" cy="12" r="1.4" stroke="none" />
+              <circle cx="19" cy="12" r="1.4" stroke="none" />
+            </BarGlyph>
           </button>
         </div>
       )}
@@ -1687,7 +1917,7 @@ export function drawOne(
     // Chosen from the chip, not fixed: `bg` defaults to the DRAWING's own
     // colour, and on the light theme even the semantic green is dark enough
     // that black text on it reads at 2.2:1.
-    ctx.fillStyle = readableOn(bg);
+    ctx.fillStyle = readableOn(opaque(bg));
     ctx.fillText(text, x + pad, y);
     ctx.fillStyle = color;
   };

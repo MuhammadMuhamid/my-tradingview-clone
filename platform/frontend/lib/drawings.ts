@@ -10,7 +10,7 @@
 
 import { recallJson, rememberJson } from "./browserStorage";
 import { tryStoredSymbol } from "./instrument";
-import { isResolution, type Resolution } from "./resolution";
+import { isResolution, NATIVE_RESOLUTIONS, resolutionMs, type Resolution } from "./resolution";
 
 export type DrawingTool =
   // cursors / modes
@@ -204,6 +204,41 @@ export interface Drawing {
 export function drawingVisibleOnTimeframe(drawing: Drawing, interval: Resolution): boolean {
   const visibleOn = drawing.visibleOn;
   return !visibleOn || visibleOn.length === 0 || visibleOn.includes(interval);
+}
+
+/**
+ * The drawing menu's `Visibility on intervals ›`, as the reference words it.
+ *
+ * Four shortcuts over the same `visibleOn` allow-list the settings dialog's
+ * Visibility tab edits — not a second model. "And above" is every native
+ * resolution at least as long as this one, plus this one (which may be a
+ * custom interval the native list does not hold). A choice that comes out as
+ * every native resolution is spelled `undefined`, the model's "everywhere", so
+ * it does not freeze a list a later interval would fall outside of.
+ */
+export type IntervalVisibility = "above" | "below" | "only" | "all";
+
+export function visibleOnFor(choice: IntervalVisibility, interval: Resolution): Resolution[] | undefined {
+  if (choice === "all") return undefined;
+  if (choice === "only") return [interval];
+  const here = resolutionMs(interval);
+  const kept = NATIVE_RESOLUTIONS.filter((id) => (choice === "above"
+    ? resolutionMs(id) >= here : resolutionMs(id) <= here));
+  if (kept.length === NATIVE_RESOLUTIONS.length) return undefined;
+  return kept.includes(interval) ? kept : [...kept, interval];
+}
+
+/** Which of the four a stored allow-list is, on this interval — or null for a hand-made list. */
+export function intervalVisibilityOf(
+  visibleOn: readonly Resolution[] | undefined, interval: Resolution,
+): IntervalVisibility | null {
+  if (!visibleOn || visibleOn.length === 0) return "all";
+  const have = new Set(visibleOn);
+  for (const choice of ["only", "above", "below"] as const) {
+    const want = visibleOnFor(choice, interval);
+    if (want && want.length === have.size && want.every((id) => have.has(id))) return choice;
+  }
+  return null;
 }
 
 /** How many anchors each tool takes. `0` = freeform (finish explicitly). */
@@ -617,43 +652,115 @@ export function saveDrawings(symbol: string, drawings: Drawing[]): void {
 /* ── R6b-28: drawing style templates ──────────────────────────────────────── */
 
 /**
- * The settings dialog's `Template ▾` menu, which the reference has and this
- * product had nowhere at all.
+ * The reference's drawing templates: `Save Drawing Template As…`, `Apply
+ * Default Drawing Template`, then the saved ones — on the floating toolbar, on
+ * the drawing menu's `Template ›` row and in the settings dialog's footer.
  *
  * A template is a STYLE, not a drawing: applying one to a trendline must not
  * move its anchors or change which timeframes it appears on. That is the whole
  * reason this stores `DrawingStyle` rather than `Drawing`.
+ *
+ * ── Per tool, as the reference keeps them ──────────────────────────────────
+ *
+ * W2A-03: templates were one global list, so a Fib retracement's template sat
+ * in a trendline's menu offering a style tuned for something else entirely. A
+ * template now carries the tool it was saved from and is offered only on that
+ * tool. One written before this has no `tool`; it is offered everywhere, which
+ * is what it always was, rather than silently vanishing.
+ *
+ * ── Content is not style ───────────────────────────────────────────────────
+ *
+ * `text` and `glyph` are what a drawing SAYS, not how it looks. A template
+ * saved from a labelled trendline carried its label, and applying it
+ * relabelled every line it touched. They are stripped when a template is
+ * saved, and kept from the target when one is applied.
+ *
+ * ── Per device ─────────────────────────────────────────────────────────────
+ *
+ * In this browser's storage, as chart-settings and indicator templates are.
+ * The server keeps drawings, not preferences about how to draw them.
  */
 export const DRAWING_TEMPLATES_KEY = "tv.drawingTemplates.v1";
 
 export interface DrawingTemplate {
   name: string;
+  /** The tool it was saved from; absent on a template from before W2A-03. */
+  tool?: DrawingTool;
   style: DrawingStyle;
+}
+
+/** A drawing's style without what it says — what a template may carry. */
+export function templateStyle(style: DrawingStyle): DrawingStyle {
+  const look: DrawingStyle = { ...style };
+  delete look.text;
+  delete look.glyph;
+  return look;
+}
+
+/**
+ * `current` restyled by `template`, keeping what `current` says.
+ *
+ * REPLACES rather than merges: a template saved from a solid, unfilled line
+ * must make a dashed, filled one solid and unfilled, and a merge would leave
+ * every key the template does not mention exactly where it was.
+ */
+export function applyDrawingTemplate(current: DrawingStyle, template: DrawingStyle): DrawingStyle {
+  const next = templateStyle(template);
+  if (current.text !== undefined) next.text = current.text;
+  if (current.glyph !== undefined) next.glyph = current.glyph;
+  return next;
+}
+
+/** What `Apply Default Drawing Template` restores: the style a new drawing starts with. */
+export function defaultDrawingTemplate(): DrawingStyle {
+  return { ...DEFAULT_STYLE };
+}
+
+/** The templates offered on a drawing of `tool`. */
+export function templatesForTool(
+  templates: readonly DrawingTemplate[], tool: DrawingTool,
+): DrawingTemplate[] {
+  return templates.filter((t) => t.tool === undefined || t.tool === tool);
 }
 
 export function loadDrawingTemplates(): DrawingTemplate[] {
   const raw = recallJson<unknown>(DRAWING_TEMPLATES_KEY, []);
   if (!Array.isArray(raw)) return [];
-  return raw.filter((item): item is DrawingTemplate =>
-    !!item && typeof item === "object"
-    && typeof (item as DrawingTemplate).name === "string"
-    && !!(item as DrawingTemplate).style
-    && typeof (item as DrawingTemplate).style.color === "string");
+  return raw.filter((item): item is DrawingTemplate => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Partial<DrawingTemplate>;
+    return typeof row.name === "string"
+      && !!row.style && typeof row.style.color === "string"
+      // A tool this build does not know would be a template no drawing can use.
+      && (row.tool === undefined || (typeof row.tool === "string" && row.tool in TOOL_POINTS));
+  });
 }
 
+/** One template is one NAME on one TOOL; a trendline's "Thin" is not a ray's. */
+function sameTemplate(
+  a: { name: string; tool?: DrawingTool }, b: { name: string; tool?: DrawingTool },
+): boolean {
+  return a.name === b.name && a.tool === b.tool;
+}
+
+/** Save `style` as `name` on `tool`, replacing that tool's template of the same name. */
 export function saveDrawingTemplate(
-  templates: readonly DrawingTemplate[], name: string, style: DrawingStyle,
+  templates: readonly DrawingTemplate[], name: string, style: DrawingStyle, tool?: DrawingTool,
 ): DrawingTemplate[] {
-  const next = [...templates.filter((t) => t.name !== name), { name, style: { ...style } }]
+  const entry: DrawingTemplate = tool === undefined
+    ? { name, style: templateStyle(style) }
+    : { name, tool, style: templateStyle(style) };
+  const next = [...templates.filter((t) => !sameTemplate(t, entry)), entry]
     .sort((a, b) => a.name.localeCompare(b.name));
   rememberJson(DRAWING_TEMPLATES_KEY, next);
   return next;
 }
 
+/** Delete exactly `target` — its name on its tool — and no other tool's namesake. */
 export function deleteDrawingTemplate(
-  templates: readonly DrawingTemplate[], name: string,
+  templates: readonly DrawingTemplate[], target: { name: string; tool?: DrawingTool },
 ): DrawingTemplate[] {
-  const next = templates.filter((t) => t.name !== name);
+  const next = templates.filter((t) => !sameTemplate(t, target));
   rememberJson(DRAWING_TEMPLATES_KEY, next);
   return next;
 }

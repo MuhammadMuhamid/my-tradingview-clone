@@ -29,6 +29,7 @@ import { displayTicker } from "./instrument";
 import { BINDINGS, type ShortcutAction } from "./shortcuts";
 import { CHART_TIME_ZONES } from "./chartClock";
 import type { ChartTimeZone } from "./chartSettings";
+import type { IntervalVisibility } from "./drawings";
 
 /**
  * The key cap a row prints, read from the table that implements the chord.
@@ -319,6 +320,18 @@ export interface DrawingMenuContext {
   /** Rendering order can be changed safely for this drawing. */
   canReorder: boolean;
   /**
+   * W2A-10: the saved templates offered on this drawing's tool, by name
+   * (`templatesForTool`), for the `Template ›` submenu. Optional so a caller
+   * that has none to offer still gets Save as… and Apply default.
+   */
+  templates?: readonly string[];
+  /**
+   * W2A-10: which `Visibility on intervals ›` shortcut the drawing's
+   * allow-list currently is on this interval (`intervalVisibilityOf`), or
+   * null for a list made in the settings dialog that is none of the four.
+   */
+  intervalVisibility?: IntervalVisibility | null;
+  /**
    * macOS uses ⌘ where every other platform uses Ctrl.
    *
    * The hints used to be the literal `⌘D` and `⌘C`, so a Windows or Linux user
@@ -366,12 +379,23 @@ export function drawingToolName(tool: string): string {
  */
 export const DRAWING_MENU_IDS = [
   "drawing:add-alert",
+  "drawing:template-save", "drawing:template-default", "drawing:template-apply",
   "drawing:bring-front", "drawing:send-back",
+  "drawing:visibility-above", "drawing:visibility-below",
+  "drawing:visibility-only", "drawing:visibility-all",
+  "drawing:object-tree",
   "drawing:clone", "drawing:copy",
   "drawing:toggle-lock", "drawing:toggle-hidden", "drawing:remove",
   "drawing:settings",
 ] as const;
 export type DrawingMenuId = (typeof DRAWING_MENU_IDS)[number];
+
+/**
+ * A saved template's row emits this prefix plus the template's NAME — one
+ * branch for every template, as `CHART_ADD_TO_LIST_PREFIX` is one branch for
+ * every watchlist, rather than a case per thing the user has saved.
+ */
+export const DRAWING_TEMPLATE_APPLY_PREFIX = "drawing:template-apply:";
 
 /**
  * The selected drawing's own menu.
@@ -386,14 +410,26 @@ export type DrawingMenuId = (typeof DRAWING_MENU_IDS)[number];
  * editor rather than the colour bar beside the drawing — the bar has its own
  * gesture and does not need a menu row too.
  *
- * `Template ›`, `Visibility on intervals ›` and `Object tree` are the
- * reference's and are ABSENT rather than greyed. This file's rule — disabled
- * WITH a reason — is for an action the product has and cannot take right now;
- * an action the engine has no route to at all is not a state, it is absence,
- * and three permanently grey rows on a drawing menu teach nobody anything.
+ * ── W2A-10: the reference's middle block, now that each row has a route ────
+ *
+ * `Template ›`, `Visibility on intervals ›` and `Object tree` were ABSENT,
+ * rather than greyed, while nothing could answer them — this file's rule,
+ * disabled WITH a reason, is for an action the product has and cannot take
+ * right now. Each now reaches something real: drawing templates
+ * (`lib/drawings`), the `visibleOn` allow-list the settings dialog's
+ * Visibility tab already edits, and the objects panel the chart menu's own
+ * `Object tree` opens. The reference's three sync rows stay absent: a drawing
+ * here belongs to one instrument's list and there is no layout or global
+ * scope to sync it into.
  */
 export function drawingMenu(ctx: DrawingMenuContext): MenuEntry[] {
   const reorderReason = "Rendering order is not adjustable for this drawing";
+  const visibility = ctx.intervalVisibility ?? null;
+  const visibilityRow = (id: string, label: string, choice: IntervalVisibility): MenuEntry => ({
+    id, label, radio: true, checked: visibility === choice,
+    disabled: ctx.locked, disabledReason: LOCKED_REASON,
+  });
+  const templates = ctx.templates ?? [];
   return [
     {
       id: "drawing:add-alert", label: `Add alert on ${ctx.toolName}…`, glyph: "alarm",
@@ -404,6 +440,23 @@ export function drawingMenu(ctx: DrawingMenuContext): MenuEntry[] {
         : "Only a horizontal level can carry a price alert",
     },
     { id: "sep-order", separator: true },
+    {
+      // Save is offered on a locked drawing — it reads the style, it does
+      // not change it. Applying one is an edit, and follows the lock.
+      id: "drawing:template", label: "Template",
+      children: [
+        { id: "drawing:template-save", label: "Save as…" },
+        {
+          id: "drawing:template-default", label: "Apply default",
+          disabled: ctx.locked, disabledReason: LOCKED_REASON,
+        },
+        ...(templates.length > 0 ? [{ id: "sep-templates", separator: true } as const] : []),
+        ...templates.map((name): MenuEntry => ({
+          id: `${DRAWING_TEMPLATE_APPLY_PREFIX}${name}`, label: name,
+          disabled: ctx.locked, disabledReason: LOCKED_REASON,
+        })),
+      ],
+    },
     {
       /*
        * The reference's `Visual order ›`, which is where front/back belong: a
@@ -418,6 +471,16 @@ export function drawingMenu(ctx: DrawingMenuContext): MenuEntry[] {
         { id: "drawing:send-back", label: "Send to back" },
       ],
     },
+    {
+      id: "drawing:visibility", label: "Visibility on intervals",
+      children: [
+        visibilityRow("drawing:visibility-above", "Current interval and above", "above"),
+        visibilityRow("drawing:visibility-below", "Current interval and below", "below"),
+        visibilityRow("drawing:visibility-only", "Current interval only", "only"),
+        visibilityRow("drawing:visibility-all", "All intervals", "all"),
+      ],
+    },
+    { id: "drawing:object-tree", label: "Object tree" },
     { id: "sep-copy", separator: true },
     {
       id: "drawing:clone", label: "Clone", glyph: "clone",

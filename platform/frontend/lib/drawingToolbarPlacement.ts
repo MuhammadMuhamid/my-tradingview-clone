@@ -41,12 +41,41 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value));
 }
 
+/** A box in pane pixels, edges rather than size — the shape `avoid` takes. */
+export interface Box { left: number; top: number; right: number; bottom: number }
+
+export interface PlacementOptions {
+  /**
+   * W2A-05: where the user DRAGGED the bar, if they have.
+   *
+   * The reference's bar has a drag handle and stays where it is put. This one
+   * is placed so it never covers the drawing (A11), and a dragged position is
+   * not allowed to undo that by accident: it is used for any drawing it does
+   * not cover, and otherwise the automatic placement runs as before. `force`
+   * is the one exception — the drawing the bar was dropped beside, where the
+   * user has just seen exactly where it went and chose it.
+   */
+  preferred?: { at: Placement; force?: boolean };
+  /**
+   * W2D-03: boxes the bar must not sit on — the pane's legend column.
+   *
+   * A drawing near the top of the pane sent the bar to the docked-at-the-top
+   * candidate, which is exactly where the series and study legends are; their
+   * OHLC text ran through its buttons, and a right-click on it reached the
+   * study row underneath. A box here is an obstacle like the drawing itself,
+   * and its bottom edge is a candidate row, so the bar docks just under the
+   * legend rather than over it.
+   */
+  avoid?: readonly Box[];
+}
+
 /**
  * The first box, in pane coordinates, that keeps the bar off the drawing.
  *
  * `anchors` are the drawing's anchor points in pane pixels; `distance`, when
  * given, is the pixel distance from a point to what the drawing actually
- * draws. A pane too small for any clear candidate gets the first one anyway —
+ * draws. A pane too small for any clear candidate gets the first one that at
+ * least keeps off the `avoid` boxes, and failing that the first one at all —
  * a bar over the drawing is better than no bar.
  */
 export function toolbarPlacement(
@@ -54,7 +83,9 @@ export function toolbarPlacement(
   bar: Size,
   pane: Size,
   distance?: (p: Point) => number,
+  options: PlacementOptions = {},
 ): Placement {
+  const avoid = options.avoid ?? [];
   const finite = anchors.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const xs = finite.map((p) => p.x);
   const ys = finite.map((p) => p.y);
@@ -71,6 +102,7 @@ export function toolbarPlacement(
     box.top - TOOLBAR_GAP - bar.height, // above the drawing
     box.bottom + TOOLBAR_GAP, // below it
     EDGE, // docked at the top of the pane
+    ...avoid.map((b) => b.bottom + TOOLBAR_GAP), // or just under the legend
     maxTop, // and the bottom
   ];
   const lefts = [
@@ -78,13 +110,17 @@ export function toolbarPlacement(
     box.right - bar.width, // its right edge
     box.right + TOOLBAR_GAP, // clear of it on the right
     box.left - TOOLBAR_GAP - bar.width, // on the left
+    ...avoid.map((b) => b.right + TOOLBAR_GAP), // beside the legend
     EDGE, maxLeft,
   ];
 
+  const offLegend = (left: number, top: number): boolean => avoid.every((b) =>
+    !(left + bar.width > b.left && left < b.right && top + bar.height > b.top && top < b.bottom));
   const clear = (left: number, top: number): boolean => {
     const right = left + bar.width;
     const bottom = top + bar.height;
     if (right > box.left && left < box.right && bottom > box.top && top < box.bottom) return false;
+    if (!offLegend(left, top)) return false;
     if (!distance) return true;
     for (let y = top; y <= bottom + 0.01; y += Math.min(STEP, bar.height / 2)) {
       for (let x = left; x <= right + 0.01; x += STEP) {
@@ -94,7 +130,13 @@ export function toolbarPlacement(
     return true;
   };
 
+  if (options.preferred) {
+    const at = clampPlacement(options.preferred.at, bar, pane);
+    if (options.preferred.force || clear(at.left, at.top)) return at;
+  }
+
   let first: Placement | null = null;
+  let firstOffLegend: Placement | null = null;
   const seen = new Set<string>();
   for (const rawTop of tops) {
     // A candidate the pane cannot hold is not clamped into a different one:
@@ -107,10 +149,19 @@ export function toolbarPlacement(
       if (seen.has(key)) continue;
       seen.add(key);
       first ??= { left, top };
+      if (!firstOffLegend && offLegend(left, top)) firstOffLegend = { left, top };
       if (clear(left, top)) return { left, top };
     }
   }
-  return first ?? { left: clamp(box.left, EDGE, maxLeft), top: clamp(box.top - TOOLBAR_GAP - bar.height, EDGE, maxTop) };
+  return firstOffLegend ?? first
+    ?? { left: clamp(box.left, EDGE, maxLeft), top: clamp(box.top - TOOLBAR_GAP - bar.height, EDGE, maxTop) };
+}
+
+/** `at`, moved the least distance that keeps the whole bar inside the pane. */
+export function clampPlacement(at: Placement, bar: Size, pane: Size): Placement {
+  const maxLeft = Math.max(EDGE, pane.width - bar.width - EDGE);
+  const maxTop = Math.max(EDGE, pane.height - bar.height - EDGE);
+  return { left: clamp(at.left, EDGE, maxLeft), top: clamp(at.top, EDGE, maxTop) };
 }
 
 /** Whether two boxes share any area — what the tests and the bar's own check mean by "covers". */

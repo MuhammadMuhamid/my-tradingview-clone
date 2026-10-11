@@ -22,6 +22,7 @@ import type {
   SeriesAttachedParameter, SeriesType, Time,
 } from "lightweight-charts";
 import { chipTextColor } from "./barCountdown";
+import { opaque } from "./colorAlpha";
 import { drawingVisibleOnTimeframe, type Drawing } from "./drawings";
 import { firstVisibleClose, priceAxisText, readPriceAxisFormatting } from "./priceAxisText";
 import type { Resolution } from "./resolution";
@@ -51,7 +52,9 @@ export function drawingAxisTags(
     for (const point of points) {
       if (!Number.isFinite(point.price) || seen.has(point.price)) continue;
       seen.add(point.price);
-      tags.push({ price: point.price, color: d.style.color });
+      // Opaque: a translucent line (W2A-06) must not give the axis a chip the
+      // tick labels show through, nor one its own text cannot be read on.
+      tags.push({ price: point.price, color: opaque(d.style.color) });
     }
   }
   return tags;

@@ -21,6 +21,7 @@ import {
 } from "react";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
+import { splitAlpha, withAlpha } from "@/lib/colorAlpha";
 
 
 /*
@@ -513,13 +514,28 @@ export function IconButton({
 /**
  * The palette every colour control in the product opens.
  *
- * Two rows of nine: the reference's neutral ramp from white to black, then the
- * chromatic row. `""` — "the theme's own" — is not in here; it is the popover's
- * first cell, because it is a different KIND of answer from a colour.
+ * Two rows of ten: the reference's neutral ramp from white to black, then its
+ * chromatic row. `""` — "the theme's own" — is not in here; it is the
+ * popover's first cell, because it is a different KIND of answer from a colour.
+ *
+ * W2A-06: it was two rows of nine and stopped there, where the reference
+ * follows them with six rows of tints of the same ten hues (`SWATCH_TINTS`),
+ * lightest first — so "a lighter blue" was a trip to the operating system's
+ * picker rather than one click.
  */
 export const SWATCH_PALETTE: readonly string[] = [
-  "#ffffff", "#d1d4dc", "#9598a1", "#787b86", "#5d606b", "#434651", "#2a2e39", "#131722", "#000000",
-  "#f6465d", "#ff9800", "#ffeb3b", "#2ebd85", "#089981", "#2962ff", "#7e57c2", "#e91e63", "#795548",
+  "#ffffff", "#d1d4dc", "#b2b5be", "#9598a1", "#787b86", "#5d606b", "#434651", "#2a2e39", "#131722", "#000000",
+  "#f23645", "#ff9800", "#ffeb3b", "#4caf50", "#089981", "#00bcd4", "#2962ff", "#673ab7", "#9c27b0", "#e91e63",
+];
+
+/** The reference's six tint rows under the chromatic row, one column per hue. */
+export const SWATCH_TINTS: readonly string[] = [
+  "#fccbcd", "#ffe0b2", "#fff9c4", "#c8e6c9", "#ace5dc", "#b2ebf2", "#bbd9fb", "#d1c4e9", "#e1bee7", "#f8bbd0",
+  "#faa1a4", "#ffcc80", "#fff59d", "#a5d6a7", "#70ccbd", "#80deea", "#90bff9", "#b39ddb", "#ce93d8", "#f48fb1",
+  "#f77c80", "#ffb74d", "#fff176", "#81c784", "#42bda8", "#4dd0e1", "#5b9cf6", "#9575cd", "#ba68c8", "#f06292",
+  "#f7525f", "#ffa726", "#ffee58", "#66bb6a", "#22ab94", "#26c6da", "#3179f5", "#7e57c2", "#ab47bc", "#ec407a",
+  "#b22833", "#f57c00", "#fbc02d", "#388e3c", "#056656", "#0097a7", "#1848cc", "#512da8", "#7b1fa2", "#c2185b",
+  "#801922", "#e65100", "#f57f17", "#1b5e20", "#00332a", "#006064", "#0c3299", "#311b92", "#4a148c", "#880e4f",
 ];
 
 /**
@@ -730,65 +746,125 @@ export function Dropdown({
   );
 }
 
-/** The palette grid both colour controls open, and the `Custom…` escape hatch. */
-function Palette({ value, onChange, allowTheme, onDone }: {
+/**
+ * The palette grid every colour control opens: ramp, hues, tints, the custom
+ * `+`, and — where the setting can carry it — Opacity.
+ *
+ * W2A-06, measured on the reference's drawing toolbar: 18px cells at a 23px
+ * pitch, ten to a row; the neutral and chromatic rows, a gap, six tint rows; a
+ * hairline; `+` for a colour of your own; and an `Opacity` slider with its
+ * percentage beside it. The selected cell wears the ink ring.
+ *
+ * Opacity is OPT-IN (`allowOpacity`). It travels in the colour string as
+ * `#rrggbbaa` (`lib/colorAlpha`), which a drawing's canvas reads natively —
+ * but chart settings feed lightweight-charts options and the Pine inputs feed
+ * a script, and neither was written to receive eight digits. A slider that
+ * moved a value its consumer then misread would be worse than no slider.
+ */
+function Palette({ value, onChange, allowTheme, allowOpacity = false, onDone }: {
   value: string;
   onChange: (next: string) => void;
   /** Whether `""` — "follow the theme" — is a legal answer for this setting. */
   allowTheme: boolean;
+  /** Whether this setting stores an alpha (see above). */
+  allowOpacity?: boolean;
   onDone: () => void;
 }) {
+  const { hex, opacity } = splitAlpha(value);
+  const six = /^#[0-9a-f]{6}$/i.test(hex);
+  const known = six && (SWATCH_PALETTE.includes(hex.toLowerCase()) || SWATCH_TINTS.includes(hex.toLowerCase()));
+  // A swatch replaces the HUE; the opacity the user already chose survives it.
+  const pick = (next: string): void => {
+    onChange(allowOpacity ? withAlpha(next, opacity) : next);
+    onDone();
+  };
+  const cell = (colour: string) => (
+    <button
+      key={colour}
+      type="button"
+      aria-label={colour}
+      title={colour}
+      aria-pressed={colour === hex.toLowerCase()}
+      onClick={() => pick(colour)}
+      style={{ backgroundColor: colour }}
+      className={`h-[18px] w-[18px] rounded-[3px] border ${
+        colour === hex.toLowerCase()
+          ? "border-ink outline outline-1 outline-ink [outline-offset:1px]"
+          : "border-black/20"
+      }`}
+    />
+  );
   return (
-    <div className="p-1.5">
-      <div className="grid grid-cols-9 gap-1">
-        {allowTheme && (
-          <button
-            type="button"
-            aria-label="Theme colour"
-            title="Follow the active theme"
-            onClick={() => { onChange(""); onDone(); }}
-            className="tvc-control relative h-5 w-5 rounded-sm border border-control-border"
-          >
-            <svg viewBox="0 0 20 20" className="absolute inset-0 h-full w-full" aria-hidden="true">
-              <path d="M2 18L18 2" stroke="currentColor" strokeWidth="1.5" />
+    <div className="p-3">
+      {allowTheme && (
+        <button
+          type="button"
+          aria-label="Theme colour"
+          title="Follow the active theme"
+          onClick={() => { onChange(""); onDone(); }}
+          className="tvc-control mb-2 flex h-7 items-center gap-2 rounded-md px-1 text-sm text-ink-muted hover:text-ink"
+        >
+          <span className="relative h-[18px] w-[18px] rounded-[3px] border border-control-border">
+            <svg viewBox="0 0 18 18" className="absolute inset-0 h-full w-full" aria-hidden="true">
+              <path d="M2 16L16 2" stroke="currentColor" strokeWidth="1.5" />
             </svg>
-          </button>
-        )}
-        {SWATCH_PALETTE.map((hex) => (
-          <button
-            key={hex}
-            type="button"
-            aria-label={hex}
-            title={hex}
-            onClick={() => { onChange(hex); onDone(); }}
-            style={{ backgroundColor: hex }}
-            className={`h-5 w-5 rounded-sm border ${
-              hex === value ? "border-ink" : "border-black/20"
-            }`}
+          </span>
+          Theme
+        </button>
+      )}
+      <div className="grid grid-cols-[repeat(10,18px)] gap-[5px]">{SWATCH_PALETTE.map(cell)}</div>
+      <div className="mt-3 grid grid-cols-[repeat(10,18px)] gap-[5px]">{SWATCH_TINTS.map(cell)}</div>
+      <div className="my-3 h-px bg-border" />
+      <div className="flex items-center gap-[5px]">
+        {/*
+          The native picker, kept reachable rather than replaced, behind the
+          reference's `+`. A colour picked there that is in none of the rows
+          above is shown beside it, selected, so the current colour is always
+          on screen somewhere in the popover.
+        */}
+        <label
+          title="Custom colour…"
+          className="tvc-control flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-ink"
+        >
+          <PlusGlyph size={14} />
+          <input
+            type="color"
+            value={six ? hex : "#ffffff"}
+            aria-label="Custom colour"
+            onChange={(e) => onChange(allowOpacity ? withAlpha(e.target.value, opacity) : e.target.value)}
+            className="h-0 w-0 opacity-0"
           />
-        ))}
+        </label>
+        {six && !known && cell(hex.toLowerCase())}
       </div>
-      {/*
-        The native picker, kept reachable rather than replaced.
-        A palette of eighteen is what a trader uses; the OS picker is what they
-        need on the day none of the eighteen is their firm's red. The input
-        carries the label's click and the keyboard's focus, so this is a
-        control and not a decoration.
-      */}
-      <label className="tvc-control mt-1.5 flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-sm text-ink-muted hover:text-ink">
-        <span
-          className="h-4 w-4 rounded-sm border border-control-border"
-          style={{ backgroundColor: value || "transparent" }}
-        />
-        Custom…
-        <input
-          type="color"
-          value={value || "#ffffff"}
-          aria-label="Custom colour"
-          onChange={(e) => onChange(e.target.value)}
-          className="h-0 w-0 opacity-0"
-        />
-      </label>
+      {allowOpacity && (
+        <div className="mt-3">
+          <div className="mb-2 text-xs text-ink-muted">Opacity</div>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={opacity}
+              aria-label="Opacity"
+              disabled={!six}
+              onChange={(e) => onChange(withAlpha(hex, Number(e.target.value)))}
+              style={{ background: six ? `linear-gradient(to right, ${hex}00, ${hex})` : undefined }}
+              className="h-2 min-w-0 flex-1 cursor-pointer appearance-none rounded-full border border-control-border
+                disabled:cursor-not-allowed disabled:opacity-40
+                [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none
+                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-black/30
+                [&::-webkit-slider-thumb]:bg-white
+                [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full
+                [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-black/30 [&::-moz-range-thumb]:bg-white"
+            />
+            <span className="tabular flex h-7 w-[52px] items-center justify-end rounded-md border border-control-border px-2 text-sm text-ink">
+              {opacity}%
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -803,13 +879,15 @@ function Palette({ value, onChange, allowTheme, onDone }: {
  * same place every other answer is.
  */
 export function Swatch({
-  value, onChange, label, allowTheme = false, disabled = false, id, effectiveColor,
+  value, onChange, label, allowTheme = false, allowOpacity = false, disabled = false, id, effectiveColor,
 }: {
-  /** A `#rrggbb` literal, or `""` for "the theme's own" when `allowTheme`. */
+  /** A `#rrggbb` literal (`#rrggbbaa` with `allowOpacity`), or `""` for "the theme's own" when `allowTheme`. */
   value: string;
   onChange: (next: string) => void;
   label: string;
   allowTheme?: boolean;
+  /** The setting stores an alpha, so the palette offers Opacity (see `Palette`). */
+  allowOpacity?: boolean;
   disabled?: boolean;
   /** See `Dropdown.id` — the registry name for this popover. */
   id?: string;
@@ -854,7 +932,8 @@ export function Swatch({
           style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
           className="tvc-popover"
         >
-          <Palette value={value} onChange={onChange} allowTheme={allowTheme} onDone={close} />
+          <Palette value={value} onChange={onChange} allowTheme={allowTheme}
+            allowOpacity={allowOpacity} onDone={close} />
         </div>
       )}
     </div>
@@ -880,7 +959,7 @@ function dashArray(style: "solid" | "dotted" | "dashed", width: number): string 
  * the current width and pattern.
  */
 export function LineStyleButton({
-  color, width, style, onChange, label, allowTheme = false, disabled = false, id,
+  color, width, style, onChange, label, allowTheme = false, allowOpacity = false, disabled = false, id,
   effectiveColor,
 }: {
   color: string;
@@ -889,6 +968,8 @@ export function LineStyleButton({
   onChange: (next: { color: string; width: number; style: "solid" | "dotted" | "dashed" }) => void;
   label: string;
   allowTheme?: boolean;
+  /** The setting stores an alpha, so the palette offers Opacity (see `Palette`). */
+  allowOpacity?: boolean;
   disabled?: boolean;
   /** See `Dropdown.id` — the registry name for this popover. */
   id?: string;
@@ -928,12 +1009,13 @@ export function LineStyleButton({
         <div
           ref={popRef}
           style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
-          className="tvc-popover w-[228px]"
+          className="tvc-popover"
         >
           <Palette
             value={color}
             onChange={(next) => onChange({ color: next, width, style })}
             allowTheme={allowTheme}
+            allowOpacity={allowOpacity}
             onDone={close}
           />
           <WidthPicker value={width} onChange={(w) => onChange({ color, width: w, style })} />
@@ -948,13 +1030,42 @@ export function LineStyleButton({
  * The line-width row of `LineStyleButton`'s popover, on its own.
  *
  * Exported so a surface that offers width as its OWN control — the selected
- * drawing's floating toolbar (B-11) — opens these same four buttons rather
+ * drawing's floating toolbar (B-11) — opens these same four widths rather
  * than a second picker that would drift from this one.
+ *
+ * W2A-06: two shapes of one picker. Inside `LineStyleButton` it is the
+ * reference dialog's row of four unlabelled samples, under the palette. Behind
+ * a toolbar trigger of its own it is the reference's `layout="list"`: a 32px
+ * row per width, `1px` … `4px` beside its sample, the current one on the
+ * selected chip — four bare samples in a popover said nothing about which one
+ * was on, or what number the trigger's `2px` referred to.
  */
-export function WidthPicker({ value, onChange }: {
+export function WidthPicker({ value, onChange, layout = "row" }: {
   value: number;
   onChange: (next: number) => void;
+  layout?: "row" | "list";
 }) {
+  if (layout === "list") {
+    return (
+      <div role="listbox" aria-label="Line width" className="tvc-menu--compact py-1.5 text-sm">
+        {[1, 2, 3, 4].map((w) => (
+          <button
+            key={w}
+            type="button"
+            role="option"
+            aria-selected={w === value}
+            onClick={() => onChange(w)}
+            className="tvc-menu-row gap-3 pl-3 pr-5 text-left text-ink"
+          >
+            <svg width="18" height="12" viewBox="0 0 18 12" className="shrink-0" aria-hidden="true">
+              <path d="M0 6h18" stroke="currentColor" strokeWidth={w} />
+            </svg>
+            {w}px
+          </button>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1 px-1.5 pb-1.5 first:pt-1.5">
       {[1, 2, 3, 4].map((w) => (
@@ -975,12 +1086,46 @@ export function WidthPicker({ value, onChange }: {
   );
 }
 
-/** The dash-pattern row of `LineStyleButton`'s popover, on its own (see `WidthPicker`). */
-export function DashPicker({ value, width, onChange }: {
+/** The reference's names for the three patterns, in its order. */
+const DASH_NAMES: readonly { value: "solid" | "dotted" | "dashed"; label: string }[] = [
+  { value: "solid", label: "Line" },
+  { value: "dashed", label: "Dashed line" },
+  { value: "dotted", label: "Dotted line" },
+];
+
+/**
+ * The dash-pattern row of `LineStyleButton`'s popover, on its own (see
+ * `WidthPicker`, whose two layouts this mirrors: `Line` / `Dashed line` /
+ * `Dotted line` as labelled 32px rows behind a toolbar trigger).
+ */
+export function DashPicker({ value, width, onChange, layout = "row" }: {
   value: "solid" | "dotted" | "dashed";
   width: number;
   onChange: (next: "solid" | "dotted" | "dashed") => void;
+  layout?: "row" | "list";
 }) {
+  if (layout === "list") {
+    return (
+      <div role="listbox" aria-label="Line style" className="tvc-menu--compact py-1.5 text-sm">
+        {DASH_NAMES.map(({ value: s, label }) => (
+          <button
+            key={s}
+            type="button"
+            role="option"
+            aria-selected={s === value}
+            onClick={() => onChange(s)}
+            className="tvc-menu-row gap-3 pl-3 pr-5 text-left text-ink"
+          >
+            <svg width="18" height="12" viewBox="0 0 18 12" className="shrink-0" aria-hidden="true">
+              <path d="M0 6h18" stroke="currentColor" strokeWidth={1.5}
+                strokeDasharray={s === "solid" ? undefined : s === "dotted" ? "1.5 2.5" : "4 3"} />
+            </svg>
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1 px-1.5 pb-1.5 first:pt-1.5">
       {(["solid", "dotted", "dashed"] as const).map((s) => (
@@ -1009,6 +1154,7 @@ export function ColourPalette(props: {
   value: string;
   onChange: (next: string) => void;
   onDone: () => void;
+  allowOpacity?: boolean;
 }) {
   return <Palette {...props} allowTheme={false} />;
 }

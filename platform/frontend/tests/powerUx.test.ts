@@ -28,7 +28,7 @@ import {
   resolveShortcut, resolveTypedInterval,
 } from "../lib/shortcuts";
 import {
-  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, SERIES_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, seriesLegendMenu, studyMenu, watchlistMenu,
+  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, DRAWING_TEMPLATE_APPLY_PREFIX, SERIES_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, seriesLegendMenu, studyMenu, watchlistMenu,
 } from "../lib/menuPayloads";
 import { FLAG_COLOURS } from "../lib/watchlistFlags";
 import {
@@ -368,6 +368,46 @@ test("only a level can carry a price alert, and not during Replay", () => {
   });
   assert.match((byId(inReplay, "drawing:add-alert") as { disabledReason?: string }).disabledReason ?? "",
     /Replay/);
+});
+
+test("W2A-10 — the drawing menu has the reference's Template, Visibility and Object tree rows", () => {
+  const menu = drawingMenu({
+    toolName: "trendline", locked: false, hidden: false, alertable: false, replayActive: false,
+    canReorder: true, mac: true, templates: ["Thin", "Wide"], intervalVisibility: "only",
+  });
+  const labels = menu.filter((e) => !isSeparator(e)).map((e) => (e as { label: string }).label);
+  assert.deepEqual(labels.slice(0, 5),
+    ["Add alert on trendline…", "Template", "Visual order", "Visibility on intervals", "Object tree"]);
+  const template = byId(menu, "drawing:template") as unknown as { children: MenuEntry[] };
+  assert.deepEqual(template.children.filter((e) => !isSeparator(e)).map((e) => e.id), [
+    "drawing:template-save", "drawing:template-default",
+    `${DRAWING_TEMPLATE_APPLY_PREFIX}Thin`, `${DRAWING_TEMPLATE_APPLY_PREFIX}Wide`,
+  ]);
+  const visibility = byId(menu, "drawing:visibility") as unknown as { children: { id: string; checked?: boolean; radio?: boolean }[] };
+  assert.deepEqual(visibility.children.map((c) => [c.id, c.checked, c.radio]), [
+    ["drawing:visibility-above", false, true], ["drawing:visibility-below", false, true],
+    ["drawing:visibility-only", true, true], ["drawing:visibility-all", false, true],
+  ]);
+  // Every child id a payload can emit is in the list the handler test checks.
+  for (const parent of [template, visibility]) {
+    for (const child of parent.children as MenuEntry[]) {
+      if (isSeparator(child)) continue;
+      const id = child.id.startsWith(DRAWING_TEMPLATE_APPLY_PREFIX) ? "drawing:template-apply" : child.id;
+      assert.ok((DRAWING_MENU_IDS as readonly string[]).includes(id), `${child.id} is not a known drawing id`);
+    }
+  }
+});
+
+test("W2A-10 — a locked drawing may be saved as a template but not restyled by one", () => {
+  const menu = drawingMenu({
+    toolName: "trendline", locked: true, hidden: false, alertable: false, replayActive: false,
+    canReorder: true, mac: true, templates: ["Thin"], intervalVisibility: "all",
+  });
+  const children = (byId(menu, "drawing:template") as unknown as { children: MenuEntry[] }).children;
+  const disabled = (id: string) => (children.find((c) => c.id === id) as { disabled?: boolean }).disabled === true;
+  assert.equal(disabled("drawing:template-save"), false);
+  assert.equal(disabled("drawing:template-default"), true);
+  assert.equal(disabled(`${DRAWING_TEMPLATE_APPLY_PREFIX}Thin`), true);
 });
 
 test("a built-in study has no source to open, and says so", () => {
@@ -968,6 +1008,11 @@ test("every id a menu can emit is answered by a handler", () => {
      */
     if (id === "watchlist:add-to-list") {
       assert.match(sources, /id\.startsWith\("watchlist:add-to-list:"\)/);
+      continue;
+    }
+    // W2A-10: one row per saved drawing template, one prefix branch for all.
+    if (id === "drawing:template-apply") {
+      assert.match(sources, /id\.startsWith\(DRAWING_TEMPLATE_APPLY_PREFIX\)/);
       continue;
     }
     // A6: `Time zone ›` is a submenu parent too; its rows share one prefix branch.

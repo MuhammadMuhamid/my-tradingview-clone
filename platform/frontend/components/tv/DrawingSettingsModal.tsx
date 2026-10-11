@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import {
-  deleteDrawingTemplate, FILLABLE_TOOLS, loadDrawingTemplates, saveDrawingTemplate,
+  applyDrawingTemplate, defaultDrawingTemplate, FILLABLE_TOOLS, loadDrawingTemplates,
   TOOL_POINTS, type Drawing, type DrawingExtend, type DrawingStyle, type DrawingTemplate,
 } from "@/lib/drawings";
 import {
@@ -48,7 +48,10 @@ import {
   Button, CaretGlyph, Checkbox, Dropdown, LineStyleButton, NumberField, Swatch, TextInput,
 } from "@/components/ui";
 import { useAsk } from "@/components/AskDialog";
-import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
+import {
+  deleteDrawingTemplateAsk, DrawingTemplateMenuPanel, saveDrawingTemplateAs,
+} from "@/components/tv/DrawingTemplateMenu";
+import { menuItems } from "@/lib/menuKeyboard";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 
 type Tab = "style" | "text" | "coordinates" | "visibility";
@@ -231,23 +234,17 @@ export function DrawingSettingsModal({
   const setRanges = (next: VisibilityRanges): void =>
     patch({ visibleOn: resolutionsForRanges(next) });
 
+  // W2A-03: the same save, apply and delete the floating toolbar's menu runs.
   const saveTemplate = async (): Promise<void> => {
-    const name = (await ask.promptFor({
-      title: "Save this drawing's style as a template",
-      label: "Name", placeholder: "Thin dashed", confirmLabel: "Save",
-    }))?.trim();
-    if (!name) return;
-    setTemplates(saveDrawingTemplate(templates, name, style));
+    const next = await saveDrawingTemplateAs(ask, drawing);
+    if (next) setTemplates(next);
   };
-
-  const removeTemplate = async (name: string): Promise<void> => {
-    if (!await ask.confirm({
-      title: `Delete the template “${name}”?`,
-      body: "Drawings already using this style keep it.",
-      confirmLabel: "Delete", tone: "danger",
-    })) return;
-    setTemplates(deleteDrawingTemplate(templates, name));
+  const removeTemplate = async (template: DrawingTemplate): Promise<void> => {
+    const next = await deleteDrawingTemplateAsk(ask, template);
+    if (next) setTemplates(next);
   };
+  const restyle = (look: DrawingStyle): void =>
+    onChange({ ...drawing, style: applyDrawingTemplate(style, look) });
 
   return (
     <Modal
@@ -281,13 +278,12 @@ export function DrawingSettingsModal({
       footer={
         <div className="flex w-full items-center gap-2">
           <DrawingTemplateMenu
+            tool={drawing.tool}
             templates={templates}
-            onApply={(name) => {
-              const found = templates.find((t) => t.name === name);
-              if (found) patchStyle(found.style);
-            }}
+            onApply={(template) => restyle(template.style)}
+            onApplyDefault={() => restyle(defaultDrawingTemplate())}
             onSaveAs={() => void saveTemplate()}
-            onDelete={(name) => void removeTemplate(name)}
+            onDelete={(template) => void removeTemplate(template)}
           />
           <span className="flex-1" />
           <Button variant="default" onClick={cancel} className="w-[74px]">Cancel</Button>
@@ -335,7 +331,7 @@ export function DrawingSettingsModal({
             */}
             <FieldRow label="Line">
               <LineStyleButton
-                label="Line appearance"
+                label="Line appearance" allowOpacity
                 color={style.color}
                 width={style.width}
                 style={style.lineStyle ?? (style.dashed ? "dashed" : "solid")}
@@ -454,7 +450,7 @@ export function DrawingSettingsModal({
               draws a full text block for it.
             */}
             <FieldRow label="Text">
-              <Swatch label="Text colour" value={style.textColor || style.color}
+              <Swatch label="Text colour" allowOpacity value={style.textColor || style.color}
                 onChange={(v) => patchStyle({ textColor: v })} />
               <Dropdown
                 value={String(style.fontSize ?? 14)}
@@ -690,11 +686,13 @@ function priceStep(price: number): number {
  * `<select>` whose options are commands, and a named delete row rather than
  * whatever the escape key resolves to (E1-06).
  */
-function DrawingTemplateMenu({ templates, onApply, onSaveAs, onDelete }: {
+function DrawingTemplateMenu({ tool, templates, onApply, onApplyDefault, onSaveAs, onDelete }: {
+  tool: Drawing["tool"];
   templates: readonly DrawingTemplate[];
-  onApply: (name: string) => void;
+  onApply: (template: DrawingTemplate) => void;
+  onApplyDefault: () => void;
   onSaveAs: () => void;
-  onDelete: (name: string) => void;
+  onDelete: (template: DrawingTemplate) => void;
 }) {
   const [open, setOpen] = useExclusivePopover("drawing-settings-template");
   const boxRef = useRef<HTMLDivElement>(null);
@@ -721,7 +719,6 @@ function DrawingTemplateMenu({ templates, onApply, onSaveAs, onDelete }: {
 
   useEffect(() => { if (open) menuItems(menuRef.current)[0]?.focus(); }, [open]);
 
-  const row = "tvc-menu-row px-2.5 text-left text-sm text-ink";
   return (
     <div ref={boxRef} className="relative">
       <button
@@ -736,40 +733,16 @@ function DrawingTemplateMenu({ templates, onApply, onSaveAs, onDelete }: {
         <CaretGlyph size={10} />
       </button>
       {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label="Drawing template"
-          onKeyDown={(e) => {
-            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-              e.preventDefault();
-              moveMenuFocus(menuItems(menuRef.current), document.activeElement, e.key);
-            }
-          }}
-          className="tvc-menu tvc-menu--compact absolute bottom-[calc(100%+6px)] left-0 z-50 w-[240px]"
-        >
-          <button type="button" role="menuitem" className={row}
-            onClick={() => { setOpen(false); onSaveAs(); }}>
-            Save as…
-          </button>
-          {templates.length > 0 && <div className="tvc-menu-sep" />}
-          {templates.map((t) => (
-            <div key={t.name} className={`${row} justify-between gap-2`}>
-              <button type="button" role="menuitem" className="min-w-0 flex-1 truncate text-left"
-                onClick={() => { setOpen(false); onApply(t.name); }}>
-                {t.name}
-              </button>
-              <button type="button" aria-label={`Delete ${t.name}`}
-                className="tvc-control flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint hover:text-ink"
-                onClick={() => { setOpen(false); onDelete(t.name); }}>
-                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor"
-                  strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-                  <path d="M2.5 3.5h9M5.5 3.5V2h3v1.5M3.8 3.5l.6 8h5.2l.6-8M6 6v4M8 6v4" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
+        <DrawingTemplateMenuPanel
+          menuRef={menuRef}
+          className="tvc-menu absolute bottom-[calc(100%+6px)] left-0 z-50 w-[240px]"
+          tool={tool}
+          templates={templates}
+          onSaveAs={() => { setOpen(false); onSaveAs(); }}
+          onApplyDefault={() => { setOpen(false); onApplyDefault(); }}
+          onApply={(t) => { setOpen(false); onApply(t); }}
+          onDelete={(t) => { setOpen(false); onDelete(t); }}
+        />
       )}
     </div>
   );

@@ -67,3 +67,60 @@ test("A11 — always inside the pane", () => {
   assert.ok(placed.top >= 4 && placed.top + BAR.height <= PANE.height - 4 + 0.01);
   assert.equal(overlaps({ ...placed, ...BAR }, { left: 982, top: 682, right: 998, bottom: 698 }), false);
 });
+
+// ── W2D-03: the legend column is an obstacle too ───────────────────────────
+
+/** The series row and one study row, pinned at the pane's top-left. */
+const LEGEND = { left: 8, top: 6, right: 380, bottom: 64 };
+
+test("W2D-03 — a drawing under the legend does not dock the bar on the legend", () => {
+  // Too near the top for "above the drawing": the old rule's next stops were
+  // below it at its left edge, and the top-left — both on the legend.
+  const a = { x: 120, y: 90 }, b = { x: 320, y: 70 };
+  const placed = toolbarPlacement([a, b], BAR, PANE, segment(a, b), { avoid: [LEGEND] });
+  const box = { ...placed, width: BAR.width, height: BAR.height };
+  assert.equal(overlaps(box, LEGEND), false, `the bar ${JSON.stringify(placed)} sits on the legend`);
+  assert.ok(clearOf(placed, segment(a, b)), "and it still keeps off the drawing");
+});
+
+test("W2D-03 — the bar may dock just under the legend", () => {
+  // A vertical line at the pane's right edge rules out every column but the
+  // left, and the top is the legend's: under it is the candidate that is left.
+  const a = { x: 990, y: 0 }, b = { x: 990, y: 700 };
+  const placed = toolbarPlacement([a, b], BAR, PANE, segment(a, b), { avoid: [LEGEND] });
+  assert.equal(overlaps({ ...placed, width: BAR.width, height: BAR.height }, LEGEND), false);
+});
+
+test("W2D-03 — with nowhere clear, keeping off the legend beats sitting on it", () => {
+  const tiny = { width: 440, height: 110 };
+  const placed = toolbarPlacement([{ x: 200, y: 80 }], BAR, tiny, undefined, {
+    avoid: [{ left: 0, top: 0, right: 440, bottom: 50 }],
+  });
+  assert.ok(placed.top >= 50, `the bar ${JSON.stringify(placed)} was put back over the legend`);
+});
+
+// ── W2A-05: a dragged bar ──────────────────────────────────────────────────
+
+test("W2A-05 — a dragged position is used for a drawing it does not cover", () => {
+  const a = { x: 300, y: 500 }, b = { x: 600, y: 420 };
+  const at = { left: 500, top: 40 };
+  assert.deepEqual(toolbarPlacement([a, b], BAR, PANE, segment(a, b), { preferred: { at } }), at);
+});
+
+test("W2A-05 — …and not for one it would cover, unless it was dropped there", () => {
+  const a = { x: 400, y: 60 }, b = { x: 800, y: 60 };
+  const at = { left: 450, top: 40 };
+  const auto = toolbarPlacement([a, b], BAR, PANE, segment(a, b), { preferred: { at } });
+  assert.notDeepEqual(auto, at, "a remembered spot was allowed to cover a different drawing");
+  assert.ok(clearOf(auto, segment(a, b)));
+  assert.deepEqual(
+    toolbarPlacement([a, b], BAR, PANE, segment(a, b), { preferred: { at, force: true } }), at,
+    "the drawing the bar was dropped beside keeps it where the user put it");
+});
+
+test("W2A-05 — a dragged position is kept inside the pane", () => {
+  const placed = toolbarPlacement([{ x: 100, y: 600 }], BAR, PANE, undefined,
+    { preferred: { at: { left: 5000, top: -50 }, force: true } });
+  assert.equal(placed.left, PANE.width - BAR.width - 4);
+  assert.equal(placed.top, 4);
+});

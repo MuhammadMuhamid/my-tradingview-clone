@@ -204,10 +204,23 @@ definition of any of them is a bug:
 - `Dropdown` — a `.tvc-control` button plus a `.tvc-menu` listbox at 100 / 150
   / 180 wide. **No native `<select>` inside a dialog.**
 - `Swatch` — 34 × 34, opening a palette whose first cell is `Theme` (writes
-  `""`, meaning "the token decides") and whose last is `Custom…` over the
-  native colour input, so keyboard reach is kept.
+  `""`, meaning "the token decides") and whose last is the custom `+` over the
+  native colour input, so keyboard reach is kept. The palette is the
+  reference's: ten neutrals, ten hues, six rows of tints (18px cells, 23px
+  pitch). `allowOpacity` adds its `Opacity` slider and stores `#rrggbbaa`
+  (`lib/colorAlpha`) — on for drawings, whose canvas reads eight digits; off
+  for chart settings and Pine inputs, whose consumers do not (W2A-06).
 - `LineStyleButton` — 75 × 34, popover of palette + width 1–4 + Solid / Dotted
-  / Dashed.
+  / Dashed. `WidthPicker` / `DashPicker` behind a trigger of their own (the
+  drawing toolbar) take `layout="list"`: labelled 32px rows (`1px`…`4px`;
+  `Line` / `Dashed line` / `Dotted line`), the current one on the selected chip.
+- The selected drawing's floating toolbar (W2A-05) is the reference's widget
+  grammar: a 24px drag handle, icon-only 38 × 38 widgets with 28px ink glyphs,
+  colour as a mark over a bar of the colour, width as `— 2px`, no carets. It
+  never covers its drawing or the legend column (`lib/drawingToolbarPlacement`),
+  stacks above the legend (`z-30`), and a dragged position is kept for the tab.
+  `Template` opens the template menu (Save Drawing Template As… / Apply Default
+  Drawing Template / this tool's saved ones), never the settings dialog.
 - `NumberField` — 70 × 28 tabular with the unit beside it.
 
 `Button` gains one variant: **`contrast`** — a light fill with dark text, for a
