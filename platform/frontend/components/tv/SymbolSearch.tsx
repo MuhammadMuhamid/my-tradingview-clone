@@ -675,8 +675,16 @@ export function SymbolSearch({
             className="w-full bg-transparent !text-[16px] leading-6 text-ink outline-none placeholder:text-ink-faint"
           />
           {term && (
+            /*
+              A phone's 44px thumb minimum (globals.css) turned this 18px glyph
+              into a 44px dark disc inside a 40px box. It keeps a 24px target
+              there instead — the glyph is a convenience beside a field that
+              is itself the thumb target.
+            */
             <button onClick={() => { setTerm(""); inputRef.current?.focus(); }} title="Clear" aria-label="Clear the search"
-              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-ink-faint text-popover">
+              data-search-clear
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-ink-faint text-popover
+                max-sm:h-6 max-sm:!min-h-6 max-sm:w-6 max-sm:!min-w-6">
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
                 <path d="M2 2l6 6M8 2l-6 6" />
               </svg>
@@ -690,7 +698,15 @@ export function SymbolSearch({
           provider is unavailable. The resulting empty list is truthful and
           the hover title retains the reason without dimming the control.
         */}
-        <div role="group" aria-label="Asset class" className="mt-4 flex h-7 shrink-0 gap-[5px] px-5">
+        {/*
+          Seven chips are ~420px; a phone's dialog has ~326 of content, so the
+          row was clipped at "Forex" with Futures, Indices and Bonds simply
+          gone. Below `sm` it scrolls sideways, and each pill keeps the 28px
+          band height (the 44px thumb minimum would make them taller than
+          their own row).
+        */}
+        <div role="group" aria-label="Asset class" data-asset-class-chips
+          className="mt-4 flex h-7 shrink-0 gap-[5px] px-5 max-sm:overflow-x-auto max-sm:overflow-y-hidden max-sm:[scrollbar-width:none]">
           {ASSET_CLASS_CHIPS.map((item) => {
             const availabilityTitle = chipDegradedTitle(item, errors, reasonForSource);
             return (
@@ -717,7 +733,7 @@ export function SymbolSearch({
                   grey, about 2.3:1. The reference's chips are filled #2e2e2e
                   pills, inverted to #f2f2f2 when selected.
                 */
-                className={`h-7 shrink-0 rounded-full px-3 text-sm leading-7 transition-colors ${chip === item.id
+                className={`h-7 shrink-0 whitespace-nowrap rounded-full px-3 text-sm leading-7 transition-colors max-sm:!min-h-7 ${chip === item.id
                   ? "bg-[var(--ts-menu-selected-bg)] text-[var(--ts-menu-selected-ink)]"
                   : "bg-state-hover text-ink hover:bg-state-active"}`}
               >
@@ -734,11 +750,16 @@ export function SymbolSearch({
             hover ground is a control rather than a 2px inset on a 20px box,
             and its text starts at x=332 as the reference's does. The ROW
             stays 24px at the same offset, so the cap ink does not move. */}
-        <div className="mt-[18px] flex h-6 shrink-0 items-center gap-2 px-5">
+        {/* On a phone four triggers share ~326px, and each label wrapped onto
+            a second line inside its 28px chip. They stay on one line and
+            truncate; the open menu still shows each option whole. Not a
+            scroller: the menus hang from the triggers and a scrolling row
+            would clip them. */}
+        <div className="mt-[18px] flex h-6 shrink-0 items-center gap-2 px-5" data-search-filters>
           {menus.map((model) => (model.options.length === 0 ? (
-            <span key={model.id} className="px-3 text-sm text-ink">{model.trigger}</span>
+            <span key={model.id} className="min-w-0 truncate whitespace-nowrap px-3 text-sm text-ink">{model.trigger}</span>
           ) : (
-            <div key={model.id} className="relative">
+            <div key={model.id} className="relative min-w-0">
               <button
                 aria-haspopup="menu"
                 aria-expanded={menu === model.id}
@@ -748,9 +769,9 @@ export function SymbolSearch({
                   setMenu(next);
                   setMenuCursor(Math.max(0, model.options.findIndex((o) => o.value === model.value)));
                 }}
-                className="tvc-control inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-sm text-ink"
+                className="tvc-control inline-flex h-7 max-w-full items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm text-ink"
               >
-                {model.trigger}
+                <span className="min-w-0 truncate">{model.trigger}</span>
                 <CaretGlyph size={10} />
               </button>
               {menu === model.id && (
@@ -822,6 +843,7 @@ export function SymbolSearch({
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => void choose(r)}
                 aria-current={isCurrent ? "true" : undefined}
+                data-highlighted={i === cursor ? "true" : undefined}
                 title={rowTitle(r, current)}
                 /*
                   ── R4b-03: the ticker column is FIXED at 211px ─────────────
@@ -832,10 +854,15 @@ export function SymbolSearch({
                   sized from its own text. The reference's description starts
                   at x=563 whatever it answered; 24 + 8 + 211 + 8 from the
                   panel's 320px content edge is exactly that.
+
+                  The cursor row wears the HOVER tint, as the reference's does.
+                  It wore a 2px outline box, so the dialog opened with its
+                  first row framed like a focused input — the cursor starts
+                  there before anyone has pointed at anything.
                 */
                 className={`grid h-10 w-full grid-cols-[24px_211px_minmax(0,1fr)_auto_auto_20px] items-center gap-x-2
                   border-b border-[var(--ts-state-active)] px-5 text-left ${i === cursor
-                  ? "outline outline-2 -outline-offset-2 outline-[var(--ts-menu-selected-bg)]"
+                  ? "bg-state-hover"
                   : "hover:bg-state-hover"}`}
               >
                 <AssetMark asset={r.baseAsset} />

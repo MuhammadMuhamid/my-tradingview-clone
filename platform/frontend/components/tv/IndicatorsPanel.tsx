@@ -384,7 +384,16 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
   return (
     <div className="mb-1 rounded border border-border bg-surface-2/40"
       onContextMenu={onContextMenu}>
-      <div className="flex items-center gap-1 px-1.5 py-1">
+      {/*
+        A phone gives every button a 44px thumb target (globals.css), which
+        makes this row's eye + badge + four actions 286px in a 241px card: the
+        name, the only flexible item, shrank to nothing and the card read
+        "● BUILT-IN ⌃⌄⚙" with Remove pushed off its edge. Below `sm` the row
+        wraps — the name keeps at least 120px beside its eye and badge, and
+        the actions drop to a second line, right-aligned. On a desktop the 20px
+        buttons fit on one line and nothing wraps.
+      */}
+      <div className="flex items-center gap-1 px-1.5 py-1 max-sm:flex-wrap" data-study-card-row>
         <button
           onClick={() => studies.toggleVisible(study.key)}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
@@ -401,7 +410,7 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
         </button>
         <button
           onClick={onEdit}
-          className="min-w-0 flex-1 truncate text-left text-xs text-ink"
+          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px]"
           /*
            * A study that cannot compute says so in the row and explains why on
            * hover. "not enough history" would be the wrong answer for all
@@ -425,7 +434,7 @@ function NativeRow({ row, first, last, studies, onEdit, onContextMenu }: {
         <span className="shrink-0 rounded bg-up/15 px-1 text-[9px] font-semibold uppercase text-up">
           built-in
         </span>
-        <span className="flex shrink-0 items-center gap-0.5">
+        <span className="flex shrink-0 items-center gap-0.5 max-sm:ml-auto">
           <RowButton
             onClick={() => studies.move(study.key, -1)}
             label={`Move ${row.name} up`} title="Move up" disabled={first}
@@ -468,7 +477,8 @@ function IndicatorRow({
   return (
     <div className="mb-1 rounded border border-border bg-surface-2/40"
       onContextMenu={onContextMenu}>
-      <div className="flex items-center gap-1 px-1.5 py-1">
+      {/* Wraps on a phone for the same reason as the built-in row above. */}
+      <div className="flex items-center gap-1 px-1.5 py-1 max-sm:flex-wrap" data-study-card-row>
         <button
           onClick={() => indicators.toggleVisible(ind.key)}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
@@ -488,7 +498,8 @@ function IndicatorRow({
               stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>
-        <button onClick={onToggleOpen} className="min-w-0 flex-1 truncate text-left text-xs text-ink">
+        <button onClick={onToggleOpen}
+          className="min-w-0 flex-1 truncate text-left text-xs text-ink max-sm:basis-[120px]">
           {ind.shortTitle || ind.name} · {ind.key.slice(-5)}
           {ind.loading && <span className="ml-1 text-[10px] text-ink-faint">running…</span>}
           {!ind.loading && !ind.error && (
@@ -498,29 +509,31 @@ function IndicatorRow({
             </span>
           )}
         </button>
-        <RowButton
-          onClick={onEdit}
-          label={`Edit ${ind.shortTitle || ind.name} source in the Pine Editor`}
-          title="Edit source in Pine Editor"
-        >
-          <path d="M8.6 2.4l3 3L5 12H2V9l6.6-6.6Z" />
-        </RowButton>
-        <RowButton
-          onClick={() => indicators.rerun(ind.key)}
-          label={`Re-run ${ind.shortTitle || ind.name}`}
-          title="Re-run"
-        >
-          <path d="M12 7a5 5 0 1 1-1.5-3.5" />
-          <path d="M12 1.6V4H9.6" />
-        </RowButton>
-        <RowButton
-          onClick={() => indicators.remove(ind.key)}
-          label={`Remove ${ind.shortTitle || ind.name} from the chart`}
-          title="Remove from chart"
-          danger
-        >
-          <path d="M3 3l8 8M11 3l-8 8" />
-        </RowButton>
+        <span className="flex shrink-0 items-center gap-1 max-sm:ml-auto">
+          <RowButton
+            onClick={onEdit}
+            label={`Edit ${ind.shortTitle || ind.name} source in the Pine Editor`}
+            title="Edit source in Pine Editor"
+          >
+            <path d="M8.6 2.4l3 3L5 12H2V9l6.6-6.6Z" />
+          </RowButton>
+          <RowButton
+            onClick={() => indicators.rerun(ind.key)}
+            label={`Re-run ${ind.shortTitle || ind.name}`}
+            title="Re-run"
+          >
+            <path d="M12 7a5 5 0 1 1-1.5-3.5" />
+            <path d="M12 1.6V4H9.6" />
+          </RowButton>
+          <RowButton
+            onClick={() => indicators.remove(ind.key)}
+            label={`Remove ${ind.shortTitle || ind.name} from the chart`}
+            title="Remove from chart"
+            danger
+          >
+            <path d="M3 3l8 8M11 3l-8 8" />
+          </RowButton>
+        </span>
       </div>
 
       {ind.error && (
