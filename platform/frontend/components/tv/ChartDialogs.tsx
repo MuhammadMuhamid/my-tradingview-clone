@@ -15,6 +15,7 @@ import { AlertEditor } from "@/components/tv/AlertEditor";
 import { type Resolution } from "@/lib/resolution";
 import { AlertModal } from "@/components/tv/AlertModal";
 import { IndicatorAlertModal, type IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import type { IndicatorAlertSeed } from "@/lib/studyAlertSeed";
 import { IndicatorBrowser } from "@/components/tv/IndicatorBrowser";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { MaAlertModal } from "@/components/tv/MaAlertModal";
@@ -78,6 +79,8 @@ export interface ChartDialogsProps {
   levelKind: "sr_zone" | "pivot_level" | null;
   onCloseLevel: () => void;
   oscillatorKind: IndicatorKind | null;
+  /** C-04: the clicked study's inputs, or null for the family's defaults. */
+  oscillatorSeed?: IndicatorAlertSeed | null;
   onCloseOscillator: () => void;
 
   editingAlert: MaAlert | null;
@@ -177,6 +180,7 @@ export function ChartDialogs(props: ChartDialogsProps) {
       defaultTimeframe={alertTimeframe}
       resolutionNotice={alertNotice}
       kind={props.oscillatorKind ?? "rsi"}
+      seed={props.oscillatorSeed ?? null}
       existing={maAlerts}
       onSaved={onAlertSaved}
     />

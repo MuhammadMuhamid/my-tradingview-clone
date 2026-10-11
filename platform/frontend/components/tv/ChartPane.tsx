@@ -39,6 +39,7 @@ import type { AppliedIndicator } from "@/lib/indicators";
 import type { ChartOverlay } from "@/lib/chartSeries";
 import { buildMaOverlays, MA_INSTANCE_ID, MA_INSTANCE_TITLE } from "@/lib/movingAverages";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import { alertSeedFromStudy, type IndicatorAlertSeed } from "@/lib/studyAlertSeed";
 
 /**
  * The built-in studies whose family the alert engine evaluates, and which
@@ -244,7 +245,7 @@ export interface ChartPaneProps {
    */
   onMaAction?: (paneId: string, action: "hide" | "settings" | "remove") => void;
   /** A5: `Add alert on …` from a study's legend menu, by alert family. */
-  onStudyAlert?: (paneId: string, kind: IndicatorKind) => void;
+  onStudyAlert?: (paneId: string, kind: IndicatorKind, seed: IndicatorAlertSeed | null) => void;
   /** Open the objects panel — the legend menu's `Object tree` row. */
   onOpenObjectTree?: () => void;
 
@@ -733,7 +734,8 @@ function ChartPaneImpl(props: ChartPaneProps) {
     if (action === "alert") {
       const study = nativeRef.current.list.find((s) => s.key === key);
       const kind = study ? NATIVE_ALERT_KIND[study.defId] : undefined;
-      if (kind) props.onStudyAlert?.(paneId, kind);
+      // C-04: with the study's own inputs, so the alert watches this line.
+      if (kind && study) props.onStudyAlert?.(paneId, kind, alertSeedFromStudy(study.defId, study.params));
       return;
     }
     const api = isNative ? nativeRef.current : indicatorsRef.current;

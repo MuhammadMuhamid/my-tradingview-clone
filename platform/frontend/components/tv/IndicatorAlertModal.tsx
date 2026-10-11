@@ -19,6 +19,7 @@ import {
 import type { Interval } from "@/lib/types";
 import { displayTicker } from "@/lib/instrument";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
+import type { IndicatorAlertSeed } from "@/lib/studyAlertSeed";
 
 /** The timeframes a level or oscillator alert can be armed on in one pass. */
 const TIMEFRAMES: Interval[] = ["5m", "15m", "1h", "4h"];
@@ -56,7 +57,7 @@ const PRICE_LINE_KINDS: readonly IndicatorKind[] = ["bollinger"];
  */
 export function IndicatorAlertModal({
   open, onClose, symbol, defaultTimeframe, resolutionNotice = null, kind,
-  existing = [], onSaved,
+  seed = null, existing = [], onSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,6 +66,11 @@ export function IndicatorAlertModal({
   /** Why the chart's resolution is not this alert's timeframe, or null. */
   resolutionNotice?: string | null;
   kind: IndicatorKind;
+  /**
+   * C-04: the clicked study's own inputs, when the dialog was opened from its
+   * legend; null (the toolbar's path) opens on the family's defaults.
+   */
+  seed?: IndicatorAlertSeed | null;
   /** The alerts already on this symbol, so Save cannot silently re-arm one. */
   existing?: readonly MaAlert[];
   onSaved: (message: string) => void;
@@ -145,6 +151,34 @@ export function IndicatorAlertModal({
   useEffect(() => {
     if (open) { setTimeframes([defaultTimeframe]); setNote(""); setErr(null); }
   }, [open, defaultTimeframe, kind]);
+
+  /*
+   * C-04: the indicator's own parameters, on every open — the clicked study's
+   * when there is one, the family's defaults when there is not. Without this a
+   * study's alert watched RSI(50) beside the RSI(14) it was opened from, and a
+   * toolbar open after a study open inherited that study's tuning. What the
+   * alert does with the line — level, target, direction — is not the study's
+   * to say and is left as it is.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const s = seed ?? { differs: null };
+    setRsiLength(s.rsiLength ?? RSI_DEFAULTS.length);
+    setMacdFast(s.macdFast ?? MACD_DEFAULTS.fast);
+    setMacdSlow(s.macdSlow ?? MACD_DEFAULTS.slow);
+    setMacdSignal(s.macdSignal ?? MACD_DEFAULTS.signal);
+    setBbLength(s.bbLength ?? BOLLINGER_DEFAULTS.length);
+    setBbMult(s.bbMult ?? BOLLINGER_DEFAULTS.mult);
+    setBbMaType(s.bbMaType ?? BOLLINGER_DEFAULTS.maType);
+    setStPeriod(s.stPeriod ?? SUPERTREND_DEFAULTS.period);
+    setStMultiplier(s.stMultiplier ?? SUPERTREND_DEFAULTS.multiplier);
+    setStAtrMethod(s.stAtrMethod ?? SUPERTREND_DEFAULTS.atrMethod);
+    setStochKLength(s.stochKLength ?? STOCHASTIC_DEFAULTS.kLength);
+    setStochKSmooth(s.stochKSmooth ?? STOCHASTIC_DEFAULTS.kSmooth);
+    setStochDSmooth(s.stochDSmooth ?? STOCHASTIC_DEFAULTS.dSmooth);
+    setAdxDiLength(s.adxDiLength ?? ADX_DEFAULTS.diLength);
+    setAdxSmoothing(s.adxSmoothing ?? ADX_DEFAULTS.smoothing);
+  }, [open, kind, seed]);
 
   const toggleTf = (tf: Interval): void =>
     setTimeframes((prev) =>
@@ -495,6 +529,11 @@ export function IndicatorAlertModal({
             </Row>
             <p className="pl-[132px] text-xs text-ink-faint">fast · slow · signal</p>
           </>
+        )}
+
+        {/* C-04: what of the clicked study this alert cannot watch its way. */}
+        {seed?.differs && (
+          <p role="note" className="text-xs text-warn">{seed.differs}</p>
         )}
 
         <div className="my-1 border-t border-border" />

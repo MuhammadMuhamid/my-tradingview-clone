@@ -46,6 +46,7 @@ import { ChartSettingsModal } from "@/components/tv/ChartSettingsModal";
 import { DrawingSettingsModal } from "@/components/tv/DrawingSettingsModal";
 import { DEFAULT_PROPERTIES, type StrategyProperties } from "@/components/tv/StrategySettingsModal";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
+import type { IndicatorAlertSeed } from "@/lib/studyAlertSeed";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import { clearStoredNative, copyStoredNativeForScope } from "@/lib/useNativeStudies";
@@ -952,6 +953,12 @@ export default function TvWorkspace() {
   const [levelKind, setLevelKind] = useState<"sr_zone" | "pivot_level" | null>(null);
   /** Which oscillator family the dialog is open on, or null when closed. */
   const [oscillatorKind, setOscillatorKind] = useState<IndicatorKind | null>(null);
+  /**
+   * C-04: the clicked study's own inputs when the dialog was opened from its
+   * legend, so the alert watches that line; null from the toolbar, which keeps
+   * the family's defaults.
+   */
+  const [oscillatorSeed, setOscillatorSeed] = useState<IndicatorAlertSeed | null>(null);
   const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
   const [pickingLevel, setPickingLevel] = useState(false);
   /**
@@ -1041,12 +1048,13 @@ export default function TvWorkspace() {
   /** A5: `Add alert on RSI…` from a study's legend, through the same gate as the MA panel's rows. */
   const latestWorkspace = useRef(workspace);
   latestWorkspace.current = workspace;
-  const studyAlert = useCallback((paneId: string, kind: IndicatorKind) => {
+  const studyAlert = useCallback((paneId: string, kind: IndicatorKind, seed: IndicatorAlertSeed | null) => {
     // Read through a ref so the callback the panes hold stays stable.
     const target = paneById(latestWorkspace.current, paneId)?.symbol;
     setWorkspace((ws) => setActivePane(ws, paneId));
     if (!target) return;
     if (!alertCapability(target).supported) { setToast(alertCapability(target).reason); return; }
+    setOscillatorSeed(seed);
     setOscillatorKind(kind);
   }, []);
 
@@ -3027,9 +3035,12 @@ export default function TvWorkspace() {
         onArmLevel={(kind) => !alertCapability(symbol).supported
           ? setToast(alertCapability(symbol).reason)
           : setLevelKind(kind)}
-        onArmOscillator={(kind) => !alertCapability(symbol).supported
-          ? setToast(alertCapability(symbol).reason)
-          : setOscillatorKind(kind)}
+        onArmOscillator={(kind) => {
+          if (!alertCapability(symbol).supported) { setToast(alertCapability(symbol).reason); return; }
+          // The toolbar names a family, not a study: the family's defaults.
+          setOscillatorSeed(null);
+          setOscillatorKind(kind);
+        }}
         onOpenAlert={setEditingAlert}
         onToast={setToast}
         toolsOpen={toolsOpen}
@@ -3175,6 +3186,7 @@ export default function TvWorkspace() {
         levelKind={levelKind}
         onCloseLevel={() => setLevelKind(null)}
         oscillatorKind={oscillatorKind}
+        oscillatorSeed={oscillatorSeed}
         onCloseOscillator={() => setOscillatorKind(null)}
         editingAlert={editingAlert}
         onCloseEditingAlert={() => { setEditingAlert(null); setEditingAlertLevel(null); }}

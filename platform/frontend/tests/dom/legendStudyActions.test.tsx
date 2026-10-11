@@ -123,6 +123,38 @@ test("A5/A16 — a right-click on a study row is that study's menu, led by its a
   await press("Escape");
 });
 
+test("C-04 — the study's alert opens on the study's own inputs, not the family defaults", async () => {
+  window.localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([{
+    key: "rsi-1", defId: "rsi", params: { length: 21, source: "close" }, visible: true, styles: {},
+  }]));
+  await mountChart();
+  await settle();
+  fireEvent.click(button(/^More for Relative Strength Index/)!);
+  await settle();
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Add alert on Relative Strength Index/ }));
+  await settle();
+  const dialog = screen.getByRole("dialog");
+  assert.match(dialog.textContent ?? "", /RSI 21 crosses/,
+    "the alert must watch RSI(21) — the line that was clicked — not RSI_DEFAULTS' 50");
+  await press("Escape");
+});
+
+test("C-04 — a MACD's alert carries its fast, slow and signal lengths", async () => {
+  window.localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([{
+    key: "macd-1", defId: "macd", params: { fast: 8, slow: 21, signal: 5, source: "close" },
+    visible: true, styles: {},
+  }]));
+  await mountChart();
+  await settle();
+  fireEvent.click(button(/^More for MACD/)!);
+  await settle();
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Add alert on MACD/ }));
+  await settle();
+  const value = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).value;
+  assert.deepEqual([value("Fast length"), value("Slow length"), value("Signal length")], ["8", "21", "5"]);
+  await press("Escape");
+});
+
 test("A5 — a study the alert engine does not evaluate offers no alert row", async () => {
   window.localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([{
     key: "atr-1", defId: "atr", params: { length: 14 }, visible: true, styles: {},
