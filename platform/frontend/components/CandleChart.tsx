@@ -1,6 +1,6 @@
 "use client";
 import { AxisTickClearancePrimitive } from "@/lib/axisTickClearance";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import {
@@ -118,10 +118,17 @@ const SYNTHETIC_AXIS_HINT: Partial<Record<ChartType, string>> = {
     + "crosshair.",
 };
 
+/**
+ * One axis chip (`A`, `L`, `%`): a 20px square on the control border. The ON
+ * paint is declared by `aria-pressed` and drawn by `[data-axis-chip]` in
+ * globals.css, never swapped in here.
+ */
+const AXIS_CHIP = "flex h-5 min-w-5 items-center justify-center rounded border border-control-border px-0.5 text-[12px] font-semibold leading-none text-ink hover:bg-state-hover";
+
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
-  DEFAULT_PRICE_SCALE, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
+  axisPlusButtonOffset, DEFAULT_PRICE_SCALE, pointerOnPriceAxis, priceScaleLabel, priceScaleModeLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
 } from "@/lib/priceScale";
@@ -4039,6 +4046,25 @@ export function CandleChart({
   const [axisFoot, setAxisFoot] = useState<{ width: number; bottom: number }>(
     { width: 0, bottom: 0 });
   const axisSide = settings.scalePlacement === "left" ? "left" : "right";
+  /*
+   * W2A-02: whether the pointer is on the price axis — ANY of it.
+   *
+   * The strip used to light only under `group-hover` of its own 42×66 box at
+   * the axis foot, so a reader moving onto the scale saw nothing until they
+   * happened onto that corner. Premium reveals its chips for the whole axis.
+   * CSS cannot say "hovering a canvas cell the library owns", so this reads
+   * the pointer against the same measured geometry the strip is placed by.
+   * Captured, because the drawing layer stops pointer events it consumes.
+   */
+  const [axisHover, setAxisHover] = useState(false);
+  const trackAxisHover = useCallback((e: ReactMouseEvent<HTMLElement>): void => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setAxisHover(pointerOnPriceAxis(
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      { width: rect.width, height: rect.height },
+      axisFoot, axisSide,
+    ));
+  }, [axisFoot, axisSide]);
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || priceHidden) return;
@@ -4331,6 +4357,8 @@ export function CandleChart({
       <div
         className={`relative bg-surface ${priceHidden ? "hidden" : "min-h-0 flex-1"}`}
         {...(priceHidden ? { "aria-hidden": true } : {})}
+        onMouseMoveCapture={trackAxisHover}
+        onMouseLeave={() => setAxisHover(false)}
       >
       <div
         ref={containerRef}
@@ -4393,16 +4421,29 @@ export function CandleChart({
           style={{ left: barPickX, bottom: axisFoot.bottom }}
         />
       )}
+      {/*
+        W2A-01: OUTSIDE the axis, never over its text.
+
+        This was anchored at the host's outer edge and pulled half its width
+        inward, which put a 20px box 10–30px inside a 76px axis — squarely on
+        the crosshair label's last digits, so `115.74` read as `115.7⊕`. Live
+        Premium draws it on the plot side of the chart/axis boundary, the label
+        whole beside it. `axisPlusButtonOffset` is that boundary: the scale's
+        own measured width plus a hairline of clearance, from whichever side
+        the scale is on.
+      */}
       {settings.plusButton && axisAlert !== null && onAxisAlert && (
         <button
           type="button"
           aria-label={`Create price alert at ${fmtPrice(axisAlert.price)}`}
           title="Create price alert at this price"
           onClick={() => onAxisAlert(axisAlert.price)}
-          className={`absolute z-30 flex h-5 w-5 items-center justify-center rounded-sm bg-surface text-ink shadow-sm hover:bg-state-hover ${
-            axisSide === "left" ? "left-0" : "right-0"
-          }`}
-          style={{ top: Math.max(0, axisAlert.y - 10), transform: axisSide === "left" ? "translateX(50%)" : "translateX(-50%)" }}
+          data-axis-plus=""
+          className="absolute z-30 flex h-5 w-5 items-center justify-center rounded-sm bg-surface text-ink shadow-sm hover:bg-state-hover"
+          style={{
+            top: Math.max(0, axisAlert.y - 10),
+            [axisSide]: axisPlusButtonOffset(axisFoot.width),
+          }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
             strokeWidth="1.5" aria-hidden="true">
@@ -4907,7 +4948,12 @@ export function CandleChart({
       */}
       {!priceHidden && (
         <div
-          className={`group/axis absolute z-20 flex flex-col items-center justify-end ${
+          /*
+            `pointer-events-none` on the box, `-auto` on the strip: the box's
+            own padding sat over the axis and swallowed a press meant for the
+            axis's scale drag. Only the chips themselves take the pointer.
+          */
+          className={`group/axis pointer-events-none absolute z-20 flex flex-col items-center justify-end ${
             axisSide === "left" ? "left-0" : "right-0"
           }`}
           style={{ bottom: axisFoot.bottom, width: axisFoot.width > 0 ? axisFoot.width : undefined }}
@@ -4952,54 +4998,29 @@ export function CandleChart({
               axis is painted on, so the strip reads as lifted off it rather
               than as a coloured box.
             */}
+            {/*
+              W2A-02: the reference's chips — `A` and `L` as square toggles
+              side by side, the ON one the inverted chip (`data-axis-chip` in
+              globals.css) — with `%` beside them, because this product keeps a
+              percent axis one click away where the reference files it in a
+              menu. Each keeps its full name for assistive technology and in
+              its tooltip; only the face is a letter.
+
+              The strip lights while the pointer is ANYWHERE on the axis
+              (`axisHover`), not only over its own box: on live Premium the
+              chips appear the moment the pointer crosses onto the scale, which
+              is where a reader reaching for them already is.
+            */}
             {settings.scaleButtons !== "hidden" && (
             <span
               data-axis-buttons={settings.scaleButtons}
-              className={`flex flex-col items-center gap-px rounded-md bg-surface p-0.5 transition-opacity duration-75 ${
-                settings.scaleButtons === "always"
+              className={`pointer-events-auto flex flex-col items-center gap-1 rounded-md bg-surface p-0.5 transition-opacity duration-75 ${
+                settings.scaleButtons === "always" || axisHover
                   ? "opacity-100"
                   : "opacity-0 focus-within:opacity-100 group-hover/axis:opacity-100"
               }`}
+              data-axis-hover={axisHover ? "" : undefined}
             >
-              <button
-                type="button"
-                onClick={() => applyScale(togglePriceScaleAuto(scale))}
-                aria-pressed={scale.autoScale}
-                title="Auto-fit the price scale to the bars in view"
-                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
-                  scale.autoScale ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                auto
-              </button>
-              <button
-                type="button"
-                onClick={() => applyScale(togglePriceScaleMode(scale))}
-                aria-pressed={scale.mode === "logarithmic"}
-                title="Logarithmic price scale — equal percentage moves take equal vertical space"
-                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
-                  scale.mode === "logarithmic" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                log
-              </button>
-              {/*
-                Percent, beside log rather than inside a cycle through four.
-                Linear-or-log and currency-or-percent are two independent
-                questions, and a single stepping button would make answering
-                one of them mean passing through the other.
-              */}
-              <button
-                type="button"
-                onClick={() => applyScale(togglePercentScale(scale))}
-                aria-pressed={scale.mode === "percentage"}
-                title="Percent price scale — movement since the first bar in view"
-                className={`tvc-control flex h-5 items-center rounded px-1 text-[11px] leading-none ${
-                  scale.mode === "percentage" ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                %
-              </button>
               {/*
                 Only while there is something to undo. `reset` on an axis that
                 is already linear and auto-fitting is a button whose whole
@@ -5015,6 +5036,47 @@ export function CandleChart({
                   reset
                 </button>
               )}
+              <span className="flex flex-wrap items-center justify-center gap-1">
+                <button
+                  type="button"
+                  data-axis-chip=""
+                  onClick={() => applyScale(togglePriceScaleAuto(scale))}
+                  aria-pressed={scale.autoScale}
+                  aria-label="Auto scale"
+                  title="Auto (fits data to screen)"
+                  className={AXIS_CHIP}
+                >
+                  A
+                </button>
+                <button
+                  type="button"
+                  data-axis-chip=""
+                  onClick={() => applyScale(togglePriceScaleMode(scale))}
+                  aria-pressed={scale.mode === "logarithmic"}
+                  aria-label="Log scale"
+                  title="Logarithmic price scale — equal percentage moves take equal vertical space"
+                  className={AXIS_CHIP}
+                >
+                  L
+                </button>
+                {/*
+                  Percent, beside log rather than inside a cycle through four.
+                  Linear-or-log and currency-or-percent are two independent
+                  questions, and a single stepping button would make answering
+                  one of them mean passing through the other.
+                */}
+                <button
+                  type="button"
+                  data-axis-chip=""
+                  onClick={() => applyScale(togglePercentScale(scale))}
+                  aria-pressed={scale.mode === "percentage"}
+                  aria-label="Percent scale"
+                  title="Percent price scale — movement since the first bar in view"
+                  className={AXIS_CHIP}
+                >
+                  %
+                </button>
+              </span>
             </span>
             )}
           </span>

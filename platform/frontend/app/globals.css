@@ -457,6 +457,17 @@
 :is(.tv-workstation, .ts-app) [data-drawing-rail="true"] .tvc-control[data-switch][aria-pressed="true"]:hover::before {
   background-color: var(--ts-menu-selected-bg);
 }
+/*
+ * W2A-02: the price axis's `A` / `L` / `%` chips are switches too — a scale
+ * mode that stays on — and wear the same inverted chip when on, as live
+ * Premium's `A` does at the axis foot. Off is the outlined square.
+ */
+:is(.tv-workstation, .ts-app) [data-axis-chip][aria-pressed="true"],
+:is(.tv-workstation, .ts-app) [data-axis-chip][aria-pressed="true"]:hover {
+  background-color: var(--ts-menu-selected-bg);
+  border-color: var(--ts-menu-selected-bg);
+  color: var(--ts-menu-selected-ink);
+}
 /* D-04: 45px of paint behind the rail hairline, a 46px cell pitch, and a
    centred 36×36 selected chip around the 28px optical glyph. */
 :is(.tv-workstation, .ts-app) [data-side-rail="true"] .tvc-control::before {

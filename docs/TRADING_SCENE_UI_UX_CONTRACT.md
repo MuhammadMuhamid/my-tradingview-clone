@@ -525,8 +525,14 @@ recorded below in §7c once finalised, and are not to be "tidied" back.
   than one chart on screen there is ONE such row under the whole layout,
   acting on the focused chart (the focused pane renders its own row into the
   workspace's host), never one per pane (C11). The price
-  scale's `auto / log / % / reset` live at the foot of the price axis and
-  reveal on hover; a non-price scale mode still declares itself.
+  scale's controls live at the foot of the price axis as the reference's
+  square chips — `A` (auto) and `L` (log) side by side, with `%` beside them
+  and `reset` above while there is something to undo; an ON chip is the
+  inverted chip (`[data-axis-chip]`). They reveal while the pointer is
+  ANYWHERE on the axis, not only over their own box (W2A-02); a non-price
+  scale mode still declares itself. The axis `⊕` sits on the plot side of the
+  chart/axis boundary at the crosshair's price, never over a tick or the
+  crosshair's label (W2A-01, `tests/dom/axisPlusButton.test.tsx`).
 
 ### 7c. Left-rail grouping contract (TVP8, measured 2026-09-14)
 

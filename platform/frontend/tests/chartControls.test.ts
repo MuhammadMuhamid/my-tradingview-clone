@@ -28,6 +28,7 @@ import {
   PRICE_SCALE_MODES, priceScaleAfterManualScale, priceScaleLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, setPriceScaleMode, togglePercentScale,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
+  AXIS_PLUS_CLEARANCE, axisPlusButtonOffset, pointerOnPriceAxis,
 } from "../lib/priceScale";
 import {
   availableRangeShortcuts, loadedWindow, MIN_BARS_IN_RANGE, RANGE_SHORTCUTS,
@@ -83,6 +84,25 @@ function candles(count: number, startMs = START, stepMs = HOUR): Candle[] {
 }
 
 // ══ 1–5  PRICE SCALE ═══════════════════════════════════════════════════════
+
+test("W2A-01 — the axis ⊕ is offset past the scale's whole width", () => {
+  // From the pane edge the scale is on: the full measured width, plus clearance.
+  assert.equal(axisPlusButtonOffset(76), 76 + AXIS_PLUS_CLEARANCE);
+  assert.equal(axisPlusButtonOffset(51.6), 52 + AXIS_PLUS_CLEARANCE);
+  assert.equal(axisPlusButtonOffset(-3), AXIS_PLUS_CLEARANCE, "never back over the edge");
+});
+
+test("W2A-02 — the pointer is on the price axis anywhere along it, above the time axis", () => {
+  const host = { width: 1280, height: 800 };
+  const axis = { width: 76, bottom: 28 };
+  assert.equal(pointerOnPriceAxis({ x: 1250, y: 40 }, host, axis, "right"), true, "high on the axis");
+  assert.equal(pointerOnPriceAxis({ x: 1210, y: 700 }, host, axis, "right"), true, "low, at the foot");
+  assert.equal(pointerOnPriceAxis({ x: 1203, y: 300 }, host, axis, "right"), false, "on the plot");
+  assert.equal(pointerOnPriceAxis({ x: 1250, y: 790 }, host, axis, "right"), false, "on the time axis");
+  assert.equal(pointerOnPriceAxis({ x: 30, y: 300 }, host, axis, "left"), true, "a left scale");
+  assert.equal(pointerOnPriceAxis({ x: 1250, y: 300 }, host, { width: 0, bottom: 28 }, "right"), false,
+    "an unmeasured scale is no axis");
+});
 
 test("PRICE SCALE — the default is linear, auto-fitting and the right way up", () => {
   assert.deepEqual(DEFAULT_PRICE_SCALE, { mode: "normal", autoScale: true, invert: false });

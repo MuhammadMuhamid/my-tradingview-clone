@@ -164,7 +164,7 @@ test("R6 SC-2 — the Scale mode buttons row decides when the axis strip is draw
   assert.match(strip()!.className, /group-hover\/axis:opacity-100/);
   assert.deepEqual(
     [...strip()!.querySelectorAll("button")].map((b) => (b.textContent ?? "").trim()),
-    ["auto", "log", "%"],
+    ["A", "L", "%"],
     "the strip holds the axis's own controls, whatever its visibility");
 
   await openSettings(chart, "Canvas");

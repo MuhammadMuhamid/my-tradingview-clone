@@ -222,3 +222,39 @@ export function scaleShowsPrices(state: PriceScaleState): boolean {
 export function priceScaleAfterManualScale(state: PriceScaleState): PriceScaleState {
   return setPriceScaleAuto(state, false);
 }
+
+/** Clearance between the axis `⊕` and the scale's inner edge, in CSS px. */
+export const AXIS_PLUS_CLEARANCE = 2;
+
+/**
+ * W2A-01: how far the axis `⊕` sits from the pane edge the scale is on.
+ *
+ * The scale's own width, so the button's near edge is on the PLOT side of the
+ * chart/axis boundary and never covers a tick or the crosshair label, plus a
+ * hairline so the two do not touch. Live Premium draws it there: the label
+ * beside it reads whole. The width is the library's measurement, never a
+ * constant — it grows with the digits in the price.
+ */
+export function axisPlusButtonOffset(scaleWidth: number): number {
+  return Math.max(0, Math.round(scaleWidth)) + AXIS_PLUS_CLEARANCE;
+}
+
+/**
+ * W2A-02: whether a pointer over the chart host is on its price axis.
+ *
+ * The axis is the scale's measured width at the side it is drawn on, above
+ * the time axis (`bottom` is the time axis's height). An unmeasured scale
+ * (width 0) is no axis at all, so nothing lights before the library reports.
+ */
+export function pointerOnPriceAxis(
+  point: { x: number; y: number },
+  host: { width: number; height: number },
+  axis: { width: number; bottom: number },
+  side: "left" | "right",
+): boolean {
+  if (axis.width <= 0) return false;
+  if (point.y < 0 || point.y > host.height - axis.bottom) return false;
+  return side === "left"
+    ? point.x >= 0 && point.x <= axis.width
+    : point.x >= host.width - axis.width && point.x <= host.width;
+}
