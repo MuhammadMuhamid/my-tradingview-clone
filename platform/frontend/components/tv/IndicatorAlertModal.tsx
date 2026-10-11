@@ -178,6 +178,13 @@ export function IndicatorAlertModal({
     setStochDSmooth(s.stochDSmooth ?? STOCHASTIC_DEFAULTS.dSmooth);
     setAdxDiLength(s.adxDiLength ?? ADX_DEFAULTS.diLength);
     setAdxSmoothing(s.adxSmoothing ?? ADX_DEFAULTS.smoothing);
+    /*
+     * B-06: and no gates but this alert's own. The dialog stays mounted between
+     * opens, so the gate conditions added to an RSI alert arrived pre-filled in
+     * the next "Add alert on MACD…" — a condition nobody asked for, on a
+     * different study. Every open, and every new seed, starts with none.
+     */
+    setFilters(emptyFilters());
   }, [open, kind, seed]);
 
   const toggleTf = (tf: Interval): void =>
