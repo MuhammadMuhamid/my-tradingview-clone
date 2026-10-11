@@ -164,6 +164,18 @@ export class Broker {
     return out;
   }
 
+  /**
+   * A position remainder too small to sell: below one lot step, or below the
+   * notional minimum at `price`. Zero is not dust — nothing is left.
+   */
+  private isDust(remainder: number, price: number): boolean {
+    if (remainder <= 1e-12) return false;
+    const step = this.opts.qtyStep ?? 0;
+    if (step > 0 && remainder < step * (1 - 1e-9)) return true;
+    const minNotional = this.opts.minNotional ?? 0;
+    return minNotional > 0 && remainder * price < minNotional;
+  }
+
   get isFlat(): boolean {
     return this.positionQty === 0;
   }
@@ -290,10 +302,14 @@ export class Broker {
       const executablePx = this.corrections.executableCloseFills
         ? close - this.slip
         : legacyFillPx;
-      const qty = this.applyExchangeFilters(requested, executablePx, i, leg.id);
+      let qty = this.applyExchangeFilters(requested, executablePx, i, leg.id);
       if (qty === null) {
         this.legs = this.legs.filter((l) => l.id !== leg.id);
         return;
+      }
+      // C-01: never leave a remainder no exchange would let anyone sell.
+      if (this.corrections.lotDustExit && this.isDust(this.positionQty - qty, executablePx)) {
+        qty = this.positionQty;
       }
       this.fillExit(qty, executablePx, t, i, reason,
         this.corrections.executableCloseFills ? intendedTriggerPx : null);

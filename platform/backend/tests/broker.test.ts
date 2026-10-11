@@ -214,3 +214,38 @@ test("FC1-M1 close-fill excursion starts at fill; open-fill still observes its f
   assert.ok(openFill.closed[0]!.runUpPct! > 90);
   assert.ok(openFill.closed[0]!.drawdownPct! > 40);
 });
+
+test("C-01 lotDustExit — a leg that would leave less than one lot closes the whole position", () => {
+  /*
+   * Cash sizing buys 930 / 100.02 ≈ 9.298 units; with a 0.1 lot step the TP
+   * leg for 99 % of that floors to 9.2 and would leave 0.098 — less than one
+   * lot, which no exchange would let anyone sell. Without the correction the
+   * broker kept that dust "open" with its stale legs (the result page showed an
+   * open trade +44 % with a TP hit weeks before); with it, the leg takes the
+   * remainder and the position is flat.
+   */
+  const bars = makeBars([
+    [100, 100, 100, 100],
+    [100, 100, 100, 100],
+    [100, 103, 99, 102.5],
+  ]);
+  const run = (lotDustExit: boolean): Broker => {
+    const b = new Broker({
+      ...OPTS, qtyStep: 0.1,
+      corrections: { ...noCorrections(), exchangeFilters: true, lotDustExit },
+    });
+    b.queueEntry("entry");
+    b.processOpen(bars, 1);
+    b.setExitLeg("RR1", b.positionQty * 0.99, 102, 95, 1);
+    b.processIntrabar(bars, 2, REASONS);
+    return b;
+  };
+  const without = run(false);
+  assert.ok(without.positionQty > 0 && without.positionQty < 0.1, `expected dust, got ${without.positionQty}`);
+  assert.equal(without.isFlat, false);
+
+  const withFix = run(true);
+  assert.equal(withFix.isFlat, true, "a sub-lot remainder was left open");
+  assert.equal(withFix.closed.length, 1, "the dust is folded into the closing leg, not a trade of its own");
+  approx(withFix.closed[0]!.qty, 930 / (100 + 0.02), 1e-9);
+});

@@ -129,6 +129,23 @@ export const CORRECTION_KEYS = [
    * both touched.
    */
   "barMagnifier",
+
+  /**
+   * C-01 (fresh workflow reviewer) — an exit leg that leaves less than one lot.
+   *
+   * Entries size in cash (`qty = cash / price`, unsnapped) while exits are
+   * floored to the lot step by `exchangeFilters`, so a partial-TP leg could
+   * leave a remainder smaller than one step: a position no exchange would let
+   * anyone sell. The broker kept it open with its stale bracket legs, and the
+   * result page showed an "open trade, +44 %, TP never hit" weeks after the
+   * target had been taken. With this on, a leg whose remainder would be below
+   * one lot step — or below the notional minimum — closes the whole position at
+   * that leg's price, which is what an account holding that dust is: flat.
+   *
+   * Changes historical results: only runs that left sub-lot dust, by its P&L —
+   * fractions of a cent per trade — and their open-trade / trade-count shape.
+   */
+  "lotDustExit",
 ] as const;
 
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];
