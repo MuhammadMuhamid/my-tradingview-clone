@@ -451,10 +451,13 @@ export function plotValueAt(points: ChartPoint[], time: number | null): number |
 export function formatPlotValue(value: number | null, precision?: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
   const digits = precision ?? (Math.abs(value) >= 1000 ? 2 : Math.abs(value) >= 1 ? 4 : 6);
-  return value.toLocaleString(undefined, {
+  const text = value.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: Math.max(0, Math.min(12, digits)),
   });
+  // B-27: a tiny negative that rounds to zero printed "-0" (a MACD histogram
+  // near its cross). Zero has no sign on a readout.
+  return /^-0([.,]0*)?$/.test(text) ? text.slice(1) : text;
 }
 
 /**

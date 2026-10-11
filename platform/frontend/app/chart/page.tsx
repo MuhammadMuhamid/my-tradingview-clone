@@ -293,10 +293,19 @@ export default function TvWorkspace() {
   const lastPrice = useMemo(() => resolveLastPrice({
     replayActive,
     replayClose: replayLast?.close ?? null,
-    liveClose: livePrice.price,
+    /*
+     * B-18: a canonical instrument's live price arrives on the history hook's
+     * provider candle stream, not through `useLivePrice` (which is the legacy
+     * Binance feed and declines canonical ids). Without this, the alert dialog
+     * said "No live frame yet" under a Last price that was ticking every
+     * second. Only while that stream is actually delivering frames.
+     */
+    liveClose: livePrice.price
+      ?? (activeHistory.streamLive && holdingRequested ? candles[candles.length - 1]?.close ?? null : null),
     historyClose: holdingRequested ? candles[candles.length - 1]?.close ?? null : null,
     historyStale: holdingRequested && activeHistory.stale,
-  }), [replayActive, replayLast, livePrice.price, candles, holdingRequested, activeHistory.stale]);
+  }), [replayActive, replayLast, livePrice.price, candles, holdingRequested, activeHistory.stale,
+    activeHistory.streamLive]);
   /*
    * C8: Replay runs Pine from the same start as the live chart, so a study
    * replayed is the study traded — warmed up over the same history — rather

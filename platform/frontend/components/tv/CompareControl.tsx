@@ -315,7 +315,12 @@ export function CompareSettings({
               type="button"
               role="menuitemradio"
               aria-checked={m.value === mode}
-              onClick={() => set({ mode: m.value })}
+              /*
+                B-26: a choice closes the menu, as the reference's menus do —
+                unless the mode has a rolling window still to set, which lives
+                in this same menu.
+              */
+              onClick={() => { set({ mode: m.value }); if (!WINDOWED.has(m.value)) onClose(); }}
               className="tvc-menu-row justify-start px-2 text-left text-sm"
             >
               {m.label}

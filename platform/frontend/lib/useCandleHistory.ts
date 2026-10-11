@@ -173,6 +173,13 @@ export interface CandleHistoryState {
    * current slot clears it without anything else having to notice.
    */
   stale: boolean;
+  /**
+   * The provider's live CANDLE stream for a canonical instrument is delivering
+   * frames right now. False before the first frame, while stale or
+   * reconnecting, and for a legacy Binance ticker (whose live price comes from
+   * `lib/useLivePrice` instead).
+   */
+  streamLive: boolean;
   /** Merge a live bar (and the bar it closed) into this pane's series. */
   mergeLiveBars: (closed: Candle | null, current: Candle) => void;
   /** Force a reload of this window, bypassing the cache. */
@@ -307,6 +314,13 @@ export function useCandleHistory(
   const [streamWarning, setStreamWarning] =
     useState<{ message: string; detail: string | null } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  /*
+   * Which dataset's stream last delivered a frame, rather than a bare flag: a
+   * key cannot go stale across a symbol or interval switch — another dataset's
+   * stream simply is not this one's — so nothing has to remember to reset it.
+   */
+  const [liveStreamKey, setLiveStreamKey] = useState<string | null>(null);
+  const streamLive = liveStreamKey === datasetKey({ symbol: request.symbol, interval: request.interval });
 
   const requestSeq = useRef(new LatestRequest());
   const inFlight = useRef(new CancellableRequest());
@@ -444,11 +458,13 @@ export function useCandleHistory(
         onEvent: (event) => {
           if (event.kind !== "candle") return;
           setStreamWarning(null);
+          setLiveStreamKey(datasetKey({ symbol, interval }));
           mergeLiveBars(null, event.candle);
         },
         onState: (state) => {
           if (state.status === "live") setStreamWarning(null);
-          else if (state.status === "stale" || (state.status === "reconnecting" && state.everLive)) {
+          else setLiveStreamKey(null);
+          if (state.status === "stale" || (state.status === "reconnecting" && state.everLive)) {
             setStreamWarning({
               message: "Live updates are behind — refreshing on a timer.",
               detail: "The provider's stream went stale. The REST tail refresh remains active, "
@@ -477,9 +493,10 @@ export function useCandleHistory(
       error: failure?.headline ?? streamWarning?.message ?? null,
       errorDetail: failure?.detail ?? (failure ? null : streamWarning?.detail ?? null),
       errorLevel: failure ? "error" : streamWarning ? "notice" : null,
+      streamLive,
       mergeLiveBars, reload,
     }),
-    [held, loading, failure, streamWarning, mergeLiveBars, reload]
+    [held, loading, failure, streamWarning, streamLive, mergeLiveBars, reload]
   );
 }
 

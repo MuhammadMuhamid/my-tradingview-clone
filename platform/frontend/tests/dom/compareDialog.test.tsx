@@ -99,10 +99,11 @@ test("a row ADDS a comparison and never moves the pane's own instrument", async 
 
 test("an existing comparison keeps its mode, and can be removed, from the legend's own chip", async () => {
   const applied: (PaneCompare | null)[] = [];
+  let closes = 0;
   const current: PaneCompare = { symbol: "SOLUSDT", mode: "beta", length: 60 };
   const view = render(
     <CompareSettings open current={current} baseTicker="BTCUSDT"
-      onClose={() => {}} onApply={(next) => applied.push(next)} />
+      onClose={() => { closes += 1; }} onApply={(next) => applied.push(next)} />
   );
   await settle();
   // C15: a menu, not a dialog. The `?? view.baseElement` fallback this used
@@ -117,9 +118,14 @@ test("an existing comparison keeps its mode, and can be removed, from the legend
   assert.ok(!said.includes("instrument:v1"));
 
   // Changing the mode keeps the instrument and the window.
+  fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Rolling correlation" }));
+  await settle();
+  assert.equal(closes, 0, "a windowed mode closed the menu before its window could be set");
   fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Pair ratio" }));
   await settle();
   assert.deepEqual(applied.at(-1), { symbol: "SOLUSDT", mode: "ratio", length: 60 });
+  // B-26: a choice with nothing left to set closes the menu.
+  assert.equal(closes, 1, "choosing Pair ratio left the menu open");
 
   // And the way out is still one click.
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Remove comparison" }));

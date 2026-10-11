@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   groupChartOverlays, mergeBarColorLayers, planCandleMutation,
-  planColoredCandleMutation, planOhlcMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
+  formatPlotValue, planColoredCandleMutation, planOhlcMutation, planSeriesMutation, plotValueAt, shiftedPlotTime,
   type ChartOverlay,
 } from "../lib/chartSeries";
 import { toChartOutput } from "../lib/indicators";
@@ -271,4 +271,11 @@ test("the transformed series is planned by its own rules", () => {
   assert.equal(planOhlcMutation(before, [before[0]!]), "replace");
   // Any disagreement about already-drawn history is a repaint, never an update.
   assert.equal(planOhlcMutation(before, [bar(60_000, 99), before[1]!]), "replace");
+});
+
+test("B-27 — a value that rounds to zero prints without a sign", () => {
+  assert.equal(formatPlotValue(-0.0000001, 2), "0");
+  assert.equal(formatPlotValue(-0, 2), "0");
+  assert.equal(formatPlotValue(-0.004, 2), "0");
+  assert.equal(formatPlotValue(-0.006, 2), "-0.01");
 });
