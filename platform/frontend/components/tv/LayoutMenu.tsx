@@ -274,7 +274,13 @@ export function LayoutMenu({
       */}
       <button
         onClick={() => { if (dirty && current) onSaveNow(); }}
-        className={`${TOOL_BUTTON} min-w-0`}
+        /*
+          `!shrink` over TOOL_BUTTON's `shrink-0`: the name is the toolbar
+          row's one absorber (`TOOLBAR_OVERFLOW_FROM`), so a long name or a
+          multi-pane Sync cell truncates the name instead of pushing ⋯ off
+          the edge. With room to spare nothing shrinks and nothing moves.
+        */
+        className={`${TOOL_BUTTON} min-w-0 !shrink`}
         data-tooltip={`${current?.name ?? "Unnamed layout"} — ${status.label}. ${status.help}`}
         aria-label={`Saved layout — ${current?.name ?? "Unnamed"}, ${status.label}`}
       >

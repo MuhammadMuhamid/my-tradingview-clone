@@ -12,7 +12,7 @@
  * a column of panels beside a chart is not a phone layout — it is a desktop
  * layout with the chart squeezed out of it.
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { type Resolution } from "@/lib/resolution";
 import { AlertsPanel } from "@/components/tv/AlertsPanel";
@@ -110,6 +110,26 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  /*
+   * B-23: the phone's More sheet is the TOP layer while it is open — it sits
+   * over the toolbar's ⋯ dropdown — so Escape is its first. It had no Escape
+   * at all, and the key went straight through to the toolbar, which closed the
+   * dropdown BEHIND the sheet and left the sheet standing. Taken in the
+   * capture phase and stopped, so no bubble-phase listener on the window sees
+   * a key the sheet has already answered.
+   */
+  useEffect(() => {
+    if (!moreOpen || !isMobile) return;
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setMoreOpen(false);
+    };
+    window.addEventListener("keydown", onEsc, true);
+    return () => window.removeEventListener("keydown", onEsc, true);
+  }, [moreOpen, isMobile]);
   const tradingIdentity = canonicalDisplayParts(props.tradingSymbol);
   const canonicalBinanceSpot = tradingIdentity?.venue === "BINANCE" && tradingIdentity.type === "spot";
   /*

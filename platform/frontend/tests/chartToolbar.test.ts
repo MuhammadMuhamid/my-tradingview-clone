@@ -22,11 +22,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_FAVOURITES, chipLabel, timeframeStrip } from "../lib/timeframes";
 import {
-  TOOLBAR_ACCOUNT_CELL_WIDTH, TOOLBAR_CLUSTER_WIDTH, TOOLBAR_CONTROLS,
+  TOOLBAR_ACCOUNT_CELL_WIDTH, TOOLBAR_CONTROLS, TOOLBAR_OVERFLOW_FROM,
   controlsInGroup, isPrimaryControl, primaryControls, secondaryControls,
-  toolbarControl, toolbarDensity, toolbarGroup, type ToolbarControlId,
+  toolbarControl, toolbarGroup, toolbarPlacement, toolbarRowWidth,
+  type OverflowControlId, type ToolbarControlId,
 } from "../lib/toolbarLayout";
-import { toolbarDensityClasses } from "../components/tv/toolbarDensity";
+import { TOOLBAR_SEPARATOR_TIERS, TOOLBAR_TIERS } from "../components/tv/toolbarDensity";
 import {
   enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen, toggleFullscreen,
   watchFullscreen, type FullscreenDocument, type FullscreenTarget,
@@ -53,9 +54,6 @@ const readCode = (rel: string): string =>
   read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const TOOLBAR = "components/tv/ChartToolbar.tsx";
-/* The breakpoint literals moved here so a test can import the function that
-   returns them; tailwind still scans it, being under components/. */
-const DENSITY = "components/tv/toolbarDensity.ts";
 
 /** Everything the toolbar declares, in source order, as `ctl("id")` markers. */
 function markersInOrder(source: string): { id: string; at: number }[] {
@@ -125,7 +123,7 @@ test("the toolbar's markers appear in the registry's order", () => {
   const row = source.slice(primaryRow, secondaryRow);
   const sequence = [
     'ctl("symbol")', "<CompareButton", "<TimeframePicker", "<ChartTypeMenu",
-    "<ContextActions", 'ctl("undo")', 'ctl("redo")', "<WorkspaceActions", 'ctl("more")', "<TradeButton",
+    "<ContextActions", "<EditHistory", "<WorkspaceActions", 'ctl("more")', "<TradeButton",
   ];
   let at = -1;
   for (const marker of sequence) {
@@ -137,6 +135,8 @@ test("the toolbar's markers appear in the registry's order", () => {
   for (const [a, b] of [['ctl("indicators")', 'ctl("alert")'], ['ctl("alert")', 'ctl("replay")']]) {
     assert.ok(contextCluster.indexOf(a) < contextCluster.indexOf(b), `${a} must precede ${b}`);
   }
+  assert.ok(contextCluster.indexOf('ctl("undo")') < contextCluster.indexOf('ctl("redo")'),
+    "undo precedes redo");
   const workspaceCluster = source.slice(source.indexOf("function WorkspaceActions"), source.indexOf("function SnapshotMenu"));
   const utilities = ['ctl("layout")', "<SavedLayoutIdentity", 'ctl("sync")', 'ctl("commandPalette")', 'ctl("chartSettings")', 'ctl("fullscreen")', "<SnapshotMenu"];
   at = -1;
@@ -228,20 +228,33 @@ test("secondary controls are inside the More strip and primary ones are not", ()
   }
 });
 
-test("the More strip is opened deliberately, not by the viewport", () => {
+test("the secondary strip is opened deliberately, by name, not by the viewport or by ⋯", () => {
   const source = read(TOOLBAR);
   // The regression this guards: the strip used to appear on its own at `xl`,
   // so a wide screen got several wrapped rows of chrome nobody asked for.
   const stripStart = source.indexOf('data-toolbar-row="secondary"');
   const stripHeader = source.slice(source.lastIndexOf("{moreOpen && (", stripStart), stripStart);
-  assert.ok(stripHeader.includes("moreOpen"), "the More strip must be gated on the toggle");
+  assert.ok(stripHeader.includes("moreOpen"), "the strip must be gated on its toggle");
   assert.doesNotMatch(
     source.slice(stripStart, stripStart + 400),
     /\bxl:flex\b|\bxl:order-none\b/,
-    "the More strip must not re-appear on its own at a breakpoint"
+    "the strip must not re-appear on its own at a breakpoint"
   );
-  assert.match(source, /aria-expanded=\{moreOpen\}/, "the toggle must announce its state");
-  assert.match(source, /aria-controls="chart-toolbar-more"/);
+  /*
+   * A13: ⋯ itself opened the strip, so at 1440 — where nothing had overflowed
+   * — it produced a second row of HISTORY 2K 10K 50K All · Overlays · Automate
+   * · Strategy · Best config by surprise. ⋯ now opens the overflow DROPDOWN,
+   * and the strip is a row of it that says what it opens.
+   */
+  const more = source.slice(source.indexOf('ctl("more")'), source.indexOf('id="chart-toolbar-overflow"'));
+  assert.match(more, /onClick=\{\(\) => setOverflowOpen\(!overflowOpen\)\}/, "⋯ opens the dropdown");
+  assert.doesNotMatch(more, /onMoreOpen/, "⋯ must not open the strip");
+  assert.match(more, /aria-controls="chart-toolbar-overflow"/);
+  assert.match(more, /aria-expanded=\{overflowOpen\}/);
+  const toggle = source.slice(source.indexOf('id="chart-toolbar-overflow"'), stripStart);
+  assert.match(toggle, /aria-controls="chart-toolbar-more"/, "the strip's toggle is a row of the dropdown");
+  assert.match(toggle, /aria-expanded=\{moreOpen\}/, "and announces its state");
+  assert.match(toggle, /"History, overlays & automation"/, "and names what it opens");
 });
 
 test("the primary row never wraps — the timeframe strip absorbs the pressure", () => {
@@ -306,35 +319,104 @@ test("the interval trigger is a caret, not a word", () => {
  * full-width row now, above the rails, the chart and the panel, so nothing
  * narrows it and the one decision left is Tailwind's `md`.
  */
-test("the toolbar collapses while the row still fits, and the CSS carries the same number", () => {
+/** Tailwind's own `sm`, which Compare's literal uses instead of an arbitrary value. */
+const breakpointOf = (cls: string): number => {
+  if (/(^|\s)sm:/.test(cls)) return 640;
+  const m = /min-\[(\d+)px\]:/.exec(cls);
+  assert.ok(m, `no breakpoint in ${cls}`);
+  return Number(m[1]);
+};
+
+test("every overflowable control is on the row OR in ⋯ — never both, never neither — and the CSS carries the same number", () => {
   /*
-   * 1280, not 768.
-   *
-   * The primary row's intrinsic width is 1232px and it is `flex-nowrap` on a
-   * page that does not scroll horizontally, so a breakpoint below that does
-   * not produce a denser bar — it produces a bar whose right-hand end is off
-   * the screen with no way to reach it. The control that fell off first was
-   * More, which is the route to Correlation, the object tree, the data window
-   * and Maximize pane, so those went with it.
+   * A13 / B-05. The one decision this replaced (`hidden xl:flex` on the whole
+   * right-hand cluster) moved seven controls at once at 1280 and still let the
+   * left side overrun at 768, where Undo, Redo and ⋯ were drawn off the edge
+   * and Layout, Search, Settings, Fullscreen, Chart image and Trade were not
+   * rendered anywhere at all.
    */
-  assert.equal(TOOLBAR_CLUSTER_WIDTH, 1280, "Tailwind's xl, which is what the class literal says");
-  assert.ok(TOOLBAR_CLUSTER_WIDTH > 1232,
-    "the breakpoint must sit above the row's intrinsic width, or the row overflows instead of collapsing");
   assert.equal(TOOLBAR_ACCOUNT_CELL_WIDTH, 52, "the rail's width: the account cell sits above the rail");
-  for (const viewport of [320, 640, 767, 768, 1024, 1279, 1280, 1440, 1920]) {
-    assert.deepEqual(toolbarDensity(viewport), { clusterOnPrimaryRow: viewport >= 1280 });
+  const ids = Object.keys(TOOLBAR_OVERFLOW_FROM) as OverflowControlId[];
+  assert.deepEqual(Object.keys(TOOLBAR_TIERS).sort(), [...ids].sort(), "one tier per overflowable control");
+  for (const id of ids) {
+    const { row, menu } = TOOLBAR_TIERS[id];
+    const at = TOOLBAR_OVERFLOW_FROM[id];
+    assert.equal(breakpointOf(row), at, `${id}: the row class says ${row}, the arithmetic ${at}`);
+    assert.equal(breakpointOf(menu), at, `${id}: the menu class says ${menu}, the arithmetic ${at}`);
+    // Mirrored: hidden on the row exactly where the menu copy is displayed.
+    assert.match(row, /^hidden \S+:flex$/, `${id}: the row copy is hidden below its width`);
+    assert.match(menu, /^flex \S+:hidden$/, `${id}: the menu copy is displayed below it`);
+    assert.equal(row.split(" ")[1]!.split(":")[0], menu.split(" ")[1]!.split(":")[0],
+      `${id}: the two copies switch at the same breakpoint`);
   }
-  const classes = toolbarDensityClasses();
-  assert.equal(classes.cluster, "hidden xl:flex");
-  assert.equal(classes.clusterInMore, "flex xl:hidden");
-  assert.equal(classes.separator, "hidden xl:inline-block");
-  assert.equal(classes.separatorInMore, "xl:hidden");
-  // No shifted breakpoint survives anywhere in the density module.
-  assert.doesNotMatch(read(DENSITY), /min-\[\d+px\]/, "a shifted breakpoint is the boxed toolbar coming back");
-  // And the page no longer tells the bar about the ticket or the panel,
-  // because neither takes width from a full-width row.
+  // Every primary control that is not always on the row is overflowable.
+  const always: ToolbarControlId[] = ["symbol", "timeframe", "chartType", "more"];
+  for (const control of primaryControls()) {
+    assert.ok(always.includes(control.id) || ids.includes(control.id as OverflowControlId),
+      `${control.id} can neither stay nor leave — it would simply be clipped`);
+  }
+  // And the menu's set is the complement of the row's at every width.
+  for (let viewport = 320; viewport <= 1920; viewport += 1) {
+    const { row, menu } = toolbarPlacement(viewport);
+    assert.equal(row.length + menu.length, ids.length);
+    assert.equal(row.filter((id) => menu.includes(id)).length, 0);
+  }
+  // No shifted ticket/panel breakpoint: the page no longer tells the bar about
+  // either, because neither takes width from a full-width row.
   assert.doesNotMatch(read(TOOLBAR), /ticketOpen|panelOpen/);
   assert.doesNotMatch(read("app/chart/page.tsx"), /ticketOpen=|panelOpen=/);
+});
+
+test("the row fits at EVERY width from 640 to 1440, so ⋯ is never clipped", () => {
+  /*
+   * ⋯ is the route to every overflowed control, and on a narrow screen it is
+   * also how Correlation, the object tree, the data window and Maximize pane
+   * stay reachable — this regressed twice when the row overran the viewport.
+   * The row is `flex-nowrap` on a page that never scrolls sideways, so the
+   * only safe statement is arithmetic: what the row draws is narrower than the
+   * screen, one pixel at a time, with one pane and with two (Sync's cell).
+   */
+  for (let viewport = 640; viewport <= 1440; viewport += 1) {
+    for (const panes of [1, 2]) {
+      const width = toolbarRowWidth(viewport, { panes });
+      assert.ok(width <= viewport,
+        `at ${viewport}px with ${panes} pane(s) the row needs ${width}px — ⋯ would be cut off`);
+    }
+  }
+  // Nothing has left the row at 1440, and the premium-measured 1200 keeps
+  // Layout, the layout name, Settings, Snapshot and Trade on it.
+  assert.deepEqual(toolbarPlacement(1440).menu, []);
+  for (const id of ["layout", "savedLayouts", "chartSettings", "snapshot", "trade"] as const) {
+    assert.ok(toolbarPlacement(1200).row.includes(id), `${id} must still be on the row at 1200`);
+  }
+  // At 768 (B-05) nothing is dropped: what is not on the row is in ⋯.
+  const at768 = toolbarPlacement(768);
+  for (const id of ["layout", "commandPalette", "chartSettings", "fullscreen", "snapshot"] as const) {
+    assert.ok(at768.menu.includes(id) || at768.row.includes(id), `${id} is unreachable at 768`);
+  }
+  // Lowest priority leaves first: quick search before fullscreen before undo …
+  const order = (Object.keys(TOOLBAR_OVERFLOW_FROM) as OverflowControlId[])
+    .sort((a, b) => TOOLBAR_OVERFLOW_FROM[b] - TOOLBAR_OVERFLOW_FROM[a]);
+  assert.deepEqual(order.slice(0, 2), ["commandPalette", "fullscreen"]);
+  assert.ok(TOOLBAR_OVERFLOW_FROM.trade < TOOLBAR_OVERFLOW_FROM.chartSettings
+    && TOOLBAR_OVERFLOW_FROM.chartSettings < TOOLBAR_OVERFLOW_FROM.snapshot
+    && TOOLBAR_OVERFLOW_FROM.snapshot < TOOLBAR_OVERFLOW_FROM.layout
+    && TOOLBAR_OVERFLOW_FROM.layout < TOOLBAR_OVERFLOW_FROM.savedLayouts,
+  "Trade, Settings, Snapshot, Layout and the name are the last to go, in that order");
+});
+
+test("each row separator is drawn exactly while both of its neighbours are", () => {
+  assert.equal(breakpointOf(TOOLBAR_SEPARATOR_TIERS.context), TOOLBAR_OVERFLOW_FROM.compare);
+  assert.equal(breakpointOf(TOOLBAR_SEPARATOR_TIERS.beforeAlert), TOOLBAR_OVERFLOW_FROM.alert);
+  assert.equal(breakpointOf(TOOLBAR_SEPARATOR_TIERS.beforeUndo), TOOLBAR_OVERFLOW_FROM.undo);
+  // layout · name · sync │ search · settings · fullscreen · snapshot: the
+  // later of `layout` and the first utility to appear (`chartSettings`).
+  assert.equal(breakpointOf(TOOLBAR_SEPARATOR_TIERS.beforeUtilities),
+    Math.max(TOOLBAR_OVERFLOW_FROM.layout, TOOLBAR_OVERFLOW_FROM.chartSettings));
+  const source = read(TOOLBAR);
+  for (const key of Object.keys(TOOLBAR_SEPARATOR_TIERS)) {
+    assert.match(source, new RegExp(`TOOLBAR_SEPARATOR_TIERS\\.${key}`), `the ${key} separator is not used`);
+  }
 });
 
 test("the toolbar is the first full-width row of the workstation, above the rails and the panel", () => {
@@ -351,18 +433,29 @@ test("the toolbar is the first full-width row of the workstation, above the rail
   assert.match(page.slice(Math.max(0, container - 160), container), /flex-col/, "the workstation stacks its two rows");
 });
 
-test("every control that leaves the primary row on a phone has a second home in the More strip", () => {
+test("every control that can leave the row has a second home in the ⋯ dropdown", () => {
   const source = read(TOOLBAR);
-  assert.equal((source.match(/<WorkspaceActions /g) ?? []).length, 2);
-  assert.equal((source.match(/<ContextActions /g) ?? []).length, 2);
+  for (const cluster of ["WorkspaceActions", "ContextActions", "EditHistory"]) {
+    assert.equal((source.match(new RegExp(`<${cluster} `, "g")) ?? []).length, 2, `${cluster} twice`);
+    assert.match(source, new RegExp(`<${cluster} \\{\\.\\.\\.props\\} placement="row" overflowed=\\{overflowed\\} />`));
+    assert.match(source, new RegExp(`<${cluster} \\{\\.\\.\\.props\\} placement="menu" overflowed=\\{overflowed\\} />`));
+  }
   assert.equal((source.match(/<CompareButton /g) ?? []).length, 2);
   assert.equal((source.match(/<TradeButton /g) ?? []).length, 2);
-  assert.match(source, /<WorkspaceActions \{\.\.\.props\} className=\{density\.cluster\} \/>/);
-  assert.match(source, /<WorkspaceActions \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
-  assert.match(source, /<TradeButton \{\.\.\.props\} className=\{density\.clusterInMore\} \/>/);
+  assert.match(source, /<CompareButton \{\.\.\.props\} className=\{tier\("compare", "row"\)\} \/>/);
+  assert.match(source, /<TradeButton \{\.\.\.props\} className=\{`ml-1\.5 \$\{tier\("trade", "row"\)\}`\} \/>/);
+  assert.match(source, /tier\("trade", "menu"\)/);
+  // The menu copies live inside the dropdown, the row copies outside it.
+  const panel = source.slice(source.indexOf('id="chart-toolbar-overflow"'), source.indexOf('data-toolbar-row="secondary"'));
+  for (const cluster of ["WorkspaceActions", "ContextActions", "EditHistory"]) {
+    assert.match(panel, new RegExp(`<${cluster} \\{\\.\\.\\.props\\} placement="menu" overflowed=\\{overflowed\\} />`));
+  }
+  // `placed` is the ONE place a control picks its copy's class.
+  assert.match(source, /function placed\(\s*placement: Placement, id: OverflowControlId/);
   assert.doesNotMatch(source, /className="hidden md:flex"/,
     "a hard-coded viewport placement is the defect coming back");
   assert.doesNotMatch(source, /className="flex md:hidden"/);
+  assert.doesNotMatch(source, /xl:hidden|hidden xl:flex/, "the all-at-once cluster breakpoint is gone");
 });
 
 test("the toolbar acts on the focused pane, never on a pane it resolves itself", () => {
@@ -721,7 +814,7 @@ test("the fullscreen control targets the chart workspace, not the whole document
 
   const toolbar = read(TOOLBAR);
   // Hidden rather than disabled: an inert control teaches the user it is broken.
-  assert.match(toolbar, /props\.fullscreenSupported && \(/);
+  assert.match(toolbar, /props\.fullscreenSupported && place\("fullscreen"/);
   assert.match(toolbar, /aria-pressed=\{props\.fullscreen\}/);
   assert.doesNotMatch(toolbar, /position:\s*fixed.*fullscreen/i);
 });

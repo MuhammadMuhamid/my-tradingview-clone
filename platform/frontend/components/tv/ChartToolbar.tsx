@@ -38,7 +38,7 @@
  * the ticker, the interval chips, the saved layout's name and `Trade`. The
  * price readout and the bar count are gone from the bar: the price is in the
  * legend already, and the bar count is the History-depth group's tooltip in
- * the More strip. The account entry is the 52×38 cell at the top of the
+ * the secondary strip. The account entry is the 52×38 cell at the top of the
  * left-rail column, rendered by the page — the row starts after it.
  *
  * ── The hierarchy ──────────────────────────────────────────────────────────
@@ -46,15 +46,19 @@
  * The tier is a property of the CONTROL, declared in `lib/toolbarLayout`:
  *
  *   primary row  — chart context, then the workspace cluster pushed right.
- *                  The same row at 768px and at 2560px.
- *   More strip   — history depth, read-only trading overlays, server-side
- *                  automation, strategy properties, the optimizer's best
- *                  config. Opened deliberately, at every width.
+ *   ⋯ menu       — whatever the row has no room for at this width, one
+ *                  labelled row per control, and — last, by name — the
+ *                  secondary strip.
+ *   secondary    — history depth, read-only trading overlays, server-side
+ *   strip          automation, strategy properties, the optimizer's best
+ *                  config. Opened by name from ⋯, never by a breakpoint.
  *
- * Below `md` the workspace cluster, the saved-layout identity and Trade move
- * into that strip — a phone genuinely has no room for them. Below `sm` so do
- * Compare, Indicators, Alert and Replay. Each is ONE component rendered in two
- * places, so the placements cannot drift apart.
+ * Overflow is PROGRESSIVE: each control leaves the row on its own, lowest
+ * priority first, at the width below which it no longer fits
+ * (`TOOLBAR_OVERFLOW_FROM` in `lib/toolbarLayout`, the classes in
+ * `toolbarDensity.ts`). Each is ONE component rendered in both places with
+ * mirrored classes, so at every width it is on the row or in ⋯ — never both,
+ * never neither — and the placements cannot drift apart.
  *
  * ── FC2-B1: which element absorbs pressure ─────────────────────────────────
  *
@@ -85,9 +89,11 @@ import {
   TOOL_PILL_OUTLINE, TOOLBAR_ROW_H,
 } from "@/components/tv/toolbarChrome";
 import { TimeframePicker, type ResolutionPreferences } from "@/components/tv/TimeframePicker";
-import { toolbarGroup, type ToolbarControlId } from "@/lib/toolbarLayout";
+import {
+  TOOLBAR_OVERFLOW_FROM, toolbarGroup, type OverflowControlId, type ToolbarControlId,
+} from "@/lib/toolbarLayout";
 import { BINDINGS, isMacPlatform } from "@/lib/shortcuts";
-import { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
+import { TOOLBAR_SEPARATOR_TIERS, TOOLBAR_TIERS } from "@/components/tv/toolbarDensity";
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import type {
   TradingOverlayItem, TradingOverlayPreferences, TradingOverlayResponse,
@@ -97,7 +103,7 @@ import {
 } from "@/lib/native/catalog";
 
 export { SEPARATOR, TOOL_BUTTON, TOOL_ICON_BUTTON, TOOLBAR_H, TOOLBAR_ROW_H } from "@/components/tv/toolbarChrome";
-export { toolbarDensityClasses } from "@/components/tv/toolbarDensity";
+export { TOOLBAR_SEPARATOR_TIERS, TOOLBAR_TIERS } from "@/components/tv/toolbarDensity";
 
 const HISTORY_OPTIONS = [
   { label: "2K", bars: 2000 },
@@ -261,69 +267,168 @@ export interface ChartToolbarProps {
 }
 
 /**
+ * Where a control is being drawn: on the primary row, or as a row of the ⋯
+ * menu. Every overflowable control is ONE component rendered in both places,
+ * each copy carrying the mirrored half of its tier (`TOOLBAR_TIERS`), so at any
+ * width exactly one copy is displayed and the two cannot drift apart.
+ */
+type Placement = "row" | "menu";
+
+/** What a two-placement cluster is handed: the bar's props, where it is, and what has overflowed. */
+type ClusterProps = ChartToolbarProps & {
+  placement: Placement;
+  /** Null while ⋯ is closed; then only the row copies exist. See `placed`. */
+  overflowed: ReadonlySet<OverflowControlId> | null;
+};
+
+const tier = (id: OverflowControlId, placement: Placement): string => TOOLBAR_TIERS[id][placement];
+
+/**
+ * One row of the ⋯ menu: the control's own cell, then its name.
+ *
+ * The cell IS the control — the same button, the same popover — so a row that
+ * opens a menu (the layout grid, the saved layouts, Sync, the camera) opens
+ * the real one, anchored where it is drawn. The name is what makes this a
+ * list a reader can scan rather than a second toolbar of unlabelled glyphs;
+ * clicking it presses the cell, so the whole row is the target. It is
+ * `aria-hidden` because the cell already carries the control's accessible
+ * name, and a row that announced itself twice would say it twice.
+ */
+function OverflowRow({ label, className, children }: {
+  label: string; className: string; children: React.ReactNode;
+}) {
+  return (
+    <div data-overflow-row
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, [role='menu'], [role='dialog']")) return;
+        e.currentTarget.querySelector<HTMLButtonElement>("button")?.click();
+      }}
+      className={`h-[38px] cursor-pointer items-center gap-1 rounded-md pr-3 hover:bg-state-hover ${className}`}>
+      <span className="flex shrink-0 items-center">{children}</span>
+      <span aria-hidden="true" className="min-w-0 flex-1 truncate text-sm text-ink">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Which overflowable controls this viewport puts in ⋯ — the same media
+ * queries the tier classes compile to, read when ⋯ opens and on resize while
+ * it is open.
+ */
+function overflowedNow(): ReadonlySet<OverflowControlId> {
+  const ids = Object.keys(TOOLBAR_OVERFLOW_FROM) as OverflowControlId[];
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return new Set(ids);
+  return new Set(ids.filter((id) =>
+    !window.matchMedia(`(min-width: ${TOOLBAR_OVERFLOW_FROM[id]}px)`).matches));
+}
+
+/**
+ * A control in its placement: a labelled ⋯ row, or a bare cell on the row with
+ * its tier.
+ *
+ * ── Why the hidden twin is UNMOUNTED while ⋯ is open ──────────────────────
+ *
+ * The CSS alone decides which copy is displayed, and that is enough while ⋯
+ * is closed — only the row copies exist. With ⋯ open, a control that has
+ * overflowed exists twice, and the popovers inside it are exclusive BY ID:
+ * the camera, the layout grid, the saved layouts and Sync opened in the menu
+ * open their `display: none` twin on the row as well, and that twin's
+ * outside-click handler then closes the shared popover on the very mousedown
+ * that was choosing a row in it. So while ⋯ is open, `overflowed` says which
+ * copy exists at all, and exactly one of each is mounted.
+ */
+function placed(
+  placement: Placement, id: OverflowControlId, label: string, node: React.ReactNode,
+  overflowed: ReadonlySet<OverflowControlId> | null,
+) {
+  if (overflowed && overflowed.has(id) === (placement === "row")) return null;
+  return placement === "menu"
+    ? <OverflowRow label={label} className={tier(id, "menu")}>{node}</OverflowRow>
+    : <div className={`shrink-0 items-center ${tier(id, "row")}`}>{node}</div>;
+}
+
+/**
  * Layout, saved layout, sync, and the utilities — the right-hand group.
  *
- * One component, rendered in the primary row on a desktop and in the More
- * strip on a phone, so the two placements cannot drift apart and no control
- * exists in one and not the other.
+ * Rendered twice, once per placement. On the row each control leaves at its
+ * own width; in the ⋯ menu the same control is a labelled row from exactly
+ * that width down. See `TOOLBAR_OVERFLOW_FROM` for the order and the numbers.
  */
-function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
+function WorkspaceActions(props: ClusterProps) {
+  const { placement } = props;
+  const place = (id: OverflowControlId, label: string, node: React.ReactNode) =>
+    placed(placement, id, label, node, props.overflowed);
   return (
-    <div className={`items-center ${props.className}`}>
-      <div {...ctl("layout")} className="flex shrink-0 items-center">
-        <LayoutSelector presetId={props.presetId} onChange={props.onPreset} />
-      </div>
+    <div className={placement === "menu" ? "flex flex-col" : "flex min-w-0 items-center"}>
+      {place("layout", "Chart layout",
+        <div {...ctl("layout")} className="flex shrink-0 items-center">
+          <LayoutSelector presetId={props.presetId} onChange={props.onPreset} />
+        </div>)}
 
-      <SavedLayoutIdentity {...props} className="flex" />
+      {/*
+        The saved layout's name is the row's one ABSORBER: it truncates rather
+        than pushing ⋯ off the edge, so it is not wrapped in a `shrink-0` box.
+      */}
+      {props.overflowed && props.overflowed.has("savedLayouts") === (placement === "row")
+        ? null
+        : placement === "menu"
+          ? <OverflowRow label="Saved layouts" className={tier("savedLayouts", "menu")}>
+            <SavedLayoutIdentity {...props} className="flex" />
+          </OverflowRow>
+          : <SavedLayoutIdentity {...props} className={tier("savedLayouts", "row")} />}
 
       {/*
         Sync is Trading Scene's own: the reference has no multi-chart sync
         control on the bar. It sits beside the layout controls it belongs with,
         and only exists when there are two or more panes to synchronise.
       */}
-      {!props.syncDisabled && (
+      {!props.syncDisabled && place("sync", "Sync panes",
         <div {...ctl("sync")} className="flex shrink-0 items-center">
           <SyncMenu value={props.sync} onChange={props.onSync} disabled={false} />
-        </div>
+        </div>)}
+
+      {placement === "row" && (
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.beforeUtilities}`} />
       )}
 
-      <Separator className={SEPARATOR} />
-
       {/* The reference's order: quick search, settings, fullscreen, snapshot. */}
-      <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
-        data-tooltip="Search tool or function"
-        aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
-        {/*
-          R1b-03: a plain magnifier was the blind reviewer's first clue. The
-          reference's quick-search glyph is a lens with a LIGHTNING BOLT in it,
-          the bolt breaking the ring at the top — 18×21, not 16×16.
-          R1c-02: same silhouette, redrawn at 1px on the 28-unit grid.
-        */}
-        <Glyph>
+      {place("commandPalette", "Search tool or function",
+        <button {...ctl("commandPalette")} onClick={props.onOpenCommandPalette}
+          data-tooltip="Search tool or function"
+          aria-label="Search tool or function" className={TOOL_ICON_BUTTON}>
           {/*
-            The ring is an ARC with a gap where the bolt enters and leaves. It
-            used to be a closed circle with the bolt laid over it, so ring and
-            bolt crossed twice and the centre of the glyph turned to mush — 54%
-            more ink than the reference in the same space.
+            R1b-03: a plain magnifier was the blind reviewer's first clue. The
+            reference's quick-search glyph is a lens with a LIGHTNING BOLT in it,
+            the bolt breaking the ring at the top — 18×21, not 16×16.
+            R1c-02: same silhouette, redrawn at 1px on the 28-unit grid.
           */}
-          <path d="M15.4 6.3A7 7 0 1 0 13.1 19.9" />
-          <path d="M17.2 18.2L22.5 23.5" />
-          <path d="M14.5 4L9.5 13.5h4.5l-1.5 7 5.5-9.5h-4.5z" />
-        </Glyph>
-      </button>
+          <Glyph>
+            {/*
+              The ring is an ARC with a gap where the bolt enters and leaves. It
+              used to be a closed circle with the bolt laid over it, so ring and
+              bolt crossed twice and the centre of the glyph turned to mush — 54%
+              more ink than the reference in the same space.
+            */}
+            <path d="M15.4 6.3A7 7 0 1 0 13.1 19.9" />
+            <path d="M17.2 18.2L22.5 23.5" />
+            <path d="M14.5 4L9.5 13.5h4.5l-1.5 7 5.5-9.5h-4.5z" />
+          </Glyph>
+        </button>)}
 
-      <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
-        data-tooltip="Chart settings — symbol, status, scales, canvas, trading and events"
-        aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
-        {/*
-          R1b-03: ours was a narrow POINTY-TOP hexagon at 16×18; the
-          reference's is a wide FLAT-TOP one at 22×18 with a ring inside.
-        */}
-        <Glyph>
-          <path d="M9 5.5h10l5.5 8.5-5.5 8.5H9L3.5 14z" />
-          <circle cx="14" cy="14" r="4" />
-        </Glyph>
-      </button>
+      {place("chartSettings", "Chart settings",
+        <button {...ctl("chartSettings")} onClick={props.onOpenChartSettings}
+          data-tooltip="Chart settings — symbol, status, scales, canvas, trading and events"
+          aria-label="Chart settings" className={TOOL_ICON_BUTTON}>
+          {/*
+            R1b-03: ours was a narrow POINTY-TOP hexagon at 16×18; the
+            reference's is a wide FLAT-TOP one at 22×18 with a ring inside.
+          */}
+          <Glyph>
+            <path d="M9 5.5h10l5.5 8.5-5.5 8.5H9L3.5 14z" />
+            <circle cx="14" cy="14" r="4" />
+          </Glyph>
+        </button>)}
 
       {/*
         Hidden rather than disabled when the browser will not allow it: an inert
@@ -331,7 +436,7 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
         `fullscreenEnabled` is false for reasons the page cannot fix (an iframe
         without the permission, a locked-down policy).
       */}
-      {props.fullscreenSupported && (
+      {props.fullscreenSupported && place("fullscreen", props.fullscreen ? "Exit fullscreen" : "Fullscreen",
         <button
           {...ctl("fullscreen")}
           onClick={props.onToggleFullscreen}
@@ -346,10 +451,9 @@ function WorkspaceActions(props: ChartToolbarProps & { className: string }) {
               ? <><path d="M12.5 6.5v6h-6" /><path d="M15.5 21.5v-6h6" /><path d="M21.5 12.5h-6v-6" /><path d="M6.5 15.5h6v6" /></>
               : <><path d="M6.5 12.5v-6h6" /><path d="M21.5 15.5v6h-6" /><path d="M15.5 6.5h6v6" /><path d="M12.5 21.5h-6v-6" /></>}
           </Glyph>
-        </button>
-      )}
+        </button>)}
 
-      <SnapshotMenu onSnapshot={props.onSnapshot} />
+      {place("snapshot", "Chart image", <SnapshotMenu onSnapshot={props.onSnapshot} />)}
     </div>
   );
 }
@@ -413,17 +517,30 @@ function snapshotCap(action: "snapshot-save" | "snapshot-copy"): string {
 function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => void }) {
   const [open, setOpen] = useExclusivePopover("toolbar:snapshot");
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+    // The camera's menu had no Escape at all; every other menu on the bar
+    // closes on it and hands the keyboard back to the button that opened it.
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onEsc);
+    };
   }, [open, setOpen]);
   return (
     <div ref={ref} className="relative">
       <button {...ctl("snapshot")}
+        ref={buttonRef}
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -490,7 +607,7 @@ function SnapshotMenu({ onSnapshot }: { onSnapshot: (mode: "save" | "copy") => v
  * Compare, in the two places it has to be.
  *
  * Beside the symbol at `sm` and above, where the reference puts it and where a
- * comparison is started from; in the More strip below, one tap away. Showing
+ * comparison is started from; in the ⋯ menu below, one tap away. Showing
  * it at every width was tried first and MEASURED: at 320px it pushes `More`
  * 41px past the right edge.
  */
@@ -608,104 +725,154 @@ function FavoriteIndicatorsMenu({ onAdd }: { onAdd: (id: string) => void }) {
 }
 
 /**
- * Studies, Alert and Replay — chart context, but the three pieces of it a
- * 320px phone has no room for. Same one-component-two-placements shape as
+ * Studies, templates, Alert and Replay — chart context, and the part of it a
+ * narrow row gives up first. Same one-component-two-placements shape as
  * `WorkspaceActions`, for the same reason.
  */
-function ContextActions(props: ChartToolbarProps & { className: string }) {
-  const { replayActive, replayBlocksLiveActions } = props;
+function ContextActions(props: ClusterProps) {
+  const { replayActive, replayBlocksLiveActions, placement } = props;
+  const place = (id: OverflowControlId, label: string, node: React.ReactNode) =>
+    placed(placement, id, label, node, props.overflowed);
   return (
-    <div className={`items-center ${props.className}`}>
-      <button
-        {...ctl("indicators")}
-        onClick={props.onOpenIndicators}
-        data-tooltip="Indicators, metrics, and strategies"
-        aria-label={props.indicatorCount > 0
-          ? `Indicators — ${props.indicatorCount} on the focused chart`
-          : "Indicators"}
-        className={TOOL_LABELLED_BUTTON}
-      >
-        {/*
-          R1b-03 / BLIND clue 3: a rising line over three HOLLOW bars and NO
-          baseline. Ours drew a peaked line over four filled ticks sitting on a
-          solid rule, which is the generic "chart" glyph the blind reviewer
-          named as a tell.
-        */}
-        {/*
-          Scaled into the family's safe margin. The polyline used to terminate
-          at y=0 — the top edge of the 28-unit box — so at stroke width 1 the
-          ink began at y=-0.5 and the glyph was CLIPPED, while also sitting
-          about 5px above the optical baseline of every neighbour on the row.
-          Ink is now 16.2x18 inset at (5.9, 5), which is the reference's.
-        */}
-        <Glyph>
-          <path d="M5.9 16.4L10.3 12.0L13.6 14.9L16.6 10.9L21.3 5.0" strokeLinejoin="miter" />
-          <rect x="5.9" y="18.6" width="4.4" height="4.4" />
-          <rect x="11.8" y="17.1" width="4.4" height="5.9" />
-          <rect x="17.7" y="14.9" width="4.4" height="8.1" />
-        </Glyph>
-        <WideLabel>Indicators</WideLabel>
-      </button>
-
-      <FavoriteIndicatorsMenu onAdd={props.onAddFavoriteIndicator} />
+    <div className={placement === "menu" ? "flex flex-col" : "flex items-center"}>
+      {place("indicators", "Indicators", <>
+        <button
+          {...ctl("indicators")}
+          onClick={props.onOpenIndicators}
+          data-tooltip="Indicators, metrics, and strategies"
+          aria-label={props.indicatorCount > 0
+            ? `Indicators — ${props.indicatorCount} on the focused chart`
+            : "Indicators"}
+          className={TOOL_LABELLED_BUTTON}
+        >
+          {/*
+            R1b-03 / BLIND clue 3: a rising line over three HOLLOW bars and NO
+            baseline. Ours drew a peaked line over four filled ticks sitting on a
+            solid rule, which is the generic "chart" glyph the blind reviewer
+            named as a tell.
+          */}
+          {/*
+            Scaled into the family's safe margin. The polyline used to terminate
+            at y=0 — the top edge of the 28-unit box — so at stroke width 1 the
+            ink began at y=-0.5 and the glyph was CLIPPED, while also sitting
+            about 5px above the optical baseline of every neighbour on the row.
+            Ink is now 16.2x18 inset at (5.9, 5), which is the reference's.
+          */}
+          <Glyph>
+            <path d="M5.9 16.4L10.3 12.0L13.6 14.9L16.6 10.9L21.3 5.0" strokeLinejoin="miter" />
+            <rect x="5.9" y="18.6" width="4.4" height="4.4" />
+            <rect x="11.8" y="17.1" width="4.4" height="5.9" />
+            <rect x="17.7" y="14.9" width="4.4" height="8.1" />
+          </Glyph>
+          {placement === "row" && <WideLabel>Indicators</WideLabel>}
+        </button>
+        {/* The favourites caret travels with Indicators; it is that button's other half. */}
+        <FavoriteIndicatorsMenu onAdd={props.onAddFavoriteIndicator} />
+      </>)}
 
       {/* The reference's 2×2-grid Indicator templates button, beside Indicators. */}
-      <IndicatorTemplatesMenu studies={props.indicatorTemplateStudies} onApply={props.onApplyIndicatorTemplate} />
+      {place("templates", "Indicator templates",
+        <IndicatorTemplatesMenu studies={props.indicatorTemplateStudies} onApply={props.onApplyIndicatorTemplate} />)}
 
-      <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+      {placement === "row" && (
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.beforeAlert}`} />
+      )}
 
       {/*
         FE-01: this bell used to open the deployment dialog, which created AND
         activated a live 800 USDT strategy. An alert means "tell me when";
-        automation has its own button in the More strip that says what it does.
+        automation has its own button in the secondary strip that says what it does.
       */}
-      <button
-        {...ctl("alert")}
-        onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
-        data-tooltip={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
-        aria-label="Create alert"
-        className={TOOL_LABELLED_BUTTON}
-      >
-        {/*
-          R1b-03 / BLIND clue 2: a clock DIAL whose ring is broken at the lower
-          right by the `+`, with the alarm arcs over the top — 21×21. Ours put
-          the plus INSIDE a closed ring with two bells on top, which reads as a
-          stopwatch.
-        */}
-        {/* R1c-02: ink box 21×21 at (8,9) in the cell — a 17px ring, a dashed
-            upper-right arc, two hands, and a 7×7 plus breaking the ring. */}
-        <Glyph>
-          {/* the dial, opened at the lower right so the plus breaks the ring */}
-          <path d="M19.3 16.7A8 8 0 1 0 15.7 20.3" />
-          {/* the hands */}
-          <path d="M11.5 7.5v5h3.5" />
-          {/* the alarm's arc, over the upper right */}
-          <path d="M14.2 4.2a9 9 0 0 1 5.4 3.9" strokeDasharray="2 2" />
-          {/* the plus, sitting in the gap */}
-          <path d="M20.5 18.5v6M17.5 21.5h6" />
-        </Glyph>
-        <WideLabel>Alert</WideLabel>
-      </button>
+      {place("alert", "Create alert",
+        <button
+          {...ctl("alert")}
+          onClick={props.onOpenPriceAlert} disabled={replayBlocksLiveActions}
+          data-tooltip={replayActive ? "Exit Replay to create live alerts" : "Create alert"}
+          aria-label="Create alert"
+          className={TOOL_LABELLED_BUTTON}
+        >
+          {/*
+            R1b-03 / BLIND clue 2: a clock DIAL whose ring is broken at the lower
+            right by the `+`, with the alarm arcs over the top — 21×21. Ours put
+            the plus INSIDE a closed ring with two bells on top, which reads as a
+            stopwatch.
+          */}
+          {/* R1c-02: ink box 21×21 at (8,9) in the cell — a 17px ring, a dashed
+              upper-right arc, two hands, and a 7×7 plus breaking the ring. */}
+          <Glyph>
+            {/* the dial, opened at the lower right so the plus breaks the ring */}
+            <path d="M19.3 16.7A8 8 0 1 0 15.7 20.3" />
+            {/* the hands */}
+            <path d="M11.5 7.5v5h3.5" />
+            {/* the alarm's arc, over the upper right */}
+            <path d="M14.2 4.2a9 9 0 0 1 5.4 3.9" strokeDasharray="2 2" />
+            {/* the plus, sitting in the gap */}
+            <path d="M20.5 18.5v6M17.5 21.5h6" />
+          </Glyph>
+          {placement === "row" && <WideLabel>Alert</WideLabel>}
+        </button>)}
 
-      <button
-        {...ctl("replay")}
-        onClick={props.onToggleReplayPicker}
-        aria-pressed={replayActive || props.replayPickerOpen}
-        aria-label="Bar replay"
-        data-tooltip={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
-        className={TOOL_LABELLED_BUTTON}
-      >
-        {/*
-          Double rewind. R1c-02: the reference's is 15×13 at (12,13) — two
-          unfilled left-pointing triangles 7 wide sharing the vertical centre,
-          and no bars beside them (74 ink px, not 149).
-        */}
-        <Glyph>
-          <path d="M14 8.5L7.5 14.5 14 20.5Z" />
-          <path d="M21.5 8.5L15 14.5 21.5 20.5Z" />
-        </Glyph>
-        <WideLabel>Replay</WideLabel>
-      </button>
+      {place("replay", "Bar replay",
+        <button
+          {...ctl("replay")}
+          onClick={props.onToggleReplayPicker}
+          aria-pressed={replayActive || props.replayPickerOpen}
+          aria-label="Bar replay"
+          data-tooltip={replayActive ? "Replay is active" : "Bar replay — start from a historical point"}
+          className={TOOL_LABELLED_BUTTON}
+        >
+          {/*
+            Double rewind. R1c-02: the reference's is 15×13 at (12,13) — two
+            unfilled left-pointing triangles 7 wide sharing the vertical centre,
+            and no bars beside them (74 ink px, not 149).
+          */}
+          <Glyph>
+            <path d="M14 8.5L7.5 14.5 14 20.5Z" />
+            <path d="M21.5 8.5L15 14.5 21.5 20.5Z" />
+          </Glyph>
+          {placement === "row" && <WideLabel>Replay</WideLabel>}
+        </button>)}
+    </div>
+  );
+}
+
+/** Undo and redo — on the row from `TOOLBAR_OVERFLOW_FROM.undo` up, in ⋯ below it. */
+function EditHistory(props: ClusterProps) {
+  const { placement } = props;
+  const place = (id: OverflowControlId, label: string, node: React.ReactNode) =>
+    placed(placement, id, label, node, props.overflowed);
+  return (
+    <div className={placement === "menu" ? "flex flex-col" : "flex shrink-0 items-center"}
+      aria-label="Edit history">
+      {place("undo", "Undo",
+        <button
+          {...ctl("undo")}
+          onClick={props.onUndo}
+          disabled={!props.canUndo}
+          aria-label="Undo"
+          data-tooltip="Undo last drawing change"
+          className={TOOL_ICON_BUTTON}
+        >
+          {/*
+            A long open arc into a clear arrowhead. The radius-3 return this
+            replaces curled the tail back under itself, closing the shape into
+            something that read as a small circle at 1x rather than as a
+            reversal. Ink is 13x11 with the head well clear of the tail.
+          */}
+          <Glyph><path d="M11 9L7 13l4 4" /><path d="M7 13h9a3.5 3.5 0 0 1 0 7h-2" /></Glyph>
+        </button>)}
+      {place("redo", "Redo",
+        <button
+          {...ctl("redo")}
+          onClick={props.onRedo}
+          disabled={!props.canRedo}
+          aria-label="Redo"
+          data-tooltip="Redo last drawing change"
+          className={TOOL_ICON_BUTTON}
+        >
+          {/* The same box, mirrored about the cell's centre. */}
+          <Glyph><path d="M17 9l4 4-4 4" /><path d="M21 13h-9a3.5 3.5 0 0 0 0 7h2" /></Glyph>
+        </button>)}
     </div>
   );
 }
@@ -761,22 +928,66 @@ export function ChartToolbar(props: ChartToolbarProps) {
   const symbolLabel = displaySymbol(symbol);
   const tickerLabel = displayTicker(symbol);
   const { moreOpen, onMoreOpen } = props;
-  const density = toolbarDensityClasses();
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  /*
+   * The ⋯ menu's own state. Not an exclusive popover: the layout grid, the
+   * saved-layout menu, Sync and the camera open FROM inside it, and each of
+   * those is exclusive — registering this one too would close the menu the
+   * moment any of its rows opened.
+   */
+  const [overflowed, setOverflowed] = useState<ReadonlySet<OverflowControlId> | null>(null);
+  const overflowOpen = overflowed !== null;
+  const setOverflowOpen = (open: boolean): void => setOverflowed(open ? overflowedNow() : null);
 
-  // Escape closes the More strip, like every other overlay in the workspace.
+  // A resize while ⋯ is open moves controls between the row and the menu.
   useEffect(() => {
-    if (!moreOpen) return;
+    if (!overflowOpen) return;
+    const onResize = (): void => setOverflowed(overflowedNow());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [overflowOpen]);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (!overflowRef.current?.contains(e.target as Node)) setOverflowed(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [overflowOpen]);
+
+  /*
+   * Escape closes the TOP layer only (B-23).
+   *
+   * This listener is registered on the window like every other overlay's, and
+   * window listeners run in registration order — so it would run BEFORE the
+   * listener of a menu opened later from inside the ⋯ menu, and close both. It
+   * therefore stands aside while a menu is open inside its own panel. A layer
+   * that sits ABOVE the bar altogether — the phone's More sheet — takes the
+   * key in the capture phase and stops it, so it never arrives here.
+   *
+   * Not `defaultPrevented`: the shortcut layer, registered first, claims
+   * Escape for `tool:cursor` on every press, and honouring that would mean the
+   * dropdown could never be closed from the keyboard.
+   */
+  useEffect(() => {
+    if (!overflowOpen && !moreOpen) return;
     const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
+      if (e.key !== "Escape") return;
+      if (overflowOpen) {
+        if (overflowRef.current?.querySelector("[id='chart-toolbar-overflow'] [role='menu']")) return;
         e.preventDefault();
-        onMoreOpen(false);
+        setOverflowed(null);
         moreButtonRef.current?.focus();
+        return;
       }
+      e.preventDefault();
+      onMoreOpen(false);
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [moreOpen, onMoreOpen]);
+  }, [overflowOpen, moreOpen, onMoreOpen]);
 
   const loaded = props.loadedBars;
 
@@ -832,9 +1043,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <span className="min-w-0 truncate sm:overflow-visible sm:text-clip">{tickerLabel}</span>
         </button>
 
-        <CompareButton {...props} className="hidden sm:flex" />
+        {!overflowed?.has("compare") && <CompareButton {...props} className={tier("compare", "row")} />}
 
-        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.context}`} />
 
         {/*
           The timeframe control: favourites as text chips, then a caret that
@@ -852,7 +1063,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           />
         </div>
 
-        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.context}`} />
 
         {/*
           The chart-style control is a slot: favourite styles as icon radios
@@ -864,75 +1075,112 @@ export function ChartToolbar(props: ChartToolbarProps) {
             settings={props.chartSettings} />
         </div>
 
-        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.context}`} />
 
-        <ContextActions {...props} className="hidden sm:flex" />
+        <ContextActions {...props} placement="row" overflowed={overflowed} />
 
-        <Separator className={`${SEPARATOR} hidden sm:inline-block`} />
+        <Separator className={`${SEPARATOR} ${TOOLBAR_SEPARATOR_TIERS.beforeUndo}`} />
 
-        <div className="flex shrink-0 items-center" aria-label="Edit history">
-          <button
-            {...ctl("undo")}
-            onClick={props.onUndo}
-            disabled={!props.canUndo}
-            aria-label="Undo"
-            data-tooltip="Undo last drawing change"
-            className={TOOL_ICON_BUTTON}
-          >
-            {/*
-              A long open arc into a clear arrowhead. The radius-3 return this
-              replaces curled the tail back under itself, closing the shape into
-              something that read as a small circle at 1x rather than as a
-              reversal. Ink is 13x11 with the head well clear of the tail.
-            */}
-            <Glyph><path d="M11 9L7 13l4 4" /><path d="M7 13h9a3.5 3.5 0 0 1 0 7h-2" /></Glyph>
-          </button>
-          <button
-            {...ctl("redo")}
-            onClick={props.onRedo}
-            disabled={!props.canRedo}
-            aria-label="Redo"
-            data-tooltip="Redo last drawing change"
-            className={TOOL_ICON_BUTTON}
-          >
-            {/* The same box, mirrored about the cell's centre. */}
-            <Glyph><path d="M17 9l4 4-4 4" /><path d="M21 13h-9a3.5 3.5 0 0 0 0 7h2" /></Glyph>
-          </button>
-        </div>
+        <EditHistory {...props} placement="row" overflowed={overflowed} />
 
         {/* ── the right-hand group ── */}
         <div className="ml-auto flex min-w-0 shrink items-center">
-          <WorkspaceActions {...props} className={density.cluster} />
+          <WorkspaceActions {...props} placement="row" overflowed={overflowed} />
 
           {/*
-            More is Trading Scene's own — history depth, overlays, automation,
-            the strategy tester and the optimizer have no counterpart on the
-            reference's bar. It sits as the last icon before the Trade pill,
-            and stays on the row at every width because it is the way INTO the
-            strip that holds everything a narrow row cannot.
-          */}
-          <button
-            {...ctl("more")}
-            ref={moreButtonRef}
-            onClick={() => onMoreOpen(!moreOpen)}
-            aria-expanded={moreOpen}
-            aria-controls="chart-toolbar-more"
-            aria-label={moreOpen ? "Fewer controls" : "More controls"}
-            data-tooltip={moreOpen ? "Fewer controls" : "History depth, overlays, automation, strategy"}
-            className={TOOL_ICON_BUTTON}
-          >
-            <Glyph stroke={2.6}><path d="M6.5 14h.01M14 14h.01M21.5 14h.01" /></Glyph>
-          </button>
+            ⋯ — the way in to everything the row is too narrow for, so it is on
+            the row at every width and never shrinks.
 
-          <TradeButton {...props} className={`ml-1.5 ${density.cluster}`} />
+            It opens a DROPDOWN of exactly the controls the row is not drawing
+            at this width, each a labelled row, and — last, by name — the
+            history / overlays / automation strip. It used to open that strip
+            itself: a second 38px row of HISTORY 2K 10K 50K All · Overlays ·
+            Automate · Strategy · Best config that appeared under the bar at
+            every width, including 1440 where nothing had overflowed at all.
+          */}
+          <div ref={overflowRef} className="relative flex shrink-0 items-center">
+            <button
+              {...ctl("more")}
+              ref={moreButtonRef}
+              onClick={() => setOverflowOpen(!overflowOpen)}
+              aria-haspopup="true"
+              aria-expanded={overflowOpen}
+              aria-controls="chart-toolbar-overflow"
+              aria-label="More controls"
+              data-tooltip="More controls"
+              className={TOOL_ICON_BUTTON}
+            >
+              <Glyph stroke={2.6}><path d="M6.5 14h.01M14 14h.01M21.5 14h.01" /></Glyph>
+            </button>
+            {overflowOpen && (
+              /*
+                A `group` on the popover SURFACE, not a `menu`: its rows are the
+                real controls, several of which open menus of their own, and a
+                screen reader must not be promised `menuitem` children it will
+                not find. No `overflow` on the panel — a clipped panel would
+                clip the menus its rows open.
+              */
+              <div
+                id="chart-toolbar-overflow"
+                data-toolbar-overflow
+                role="group"
+                aria-label="More controls"
+                onClick={(e) => {
+                  /*
+                    An action closes the menu once it has run. A row that opens
+                    a menu of its own (`aria-haspopup`) keeps it open so that
+                    menu can be used, and a checkbox row in it (Sync's options)
+                    keeps it open so several can be ticked; choosing anything
+                    else in such a menu is an action, and closes it.
+                  */
+                  const pressed = (e.target as HTMLElement).closest("button");
+                  if (!pressed) return;
+                  const role = pressed.getAttribute("role");
+                  if (role === "menuitemcheckbox") return;
+                  if (pressed.hasAttribute("aria-haspopup") && !pressed.closest("[role='menu']")) return;
+                  setOverflowOpen(false);
+                }}
+                className="tvc-popover absolute right-0 top-full z-50 mt-[2px] flex w-[248px] flex-col p-1.5"
+              >
+                {overflowed?.has("compare") && (
+                  <OverflowRow label="Compare symbol" className={tier("compare", "menu")}>
+                    <CompareButton {...props} className="flex" />
+                  </OverflowRow>
+                )}
+                <ContextActions {...props} placement="menu" overflowed={overflowed} />
+                <EditHistory {...props} placement="menu" overflowed={overflowed} />
+                <WorkspaceActions {...props} placement="menu" overflowed={overflowed} />
+                {overflowed?.has("trade") && (
+                  <TradeButton {...props} className={`my-1 ml-1 self-start ${tier("trade", "menu")}`} />
+                )}
+                {/* Always present, so ⋯ never opens an empty panel: the strip, by name. */}
+                <div aria-hidden="true" className="mx-1 my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  onClick={() => { onMoreOpen(!moreOpen); }}
+                  aria-expanded={moreOpen}
+                  aria-controls="chart-toolbar-more"
+                  className="flex h-[38px] w-full items-center gap-2 rounded-md px-2.5 text-left text-sm text-ink hover:bg-state-hover"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {moreOpen ? "Hide history, overlays & automation" : "History, overlays & automation"}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!overflowed?.has("trade") && <TradeButton {...props} className={`ml-1.5 ${tier("trade", "row")}`} />}
         </div>
       </div>
 
       {/*
-        ── More: the secondary tier ──
-        Deliberately opened, at every width. A full-width strip rather than a
-        popover because the overlay control inside it opens its own menu
-        downward, which a popover would clip.
+        ── The secondary tier: history, overlays, automation, strategy, best ──
+        Opened by name from the ⋯ menu — "History, overlays & automation" —
+        never by a breakpoint and never as a side effect of looking for
+        something that did not fit. A full-width strip rather than a popover
+        because the overlay control inside it opens its own menu downward,
+        which a scrolling popover would clip.
 
         ── TVP8 R1c-13: it has to be a row the layout can SEE ────────────────
 
@@ -953,16 +1201,9 @@ export function ChartToolbar(props: ChartToolbarProps) {
           id="chart-toolbar-more"
           data-toolbar-row="secondary"
           role="group"
-          aria-label="More chart controls"
+          aria-label="History, overlays and automation"
           className="flex min-h-[38px] flex-wrap items-center gap-1 border-t border-border px-1"
         >
-          {/* Phone: compare, studies, alert, replay, the workspace cluster and Trade. */}
-          <CompareButton {...props} className="flex sm:hidden" />
-          <ContextActions {...props} className="flex sm:hidden" />
-          <WorkspaceActions {...props} className={density.clusterInMore} />
-          <TradeButton {...props} className={density.clusterInMore} />
-          <Separator className={density.separatorInMore} />
-
           <div {...ctl("history")} role="group" aria-label="History depth"
             data-tooltip={loaded !== undefined
               ? `${loaded.toLocaleString()} bars loaded on the focused chart`
@@ -1024,6 +1265,16 @@ export function ChartToolbar(props: ChartToolbarProps) {
               <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
             </svg>
             {props.loadingBest ? "Loading…" : "Best config"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onMoreOpen(false)}
+            aria-label="Hide history, overlays and automation"
+            data-tooltip="Hide this row"
+            className={`${TOOL_ICON_BUTTON} ml-auto`}
+          >
+            <Glyph><path d="M9 9l10 10M19 9L9 19" /></Glyph>
           </button>
         </div>
       )}

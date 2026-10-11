@@ -466,7 +466,20 @@ recorded below in §7c once finalised, and are not to be "tidied" back.
   more · **Trade** pill. Every control is icon-only at every width; the only
   words on the row are the ticker, the chips, the layout name and `Trade`.
   No readout (`Last close`, bar counts) and no text labels ever return to the
-  row; the bar count is the History-depth group's tooltip in the More strip.
+  row; the bar count is the History-depth group's tooltip in the secondary
+  strip.
+- **Overflow is progressive** (A13 / B-05, October 2026). Each control leaves
+  the row on its own, lowest priority first — quick search, fullscreen,
+  undo/redo, indicator templates, alert and replay, the layout name and sync,
+  the layout grid, snapshot, settings, Trade, indicators; Compare at `sm` —
+  at the widths in `lib/toolbarLayout.TOOLBAR_OVERFLOW_FROM`, and from then on
+  is a labelled row of the **⋯ dropdown**. Premium at 1200 keeps Layout, the
+  name, Settings, Snapshot and Trade on the row, and so do we. ⋯ is on the
+  row at every width and opens that dropdown — never a second row; the
+  secondary strip (History · Overlays · Automate · Strategy · Best config) is
+  opened by its own named row at the bottom of the dropdown. A control is on
+  the row or in ⋯ at every width, never both, never neither, and the row fits
+  the viewport from 640 to 1440 (`tests/chartToolbar.test.ts` sweeps it).
 - Interval chips print day-and-longer resolutions uppercase (`1D`) and
   sub-day lowercase (`4h`); the chip carries the canonical id in
   `data-resolution`. The favourites strip never clips at ≥ `sm`.

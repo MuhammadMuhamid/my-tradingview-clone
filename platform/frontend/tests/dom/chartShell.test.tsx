@@ -38,14 +38,30 @@ function captureReactComplaints(): { messages: string[]; stop: () => void } {
   return { messages, stop: () => { console.error = real.error; console.warn = real.warn; } };
 }
 
-/** The bar count the focused chart reports — the History-depth group's tooltip, behind More. */
+/**
+ * Open the secondary strip the way a person does: ⋯, then its row by name.
+ * Returns a function that closes it again.
+ */
+function openSecondaryStrip(container: HTMLElement): () => void {
+  const more = container.querySelector<HTMLElement>('button[aria-label="More controls"]');
+  assert.ok(more, "the ⋯ cell is missing");
+  fireEvent.click(more);
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>("#chart-toolbar-overflow button")]
+    .find((b) => /History, overlays & automation/.test(b.textContent ?? ""));
+  assert.ok(toggle, "the ⋯ dropdown has no row that opens the history / overlays / automation strip");
+  fireEvent.click(toggle);
+  return () => {
+    const hide = container.querySelector<HTMLElement>('button[aria-label="Hide history, overlays and automation"]');
+    if (hide) fireEvent.click(hide);
+  };
+}
+
+/** The bar count the focused chart reports — the History-depth group's tooltip, in the secondary strip. */
 function loadedBarsNote(chart: { container: HTMLElement }): string {
-  const more = chart.container.querySelector<HTMLElement>('button[aria-label="More controls"]');
-  if (more) fireEvent.click(more);
+  const close = openSecondaryStrip(chart.container);
   const group = chart.container.querySelector<HTMLElement>('[role="group"][aria-label="History depth"]');
   const note = group?.getAttribute("data-tooltip") ?? "";
-  const again = chart.container.querySelector<HTMLElement>('button[aria-label="Fewer controls"]');
-  if (again) fireEvent.click(again);
+  close();
   return note;
 }
 
@@ -322,16 +338,13 @@ test("R1c-12 — the camera's menu has a heading, glyphs, full ink and real hotk
   }
 });
 
-test("R1c-13 — `More controls` opens a row the layout can see", async () => {
+test("R1c-13 — the secondary strip opens as a row the layout can see", async () => {
   const chart = await mountChart();
-  const more = chart.container.querySelector<HTMLElement>(
-    'button[aria-label="More controls"]');
-  assert.ok(more, "the More cell is missing");
-  fireEvent.click(more);
+  openSecondaryStrip(chart.container);
   await settle();
 
   const strip = document.querySelector<HTMLElement>("#chart-toolbar-more");
-  assert.ok(strip, "the More strip did not mount");
+  assert.ok(strip, "the secondary strip did not mount");
   assert.match(strip.textContent ?? "", /Automate/);
 
   /*

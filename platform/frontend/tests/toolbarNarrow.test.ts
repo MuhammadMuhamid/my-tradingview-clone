@@ -4,10 +4,9 @@
  * ── The rule this file exists to keep ──────────────────────────────────────
  *
  * This toolbar's answer to a narrow window is NOT to hide controls. It is one
- * component with two placements: on the primary row above `sm`, and in the
- * `More` strip below — one tap away, and where the workspace actions already
- * live at that width. `ContextActions` and `WorkspaceActions` are both built
- * that way, and both say so.
+ * component with two placements: on the primary row from its own width up, and
+ * in the ⋯ dropdown below it — one tap away (`TOOLBAR_TIERS`). `ContextActions`,
+ * `EditHistory` and `WorkspaceActions` are all built that way, and say so.
  *
  * `Compare` was not. It carried `hidden sm:flex` and had no second placement,
  * no keyboard binding and no palette row — and the palette's own trigger is
@@ -28,30 +27,29 @@ const FILE = path.join(__dirname, "..", "components", "tv", "ChartToolbar.tsx");
 const source = fs.readFileSync(FILE, "utf8");
 const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 
-test("NOTHING IS HIDDEN BELOW `sm` WITHOUT A SECOND PLACEMENT", () => {
+test("NOTHING IS HIDDEN WITHOUT A SECOND PLACEMENT", () => {
   /*
-   * Every cluster that disappears below `sm` must be rendered again with the
-   * mirrored class. Read as PAIRS rather than as a list of allowed names, so a
-   * control added tomorrow is held to the same rule.
+   * Every control that disappears from the row at some width is rendered again,
+   * inside the ⋯ dropdown, with the mirrored class. The tiers are read as
+   * PAIRS from the one table both copies use, so a control added tomorrow is
+   * held to the same rule — and no row copy may hide itself with a literal
+   * that has no mirror.
    */
-  const hides = [...code.matchAll(/<(\w+)[^>]*className="hidden sm:flex"/g)].map((m) => m[1]!);
-  const shows = new Set(
-    [...code.matchAll(/<(\w+)[^>]*className="flex sm:hidden"/g)].map((m) => m[1]!));
-
-  assert.ok(hides.length >= 2,
-    `found only ${hides.length} controls hidden below sm — this rule has stopped reading`);
-
-  const orphans = hides.filter((name) => !shows.has(name));
-  assert.deepEqual(orphans, [],
-    "these vanish below 640px with nowhere else to be reached from:\n  "
-    + orphans.join("\n  "));
+  assert.doesNotMatch(code, /className="hidden (sm|md|lg|xl):flex"/,
+    "a row control hidden by a bare literal has no second home; use its tier");
+  const density = fs.readFileSync(path.join(__dirname, "..", "components", "tv", "toolbarDensity.ts"), "utf8");
+  const pairs = [...density.matchAll(/(\w+): \{ row: "hidden ([^"]+):flex", menu: "flex ([^"]+):hidden" \}/g)];
+  assert.ok(pairs.length >= 10, `found only ${pairs.length} tiers — this rule has stopped reading`);
+  for (const [, id, rowAt, menuAt] of pairs) {
+    assert.equal(rowAt, menuAt, `${id}: its two copies switch at different widths`);
+  }
 });
 
 test("COMPARE HAS BOTH HOMES, AND ONE IMPLEMENTATION BEHIND THEM", () => {
-  assert.match(code, /<CompareButton \{\.\.\.props\} className="hidden sm:flex"/,
+  assert.match(code, /<CompareButton \{\.\.\.props\} className=\{tier\("compare", "row"\)\}/,
     "beside the symbol, where the reference puts it");
-  assert.match(code, /<CompareButton \{\.\.\.props\} className="flex sm:hidden"/,
-    "and in the More strip, which is where a 320px row's overflow lives");
+  assert.match(code, /className=\{tier\("compare", "menu"\)\}>\s*<CompareButton \{\.\.\.props\}/,
+    "and in the ⋯ dropdown, which is where a narrow row's overflow lives");
 
   // One button in the source, or the two placements drift.
   assert.equal((code.match(/aria-label="Compare with another instrument"/g) ?? []).length, 1,
@@ -64,12 +62,20 @@ test("COMPARE HAS BOTH HOMES, AND ONE IMPLEMENTATION BEHIND THEM", () => {
   assert.match(code, /className=\{`\$\{TOOL_ICON_BUTTON\} \$\{props\.className\}`\}/);
 });
 
-test("the More strip is where every overflowing control goes", () => {
-  // Pinned because the alternative — a popover — was tried and clips the
-  // overlay menu that opens downward inside it. The comment says so; this
-  // stops the comment from being the only thing that does.
+test("the ⋯ dropdown is where every overflowing control goes, and it cannot clip their menus", () => {
+  /*
+   * A13: overflowed controls used to land in a second 38px row. They land in a
+   * dropdown now — but the reason that row was not a popover still holds for
+   * the menus the dropdown's rows open: a scrolling popover clips a menu that
+   * opens inside it. So the panel takes no `overflow` of its own.
+   */
+  assert.match(code, /id="chart-toolbar-overflow"/);
+  assert.match(code, /aria-controls="chart-toolbar-overflow"/);
+  const panel = source.slice(source.indexOf('id="chart-toolbar-overflow"'));
+  const tag = panel.slice(0, panel.indexOf("\n              >"));
+  assert.doesNotMatch(tag, /overflow-(auto|hidden|y-auto|scroll)/, "the dropdown must not clip the menus its rows open");
+  assert.match(code, /<ContextActions \{\.\.\.props\} placement="menu"/);
+  // And the strip it used to open is still there, by name.
   assert.match(code, /id="chart-toolbar-more"/);
   assert.match(code, /aria-controls="chart-toolbar-more"/);
-  assert.match(code, /<ContextActions \{\.\.\.props\} className="flex sm:hidden"/);
-  assert.match(code, /<CompareButton \{\.\.\.props\} className="flex sm:hidden"/);
 });

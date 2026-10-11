@@ -33,7 +33,7 @@ geometry and behaviour, never pixels of market data.
 
 | surface | accepted state | measured on Premium | lock check |
 |---|---|---|---|
-| top toolbar | one 38px row; nothing off-screen at 1440/1100/1000; More reachable | 38px row, 1px×22px separators | `[toolbar]` |
+| top toolbar | one 38px row; nothing off-screen at 1440/1200/1100/1000/768; ⋯ on screen and opening a dropdown (progressive overflow, A13) | 38px row, 1px×22px separators | `[toolbar]` |
 | left drawing rail | 52×38 cells at fixed pitch | identical 52×38 cells, same y-positions | `[drawing rail]` |
 | rail switches | ON switch = inverted chip rgb(242)/ink rgb(15); selected tool rgb(61)/ink rgb(219) | 2026-10-11, Keep drawing ON vs trend-line selected | DOM/contract `tests/drawingRail.test.ts` (A4) |
 | iconography | gear (never the 8-ray sun), no glyph clipped by its box | — | `[icons]` |

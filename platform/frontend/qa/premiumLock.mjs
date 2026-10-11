@@ -61,7 +61,9 @@ await load();
 check("runtime", "real price history loads", !(await page.evaluate(() => /could not be loaded/i.test(document.body.innerText))));
 
 // ── Top toolbar: one 38px row, nothing off-screen, More reachable ──────────
-for (const width of [1440, 1100, 1000]) {
+// 1200 and 768 since A13 / B-05: overflow is progressive, and at 768 the row
+// used to run Undo, Redo and ⋯ off the edge.
+for (const width of [1440, 1200, 1100, 1000, 768]) {
   await page.setViewportSize({ width, height: 900 });
   await page.waitForTimeout(600);
   const bar = await page.evaluate(() => {
@@ -75,6 +77,25 @@ for (const width of [1440, 1100, 1000]) {
   });
   check("toolbar", `${width}px: row is 38px`, bar && bar.h === 38, JSON.stringify(bar));
   check("toolbar", `${width}px: no control off-screen`, bar && bar.off.length === 0, JSON.stringify(bar?.off));
+  // ⋯ is the way in to everything the row has no room for: on screen, and it
+  // opens a dropdown (not a second row) whose every row is on screen too.
+  const more = page.locator('[data-toolbar-row="primary"] button[aria-label="More controls"]');
+  const moreBox = await more.boundingBox();
+  check("toolbar", `${width}px: ⋯ is on screen`, moreBox && moreBox.x + moreBox.width <= width + 0.5, JSON.stringify(moreBox));
+  if (moreBox) {
+    await more.click();
+    await page.waitForTimeout(300);
+    const drop = await page.evaluate(() => {
+      const d = document.querySelector("#chart-toolbar-overflow");
+      if (!d) return null;
+      const b = d.getBoundingClientRect();
+      return { left: b.left, right: b.right, bottom: b.bottom, strip: !!document.querySelector("#chart-toolbar-more") };
+    });
+    check("toolbar", `${width}px: ⋯ opens an on-screen dropdown, not the strip`,
+      drop && drop.left >= -0.5 && drop.right <= width + 0.5 && !drop.strip, JSON.stringify(drop));
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
 }
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.waitForTimeout(600);
