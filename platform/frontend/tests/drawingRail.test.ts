@@ -625,7 +625,21 @@ test("RAIL — a flyout is clamped to the viewport and scrolls only when it cann
    * utility — so "24 on top of 6" was arithmetic the cascade never performed
    * and every tool flyout opened 6px high and stood 6px short.
    */
-  assert.match(source, /<Flyout menuLabel=\{group\.title\} className="!pt-\[30px\]">/);
+  /*
+   * W2A-16: a group whose first section has a heading prints it in that 30px
+   * — 6 of menu padding and a 24px heading block — so the first row does not
+   * move; a group without one keeps the blank 30.
+   */
+  assert.match(source,
+    /className=\{group\.sections\[0\]\?\.heading \? "!pt-\[6px\]" : "!pt-\[30px\]"\}/);
+  assert.match(source, /tvc-menu-heading\$\{i === 0 \? " !h-\[24px\]" : ""\}/);
+  for (const [title, first] of [["Trend tools", "Lines"], ["Gann and Fibonacci tools", "Fibonacci"],
+    ["Patterns", "Chart patterns"], ["Forecasting and measurement tools", "Forecasting"],
+    ["Geometric shapes", "Brushes"], ["Annotation tools", "Text and notes"]] as const) {
+    assert.match(source, new RegExp(`title: "${title}",\\s*sections: \\[\\s*\\{\\s*heading: "${first}",`),
+      `${title} opens without the reference's first section heading`);
+  }
+  assert.match(source, /title: "Cursors",\s*sections: \[\{\s*tools:/, "Cursors has no sections to head");
   assert.doesNotMatch(source.replace(/\/\*[\s\S]*?\*\//g, ""), /!pt-\[24px\]/);
   assert.match(source, /tvc-menu-sep\$\{section\.heading \? " !mb-0" : ""\}/);
 });

@@ -502,6 +502,7 @@ export const GROUPS: GroupDef[] = [
     title: "Trend tools",
     sections: [
       {
+        heading: "Lines",
         tools: [
           { tool: "trend", icon: "trend", label: "Trendline" },
           { tool: "ray", icon: "ray", label: "Ray" },
@@ -539,6 +540,7 @@ export const GROUPS: GroupDef[] = [
     title: "Gann and Fibonacci tools",
     sections: [
       {
+        heading: "Fibonacci",
         tools: [
           { tool: "fib", icon: "fib", label: "Fib retracement" },
           { tool: "fibext", icon: "fibext", label: "Trend-based fib extension" },
@@ -569,6 +571,7 @@ export const GROUPS: GroupDef[] = [
     title: "Patterns",
     sections: [
       {
+        heading: "Chart patterns",
         tools: [
           { tool: "xabcd", icon: "xabcd", label: "XABCD pattern" },
           { tool: "cypher", icon: "cypher", label: "Cypher pattern" },
@@ -603,6 +606,7 @@ export const GROUPS: GroupDef[] = [
     title: "Forecasting and measurement tools",
     sections: [
       {
+        heading: "Forecasting",
         tools: [
           { tool: "long", icon: "long", label: "Long position" },
           { tool: "short", icon: "short", label: "Short position" },
@@ -647,6 +651,7 @@ export const GROUPS: GroupDef[] = [
     title: "Geometric shapes",
     sections: [
       {
+        heading: "Brushes",
         tools: [
           { tool: "brush", icon: "brush", label: "Brush", hint: "Freehand" },
           { tool: "highlighter", icon: "highlighter", label: "Highlighter", hint: "Translucent freehand" },
@@ -682,6 +687,7 @@ export const GROUPS: GroupDef[] = [
     id: "annotation",
     title: "Annotation tools",
     sections: [{
+      heading: "Text and notes",
       tools: [
         { tool: "text", icon: "text", label: "Text" },
         { tool: "note", icon: "note", label: "Note" },
@@ -1651,14 +1657,24 @@ export function DrawingToolbar({
                * first row starts 30px below the panel's top edge (110 on an 80
                * panel), so the replacement value is the whole 30.
                */
-              <Flyout menuLabel={group.title} className="!pt-[30px]">
+              /*
+               * W2A-16: and that 30px is where the reference prints the FIRST
+               * section's heading (`FIBONACCI`, `LINES`, live Premium
+               * 2026-10-11) — the menu's own 6px, then a 24px heading block,
+               * so the first row stays exactly where R2c-03 put it. A group
+               * with no first heading (Cursors) keeps the blank 30.
+               */
+              <Flyout menuLabel={group.title}
+                className={group.sections[0]?.heading ? "!pt-[6px]" : "!pt-[30px]"}>
                 {group.sections.map((section, i) => (
                   <Fragment key={section.heading ?? `section-${i}`}>
                     {/* A heading brings its own 6px of air, so the separator
                         above it drops its bottom margin: 6 + 1 + 30 = 37px,
                         the reference's section block. It was 43. */}
                     {i > 0 && <div className={`tvc-menu-sep${section.heading ? " !mb-0" : ""}`} />}
-                    {section.heading && <div className="tvc-menu-heading">{section.heading}</div>}
+                    {section.heading && (
+                      <div className={`tvc-menu-heading${i === 0 ? " !h-[24px]" : ""}`}>{section.heading}</div>
+                    )}
                     {section.tools.map((t) => toolRow(group.id, t))}
                   </Fragment>
                 ))}

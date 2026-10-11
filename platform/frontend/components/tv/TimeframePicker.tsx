@@ -440,14 +440,20 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       is what the eye reads when it scans a thirty-row list for "Hours", and
       because collapsing is a behaviour this menu can grow into without the
       list moving a pixel when it does.
+
+      W2A-16: and it points UP. Every section here is open, and on live
+      Premium (2026-10-11) an open section's chevron points up — down is the
+      collapsed state. Pointing down said every section was shut over the
+      rows it was showing.
     */
     <h4 className="flex h-[26px] items-center gap-1 px-[14px] text-[11px] uppercase tracking-wide text-ink-faint">
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <svg width={TOOL_CARET_GLYPH.width} height={TOOL_CARET_GLYPH.height}
         viewBox={TOOL_CARET_GLYPH.viewBox} fill="none" stroke="currentColor"
         strokeWidth={TOOL_CARET_GLYPH.stroke} strokeLinecap="round"
-        strokeLinejoin="round" className="shrink-0 text-ink" aria-hidden="true">
-        <path d={TOOL_CARET_GLYPH.d} />
+        strokeLinejoin="round" className="shrink-0 text-ink" aria-hidden="true"
+        data-section-caret="open">
+        <path d={TOOL_CARET_GLYPH.d} transform="rotate(180 5 3)" />
       </svg>
     </h4>
   );

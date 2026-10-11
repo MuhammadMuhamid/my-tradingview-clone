@@ -166,10 +166,18 @@ export function LayoutSelector({
                     onClick={() => { onChange(preset.id); setOpen(false); }}
                     /*
                       A 38px icon cell, the bar's own control grammar: the
-                      chosen arrangement wears the selected chip, which is how
-                      the reference marks it — no tick, no label.
+                      chosen arrangement wears a chip, which is how the
+                      reference marks it — no tick, no label.
+
+                      W2A-15, measured on live Premium (2026-10-11): every
+                      outline is drawn in the full ink rgb(219), not muted, and
+                      the chosen one is the LIGHT chip rgb(242) with dark line
+                      work — the inverted pair a selected menu row wears, via
+                      `[data-layout-cell]` in globals.css. It wore the grey
+                      rgb(61) tool chip, which on this menu read as a hover.
                     */
-                    className={`${TOOL_ICON_BUTTON} ${isCurrent ? "text-ink" : "text-ink-muted hover:text-ink"}`}
+                    data-layout-cell=""
+                    className={`${TOOL_ICON_BUTTON} text-ink`}
                   >
                     <LayoutGlyph preset={preset} />
                   </button>

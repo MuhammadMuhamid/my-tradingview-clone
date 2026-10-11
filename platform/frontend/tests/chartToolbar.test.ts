@@ -619,6 +619,18 @@ test("the layout-setup control is an icon cell, not a thumbnail with a digit", (
   assert.doesNotMatch(source, /PresetThumbnail/);
 });
 
+test("W2A-15 — layout outlines are ink, and the chosen one is the inverted chip", () => {
+  const source = read("components/tv/LayoutSelector.tsx");
+  const cell = source.slice(source.indexOf('role="menuitemradio"'), source.indexOf("<LayoutGlyph preset={preset} />"));
+  assert.match(cell, /data-layout-cell=""/);
+  assert.doesNotMatch(cell, /text-ink-muted/, "Premium draws every arrangement in the full ink");
+  assert.doesNotMatch(cell, /isCurrent \?/, "selection is declared by aria-checked, never swapped in a class");
+  const css = read("app/globals.css");
+  assert.match(css,
+    /\.tvc-control\[data-layout-cell\]\[aria-checked="true"\]::before,[^{]*\{\s*background-color: var\(--ts-menu-selected-bg\);/,
+    "the chosen arrangement is the light selected chip rgb(242), as Premium's");
+});
+
 test("asymmetric arrangements are exposed, not only grids", () => {
   const asymmetric = LAYOUT_PRESETS.filter((p) => p.cells.some((c) => c.colSpan > 1 || c.rowSpan > 1));
   assert.ok(asymmetric.length >= 4, "the one-big-several-small shapes must remain selectable");

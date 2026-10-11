@@ -153,6 +153,18 @@ test("W2D-17 adjudicated — the picker stays Premium's full-height column from 
   assert.ok(classes.includes("max-h-[100vh]"), "the menu is no longer the viewport's height");
 });
 
+test("W2A-16 — an open section's chevron points up, as Premium's does", async () => {
+  const chart = await mountChart();
+  const menu = await openPicker(chart.container);
+  const carets = [...menu.querySelectorAll<SVGElement>("section h4 svg")];
+  assert.ok(carets.length >= 4, "every catalogue section carries its chevron");
+  for (const caret of carets) {
+    assert.equal(caret.getAttribute("data-section-caret"), "open");
+    assert.match(caret.querySelector("path")?.getAttribute("transform") ?? "", /^rotate\(180 /,
+      "an open section's chevron points up; down is the collapsed state");
+  }
+});
+
 test("a derived row says what it is made of, on the row", async () => {
   const chart = await mountChart();
   const menu = await openPicker(chart.container);

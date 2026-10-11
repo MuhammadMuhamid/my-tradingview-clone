@@ -458,6 +458,18 @@
   background-color: var(--ts-menu-selected-bg);
 }
 /*
+ * W2A-15: the layout menu's chosen arrangement is the inverted chip, as live
+ * Premium's is — a selection in a menu, which §4 paints inverted.
+ */
+:is(.tv-workstation, .ts-app) .tvc-control[data-layout-cell][aria-checked="true"],
+:is(.tv-workstation, .ts-app) .tvc-control[data-layout-cell][aria-checked="true"]:hover {
+  color: var(--ts-menu-selected-ink);
+}
+:is(.tv-workstation, .ts-app) .tvc-control[data-layout-cell][aria-checked="true"]::before,
+:is(.tv-workstation, .ts-app) .tvc-control[data-layout-cell][aria-checked="true"]:hover::before {
+  background-color: var(--ts-menu-selected-bg);
+}
+/*
  * W2A-02: the price axis's `A` / `L` / `%` chips are switches too — a scale
  * mode that stays on — and wear the same inverted chip when on, as live
  * Premium's `A` does at the axis foot. Off is the outlined square.
@@ -646,9 +658,10 @@
  * A 37px block in total, and the reason a seventeen-row flyout can be scanned
  * at all.
  *
- * The first section of a group carries NO heading: the reference shows none
- * above "Trendline", because the group's own name is already on the cell the
- * flyout opened from.
+ * The FIRST section's heading sits in the flyout's 30px of top air, as a
+ * 24px block under the menu's own 6px (W2A-16): live Premium prints
+ * `FIBONACCI` and `LINES` there (2026-10-11). The earlier reading — no heading
+ * above "Trendline" — was taken under the cell's own tooltip.
  */
 :is(.tv-workstation, .ts-app) .tvc-menu-heading {
   display: flex;
