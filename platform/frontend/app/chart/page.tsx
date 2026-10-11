@@ -69,8 +69,8 @@ import { cloneDrawing } from "@/lib/drawingHistory";
 import { ContextMenu } from "@/components/tv/ContextMenu";
 import type { MenuEntry } from "@/lib/contextMenu";
 import {
-  CHART_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu, drawingToolName, priceAxisMenu,
-  TIME_ZONE_MENU_PREFIX, timeAxisMenu,
+  CHART_ADD_TO_LIST_PREFIX, SERIES_ADD_TO_LIST_PREFIX, chartMenu, drawingMenu, drawingToolName, priceAxisMenu,
+  seriesLegendMenu, TIME_ZONE_MENU_PREFIX, timeAxisMenu,
 } from "@/lib/menuPayloads";
 import { CHART_TIME_ZONES } from "@/lib/chartClock";
 import { useShortcuts } from "@/lib/useShortcuts";
@@ -1620,8 +1620,10 @@ export default function TvWorkspace() {
   const [menu, setMenu] = useState<
     | null
     | { at: { x: number; y: number }; label: string; entries: MenuEntry[];
-        kind: "chart" | "drawing" | "axis" | "time"; paneId: string; price: number | null;
-        drawingId: string | null }
+        kind: "chart" | "drawing" | "axis" | "time" | "series"; paneId: string; price: number | null;
+        drawingId: string | null;
+        /** An exact panel width, for a payload the reference measures. */
+        width?: number }
   >(null);
   /**
    * Each pane's price scale, and a counter that asks a pane to refit.
@@ -1803,13 +1805,40 @@ export default function TvWorkspace() {
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
       /** Which strip was clicked: the plot, the price axis, or the time axis. */
-      region: "plot" | "axis" | "time";
+      region: "plot" | "axis" | "time" | "series";
     }
   ) => {
     activatePane(paneId);
     const pane = paneById(workspace, paneId);
     const paneSymbol = pane?.symbol ?? symbol;
     const drawings = replayActive ? replayDrawings : drawingStore.get(paneSymbol);
+    if (event.region === "series") {
+      /*
+       * A4: the series legend's `⋯`. It opened the chart's own menu; Premium
+       * opens one about the INSTRUMENT, priced at its last value. Same 325px
+       * panel as the chart menu, whose widest row is the same alert row.
+       */
+      setMenu({
+        at: { x: event.x, y: event.y },
+        label: `${displayTicker(paneSymbol)} series`,
+        kind: "series",
+        paneId,
+        price: event.price,
+        drawingId: null,
+        width: 325,
+        entries: seriesLegendMenu({
+          ticker: paneSymbol,
+          mac: isMacPlatform(),
+          canPaste: clipboard.current !== null,
+          lists: watchlists,
+          price: event.price,
+          priceLabel: event.price === null ? "" : fmtPrice(event.price),
+          replayActive,
+          tradingEnabled: manualState?.enabled === true,
+        }),
+      });
+      return;
+    }
     if (event.region === "time") {
       setMenu({
         at: { x: event.x, y: event.y },
@@ -1964,10 +1993,13 @@ export default function TvWorkspace() {
      * R8-17: `Add {TICKER} to watchlist ›`. With one list the parent row is
      * the action, so it carries the list's own id here.
      */
-    if (id === "chart:add-to-watchlist" || id.startsWith(CHART_ADD_TO_LIST_PREFIX)) {
-      const listId = id === "chart:add-to-watchlist"
+    if (id === "chart:add-to-watchlist" || id.startsWith(CHART_ADD_TO_LIST_PREFIX)
+      // A4: the series menu's copy of the row, answered by the same code.
+      || id === "series:add-to-watchlist" || id.startsWith(SERIES_ADD_TO_LIST_PREFIX)) {
+      const listId = id === "chart:add-to-watchlist" || id === "series:add-to-watchlist"
         ? watchlists[0]?.id ?? null
-        : id.slice(CHART_ADD_TO_LIST_PREFIX.length);
+        : id.slice((id.startsWith(SERIES_ADD_TO_LIST_PREFIX)
+          ? SERIES_ADD_TO_LIST_PREFIX : CHART_ADD_TO_LIST_PREFIX).length);
       const list = watchlists.find((l) => l.id === listId);
       if (!list) { setToast("This workspace has no watchlist to add to"); return; }
       api.listWatchlists()
@@ -1987,12 +2019,15 @@ export default function TvWorkspace() {
     }
     switch (id) {
       case "chart:copy-price":
+      case "series:copy-price":
         if (price !== null) copyPrice(price);
         return;
       case "chart:add-alert":
+      case "series:add-alert":
         if (price !== null) pickLevel(price);
         return;
       case "chart:trade-at-price":
+      case "series:trade-at-price":
         // PREPARES a ticket. It does not submit, and no context-menu item in
         // this product ever will — that is the alert/automation boundary.
         setPanel("manual");
@@ -2002,9 +2037,11 @@ export default function TvWorkspace() {
       // toolbar's `Indicators` control does. One dialog, three routes.
       // falls through
       case "chart:add-indicator":
+      case "series:add-indicator":
         setIndicatorBrowserOpen(true);
         return;
       case "chart:symbol-info":
+      case "series:symbol-info":
         /*
          * The reference's `Symbol info…` is a read-only card about the
          * instrument. This product's equivalent is the watchlist panel's
@@ -2013,11 +2050,13 @@ export default function TvWorkspace() {
         setPanel("watchlist");
         return;
       case "chart:paste":
+      case "series:paste":
         // The same clipboard ⌘V reads. `pasteDrawing` is the keyboard's own
         // handler, so the two routes cannot drift apart.
         shortcutActionRef.current?.("paste");
         return;
       case "chart:text-note":
+      case "series:text-note":
         /*
          * The reference's `Add text note for {TICKER} ⌥N` arms a text tool at
          * the price under the pointer. Arming the tool is what this product
@@ -2027,9 +2066,11 @@ export default function TvWorkspace() {
         setTool("text");
         setToast("Click the chart to place the note");
         return;
-      case "chart:chart-settings": setChartSettingsOpen(true); return;
+      case "chart:chart-settings":
+      case "series:chart-settings": setChartSettingsOpen(true); return;
       case "chart:object-tree": setPanel("objects"); return;
-      case "chart:table-view": setPanel("objects"); return;
+      case "chart:table-view":
+      case "series:table-view": setPanel("objects"); return;
       case "chart:remove-indicators": activeIndicators?.clear(); activeNativeStudies?.clear(); return;
       case "chart:toggle-drawings-hidden": setDrawHidden((v) => !v); return;
       case "chart:toggle-drawings-locked": setDrawLocked((v) => !v); return;
@@ -2942,6 +2983,7 @@ export default function TvWorkspace() {
         at={menu?.at ?? null}
         label={menu?.label ?? "Chart"}
         entries={menu?.entries ?? []}
+        width={menu?.width}
         onSelect={onMenuSelect}
         onClose={() => setMenu(null)}
       />

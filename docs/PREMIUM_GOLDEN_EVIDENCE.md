@@ -40,7 +40,7 @@ geometry and behaviour, never pixels of market data.
 | chart context menu | 325px, 32px rows, portalled, no focus ring, no row highlighted on pointer-open, Escape closes | 347px chart menu, `outline:none`, no highlighted row | `[context menu]` |
 | study legend | hover cluster zero-width at rest, 4 actions 28×22 on hover, value ≤8px after title | `buttonsWrapper width:0`, 28×22 / 18px glyph | `[study legend]` |
 | study ⋯ menu | paints above next pane, Remove in ink, anchored at button | Remove rgb(219,219,219), no tint | `[study ⋯ menu]` |
-| series legend | hover reveals Flag symbol + More (28×22); More opens the chart's own menu | `legend-flag-action`, `legend-more-action`; More = chart menu (347px) | `[series legend]` |
+| series legend | hover reveals Flag symbol + More (28×22); More opens the SERIES menu (325px, 32px rows) | `legend-flag-action`, `legend-more-action`; re-measured 2026-10-11: More is a series menu (Add alert/order at price, Add indicator/strategy, Symbol info, Copy price, Paste, Table view, Add to watchlist, Add text note, Settings…), not the chart menu — the earlier "More = chart menu" reading was wrong | `[series legend]`; `tests/powerUx.test.ts` (A4) |
 | status line | one row at 1440 with side panel open; values wrap as a group only in a narrow pane; O H L C follows crosshair | wraps values under title at 537px chart width | `[status line]` |
 | price axis | no tick label half-covered by a pill | ticks a label touches are hidden | `[price scale]` (8 zoom states) |
 | panes | pan keeps every pane on one time axis; no update-depth loop | — | `[panes]` |

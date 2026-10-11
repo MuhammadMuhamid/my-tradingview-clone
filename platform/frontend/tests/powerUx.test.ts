@@ -28,7 +28,7 @@ import {
   resolveShortcut, resolveTypedInterval,
 } from "../lib/shortcuts";
 import {
-  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, studyMenu, watchlistMenu,
+  AXIS_MENU_IDS, CHART_MENU_IDS, DRAWING_MENU_IDS, SERIES_MENU_IDS, STUDY_MENU_IDS, TIME_AXIS_MENU_IDS, WATCHLIST_MENU_IDS, chartMenu, drawingMenu, priceAxisMenu, seriesLegendMenu, studyMenu, watchlistMenu,
 } from "../lib/menuPayloads";
 import { FLAG_COLOURS } from "../lib/watchlistFlags";
 import {
@@ -185,6 +185,52 @@ test("an action that cannot be taken is disabled with a reason, never hidden", (
   }
   // Copying a price is not an action on the market, so Replay does not block it.
   assert.notEqual((byId(replay, "chart:copy-price") as { disabled?: boolean }).disabled, true);
+});
+
+test("A4 — the series legend's ⋯ is the SERIES menu, in Premium's order, with no dead row", () => {
+  /*
+   * Measured live on Premium: the series legend's `More` opens
+   * `Add alert on BTCUSDT at <price>…`, `Add order…`, `Add indicator/strategy
+   * on BTCUSDT…`, `Symbol info…`, `Metrics ›`, `Copy price`, `Paste`,
+   * `Table view`, `Visual order ›`, `Move to ›`, `Pin to scale ›`,
+   * `Chart syncing ›`, `Hide`, `Add BTCUSDT to watchlist ›`, `Add text note
+   * for BTCUSDT`, `Settings…`. Ours opened the CHART menu. This keeps the
+   * reference's order for every row this product can resolve and leaves out
+   * the rest (Metrics, Visual order, Move to, Pin to scale, Chart syncing,
+   * Hide: no engine route for a main-series version of any of them).
+   */
+  const ctx = {
+    ticker: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot", mac: true, canPaste: false,
+    lists: [{ id: "a", name: "Main" }], price: 77581.72, priceLabel: "77,581.72",
+    replayActive: false, tradingEnabled: true,
+  };
+  const labels = seriesLegendMenu(ctx).filter((e) => !isSeparator(e))
+    .map((e) => (e as { label: string }).label);
+  assert.deepEqual(labels, [
+    "Add alert on BTCUSDT at 77,581.72…", "Add order on BTCUSDT at 77,581.72…",
+    "Add indicator/strategy on BTCUSDT…", "Symbol info…",
+    "Copy price 77,581.72", "Paste", "Table view",
+    "Add BTCUSDT to watchlist", "Add text note for BTCUSDT", "Settings…",
+  ]);
+  for (const entry of seriesLegendMenu(ctx)) {
+    if (isSeparator(entry)) continue;
+    assert.ok((entry as { glyph?: string }).glyph || entry.id === "series:table-view",
+      `${entry.id} has no mark; Premium draws one on every row but Table view`);
+  }
+  // No trading on this installation: the order row is absent, not a dead row.
+  assert.ok(!seriesLegendMenu({ ...ctx, tradingEnabled: false })
+    .some((e) => e.id === "series:trade-at-price"));
+  // Replay: the alert and the order are present, off, and say why.
+  const replay = seriesLegendMenu({ ...ctx, replayActive: true });
+  for (const id of ["series:add-alert", "series:trade-at-price"]) {
+    const item = byId(replay, id) as { disabled?: boolean; disabledReason?: string };
+    assert.equal(item.disabled, true);
+    assert.match(item.disabledReason ?? "", /Replay/);
+  }
+  // Two lists: the watchlist row is a door to them.
+  const two = seriesLegendMenu({ ...ctx, lists: [{ id: "a", name: "Main" }, { id: "b", name: "Alts" }] });
+  const add = byId(two, "series:add-to-watchlist") as { children?: MenuEntry[] };
+  assert.deepEqual(add.children?.map((c) => c.id), ["series:add-to-watchlist:a", "series:add-to-watchlist:b"]);
 });
 
 test("the chart menu prepares an order and never submits one", () => {
@@ -879,7 +925,7 @@ const CHART_PAGE = read("app/chart/page.tsx");
  */
 const ALL_MENU_IDS = [
   ...CHART_MENU_IDS, ...DRAWING_MENU_IDS, ...STUDY_MENU_IDS,
-  ...AXIS_MENU_IDS, ...TIME_AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS,
+  ...AXIS_MENU_IDS, ...TIME_AXIS_MENU_IDS, ...WATCHLIST_MENU_IDS, ...SERIES_MENU_IDS,
 ];
 
 test("every id a menu can emit is answered by a handler", () => {
@@ -897,6 +943,12 @@ test("every id a menu can emit is answered by a handler", () => {
     if (id === "chart:add-to-watchlist") {
       assert.match(sources, /id === "chart:add-to-watchlist"/);
       assert.match(sources, /CHART_ADD_TO_LIST_PREFIX/);
+      continue;
+    }
+    // A4: the series menu's copy of that row shares its handler, by prefix too.
+    if (id === "series:add-to-watchlist") {
+      assert.match(sources, /id === "series:add-to-watchlist"/);
+      assert.match(sources, /SERIES_ADD_TO_LIST_PREFIX/);
       continue;
     }
     /*
@@ -939,6 +991,7 @@ test("two menus cannot collide on an id", () => {
   for (const [prefix, ids] of [
     ["chart", CHART_MENU_IDS], ["drawing", DRAWING_MENU_IDS], ["study", STUDY_MENU_IDS],
     ["axis", AXIS_MENU_IDS], ["time", TIME_AXIS_MENU_IDS], ["watchlist", WATCHLIST_MENU_IDS],
+    ["series", SERIES_MENU_IDS],
   ] as const) {
     for (const id of ids) {
       assert.ok(id.startsWith(`${prefix}:`), `${id} does not name its own menu`);

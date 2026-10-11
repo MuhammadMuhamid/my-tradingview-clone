@@ -116,9 +116,11 @@ export interface PaneLegendProps {
   /**
    * E6: the series' own `More`, opened at the button.
    *
-   * On the reference this is the chart's context menu — the same rows a
-   * right-click on the plot offers — anchored under the control. So it is
-   * handed the anchor and nothing else; the menu is the chart's.
+   * Anchored under the control. This was wired to the CHART's context menu,
+   * on an earlier reading of the reference; measured live on Premium it is
+   * the SERIES menu — alert/order at the last price, indicator, symbol info,
+   * copy, paste, table view, watchlist, text note, settings — which the
+   * workspace builds (`seriesLegendMenu`). Handed the anchor and nothing else.
    */
   onOpenSeriesMenu?: (at: { x: number; y: number }) => void;
   resolutions: ResolutionPreferences;

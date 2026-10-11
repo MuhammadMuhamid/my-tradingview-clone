@@ -200,6 +200,107 @@ export function chartMenu(ctx: ChartMenuContext): MenuEntry[] {
   ];
 }
 
+/*
+ * ── A4: the series legend's own menu ───────────────────────────────────────
+ *
+ * The `⋯` on the series legend opened the CHART's context menu. Measured on
+ * live Premium, the series has a menu of its own, about the instrument rather
+ * than the canvas: Add alert on BTCUSDT at <price>… (⌥A) · Add order on
+ * BTCUSDT at <price>… · Add indicator/strategy on BTCUSDT… · Symbol info… ·
+ * Metrics › · Copy price <price> · Paste · Table view · Visual order › ·
+ * Move to › · Pin to scale › · Chart syncing › · Hide · Add BTCUSDT to
+ * watchlist › · Add text note for BTCUSDT (⌥N) · Settings….
+ *
+ * This keeps the reference's order and marks for every row this product can
+ * resolve, and leaves the rest ABSENT for the reason this file gives at the
+ * top: `Metrics ›`, `Visual order ›`, `Move to ›`, `Pin to scale ›`,
+ * `Chart syncing ›` and `Hide` have no engine route for the main series here,
+ * and a row that opens nothing is the defect these payloads exist to prevent.
+ */
+export const SERIES_MENU_IDS = [
+  "series:add-alert", "series:trade-at-price", "series:add-indicator", "series:symbol-info",
+  "series:copy-price", "series:paste", "series:table-view",
+  "series:add-to-watchlist", "series:text-note", "series:chart-settings",
+] as const;
+export type SeriesMenuId = (typeof SERIES_MENU_IDS)[number];
+
+/** The prefix a series menu `Add {TICKER} to watchlist ›` child carries. */
+export const SERIES_ADD_TO_LIST_PREFIX = "series:add-to-watchlist:";
+
+export interface SeriesMenuContext {
+  /** The pane's instrument; reduced to a ticker here, whatever is handed in. */
+  ticker: string;
+  mac: boolean;
+  /** A drawing is on the workspace clipboard. */
+  canPaste: boolean;
+  lists: readonly { id: string; name: string }[];
+  /** The series' last price — what the reference's rows name. */
+  price: number | null;
+  priceLabel: string;
+  replayActive: boolean;
+  /** Manual trading is available on this installation (the paper ticket). */
+  tradingEnabled: boolean;
+}
+
+export function seriesLegendMenu(ctx: SeriesMenuContext): MenuEntry[] {
+  const hasPrice = ctx.price !== null && Number.isFinite(ctx.price);
+  const noPrice = "This series has no loaded price yet";
+  const ticker = displayTicker(ctx.ticker);
+  const on = ` on ${ticker}${hasPrice ? ` at ${ctx.priceLabel}` : ""}`;
+  return [
+    {
+      id: "series:add-alert", label: `Add alert${on}…`, glyph: "alarm",
+      hint: menuCap("add-alert", ctx.mac),
+      disabled: !hasPrice || ctx.replayActive,
+      disabledReason: ctx.replayActive ? REPLAY_REASON : noPrice,
+    },
+    // PREPARES the paper ticket, exactly as the chart menu's row does.
+    ...(ctx.tradingEnabled ? [{
+      id: "series:trade-at-price", label: `Add order${on}…`, glyph: "order" as const,
+      disabled: !hasPrice || ctx.replayActive,
+      disabledReason: ctx.replayActive ? REPLAY_REASON : noPrice,
+    }] : []),
+    { id: "sep-add", separator: true },
+    { id: "series:add-indicator", label: `Add indicator/strategy on ${ticker}…`, glyph: "indicator" },
+    // The watchlist panel's details block, which follows the focused symbol.
+    { id: "series:symbol-info", label: "Symbol info…", glyph: "info" },
+    { id: "sep-clipboard", separator: true },
+    {
+      id: "series:copy-price", label: hasPrice ? `Copy price ${ctx.priceLabel}` : "Copy price",
+      glyph: "copy", disabled: !hasPrice, disabledReason: noPrice,
+    },
+    {
+      id: "series:paste", label: "Paste", glyph: "paste", hint: menuCap("paste", ctx.mac),
+      disabled: !ctx.canPaste, disabledReason: "Copy a drawing first — there is nothing on the clipboard",
+    },
+    { id: "sep-table", separator: true },
+    // No mark, as on the reference; it opens the Object tree / Data window.
+    { id: "series:table-view", label: "Table view" },
+    { id: "sep-watchlist", separator: true },
+    /*
+     * One list makes the row the action; more than one makes it a door to
+     * them, as the reference draws it. No list at all is absence — there is
+     * nowhere to add the symbol to.
+     */
+    ...(ctx.lists.length > 0 ? [{
+      id: "series:add-to-watchlist", label: `Add ${ticker} to watchlist`, glyph: "watchlist" as const,
+      ...(ctx.lists.length > 1 ? {
+        children: ctx.lists.map((list) => ({
+          id: `${SERIES_ADD_TO_LIST_PREFIX}${list.id}`, label: list.name,
+        })),
+      } : {}),
+    }] : []),
+    // Arms the text tool; the next click places it (`chart:text-note`'s path).
+    { id: "series:text-note", label: `Add text note for ${ticker}`, glyph: "note" },
+    { id: "sep-settings", separator: true },
+    // Chart settings, which open on their Symbol tab.
+    {
+      id: "series:chart-settings", label: "Settings…", glyph: "gear",
+      hint: menuCap("chart-settings", ctx.mac),
+    },
+  ];
+}
+
 export interface DrawingMenuContext {
   /**
    * What the drawing IS, in the reader's words — "trendline", "level".

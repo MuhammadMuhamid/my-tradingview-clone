@@ -150,7 +150,7 @@ export interface ChartPaneProps {
     event: {
       x: number; y: number; drawingId: string | null; price: number | null;
       /** Which strip was clicked: the plot, or the price axis. */
-      region: "plot" | "axis" | "time";
+      region: "plot" | "axis" | "time" | "series";
     }
   ) => void;
   /** The active pane reports its viewport so evidence can be fetched for it. */
@@ -1130,7 +1130,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
                 onOpenCompareSettings={() => setCompareSettingsOpen(true)}
                 onOpenSeriesMenu={props.onChartContextMenu
                   ? (at) => props.onChartContextMenu?.(paneId, {
-                    ...at, drawingId: null, region: "plot",
+                    ...at, drawingId: null, region: "series",
                     price: visibleCandles[visibleCandles.length - 1]?.close ?? null,
                   }) : undefined}
                 resolutions={props.resolutions}
