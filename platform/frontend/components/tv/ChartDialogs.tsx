@@ -27,6 +27,8 @@ import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { Interval, Strategy, StrategyParams } from "@/lib/types";
 import { alertIntervalFor, nativeOnlyNotice, storedFallbackFor } from "@/lib/timeframes";
+import { editsInPriceDialog } from "@/lib/alertEditing";
+import { displayTicker } from "@/lib/instrument";
 
 export interface ChartDialogsProps {
   /** The focused pane's instrument and timeframe — what an alert is armed on. */
@@ -80,6 +82,10 @@ export interface ChartDialogsProps {
 
   editingAlert: MaAlert | null;
   onCloseEditingAlert: () => void;
+  /** A level just picked off the chart for the price alert being edited. */
+  editingAlertLevel?: number | null;
+  /** Leave the edit to pick its level on the chart, then come back to it. */
+  onPickFromChartForEdit?: () => void;
   armLine: { type: MaType; length: number } | null;
   onCloseArmLine: () => void;
 
@@ -111,6 +117,8 @@ export function ChartDialogs(props: ChartDialogsProps) {
   const alertTimeframe: Interval =
     alertIntervalFor(interval) ?? storedFallbackFor(interval) ?? "15m";
   const alertNotice = nativeOnlyNotice(interval, "alerts");
+  const priceEdit = props.editingAlert && editsInPriceDialog(props.editingAlert)
+    ? props.editingAlert : null;
   return (
     <>
     <StrategySettingsModal
@@ -172,8 +180,32 @@ export function ChartDialogs(props: ChartDialogsProps) {
       existing={maAlerts}
       onSaved={onAlertSaved}
     />
+    {/*
+      C14: a price alert opened from the rail is edited in the dialog that
+      armed it — a second instance in editing mode, so its draft can never mix
+      with a create the user starts afterwards. Every other family keeps the
+      shared editor below.
+    */}
+    <PriceAlertModal
+      open={priceEdit !== null}
+      onClose={props.onCloseEditingAlert}
+      editing={priceEdit}
+      symbol={priceEdit?.symbol ?? symbol}
+      chartTimeframe={alertTimeframe}
+      initialPrice={props.editingAlertLevel ?? null}
+      /*
+        The chart's quote only when the chart IS this alert's instrument: the
+        rail lists this symbol's alerts, so it always is today, and a "% away"
+        computed against another instrument's price would be a wrong number.
+      */
+      lastPrice={priceEdit && displayTicker(priceEdit.symbol) === displayTicker(symbol)
+        ? props.lastPrice : null}
+      lastPriceNotice={props.lastPriceNotice ?? null}
+      onPickFromChart={props.onPickFromChartForEdit}
+      onSaved={onAlertSaved}
+    />
     <AlertEditor
-      alert={props.editingAlert}
+      alert={priceEdit ? null : props.editingAlert}
       onClose={props.onCloseEditingAlert}
       onSaved={(_updated, message) => onAlertSaved(message)}
       onDeleted={(_deleted, message) => onAlertSaved(message)}

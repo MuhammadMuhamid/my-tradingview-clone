@@ -5,6 +5,7 @@ import { Button, Card, CardHeader, Empty, ErrorNotice, Loading, PageShell, Selec
 import { PushSetup } from "@/components/tv/PushSetup";
 import { LevelAlertModal } from "@/components/tv/LevelAlertModal";
 import { AlertEditor } from "@/components/tv/AlertEditor";
+import { PriceAlertModal } from "@/components/tv/PriceAlertModal";
 import {
   api, DEFAULT_ALERT_FREQUENCY, type BulkAlertAction, type MaAlert, type MaAlertEvent,
 } from "@/lib/api";
@@ -20,7 +21,7 @@ import {
   selectionConfirmation, type AlertStatusFilter, type AlertTimeframeFilter,
   type AlertTypeFilter,
 } from "@/lib/alertManagement";
-import { leavesFilteredView } from "@/lib/alertEditing";
+import { editsInPriceDialog, leavesFilteredView } from "@/lib/alertEditing";
 import { parseScannerAlertTarget } from "@/lib/spotScene";
 import { displaySymbol } from "@/lib/instrument";
 
@@ -189,6 +190,18 @@ export default function AlertsPage() {
     } finally {
       setBusy(null);
     }
+  };
+
+  /** One answer to a saved edit, whichever dialog the alert was edited in. */
+  const savedEdit = (updated: MaAlert, message: string): void => {
+    // An edit can move an alert out of the list it was opened from — a
+    // renamed symbol under an active search, a pause under "Active".
+    // Vanishing silently is indistinguishable from a failed save, so it
+    // is said out loud.
+    const left = editing !== null &&
+      leavesFilteredView(editing, updated, (x) => filterAlerts([x], filters).length === 1);
+    setToast(left ? `${message} — no longer matches the current filters` : message);
+    void refresh();
   };
 
   return (
@@ -562,19 +575,30 @@ export default function AlertsPage() {
         onSaved={(m) => { setToast(m); void refresh(); }}
       />
 
-      <AlertEditor
-        alert={editing}
+      {/*
+        C14: a price alert is edited in the dialog that armed it, so the
+        inventory and the chart open the same product for the same alert. No
+        Pick control here — there is no chart on this page to pick from — and
+        no live quote, so the dialog states no distance to one.
+      */}
+      <PriceAlertModal
+        open={editing !== null && editsInPriceDialog(editing)}
         onClose={() => setEditing(null)}
-        onSaved={(updated, message) => {
-          // An edit can move an alert out of the list it was opened from — a
-          // renamed symbol under an active search, a pause under "Active".
-          // Vanishing silently is indistinguishable from a failed save, so it
-          // is said out loud.
-          const left = editing !== null &&
-            leavesFilteredView(editing, updated, (x) => filterAlerts([x], filters).length === 1);
-          setToast(left ? `${message} — no longer matches the current filters` : message);
-          void refresh();
+        editing={editing !== null && editsInPriceDialog(editing) ? editing : null}
+        symbol={editing?.symbol ?? newSymbol}
+        chartTimeframe={editing?.timeframe ?? "1h"}
+        initialPrice={null}
+        lastPrice={null}
+        onChart={false}
+        onSaved={(message, updated) => {
+          if (updated) savedEdit(updated, message);
+          else { setToast(message); void refresh(); }
         }}
+      />
+      <AlertEditor
+        alert={editing !== null && editsInPriceDialog(editing) ? null : editing}
+        onClose={() => setEditing(null)}
+        onSaved={(updated, message) => savedEdit(updated, message)}
         onDeleted={(_deleted, message) => { setToast(message); void refresh(); }}
       />
 

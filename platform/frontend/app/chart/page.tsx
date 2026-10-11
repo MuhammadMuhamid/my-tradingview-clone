@@ -905,6 +905,13 @@ export default function TvWorkspace() {
   const [oscillatorKind, setOscillatorKind] = useState<IndicatorKind | null>(null);
   const [priceAlertLevel, setPriceAlertLevel] = useState<number | null>(null);
   const [pickingLevel, setPickingLevel] = useState(false);
+  /**
+   * C14: the price alert being edited when its dialog stepped aside so the
+   * chart could supply a level — the edit to return to after the click,
+   * rather than a fresh create — and the level that click supplied.
+   */
+  const [pickReturn, setPickReturn] = useState<MaAlert | null>(null);
+  const [editingAlertLevel, setEditingAlertLevel] = useState<number | null>(null);
 
   const refreshMaAlerts = useCallback(async () => {
     try {
@@ -922,9 +929,15 @@ export default function TvWorkspace() {
    */
   const pickLevel = useCallback((price: number) => {
     setPickingLevel(false);
+    if (pickReturn) {
+      setEditingAlertLevel(price);
+      setEditingAlert(pickReturn);
+      setPickReturn(null);
+      return;
+    }
     setPriceAlertLevel(price);
     setPriceAlertOpen(true);
-  }, []);
+  }, [pickReturn]);
 
   /** Open the dialog with no level picked; it falls back to the last price. */
   const openPriceAlert = useCallback(() => {
@@ -934,6 +947,9 @@ export default function TvWorkspace() {
       return;
     }
     setPriceAlertLevel(null);
+    // A create started mid-pick replaces the edit that was waiting on it, so
+    // the next chart click arms THIS dialog rather than reopening the edit.
+    setPickReturn(null);
     setPriceAlertOpen(true);
   }, [symbol]);
 
@@ -1370,7 +1386,7 @@ export default function TvWorkspace() {
     setReplayDrawings([]);
     setTrades([]); setOpenTrade(null);
     setToast(null); setPendingApply(null);
-    setPickingLevel(false); setPriceAlertOpen(false);
+    setPickingLevel(false); setPriceAlertOpen(false); setPickReturn(null);
     setLevelKind(null); setOscillatorKind(null); setEditingAlert(null); setArmLine(null);
     setAlertOpen(false);
     setPanel((current) => current === "indicators" || current === "watchlist" ? current : null);
@@ -2645,7 +2661,12 @@ export default function TvWorkspace() {
           <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent">
             <span>Click the focused chart at the price you want the alert on.</span>
             <button
-              onClick={() => { setPickingLevel(false); setPriceAlertOpen(true); }}
+              onClick={() => {
+                setPickingLevel(false);
+                // Back to whichever dialog stepped aside: the edit, or a create.
+                if (pickReturn) { setEditingAlert(pickReturn); setPickReturn(null); }
+                else setPriceAlertOpen(true);
+              }}
               className="rounded px-2 py-0.5 hover:bg-accent/20"
             >
               Cancel
@@ -2907,7 +2928,14 @@ export default function TvWorkspace() {
         oscillatorKind={oscillatorKind}
         onCloseOscillator={() => setOscillatorKind(null)}
         editingAlert={editingAlert}
-        onCloseEditingAlert={() => setEditingAlert(null)}
+        onCloseEditingAlert={() => { setEditingAlert(null); setEditingAlertLevel(null); }}
+        editingAlertLevel={editingAlertLevel}
+        onPickFromChartForEdit={() => {
+          setPickReturn(editingAlert);
+          setEditingAlert(null);
+          setEditingAlertLevel(null);
+          setPickingLevel(true);
+        }}
         armLine={armLine}
         onCloseArmLine={() => setArmLine(null)}
         alertOpen={alertOpen}

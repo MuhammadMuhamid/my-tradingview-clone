@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ALERT_HISTORY_BARS, type ConditionKind, type MaAlert } from "../lib/api";
 import {
-  ALERT_FAMILY_LABELS, alertEditForm, alertEditRequest, hasAlertChanges,
+  ALERT_FAMILY_LABELS, alertEditForm, alertEditRequest, editsInPriceDialog, hasAlertChanges,
   leavesFilteredView, modesFor, pivotLevelNames, usesBand, usesGates,
   validateAlertForm, warmupBars, type AlertEditForm,
 } from "../lib/alertEditing";
@@ -400,6 +400,15 @@ test("the Alerts page and the chart rail both open the shared editor", () => {
   assert.match(read("app/chart/page.tsx"), /editingAlert=\{editingAlert\}/);
 });
 
+test("a price alert is edited in the dialog that armed it; every other family in the shared editor", () => {
+  // C14: the price family has a create dialog that can represent all of it,
+  // so arming and editing are one product. The rest keep `AlertEditor`, whose
+  // per-family rows are the only editor they have.
+  for (const kind of Object.keys(ALERTS) as ConditionKind[]) {
+    assert.equal(editsInPriceDialog(ALERTS[kind]), kind === "price", kind);
+  }
+});
+
 test("clicking an armed alert in the rail opens THAT alert", () => {
   const chart = read("app/chart/page.tsx");
   assert.match(
@@ -641,7 +650,9 @@ test("ALERTS — NO CREATE DIALOG CAN SILENTLY RE-ARM A PAUSED ALERT", () => {
     assert.match(src, /\bexisting\b/,
       `${file}: cannot know what it would overwrite — it is not given the existing alerts`);
     // … and arms from the matched row rather than from a literal.
-    assert.match(src, /setArmed\((?:match\.enabled|matchedArmed)\)/,
+    // (`twin` is PriceAlertModal's name for the matched row since C14 gave it
+    // an editing mode, where `match` can also be the alert being edited.)
+    assert.match(src, /setArmed\((?:match\.enabled|twin\.enabled|matchedArmed)\)/,
       `${file}: arms from a literal, so an untouched Save can re-arm a paused alert`);
   }
 

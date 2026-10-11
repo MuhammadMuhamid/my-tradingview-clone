@@ -121,6 +121,19 @@ export const usesBand = (kind: ConditionKind, mode: MaAlertMode): boolean =>
  */
 export const usesGates = (_kind: ConditionKind): boolean => true;
 
+/**
+ * Whether this alert is edited in the dialog that created it.
+ *
+ * C14: a price alert opens `PriceAlertModal` in its editing mode, so arming one
+ * and changing it are the same dialog — the same Condition row, pick-from-
+ * chart, gate list, Message and Notifications. Every other family still opens
+ * `AlertEditor`, whose per-family rows are the only editor those families have.
+ * Both the Alerts page and the chart's rail route through this one predicate,
+ * so the two entry points cannot disagree about which dialog an alert gets.
+ */
+export const editsInPriceDialog = (alert: Pick<MaAlert, "conditionKind">): boolean =>
+  alert.conditionKind === "price";
+
 export interface AlertEditForm {
   symbol: string;
   timeframe: Interval;

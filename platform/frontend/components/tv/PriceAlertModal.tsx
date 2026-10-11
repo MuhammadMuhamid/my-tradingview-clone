@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useAsk } from "@/components/AskDialog";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, Dropdown, FIELD } from "@/components/ui";
@@ -45,6 +46,9 @@ const DIRECTION_HELP: Record<PriceDirection, string> = {
  *  and the reopen reset cannot drift apart. */
 const DEFAULT_COOLDOWN_MIN = 60;
 
+/** A quote or a picked level as the field shows it: eight significant digits. */
+const seedText = (level: number): string => String(Number(level.toPrecision(8)));
+
 /*
  * `Row` and `Disclosure` are module-level because a component declared inside
  * a render is a new type on every render, and React unmounts and remounts a
@@ -72,16 +76,81 @@ const Disclosure = ({ label, value, open: expanded, onToggle, children }: {
 );
 
 /**
- * Arm an alert on a price level.
+ * The PATCH-shaped description of a price alert, so an edit can be compared
+ * field by field against what the dialog opened with.
+ */
+export type PriceDraft = {
+  targetPrice: number; priceDirection: PriceDirection; timeframe: Interval;
+  frequency: AlertFrequency; cooldownMin: number; note: string | null; enabled: boolean;
+  filters: AlertFilterState;
+};
+
+/**
+ * What a persisted price alert looks like in this dialog.
+ *
+ * `enabled` is what the alert is DOING, not the column: a once-only alert that
+ * has fired keeps `enabled: true` with `completedAt` set, and watches nothing.
+ * Showing that as "Armed ☑" would misreport it — and the server treats an
+ * `enabled: true` in a PATCH as "watch this again" and clears `completedAt`,
+ * so the honest seed is also what keeps an untouched Save from re-arming it.
+ */
+function draftFromAlert(a: MaAlert): PriceDraft {
+  return {
+    targetPrice: a.targetPrice ?? 0,
+    priceDirection: a.priceDirection ?? "either",
+    timeframe: a.timeframe,
+    frequency: a.frequency,
+    cooldownMin: a.cooldownMin,
+    note: a.note?.trim() ? a.note : null,
+    enabled: a.enabled && a.completedAt === null,
+    filters: filtersFromAlert(a),
+  };
+}
+
+/**
+ * The keys of `next` that differ from `base` — the only keys an edit sends.
+ *
+ * The same discipline as `alertEditRequest` for the other families: a PATCH
+ * that restates every field cannot be told apart from one that changed them,
+ * and for `enabled` restating is itself a change (see `draftFromAlert`).
+ * `conditionKind` always goes, because the server refuses any value but the
+ * row's own — so a dialog opened on a stale list cannot save a price form
+ * onto a row that has since become something else.
+ */
+export function priceEditRequest(base: PriceDraft, next: PriceDraft): Record<string, unknown> {
+  const body: Record<string, unknown> = { conditionKind: "price" };
+  for (const key of Object.keys(next) as (keyof PriceDraft)[]) {
+    if (key === "filters") continue;
+    if (next[key] !== base[key]) body[key] = next[key];
+  }
+  if (JSON.stringify(next.filters) !== JSON.stringify(base.filters)) {
+    Object.assign(body, filterRequestForEdit(next.filters));
+  }
+  return body;
+}
+
+/**
+ * Arm an alert on a price level — or edit one already armed.
  *
  * The level is pre-filled from wherever the user came from — the price they
  * clicked on the chart, or the last price — because the number they mean is
  * almost always the one already on screen, and retyping it is both friction and
  * an opportunity to fat-finger a decimal.
+ *
+ * ── C14: one dialog for creating and editing ──────────────────────────────
+ *
+ * Editing a price alert opened `AlertEditor`, which was a different product:
+ * a free-text Symbol row, separate Price and Direction rows on native
+ * selects, the three-checkbox gate model, and no pick-from-chart. A reader who
+ * armed an alert here and opened it again met a dialog that did not look like
+ * the one they had used. With `editing` set this dialog opens on that alert —
+ * its level, condition, timeframe, gates, message and state — under "Edit
+ * alert", and saves through PATCH onto the same row, so its id, its event log
+ * and its delivery history survive the edit.
  */
 export function PriceAlertModal({
   open, onClose, symbol, chartTimeframe, resolutionNotice = null, initialPrice, lastPrice,
-  lastPriceNotice = null, existing,
+  lastPriceNotice = null, existing = [], editing = null, onChart = true,
   onPickFromChart, onSaved,
 }: {
   open: boolean;
@@ -100,11 +169,26 @@ export function PriceAlertModal({
   /** Set when `lastPrice` is a stored close rather than a live frame. */
   lastPriceNotice?: string | null;
   /** Price alerts already armed on this symbol, so the dialog edits rather than duplicates. */
-  existing: MaAlert[];
-  /** Close and let the next chart click supply the level. */
-  onPickFromChart: () => void;
-  onSaved: (message: string) => void;
+  existing?: MaAlert[];
+  /**
+   * The armed alert this dialog is editing, or null to create one. While set,
+   * the dialog seeds from it rather than from the quote, and saves by PATCH.
+   */
+  editing?: MaAlert | null;
+  /**
+   * False where no chart is on screen — the Alerts page — so the timeframe
+   * list does not mark one of its entries "same as chart".
+   */
+  onChart?: boolean;
+  /**
+   * Close and let the next chart click supply the level. Omitted where there
+   * is no chart to click — the Alerts page — and the Pick control with it.
+   */
+  onPickFromChart?: () => void;
+  /** The confirmation, and the server's row when there is one (not on delete). */
+  onSaved: (message: string, saved?: MaAlert) => void;
 }) {
+  const ask = useAsk();
   const [price, setPrice] = useState("");
   const [direction, setDirection] = useState<PriceDirection>("either");
   const [timeframe, setTimeframe] = useState<Interval>(chartTimeframe);
@@ -140,14 +224,48 @@ export function PriceAlertModal({
    *
    * So the reset is keyed on the OPENING — the false -> true edge — and not on
    * the props it happens to read while seeding.
+   *
+   * ── Editing seeds from the alert, and only from the alert ────────────────
+   *
+   * An opening is keyed by WHAT it opened on — `""` for a create, the alert's
+   * id for an edit — so editing one alert and then another is two openings,
+   * and a refreshed copy of the same alert arriving mid-edit is not. The
+   * level comes from the alert (or from a level just picked off the chart for
+   * it), never from the quote: `levelSeededRef` is set here so the quote seed
+   * below never runs for an edit at all. The live price ticking while
+   * somebody retypes an armed alert's level is the 8446608 defect in its
+   * second home.
    */
-  const openedRef = useRef(false);
+  const openedRef = useRef<string | null>(null);
   const levelSeededRef = useRef(false);
+  /** The edited alert as it was seeded, so Save sends only what changed. */
+  const baseRef = useRef<PriceDraft | null>(null);
 
   useEffect(() => {
-    if (!open) { openedRef.current = false; levelSeededRef.current = false; return; }
-    if (openedRef.current) return;
-    openedRef.current = true;
+    if (!open) {
+      openedRef.current = null; levelSeededRef.current = false; baseRef.current = null;
+      return;
+    }
+    const opening = editing?.id ?? "";
+    if (openedRef.current === opening) return;
+    openedRef.current = opening;
+    setErr(null);
+    if (editing) {
+      const base = draftFromAlert(editing);
+      baseRef.current = base;
+      levelSeededRef.current = true;
+      setPrice(initialPrice !== null ? seedText(initialPrice)
+        : editing.targetPrice === null ? "" : String(editing.targetPrice));
+      setDirection(base.priceDirection);
+      setTimeframe(base.timeframe);
+      setFilters(base.filters);
+      setNote(base.note ?? "");
+      setFrequency(base.frequency);
+      setArmed(base.enabled);
+      setCooldownMin(base.cooldownMin);
+      return;
+    }
+    baseRef.current = null;
     setPrice("");
     setTimeframe(chartTimeframe);
     setFilters(emptyFilters());
@@ -155,8 +273,10 @@ export function PriceAlertModal({
     setFrequency(DEFAULT_ALERT_FREQUENCY);
     setArmed(true);
     setCooldownMin(DEFAULT_COOLDOWN_MIN);
-    setErr(null);
-  }, [open, chartTimeframe]);
+    // `editing` and `initialPrice` are read at the opening edge only; listing
+    // them would make a refreshed copy of the alert, or a new pick, a reopen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, chartTimeframe, editing?.id]);
 
   /*
    * The level is seeded from the FIRST quote this opening sees, and never
@@ -169,20 +289,26 @@ export function PriceAlertModal({
     const seed = initialPrice ?? lastPrice;
     if (seed === null) return;
     levelSeededRef.current = true;
-    setPrice(String(Number(seed.toPrecision(8))));
+    setPrice(seedText(seed));
   }, [open, initialPrice, lastPrice]);
 
   const target = Number(price);
   const valid = Number.isFinite(target) && target > 0;
 
-  // Editing rather than creating: an alert on the same level and direction.
-  const match = existing.find(
+  /*
+   * Creating onto a row that already exists: an alert on the same level,
+   * direction and timeframe. Never while editing — the alert being edited IS
+   * the row, and a second match found by its new values would be some other
+   * alert this save must not touch.
+   */
+  const twin = editing ? null : existing.find(
     (a) => a.targetPrice === target && a.priceDirection === direction && a.timeframe === timeframe
   ) ?? null;
+  const match = editing ?? twin;
 
   useEffect(() => {
-    if (!match) return;
-    setFrequency(match.frequency);
+    if (!twin) return;
+    setFrequency(twin.frequency);
     /*
      * Saving upserts onto the matched row, so the dialog must show what that
      * row holds — otherwise an untouched Update strips its gates and its note.
@@ -194,11 +320,11 @@ export function PriceAlertModal({
      * and then mutates it on an untouched save is worse than the missing
      * control this one was added to be.
      */
-    setArmed(match.enabled);
-    setCooldownMin(match.cooldownMin);
-    setFilters(filtersFromAlert(match));
-    setNote(match.note ?? "");
-  }, [match?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setArmed(twin.enabled);
+    setCooldownMin(twin.cooldownMin);
+    setFilters(filtersFromAlert(twin));
+    setNote(twin.note ?? "");
+  }, [twin?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * A cross alert armed on the wrong side of the current price can never fire
@@ -210,8 +336,23 @@ export function PriceAlertModal({
     ((direction === "cross_up" && lastPrice > target) ||
      (direction === "cross_down" && lastPrice < target));
 
+  /** The ticker this dialog is about: the edited alert's own, or the chart's. */
+  const ticker = displayTicker(editing?.symbol ?? symbol);
+
   const save = async () => {
     if (!valid) { setErr(said("Enter a price above zero.")); return; }
+    /*
+     * An edit sends what changed and nothing else. An untouched Save is a
+     * close: there is nothing to write, and a request that restated the row
+     * would re-arm a spent once-only alert (see `draftFromAlert`).
+     */
+    const edit = editing && baseRef.current
+      ? priceEditRequest(baseRef.current, {
+        targetPrice: target, priceDirection: direction, timeframe, frequency, cooldownMin,
+        note: note.trim() || null, enabled: armed, filters,
+      })
+      : null;
+    if (edit && Object.keys(edit).length === 1) { onClose(); return; }
     setBusy(true);
     setErr(null);
     try {
@@ -231,13 +372,15 @@ export function PriceAlertModal({
         note: note.trim() || null,
         enabled: armed,
       };
-      const row = match
-        ? await api.updateMaAlert(match.id, { ...body, ...filterRequestForEdit(filters) })
-        : await api.createMaAlert({ ...body, ...filterRequest(filters) });
-      onSaved(`${match ? "Updated" : "Alert set"} — ${displayTicker(symbol)} ${timeframe} · ${describeAlert(row)}`);
+      const row = editing && edit
+        ? await api.updateMaAlert(editing.id, edit)
+        : twin
+          ? await api.updateMaAlert(twin.id, { ...body, ...filterRequestForEdit(filters) })
+          : await api.createMaAlert({ ...body, ...filterRequest(filters) });
+      onSaved(`${match ? "Updated" : "Alert set"} — ${ticker} ${timeframe} · ${describeAlert(row)}`, row);
       onClose();
     } catch (e) {
-      setErr(describeAction(e, "arm the alert"));
+      setErr(describeAction(e, editing ? "save the alert" : "arm the alert"));
     } finally {
       setBusy(false);
     }
@@ -245,13 +388,20 @@ export function PriceAlertModal({
 
   const remove = async () => {
     if (!match) return;
+    // The edit dialog asked before deleting, and a delete cannot be undone;
+    // the one dialog both paths now share keeps that question for both.
+    if (!await ask.confirm({
+      title: `Delete this alert on ${ticker}?`,
+      body: <>{describeAlert(match)}<br />This cannot be undone.</>,
+      confirmLabel: "Delete", tone: "danger",
+    })) return;
     setBusy(true);
     try {
       await api.deleteMaAlert(match.id);
-      onSaved(`Alert removed — ${displayTicker(symbol)} ${fmtPrice(match.targetPrice)}`);
+      onSaved(`Alert removed — ${ticker} ${fmtPrice(match.targetPrice)}`);
       onClose();
     } catch (e) {
-      setErr(describeAction(e, "arm the alert"));
+      setErr(describeAction(e, "delete the alert"));
     } finally {
       setBusy(false);
     }
@@ -263,14 +413,19 @@ export function PriceAlertModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={<span className="flex items-center gap-2">Price alert <span className="text-accent">{displayTicker(symbol)}</span></span>}
+      /*
+        One title grammar for both paths: what is happening, then the ticker.
+        "Edit alert" rather than "Price alert" so a reader who opened an armed
+        alert can see they are changing it, not arming a second one.
+      */
+      title={<span className="flex items-center gap-2">{editing ? "Edit alert" : "Price alert"} <span className="text-accent">{ticker}</span></span>}
       panelClassName="w-[480px] max-h-[500px]"
       footer={
         <>
-          {match && <Button onClick={remove} disabled={busy} className="mr-auto text-down">Delete</Button>}
+          {match && <Button onClick={() => void remove()} disabled={busy} className="mr-auto text-down">Delete</Button>}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy || !valid}>
-            {busy ? "Saving…" : match ? "Update" : "Create"}
+          <Button variant="primary" onClick={() => void save()} disabled={busy || !valid}>
+            {busy ? "Saving…" : editing ? "Save" : match ? "Update" : "Create"}
           </Button>
         </>
       }
@@ -308,8 +463,10 @@ export function PriceAlertModal({
             <div className="flex items-center gap-1.5">
               <input type="number" step="any" min="0" value={price} autoFocus onChange={(e) => setPrice(e.target.value)}
                 aria-label="Alert price level" className={box} />
-              <button type="button" onClick={onPickFromChart} title="Pick the level on the chart"
-                className="h-8 shrink-0 rounded border border-border px-2 text-xs text-ink-muted hover:border-accent hover:text-ink">Pick</button>
+              {onPickFromChart && (
+                <button type="button" onClick={onPickFromChart} title="Pick the level on the chart"
+                  className="h-8 shrink-0 rounded border border-border px-2 text-xs text-ink-muted hover:border-accent hover:text-ink">Pick</button>
+              )}
             </div>
           </div>
         </Row>
@@ -358,7 +515,7 @@ export function PriceAlertModal({
             onChange={(v) => setTimeframe(v as Interval)}
             options={ALERT_INTERVAL_VALUES.map((tf) => ({
               value: tf,
-              label: `${tf}${resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}`,
+              label: `${tf}${onChart && resolutionNotice === null && tf === chartTimeframe ? " — same as chart" : ""}`,
             }))}
           />
         </Row>
@@ -372,9 +529,9 @@ export function PriceAlertModal({
         */}
         <div className="pt-1"><FrequencyField value={frequency} onChange={setFrequency} timeframe={timeframe} /></div>
 
-        <Disclosure label="Message" value={note ? "Custom" : `${displayTicker(symbol)} alert`} open={messageOpen} onToggle={() => setMessageOpen((v) => !v)}>
+        <Disclosure label="Message" value={note ? "Custom" : `${ticker} alert`} open={messageOpen} onToggle={() => setMessageOpen((v) => !v)}>
           <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={240} rows={2}
-            aria-label="Alert note" placeholder={`Write a message for ${displayTicker(symbol)}`} className={`w-full resize-none ${box}`} />
+            aria-label="Alert note" placeholder={`Write a message for ${ticker}`} className={`w-full resize-none ${box}`} />
         </Disclosure>
         {/*
           Two checkboxes, "App notifications" and "Toasts", were both bound to
@@ -385,6 +542,11 @@ export function PriceAlertModal({
         <Disclosure label="Notifications" value={armed ? "Armed" : "Paused"} open={notificationsOpen} onToggle={() => setNotificationsOpen((v) => !v)}>
           <div className="space-y-1 pt-1">
             <AlertArmedField value={armed} onChange={setArmed} />
+            {editing?.completedAt && !armed && (
+              <p className="text-xs text-ink-faint">
+                This once-only alert has already fired. Tick Armed and save to watch for it again.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-[13px] text-ink-muted">Cooldown <input type="number" min="0" step="5" value={cooldownMin}
               aria-label="Cooldown in minutes" onChange={(e) => setCooldownMin(parseInt(e.target.value || "0", 10))} className="w-20 rounded border border-border bg-transparent px-2 py-1" /> min</label>
           </div>
@@ -392,9 +554,16 @@ export function PriceAlertModal({
 
         {/* accent-is-meaning: this sentence changes what Save will do, so it is
             the dialog talking about its own primary action. */}
-        {match && (
+        {twin && (
           <p className="pt-1 text-xs text-accent">
             This level already has a {timeframe} alert for that condition; saving updates it.
+          </p>
+        )}
+        {/* State is never signalled by the title alone: the sentence says it. */}
+        {editing && (
+          <p className="pt-1 text-xs text-ink-faint">
+            Saving changes this alert in place. It keeps its history — editing it does not
+            create a second one.
           </p>
         )}
         {err && <p className="text-sm text-down" role="alert" title={err.detail || undefined}>{err.headline}</p>}
