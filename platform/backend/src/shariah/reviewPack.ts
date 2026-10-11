@@ -184,6 +184,56 @@ export interface SelectReviewBatchOptions {
    * `shariah/freshness.ts` for why age surfaces rather than invalidates.
    */
   dueForReReview?: ReadonlySet<string>;
+  /**
+   * The operator's explicit choice of assets to research.
+   *
+   * When given, the batch is EXACTLY these assets, whatever their state:
+   * choosing a settled or a delisted asset by name is a request to research
+   * it, and quietly dropping it would hand the operator a pack that is not the
+   * one they asked for. `includeSettled`, `includeUnavailable` and the batch
+   * size do not apply. The ordering below still does, so the same selection
+   * always produces the same pack. Unknown ids are the caller's to refuse
+   * (see `unknownAssetIds`) — this function only ever selects from `assets`.
+   */
+  assetIds?: readonly string[];
+}
+
+/**
+ * Parses an explicit `assetIds` selection: a comma-separated string or an
+ * array of them (a repeated query parameter).
+ *
+ * Strict rather than forgiving, like the import boundary: a malformed id, a
+ * duplicate, an empty list or more than MAX_REVIEW_BATCH_SIZE ids is an error
+ * the operator sees, not something tidied into a different pack.
+ */
+export function parseAssetIdSelection(
+  raw: unknown
+): { ok: true; ids: string[] } | { ok: false; error: string } {
+  const parts = (Array.isArray(raw) ? raw : [raw]).flatMap((v: unknown) =>
+    typeof v === "string" ? v.split(",") : [v]);
+  const ids: string[] = [];
+  for (const part of parts) {
+    const id = typeof part === "string" ? part.trim() : "";
+    if (!/^[0-9]+$/.test(id)) {
+      return { ok: false, error: `assetIds must be numeric asset ids, got ${JSON.stringify(part)}` };
+    }
+    if (ids.includes(id)) return { ok: false, error: `assetIds lists ${id} more than once` };
+    ids.push(id);
+  }
+  if (ids.length === 0) return { ok: false, error: "assetIds is empty — choose at least one asset" };
+  if (ids.length > MAX_REVIEW_BATCH_SIZE) {
+    return { ok: false, error: `assetIds has ${ids.length} entries, more than the ${MAX_REVIEW_BATCH_SIZE} one pack can carry` };
+  }
+  return { ok: true, ids };
+}
+
+/** The requested ids the registry does not know, in the order they were asked for. */
+export function unknownAssetIds(
+  assets: readonly Pick<ReviewPackSource, "assetId">[],
+  ids: readonly string[]
+): string[] {
+  const known = new Set(assets.map((a) => String(a.assetId)));
+  return ids.filter((id) => !known.has(id));
 }
 
 export function normalizeBatchSize(size: number | undefined): number {
@@ -197,11 +247,18 @@ export function selectReviewBatch<T extends ReviewPackSource>(
   assets: readonly T[],
   options: SelectReviewBatchOptions = {}
 ): { batch: T[]; needsReviewTotal: number; batchSize: number } {
-  const batchSize = normalizeBatchSize(options.batchSize);
+  const explicit = options.assetIds ? new Set(options.assetIds.map(String)) : null;
+  const batchSize = explicit
+    ? normalizeBatchSize(explicit.size)
+    : normalizeBatchSize(options.batchSize);
   const available = options.includeUnavailable ? assets : assets.filter((a) => a.binanceAvailable);
   const due = options.dueForReReview ?? new Set<string>();
   const wanted = (a: T): boolean => needsReview(a) || due.has(a.assetId);
-  const candidates = options.includeSettled ? [...available] : available.filter(wanted);
+  const candidates = explicit
+    ? assets.filter((a) => explicit.has(String(a.assetId)))
+    : options.includeSettled ? [...available] : available.filter(wanted);
+  // Counted the same way whatever was selected: it is how much work remains
+  // in the registry, not how much is in this pack.
   const needsReviewTotal = available.filter(needsReview).length;
   const priority = (a: T): number =>
     needsReview(a) ? reviewPriority(a) : due.has(a.assetId) ? DUE_PRIORITY : 3;
@@ -258,12 +315,14 @@ const RESULT_CONTRACT_REQUIRED: readonly string[] = [
   "prohibitedCategories — required and non-empty for EXCLUDED, must be empty for ELIGIBLE",
   "evidence — array of { url, title, publisher, retrievedAt, note }; required for ELIGIBLE and EXCLUDED",
   "unresolvedUncertainties — array of strings; anything you could not settle",
+  "packGeneratedAt (top level, optional) — copied verbatim from this pack's generatedAt",
 ];
 
 const RESULT_EXAMPLE = {
   format: REVIEW_RESULTS_FORMAT,
   policyVersion: TS_SHARIAH_V1,
   researchCompletedAt: "2026-09-02T12:00:00Z",
+  packGeneratedAt: "2026-09-02T09:00:00Z",
   results: [
     {
       assetId: "123",

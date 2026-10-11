@@ -210,9 +210,26 @@ export interface ShariahPublicationRecord {
   publishedBy: string;
   /** `shariah_evidence.id` values cited by this decision. */
   evidenceIds: string[];
+  /**
+   * How this decision reached the product: typed by the operator, or imported
+   * from a validated review pack. `null` on rows published before the column
+   * existed (migration 043) — unknown, and deliberately never guessed.
+   *
+   * It was written on every publication and read by nothing, so the one
+   * question the column exists to answer — "which of these came out of a
+   * research pack?" — still could not be asked from the product.
+   */
+  source: PublicationSource | null;
 }
 
-interface PublicationRow {
+export type PublicationSource = "manual" | "review_import";
+
+/** Anything but the two values the CHECK constraint admits reads as unknown. */
+function toPublicationSource(value: unknown): PublicationSource | null {
+  return value === "manual" || value === "review_import" ? value : null;
+}
+
+export interface PublicationRow {
   publication_id: string;
   asset_id: string;
   policy_version: PolicyVersion;
@@ -224,10 +241,12 @@ interface PublicationRow {
   reviewed_at: string;
   published_at: string;
   published_by: string;
+  source: string | null;
   evidence_ids: (string | number)[] | null;
 }
 
-function toPublication(row: PublicationRow): ShariahPublicationRecord {
+/** Exported so the row mapping — `source` included — is provable without PostgreSQL. */
+export function toPublication(row: PublicationRow): ShariahPublicationRecord {
   return {
     publicationId: String(row.publication_id),
     assetId: String(row.asset_id),
@@ -242,6 +261,7 @@ function toPublication(row: PublicationRow): ShariahPublicationRecord {
     publishedAt: row.published_at,
     publishedBy: row.published_by,
     evidenceIds: (row.evidence_ids ?? []).map(String),
+    source: toPublicationSource(row.source),
   };
 }
 

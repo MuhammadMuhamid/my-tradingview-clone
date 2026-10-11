@@ -16,14 +16,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QueryResult, QueryResultRow } from "pg";
-import { TS_SHARIAH_V1 } from "../src/shariah/policy";
+import { TS_SHARIAH_V1, TS_SHARIAH_V1_INTERPRETATION_RULES } from "../src/shariah/policy";
 import {
   DEFAULT_REVIEW_BATCH_SIZE, REVIEW_PACK_FORMAT, REVIEW_RESULTS_FORMAT,
-  buildReviewPack, selectReviewBatch, type ReviewPackSource,
+  buildReviewPack, parseAssetIdSelection, selectReviewBatch, unknownAssetIds,
+  type ReviewPackSource,
 } from "../src/shariah/reviewPack";
 import {
-  ShariahReviewImportError, composeReason, importShariahReviewResults,
-  parseReviewResults, validateAgainstRegistry, type ImportRegistryAsset,
+  ShariahReviewImportError, assertUncertaintiesAcknowledged, composeReason,
+  importShariahReviewResults, parseAcknowledgedAssetIds, parseReviewResults,
+  requiresUncertaintyAcknowledgement, validateAgainstRegistry, type ImportRegistryAsset,
 } from "../src/shariah/reviewImport";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -369,11 +371,14 @@ test("a STALE asset cannot be reconfirmed with research predating the staleness 
 /** Records every statement so "which writes happened, in what order" is checkable. */
 class RecordingClient {
   readonly statements: string[] = [];
+  /** Parameters by statement, so "what was written" is checkable, not only "which statement". */
+  readonly params: unknown[][] = [];
   private nextId = 100;
   /** Evidence rows this client has "inserted", so the ownership check below is real. */
   private readonly inserted: string[] = [];
-  async query<T extends QueryResultRow = QueryResultRow>(sql: string): Promise<QueryResult<T>> {
+  async query<T extends QueryResultRow = QueryResultRow>(sql: string, values: unknown[] = []): Promise<QueryResult<T>> {
     this.statements.push(sql.trim());
+    this.params.push(values);
     const empty = { rowCount: 0, command: "", oid: 0, fields: [] };
     if (/FROM shariah_asset_binance_mappings m/.test(sql)) {
       return { ...empty, rows: [{ asset_id: "1", base_asset: "AAA", binance_available: true,
@@ -464,4 +469,150 @@ test("the published reason carries the researched answers, not just the verdict"
   const reason = composeReason(parsed.results[0]!);
   assert.match(reason, /Rights \/ economic exposure: No equity, dividend or debt claim\./);
   assert.match(reason, /Evidence sufficiency:/);
+});
+
+// ── 10: ELIGIBLE with unresolved uncertainties needs a per-asset sign-off ───
+//
+// TS_SHARIAH_V1: "Mixed, significant, or unclear materiality resolves to
+// REVIEW." An ELIGIBLE that lists what it could not settle is that conflict on
+// the face of the file. The system does not reclassify it — that would be the
+// system classifying — but it must not publish inside a one-click batch
+// approval unless the operator named that asset.
+
+const uncertainEligible = (): Record<string, unknown> => document({
+  results: [result({ unresolvedUncertainties: ["Treasury use of funds is undisclosed."] })],
+});
+
+test("the policy text this gate rests on is the policy's own rule", () => {
+  assert.ok((TS_SHARIAH_V1_INTERPRETATION_RULES as readonly string[]).includes(
+    "Mixed, significant, or unclear materiality resolves to REVIEW."));
+});
+
+test("an ELIGIBLE with unresolved uncertainties is refused without an acknowledgement, writing nothing", async () => {
+  const client = new RecordingClient();
+  let caught: unknown;
+  try {
+    await importShariahReviewResults(client, { document: uncertainEligible(), publishedBy: "owner" });
+  } catch (error) { caught = error; }
+  assert.ok(caught instanceof ShariahReviewImportError, `expected a refusal, got ${caught}`);
+  const issue = caught.issues.find((i) => i.field === "unresolvedUncertainties");
+  assert.ok(issue, "the refusal does not name the field the operator must act on");
+  assert.equal(issue.assetId, "1");
+  assert.equal(issue.baseAsset, "AAA");
+  assert.match(issue.message, /resolves mixed, significant or unclear materiality to REVIEW/);
+  assert.equal(matching(client, /^INSERT/).length, 0, "an unacknowledged ELIGIBLE wrote rows");
+  assert.equal(matching(client, /^BEGIN$/).length, 0, "an unacknowledged ELIGIBLE opened a transaction");
+});
+
+test("an acknowledged ELIGIBLE publishes, and the acknowledgement is in the immutable reason", async () => {
+  const client = new RecordingClient();
+  const summary = await importShariahReviewResults(client, {
+    document: uncertainEligible(), publishedBy: "owner", acknowledgedAssetIds: ["1"],
+  });
+  assert.equal(summary.importedCount, 1);
+  assert.equal(matching(client, /^INSERT INTO shariah_publications/).length, 1);
+  assert.equal(matching(client, /^COMMIT$/).length, 1);
+
+  // The reason the immutable history row actually received ($4 = reason).
+  const at = client.statements.findIndex((s) => s.startsWith("INSERT INTO shariah_publications"));
+  const writtenReason = String(client.params[at]![3]);
+  assert.match(writtenReason, /Treasury use of funds is undisclosed\./);
+  assert.match(writtenReason,
+    /explicitly acknowledged these unresolved uncertainties before publishing ELIGIBLE/);
+
+  // An unacknowledged reason never claims one.
+  const parsed = parseReviewResults(uncertainEligible());
+  assert.doesNotMatch(composeReason(parsed.results[0]!), /acknowledged/);
+});
+
+test("an acknowledgement must name exactly the rows that need one", () => {
+  const plain = parseReviewResults(document());
+  // Nothing in this file needs an acknowledgement, so any is a blanket "yes".
+  rejects(() => assertUncertaintiesAcknowledged(plain, ["1"]),
+    /not an ELIGIBLE result with unresolved uncertainties/);
+  rejects(() => assertUncertaintiesAcknowledged(plain, ["999"]),
+    /acknowledgement must name exactly the rows/);
+  assert.doesNotThrow(() => assertUncertaintiesAcknowledged(plain, []));
+});
+
+test("REVIEW and EXCLUDED may list uncertainties without any acknowledgement", () => {
+  const review = parseReviewResults(document({ results: [result({
+    classification: "REVIEW", evidence: [], unresolvedUncertainties: ["Unclear whether lending is core."],
+  })] }));
+  assert.equal(requiresUncertaintyAcknowledgement(review.results[0]!), false);
+  assert.doesNotThrow(() => assertUncertaintiesAcknowledged(review, []));
+  const excluded = parseReviewResults(document({ results: [result({
+    classification: "EXCLUDED", prohibitedCategories: ["GAMBLING_BETTING_CASINO"],
+    unresolvedUncertainties: ["Revenue split not published."],
+  })] }));
+  assert.equal(requiresUncertaintyAcknowledgement(excluded.results[0]!), false);
+});
+
+test("the researched file cannot acknowledge its own uncertainties", () => {
+  rejects(() => parseReviewResults({ ...uncertainEligible(), acknowledgedAssetIds: ["1"] }),
+    /unrecognised top-level field "acknowledgedAssetIds"/);
+  rejects(() => parseReviewResults(document({ results: [result({
+    unresolvedUncertainties: ["x"], acknowledged: true,
+  })] })), /unrecognised field "acknowledged"/);
+});
+
+test("the acknowledgement list is read strictly", () => {
+  assert.deepEqual(parseAcknowledgedAssetIds(undefined), []);
+  assert.deepEqual(parseAcknowledgedAssetIds(""), []);
+  assert.deepEqual(parseAcknowledgedAssetIds("1, 22"), ["1", "22"]);
+  assert.deepEqual(parseAcknowledgedAssetIds(["1", "22,3"]), ["1", "22", "3"]);
+  rejects(() => parseAcknowledgedAssetIds("1,BTC"), /must be numeric asset ids/);
+  rejects(() => parseAcknowledgedAssetIds("1,1"), /more than once/);
+  rejects(() => parseAcknowledgedAssetIds("1,"), /must be numeric asset ids/);
+  rejects(() => parseAcknowledgedAssetIds(Array.from({ length: 101 }, (_, i) => String(i + 1)).join(",")),
+    /more than the 100/);
+});
+
+// ── 11: which pack a file answers ───────────────────────────────────────────
+
+test("a file may echo the pack it answers, and a bad echo is refused", () => {
+  assert.equal(parseReviewResults(document()).packGeneratedAt, null);
+  assert.equal(
+    parseReviewResults(document({ packGeneratedAt: "2026-09-01T08:00:00Z" })).packGeneratedAt,
+    "2026-09-01T08:00:00.000Z");
+  rejects(() => parseReviewResults(document({ packGeneratedAt: "yesterday" })),
+    /packGeneratedAt is not a valid timestamp/);
+
+  // And the pack asks for the echo, so a researcher knows to copy it.
+  const pack = buildReviewPack([], {
+    generatedAt: "2026-09-02T00:00:00.000Z", batchSize: 20, needsReviewTotal: 0,
+  });
+  assert.match(pack.resultContract.required.join("\n"), /packGeneratedAt .*generatedAt/);
+  assert.equal(typeof (pack.resultContract.example as { packGeneratedAt?: unknown }).packGeneratedAt, "string");
+  // The example a researcher copies must itself be importable.
+  assert.doesNotThrow(() => parseReviewResults(pack.resultContract.example));
+});
+
+// ── 12: the operator chooses what gets researched ──────────────────────────
+
+test("an explicit selection is exactly those assets, settled and delisted included, in pack priority", () => {
+  const { batch, batchSize, needsReviewTotal } = selectReviewBatch(mixedRegistry(), {
+    assetIds: ["5", "7", "1", "3"], batchSize: 1,
+  });
+  // STALE CCC, then UNSCREENED AAA/FFF by symbol, then settled ZZZ — the same
+  // comparator the queue uses, so the same choice always gives the same pack.
+  assert.deepEqual(batch.map((a) => a.baseAsset), ["CCC", "AAA", "FFF", "ZZZ"]);
+  assert.equal(batchSize, 4, "an explicit selection was truncated to the batch size");
+  // Still the registry's outstanding work, not the size of this pack.
+  assert.equal(needsReviewTotal, selectReviewBatch(mixedRegistry()).needsReviewTotal);
+
+  const reversed = selectReviewBatch([...mixedRegistry()].reverse(), { assetIds: ["3", "1", "7", "5"] });
+  assert.deepEqual(reversed.batch.map((a) => a.assetId), batch.map((a) => a.assetId));
+});
+
+test("an assetIds selection is parsed strictly, and unknown ids are named", () => {
+  assert.deepEqual(parseAssetIdSelection("3,1"), { ok: true, ids: ["3", "1"] });
+  assert.deepEqual(parseAssetIdSelection(["3", "1,2"]), { ok: true, ids: ["3", "1", "2"] });
+  for (const bad of ["", "1,,2", "1,x", "1;DROP", "2,2"]) {
+    assert.equal(parseAssetIdSelection(bad).ok, false, `accepted ${JSON.stringify(bad)}`);
+  }
+  const tooMany = parseAssetIdSelection(Array.from({ length: 101 }, (_, i) => String(i + 1)).join(","));
+  assert.equal(tooMany.ok, false);
+  assert.match((tooMany as { error: string }).error, /more than the 100/);
+  assert.deepEqual(unknownAssetIds(mixedRegistry(), ["1", "404", "3", "405"]), ["404", "405"]);
 });

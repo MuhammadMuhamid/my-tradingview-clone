@@ -26,6 +26,12 @@
  *    own immutable history. This module has no INSERT of its own except the
  *    evidence rows the results themselves supply.
  *
+ * And one rule about the APPROVAL rather than the file: an ELIGIBLE result
+ * that lists unresolved uncertainties publishes only if the operator's import
+ * request acknowledges that asset by id (`assertUncertaintiesAcknowledged`).
+ * The batch approval is one click; this keeps it from being one click over a
+ * conflict nobody saw.
+ *
  * Content is stored and displayed as TEXT. Nothing here evaluates, fetches or
  * executes anything the document contains.
  */
@@ -58,6 +64,14 @@ export interface ReviewImportIssue {
   assetId: string | null;
   baseAsset: string | null;
   message: string;
+  /**
+   * The field the problem is about, when it is one the operator has to act on
+   * rather than the file as a whole (an unacknowledged
+   * `unresolvedUncertainties`, a bad `acknowledgedAssetIds`). Optional: most
+   * issues already name their field in the message, and this is not a schema
+   * path.
+   */
+  field?: string;
 }
 
 /** The six answers, matching `TS_SHARIAH_V1_RESEARCH_QUESTIONS` one-for-one. */
@@ -102,6 +116,13 @@ export interface ImportedResult {
 export interface ParsedReviewResults {
   policyVersion: PolicyVersion;
   researchCompletedAt: string;
+  /**
+   * The `generatedAt` of the pack the researcher says they worked from, when
+   * the file echoes it. Reported, never trusted: it lets the console warn that
+   * a file answers a different pack than the one just downloaded, and it gates
+   * nothing — the registry checks below are the authority.
+   */
+  packGeneratedAt: string | null;
   results: ImportedResult[];
 }
 
@@ -333,6 +354,10 @@ export function parseReviewResults(raw: unknown): ParsedReviewResults {
 
   const documentIssues: string[] = [];
   const researchCompletedAt = timestamp(raw.researchCompletedAt, "researchCompletedAt", documentIssues);
+  // Optional, and validated like every other timestamp when present: an echo
+  // that is not a real instant would make the "different pack" warning lie.
+  const packGeneratedAt = raw.packGeneratedAt === undefined
+    ? null : timestamp(raw.packGeneratedAt, "packGeneratedAt", documentIssues) || null;
   for (const message of documentIssues) doc(message);
 
   const results: ImportedResult[] = [];
@@ -362,7 +387,110 @@ export function parseReviewResults(raw: unknown): ParsedReviewResults {
   }
 
   if (issues.length > 0) throw new ShariahReviewImportError(issues);
-  return { policyVersion: TS_SHARIAH_V1, researchCompletedAt, results };
+  return { policyVersion: TS_SHARIAH_V1, researchCompletedAt, packGeneratedAt, results };
+}
+
+// ── ELIGIBLE with unresolved uncertainties ──────────────────────────────────
+
+/**
+ * Whether a result needs the operator's explicit, per-asset acknowledgement.
+ *
+ * TS_SHARIAH_V1's interpretation rules say "Mixed, significant, or unclear
+ * materiality resolves to REVIEW" (policy.ts). A researcher who answers
+ * ELIGIBLE while listing things they could not settle has, on the face of the
+ * file, left that question open. Not every listed uncertainty is about
+ * materiality — "the team is pseudonymous" may be beside the point — so this
+ * module cannot turn the answer into REVIEW by itself: that would be the
+ * system classifying. What it refuses is for the conflict to go through
+ * UNSEEN inside a batch approval. Publishing it needs a human to have looked
+ * at that one asset's uncertainties and said so, asset by asset.
+ */
+export function requiresUncertaintyAcknowledgement(
+  result: Pick<ImportedResult, "classification" | "unresolvedUncertainties">
+): boolean {
+  return result.classification === "ELIGIBLE" && result.unresolvedUncertainties.length > 0;
+}
+
+/**
+ * Reads the operator's acknowledgement list from the import REQUEST.
+ *
+ * It travels beside the researched document, never inside it: the document is
+ * written by a language model, and a model that could acknowledge its own
+ * uncertainties would make the acknowledgement mean nothing. The results
+ * contract has no such field, and an unrecognised top-level key is already an
+ * error, so a file that tried is refused by `parseReviewResults`.
+ *
+ * Accepts a comma-separated string (one query parameter) or an array (a
+ * repeated parameter). Strict like the rest of this boundary: a malformed id,
+ * a duplicate or an oversized list is an error, not something to tidy up.
+ */
+export function parseAcknowledgedAssetIds(raw: unknown): string[] {
+  if (raw === undefined || raw === null || raw === "") return [];
+  const parts = (Array.isArray(raw) ? raw : [raw]).flatMap((v: unknown) =>
+    typeof v === "string" ? v.split(",") : [v]);
+  const issues: ReviewImportIssue[] = [];
+  const push = (message: string): void => {
+    issues.push({ index: null, assetId: null, baseAsset: null, message, field: "acknowledgedAssetIds" });
+  };
+  const ids: string[] = [];
+  for (const part of parts) {
+    const id = typeof part === "string" ? part.trim() : "";
+    if (!/^[0-9]+$/.test(id)) {
+      push(`acknowledgedAssetIds must be numeric asset ids, got ${JSON.stringify(part)}`);
+      continue;
+    }
+    if (ids.includes(id)) {
+      push(`acknowledgedAssetIds lists ${id} more than once`);
+      continue;
+    }
+    ids.push(id);
+  }
+  if (ids.length > MAX_REVIEW_BATCH_SIZE) {
+    push(`acknowledgedAssetIds has ${ids.length} entries, more than the ${MAX_REVIEW_BATCH_SIZE} ` +
+      "one import can carry");
+  }
+  if (issues.length > 0) throw new ShariahReviewImportError(issues);
+  return ids;
+}
+
+/**
+ * Every ELIGIBLE-with-uncertainties result must be acknowledged, and only
+ * those may be.
+ *
+ * The second half matters as much as the first. An acknowledgement naming an
+ * asset that needs none — or one not in the file at all — is a blanket "yes"
+ * that would silently cover the next file, so it is refused rather than
+ * ignored: the operator's list must describe exactly the rows they looked at.
+ */
+export function assertUncertaintiesAcknowledged(
+  parsed: Pick<ParsedReviewResults, "results">,
+  acknowledgedAssetIds: readonly string[]
+): void {
+  const acknowledged = new Set(acknowledgedAssetIds);
+  const issues: ReviewImportIssue[] = [];
+  const needing = new Set<string>();
+  parsed.results.forEach((result, index) => {
+    if (!requiresUncertaintyAcknowledgement(result)) return;
+    needing.add(result.assetId);
+    if (acknowledged.has(result.assetId)) return;
+    const n = result.unresolvedUncertainties.length;
+    issues.push({
+      index, assetId: result.assetId, baseAsset: result.baseAsset, field: "unresolvedUncertainties",
+      message: `${result.baseAsset} (assetId ${result.assetId}) is ELIGIBLE with ${n} unresolved ` +
+        `uncertaint${n === 1 ? "y" : "ies"}. TS_SHARIAH_V1 resolves mixed, significant or unclear ` +
+        "materiality to REVIEW, so publishing it as ELIGIBLE needs your explicit acknowledgement of " +
+        "this asset's unresolvedUncertainties.",
+    });
+  });
+  for (const id of acknowledged) {
+    if (needing.has(id)) continue;
+    issues.push({
+      index: null, assetId: id, baseAsset: null, field: "acknowledgedAssetIds",
+      message: `acknowledgedAssetIds lists ${id}, which is not an ELIGIBLE result with unresolved ` +
+        "uncertainties in this file — an acknowledgement must name exactly the rows that need one",
+    });
+  }
+  if (issues.length > 0) throw new ShariahReviewImportError(issues);
 }
 
 /**
@@ -497,7 +625,16 @@ export function countByClassification(
  */
 export async function importShariahReviewResults(
   db: ShariahDbClient,
-  options: { document: unknown; publishedBy: string }
+  options: {
+    document: unknown;
+    publishedBy: string;
+    /**
+     * The operator's per-asset acknowledgement of ELIGIBLE results that list
+     * unresolved uncertainties — from the request, never from the document.
+     * See `assertUncertaintiesAcknowledged`.
+     */
+    acknowledgedAssetIds?: readonly string[];
+  }
 ): Promise<ReviewImportSummary> {
   const publishedBy = String(options.publishedBy ?? "").trim();
   if (publishedBy.length === 0) {
@@ -508,6 +645,10 @@ export async function importShariahReviewResults(
   const parsed = parseReviewResults(options.document);
   const registry = await loadImportRegistry(db, parsed.results.map((r) => r.assetId));
   validateAgainstRegistry(parsed, registry);
+  // Before BEGIN, like every other check: one unacknowledged row refuses the
+  // whole batch and opens no transaction.
+  const acknowledged = new Set(options.acknowledgedAssetIds ?? []);
+  assertUncertaintiesAcknowledged(parsed, options.acknowledgedAssetIds ?? []);
 
   const outcomes: ReviewImportOutcome[] = [];
   await db.query("BEGIN");
@@ -538,7 +679,7 @@ export async function importShariahReviewResults(
         assetId: result.assetId,
         policyVersion: TS_SHARIAH_V1,
         classification: result.classification,
-        reason: composeReason(result),
+        reason: composeReason(result, { uncertaintiesAcknowledged: acknowledged.has(result.assetId) }),
         prohibitedCategories: result.prohibitedCategories,
         evidenceIds,
         reviewedAt: parsed.researchCompletedAt,
@@ -574,7 +715,10 @@ export async function importShariahReviewResults(
  * immutable history records WHY, not just WHAT. Plain text — the answers are
  * stored and rendered as text and are never interpreted.
  */
-export function composeReason(result: ImportedResult): string {
+export function composeReason(
+  result: ImportedResult,
+  options: { uncertaintiesAcknowledged?: boolean } = {}
+): string {
   const parts = [result.reason, "", "TS_SHARIAH_V1 review answers:",
     `- Project: ${result.answers.project}`,
     `- Token function: ${result.answers.tokenFunction}`,
@@ -585,6 +729,16 @@ export function composeReason(result: ImportedResult): string {
   if (result.unresolvedUncertainties.length > 0) {
     parts.push("", "Unresolved uncertainties:",
       ...result.unresolvedUncertainties.map((u) => `- ${u}`));
+    /*
+     * The acknowledgement is provenance, so it goes into the immutable history
+     * with the decision it qualified. Without this line a later reader would
+     * see an ELIGIBLE beside open questions and could not tell a considered
+     * call from one nobody looked at.
+     */
+    if (options.uncertaintiesAcknowledged && requiresUncertaintyAcknowledgement(result)) {
+      parts.push("", "The publishing operator explicitly acknowledged these unresolved " +
+        "uncertainties before publishing ELIGIBLE.");
+    }
   }
   return parts.join("\n");
 }

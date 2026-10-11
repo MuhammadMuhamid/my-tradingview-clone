@@ -37,11 +37,12 @@ import {
 } from "../../shariah/publication";
 import { createShariahUniverseSnapshot } from "../../shariah/snapshot";
 import {
-  DEFAULT_REVIEW_BATCH_SIZE, buildReviewPack, normalizeBatchSize, selectReviewBatch,
-  type ReviewPackSource,
+  DEFAULT_REVIEW_BATCH_SIZE, buildReviewPack, normalizeBatchSize, parseAssetIdSelection,
+  selectReviewBatch, unknownAssetIds, type ReviewPackSource,
 } from "../../shariah/reviewPack";
 import {
-  ShariahReviewImportError, importShariahReviewResults, previewShariahReviewResults,
+  ShariahReviewImportError, importShariahReviewResults, parseAcknowledgedAssetIds,
+  previewShariahReviewResults, requiresUncertaintyAcknowledgement,
 } from "../../shariah/reviewImport";
 import {
   getShariahMode, isShariahMode, setShariahMode, type ShariahMode,
@@ -98,6 +99,16 @@ export async function shariahRoutes(
     recordModeChange?: typeof shariah.recordShariahModeChange;
     /** Binance SPOT metadata, injectable so the sync is provable without a network call. */
     exchangeSymbols?: () => Promise<readonly BinanceSpotSymbolMeta[]>;
+    /**
+     * The registry reads the review-pack route makes, injectable so its
+     * selection rules (explicit ids, unknown ids refused, deterministic
+     * order) are provable without PostgreSQL. Production uses the repository.
+     */
+    reviewPackReads?: {
+      listAllAssets?: typeof shariah.listAllAssets;
+      loadReviewPackContext?: typeof shariah.loadReviewPackContext;
+      getReviewPolicy?: typeof getShariahReviewPolicy;
+    };
   } = {}
 ): Promise<void> {
   const connect = dependencies.connect ?? (() => pool.connect());
@@ -107,6 +118,12 @@ export async function shariahRoutes(
   const readMode = dependencies.mode?.get ?? getShariahMode;
   const writeMode = dependencies.mode?.set ?? setShariahMode;
   const recordModeChange = dependencies.recordModeChange ?? shariah.recordShariahModeChange;
+  const packReads = {
+    listAllAssets: dependencies.reviewPackReads?.listAllAssets ?? shariah.listAllAssets,
+    loadReviewPackContext:
+      dependencies.reviewPackReads?.loadReviewPackContext ?? shariah.loadReviewPackContext,
+    getReviewPolicy: dependencies.reviewPackReads?.getReviewPolicy ?? getShariahReviewPolicy,
+  };
 
   /** The whole registry, including delisted assets (`binanceAvailable: false`). */
   app.get("/api/shariah/universe", async () => {
@@ -359,11 +376,41 @@ export async function shariahRoutes(
    * identity, position or unrelated database state. It is written to be handed
    * to a third party.
    */
-  app.get("/api/shariah/review-pack", async (req) => {
-    const q = req.query as { size?: string; includeSettled?: string; includeUnavailable?: string };
+  app.get("/api/shariah/review-pack", async (req, reply) => {
+    const q = req.query as {
+      size?: string; includeSettled?: string; includeUnavailable?: string;
+      assetIds?: string | string[];
+    };
+    /*
+     * `assetIds` is the operator choosing WHAT gets researched, rather than
+     * taking the next twenty in queue order. Everything about it is refused
+     * loudly before any registry read: a malformed or duplicate id, more than
+     * one pack can carry, or a `size` beside it — a size smaller than the
+     * selection would silently drop assets the operator picked by name.
+     */
+    let explicitIds: string[] | undefined;
+    if (q.assetIds !== undefined) {
+      const selection = parseAssetIdSelection(q.assetIds);
+      if (!selection.ok) return reply.code(400).send({ error: selection.error });
+      if (q.size !== undefined) {
+        return reply.code(400).send({
+          error: "assetIds and size cannot be combined: an explicit selection is the whole pack",
+        });
+      }
+      explicitIds = selection.ids;
+    }
     const [assets, reviewPolicy] = await Promise.all([
-      shariah.listAllAssets(), getShariahReviewPolicy(),
+      packReads.listAllAssets(), packReads.getReviewPolicy(),
     ]);
+    if (explicitIds) {
+      const unknown = unknownAssetIds(assets, explicitIds);
+      if (unknown.length > 0) {
+        return reply.code(400).send({
+          error: `unknown assetIds: ${unknown.join(", ")} — not in the Shariah registry`,
+          unknownAssetIds: unknown,
+        });
+      }
+    }
     const now = Date.now();
     /*
      * A settled decision nobody has revisited in a year is exactly what a
@@ -379,9 +426,10 @@ export async function shariahRoutes(
       includeSettled: q.includeSettled === "true",
       includeUnavailable: q.includeUnavailable === "true",
       dueForReReview,
+      assetIds: explicitIds,
     });
 
-    const { publications, evidence } = await shariah.loadReviewPackContext(batch.map((a) => a.assetId));
+    const { publications, evidence } = await packReads.loadReviewPackContext(batch.map((a) => a.assetId));
     return buildReviewPack(
       batch.map((asset) => ({
         ...asset,
@@ -396,6 +444,12 @@ export async function shariahRoutes(
    * Dry run. Validates the researched file against the live registry and
    * reports what WOULD be published, so the operator sees the counts and any
    * problems before approving. Writes nothing.
+   *
+   * It returns the WHOLE of each decision — reason, the six answers, every
+   * evidence citation, the uncertainties — because this is the last look
+   * before up to a hundred immutable publications. It used to return a name,
+   * an evidence count and a status, so the "review" step was a rubber stamp:
+   * the operator approved verdicts whose grounds they had no way to read.
    */
   app.post("/api/shariah/review-results/preview", async (req, reply) => {
     const client = await connect();
@@ -404,12 +458,21 @@ export async function shariahRoutes(
       return {
         policyVersion: parsed.policyVersion,
         researchCompletedAt: parsed.researchCompletedAt,
+        packGeneratedAt: parsed.packGeneratedAt,
         assetCount: parsed.results.length,
         counts,
+        /** The assets the import request must acknowledge, in file order. */
+        acknowledgementRequired: parsed.results
+          .filter(requiresUncertaintyAcknowledgement).map((r) => r.assetId),
         results: parsed.results.map((r) => ({
           assetId: r.assetId, baseAsset: r.baseAsset, classification: r.classification,
+          reason: r.reason, answers: r.answers,
           prohibitedCategories: r.prohibitedCategories, evidenceCount: r.evidence.length,
+          evidence: r.evidence.map((e) => ({
+            url: e.url, title: e.title, publisher: e.publisher, retrievedAt: e.retrievedAt, note: e.note,
+          })),
           unresolvedUncertainties: r.unresolvedUncertainties,
+          requiresAcknowledgement: requiresUncertaintyAcknowledgement(r),
         })),
       };
     } catch (error) {
@@ -427,13 +490,31 @@ export async function shariahRoutes(
    * the whole researched batch — the operator approves 20 assets once, not 20
    * times — and every decision in it goes through the same publication
    * authority a hand-entered one does.
+   *
+   * `?acknowledgedAssetIds=` is the operator's per-asset sign-off on ELIGIBLE
+   * results that list unresolved uncertainties. It is a request parameter, not
+   * a document field, because the document was written by a model and must
+   * not be able to acknowledge itself. A missing or surplus acknowledgement
+   * refuses the whole import with a 400 naming the asset and the field.
    */
   app.post("/api/shariah/review-results/import", async (req, reply) => {
     const publishedBy = operatorIdentity(req);
     if (!publishedBy) return reply.code(401).send({ error: "not authenticated" });
+    let acknowledgedAssetIds: string[];
+    try {
+      acknowledgedAssetIds = parseAcknowledgedAssetIds(
+        (req.query as { acknowledgedAssetIds?: unknown }).acknowledgedAssetIds);
+    } catch (error) {
+      if (error instanceof ShariahReviewImportError) {
+        return reply.code(400).send({ error: error.message, issues: error.issues });
+      }
+      throw error;
+    }
     const client = await connect();
     try {
-      const summary = await importShariahReviewResults(client, { document: req.body, publishedBy });
+      const summary = await importShariahReviewResults(client, {
+        document: req.body, publishedBy, acknowledgedAssetIds,
+      });
       return reply.code(201).send(summary);
     } catch (error) {
       if (error instanceof ShariahReviewImportError) {
