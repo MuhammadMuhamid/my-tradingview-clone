@@ -83,6 +83,16 @@ import { tradesThroughHorizon } from "@/lib/tradeChartTransforms";
 /** Stable empty list, so a pane with no fired alerts does not re-render. */
 const NO_FIRED: ChartMarker[] = [];
 const NO_CANDLES: Candle[] = [];
+/*
+ * The strategy marks a Replay hides, as ONE array.
+ *
+ * A fresh `[]` per render re-ran `CandleChart`'s marker effect on every render
+ * of a replaying pane; its `setMarkers` re-positions the crosshair, the
+ * crosshair is published to the workspace, and the workspace re-rendered the
+ * pane — "Maximum update depth exceeded" whenever the pointer was on a chart
+ * in Replay, which is exactly where it is after picking the start bar (B-03).
+ */
+const NO_TRADES: Trade[] = [];
 import { PaneLegend } from "@/components/tv/PaneLegend";
 import { CompareControl, CompareSettings } from "@/components/tv/CompareControl";
 import type { ResolutionPreferences } from "@/components/tv/TimeframePicker";
@@ -1272,7 +1282,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             candles={visibleCandles}
             dataset={history.dataset}
             chartType={pane.chartType}
-            trades={indicators.trades ?? (replayActive ? [] : props.strategyTrades)}
+            trades={indicators.trades ?? (replayActive ? NO_TRADES : props.strategyTrades)}
             marketTrades={tradesThroughHorizon(marketTrades.trades, replay?.horizonCloseTime ?? null)}
             marketTradesError={marketTrades.error}
             priceTick={priceTick}

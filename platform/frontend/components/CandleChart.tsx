@@ -131,7 +131,7 @@ const AXIS_CHIP = "flex h-[22px] w-5 items-center justify-center rounded border 
 /** Said once, in full, where a reader can reach it from the chip. */
 const FOOTPRINT_COVERAGE_HINT = "Bid/ask cells are drawn only from the public execution tape, which the provider serves for a recent window. The remaining bars are shown as ordinary exchange OHLC; no order flow is inferred for them.";
 import {
-  axisPlusButtonOffset, DEFAULT_PRICE_SCALE, pointerOnPriceAxis, PRICE_SCALE_RECONCILE_EVENT, priceScaleLabel,
+  axisPlusButtonOffset, changedScaleOptions, DEFAULT_PRICE_SCALE, pointerOnPriceAxis, PRICE_SCALE_RECONCILE_EVENT, priceScaleLabel,
   priceScaleModeLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, togglePercentScale, togglePriceScaleAuto,
   togglePriceScaleMode, type PriceScaleState,
@@ -1228,6 +1228,12 @@ export function CandleChart({
   const timeIndexRef = useRef<Map<number, number>>(new Map());
   const hoverTimeRef = useRef<number | null>(null);
   /**
+   * B-04: end this pane's hover — crosshair, legend, study readouts and the
+   * cross-pane broadcast — as the library's own pointer-leave does. Set by the
+   * chart-creating effect, which owns the closures it needs.
+   */
+  const endHoverRef = useRef<() => void>(() => {});
+  /**
    * Callback refs. The chart is created once in an effect that must not
    * re-run when a parent re-renders with a new closure, so the subscriptions
    * read through these instead of capturing the props directly.
@@ -1604,11 +1610,21 @@ export function CandleChart({
      */
     const side = settings.scalePlacement === "left" ? "left" : "right";
     try {
-      chart.priceScale(side).applyOptions({
-        mode: LIBRARY_SCALE_MODE[scale.mode],
-        autoScale: scale.autoScale,
-        invertScale: scale.invert === true,
-      });
+      /*
+       * B-07: only what differs. Re-sending an unchanged `mode` makes the
+       * library recompute the range from the data, so recording a drag's
+       * `autoScale: false` (W2D-06) used to undo the drag it recorded — see
+       * `changedScaleOptions`.
+       */
+      const current = chart.priceScale(side).options();
+      const delta = changedScaleOptions(
+        { mode: current.mode, autoScale: current.autoScale, invertScale: current.invertScale },
+        {
+          mode: LIBRARY_SCALE_MODE[scale.mode],
+          autoScale: scale.autoScale,
+          invertScale: scale.invert === true,
+        });
+      if (Object.keys(delta).length > 0) chart.priceScale(side).applyOptions(delta);
     } catch { /* the chart went away between render and effect */ }
   }, [scale, settings.scalePlacement, chartReady]);
 
@@ -2543,6 +2559,15 @@ export function CandleChart({
       const i = timeIndexRef.current.get(raw);
       setLegend(i === undefined ? latestLegend() : legendAtCanonical(i));
     });
+
+    endHoverRef.current = () => {
+      if (guard.disposed) return;
+      chart.clearCrosshairPosition();
+      hoverTimeRef.current = null;
+      setIndicatorHoverTime((current) => current === null ? current : null);
+      onCrosshairRef.current?.(null);
+      setLegend(latestLegend());
+    };
 
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       // A range we just applied ourselves would otherwise bounce back to the
@@ -3930,12 +3955,63 @@ export function CandleChart({
    * programmatically. Attached to the host element rather than to the library
    * so it fires even when the pointer leaves across the axis.
    */
+  /*
+   * B-04: and the HOVER with it, wherever the pointer ends up.
+   *
+   * After a drag-pan the library does not always deliver its own leave:
+   * released and moved off the chart, the crosshair stayed on the bar the drag
+   * began at and the legend kept that bar's values until the pointer came back
+   * in and left again. The reference clears on the way out. So leaving the
+   * host — by `pointerleave` or `mouseleave` — ends the hover in full, not just
+   * the drawn crosshair (`clearCrosshairPosition` raises no event, so on its
+   * own it left the legend and the cross-pane broadcast on the old bar).
+   *
+   * A press that began here and is RELEASED outside the host ends it too, and
+   * so does the pointer leaving the window while it was over this chart. Both
+   * are scoped to this pane, so a click in a neighbouring pane never clears a
+   * crosshair that pane is mirroring from it.
+   */
   useEffect(() => {
     const host = containerRef.current;
     if (!host || chartReady === 0) return;
-    const clear = (): void => { chartRef.current?.clearCrosshairPosition(); };
-    host.addEventListener("pointerleave", clear);
-    return () => host.removeEventListener("pointerleave", clear);
+    let inside = false;
+    let pressedHere = false;
+    const end = (): void => { endHoverRef.current(); };
+    const enter = (): void => { inside = true; };
+    const leave = (): void => { inside = false; end(); };
+    const press = (): void => { pressedHere = true; };
+    const release = (event: MouseEvent): void => {
+      if (!pressedHere) return;
+      pressedHere = false;
+      const box = host.getBoundingClientRect();
+      const outside = event.clientX < box.left || event.clientX >= box.right
+        || event.clientY < box.top || event.clientY >= box.bottom;
+      if (outside) { inside = false; end(); }
+    };
+    const leaveWindow = (): void => { if (inside) { inside = false; end(); } };
+    const root = host.ownerDocument.documentElement;
+    host.addEventListener("pointerenter", enter);
+    host.addEventListener("mouseenter", enter);
+    host.addEventListener("pointerleave", leave);
+    host.addEventListener("mouseleave", leave);
+    host.addEventListener("pointerdown", press, true);
+    host.addEventListener("mousedown", press, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("mouseup", release, true);
+    root.addEventListener("mouseleave", leaveWindow);
+    window.addEventListener("blur", leaveWindow);
+    return () => {
+      host.removeEventListener("pointerenter", enter);
+      host.removeEventListener("mouseenter", enter);
+      host.removeEventListener("pointerleave", leave);
+      host.removeEventListener("mouseleave", leave);
+      host.removeEventListener("pointerdown", press, true);
+      host.removeEventListener("mousedown", press, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("mouseup", release, true);
+      root.removeEventListener("mouseleave", leaveWindow);
+      window.removeEventListener("blur", leaveWindow);
+    };
   }, [chartReady]);
 
   /** Adopt the other pane's exact visible span (date-range sync). */
@@ -4586,6 +4662,7 @@ export function CandleChart({
               hidden={drawingsHidden}
               styleFocusSignal={drawingStyleFocusSignal}
               active={paneActive}
+              picking={Boolean(onBarSelect)}
             />
           )}
         </>

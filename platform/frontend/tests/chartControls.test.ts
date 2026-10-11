@@ -28,7 +28,7 @@ import {
   PRICE_SCALE_MODES, priceScaleAfterManualScale, priceScaleLabel, resetPriceScale,
   scaleShowsPrices, setPriceScaleAuto, setPriceScaleMode, togglePercentScale,
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
-  AXIS_PLUS_CLEARANCE, axisPlusButtonOffset, pointerOnPriceAxis,
+  AXIS_PLUS_CLEARANCE, axisPlusButtonOffset, changedScaleOptions, pointerOnPriceAxis,
 } from "../lib/priceScale";
 import {
   availableRangeShortcuts, loadedWindow, MIN_BARS_IN_RANGE, RANGE_SHORTCUTS,
@@ -1135,4 +1135,23 @@ test("REGRESSION — the transform still reads only replay-visible input", () =>
   assert.deepEqual(whole, prefix);
   const longer = transformAll("renko", source).output;
   assert.deepEqual(longer.slice(0, whole.length), whole);
+});
+
+/*
+ * B-07: lightweight-charts 4.2 recomputes the price range from the data on ANY
+ * `mode` it is handed, the same mode included — so a write-back that re-sent
+ * the unchanged mode after a price-axis drag undid the drag. Only what
+ * differs may be sent.
+ */
+test("B-07: the scale write-back never re-sends an option the library already has", () => {
+  const dragged = { mode: 0, autoScale: false, invertScale: false };
+  // The reconcile recording the drag: the library already says all of it.
+  assert.deepEqual(changedScaleOptions(dragged, { ...dragged }), {},
+    "re-sending the unchanged mode resets a dragged price range");
+  // A real change sends that change and nothing else.
+  assert.deepEqual(changedScaleOptions(dragged, { ...dragged, autoScale: true }), { autoScale: true });
+  assert.deepEqual(changedScaleOptions(dragged, { ...dragged, mode: 1 }), { mode: 1 });
+  assert.deepEqual(changedScaleOptions(dragged, { ...dragged, invertScale: true }), { invertScale: true });
+  assert.deepEqual(changedScaleOptions(dragged, { mode: 2, autoScale: true, invertScale: true }),
+    { mode: 2, autoScale: true, invertScale: true });
 });

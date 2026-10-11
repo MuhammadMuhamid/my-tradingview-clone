@@ -294,6 +294,7 @@ export function DrawingCanvas({
   container, chart, series, candles, interval,
   tool, onToolDone, drawings, onChange, magnet, locked, hidden,
   onSelectionChange, onContextMenu, onOpenSettings, styleFocusSignal, active = true,
+  picking = false,
 }: {
   container: HTMLDivElement | null;
   chart: IChartApi | null;
@@ -359,12 +360,27 @@ export function DrawingCanvas({
    * fix is for the inactive panes to decline it.
    */
   active?: boolean;
+  /**
+   * B-03: the chart is asking "which bar?" (Bar replay's Select bar).
+   *
+   * Every left-click then answers that question, wherever it lands. A press on
+   * a drawing used to select it — and stop the event in the capture phase —
+   * so the chart's click never reached the picker, the floating style bar
+   * appeared, and Start replayed from the picker's default bar instead of the
+   * one clicked. The reference makes drawings unselectable in that mode, and
+   * so does this: while picking the layer neither hit-tests, hovers, selects,
+   * drags, creates nor opens settings. Drawings are still DRAWN.
+   */
+  picking?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
   useEffect(() => { onSelectionChangeRef.current?.(selected); }, [selected]);
+  // B-03: arming the bar picker drops a selection, so no style bar sits over
+  // the bars being picked from.
+  useEffect(() => { if (picking) setSelected(null); }, [picking]);
   const [style, setStyle] = useState(DEFAULT_STYLE);
 
   // Refs mirror state for use inside the imperative pointer/raf handlers.
@@ -378,6 +394,7 @@ export function DrawingCanvas({
   const styleRef = useRef(style);
   const lockedRef = useRef(locked);
   const hiddenRef = useRef(hidden);
+  const pickingRef = useRef(picking);
   const magnetRef = useRef(magnet);
   drawingsRef.current = drawings;
   selectedRef.current = selected;
@@ -385,6 +402,7 @@ export function DrawingCanvas({
   styleRef.current = style;
   lockedRef.current = locked;
   hiddenRef.current = hidden;
+  pickingRef.current = picking;
   magnetRef.current = magnet;
 
   const onChangeRef = useRef(onChange);
@@ -760,7 +778,7 @@ export function DrawingCanvas({
     };
 
     const onDown = (e: MouseEvent): void => {
-      if (e.button !== 0 || hiddenRef.current) return;
+      if (e.button !== 0 || hiddenRef.current || pickingRef.current) return;
       const p = rectOf(e);
       if (!inPlot(p)) return;
       const t = toolRef.current;
@@ -867,7 +885,9 @@ export function DrawingCanvas({
         e.stopPropagation();
         return;
       }
-      if (isCursorMode(toolRef.current) && !hiddenRef.current) {
+      if (pickingRef.current) {
+        hoverRef.current = null;
+      } else if (isCursorMode(toolRef.current) && !hiddenRef.current) {
         const hit = hitTest(p);
         hoverRef.current = hit?.id ?? null;
         container.style.cursor = hit ? "pointer" : "";
@@ -945,6 +965,7 @@ export function DrawingCanvas({
     };
 
     const onDouble = (e: MouseEvent): void => {
+      if (pickingRef.current) return;
       const draft = draftRef.current;
       if (draft && TOOL_POINTS[draft.tool] === 0 && draft.points.length >= 2) {
         commit(draft.tool, draft.points);
@@ -963,7 +984,7 @@ export function DrawingCanvas({
      * is the dialog's and not a drag's.
      */
     const doublePress = (e: MouseEvent): boolean => {
-      if (e.button !== 0 || hiddenRef.current) return false;
+      if (e.button !== 0 || hiddenRef.current || pickingRef.current) return false;
       // A tool in hand is drawing, not editing: two clicks are two points.
       if (!isCursorMode(toolRef.current)) { lastPress = null; return false; }
       const p = rectOf(e);

@@ -389,6 +389,50 @@ await page.mouse.up();
 await page.waitForTimeout(1500);
 check("panes", "a pan raises no 'Maximum update depth' error", depthErrors.length === 0, `${depthErrors.length}`);
 
+// ── Price axis: a drag SCALES it (B-07) ────────────────────────────────────
+// At fb59851 the drag switched auto-fit off and left the range exactly where
+// it was. The span is read from the main series' own coordinate conversion,
+// found by duck-typing the price chart's React refs (names are minified in a
+// production build), so candles and live ticks cannot move the reading.
+const axisSpan = () => page.evaluate(() => {
+  const host = document.querySelector("[data-pane-id] .tv-lightweight-charts")?.parentElement;
+  const key = host && Object.keys(host).find((k) => k.startsWith("__reactFiber$"));
+  for (let f = key ? host[key] : null; f; f = f.return) {
+    for (let h = f.memoizedState; h && typeof h === "object" && "next" in h; h = h.next) {
+      const v = h.memoizedState && h.memoizedState.current;
+      if (v && typeof v.coordinateToPrice === "function" && typeof v.seriesType === "function"
+        && v.seriesType() === "Candlestick") {
+        return Math.abs(v.coordinateToPrice(100) - v.coordinateToPrice(400));
+      }
+    }
+  }
+  return null;
+});
+const axisBox = await page.evaluate(() => {
+  const host = document.querySelector("[data-pane-id] .tv-lightweight-charts");
+  const cell = host && host.querySelector("tr:first-child > td:nth-child(3)");
+  const r = cell && cell.getBoundingClientRect();
+  return r && r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height * 0.4 } : null;
+});
+const spanBefore = await axisSpan();
+if (axisBox) {
+  await page.mouse.move(axisBox.x, axisBox.y);
+  await page.mouse.down();
+  await page.mouse.move(axisBox.x, axisBox.y + 200, { steps: 12 });
+  await page.mouse.up();
+  await page.mouse.move(5, 880);
+  await page.waitForTimeout(600);
+}
+const spanAfter = await axisSpan();
+check("price scale", "an axis drag changes the visible price span",
+  spanBefore !== null && spanAfter !== null && Math.abs(spanAfter - spanBefore) > spanBefore * 0.05,
+  `${spanBefore} → ${spanAfter}`);
+if (axisBox) {
+  await page.mouse.dblclick(axisBox.x, axisBox.y); // the library's reset back to auto
+  await page.waitForTimeout(400);
+  await page.mouse.move(5, 880);
+}
+
 // ── Compare: opens on a starting list, immediately ─────────────────────────
 await page.getByRole("button", { name: "Compare with another instrument" }).first().click();
 await page.waitForTimeout(900);

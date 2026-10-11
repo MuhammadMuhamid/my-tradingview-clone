@@ -241,8 +241,10 @@ test("THE REPLAY CHIP UN-PRESSES, AND SO DOES THE KEYBOARD", async () => {
   assert.ok(screen.queryByRole("button", { name: "Exit Replay" }));
 
   // Pressing the pressed chip leaves.
+  console.error("S3");
   fireEvent.click(replayChip(chart));
   await settle();
+  console.error("S4");
   assertAbsent(screen.queryByRole("button", { name: "Exit Replay" }),
     "pressing a pressed toggle must release it");
   assert.equal(replayChip(chart).getAttribute("aria-pressed"), "false");
@@ -303,4 +305,76 @@ test("THE ISOLATION WARNING LIVES ON THE EXIT TOOLTIP", async () => {
 
   const exit = screen.getByRole("button", { name: "Cancel Replay" });
   assert.match(exit.getAttribute("title") ?? "", /saved drawings and live actions are isolated/i);
+});
+
+/**
+ * B-03: in Select-bar mode every click picks the bar — a drawing under the
+ * pointer is not selectable.
+ *
+ * Reproduced by an independent reviewer: with the picker armed, clicking a bar
+ * whose pixel lay on (or within hit tolerance of) a drawing selected the
+ * drawing — its floating style bar appeared — because the drawing layer's
+ * capture-phase press stopped the event before the chart's click reached the
+ * picker. The picker kept its default bar, so Start replayed from the wrong
+ * one. The reference makes drawings inert while it is asking "which bar?".
+ */
+test("B-03 — PICKING A BAR THAT A DRAWING CROSSES PICKS THE BAR, NOT THE DRAWING", async () => {
+  /*
+   * And the session it starts does not re-render itself to death. Picking the
+   * bar leaves the pointer on a replaying chart, which is where a fresh `[]`
+   * of hidden strategy marks per render fed the crosshair back into the pane
+   * ("Maximum update depth exceeded", and a hung page under test).
+   */
+  const original = console.error;
+  let loops = 0;
+  console.error = (...args: unknown[]) => {
+    if (String(args[0]).includes("Maximum update depth")) loops++;
+    original(...args);
+  };
+  try {
+    const chart = await mountChart();
+    /*
+     * The press lands on the price pane's own top canvas — the element
+     * lightweight-charts listens on — so the library's click detection runs
+     * unmodified and the drawing layer sees it on the way down, as in a browser.
+     */
+    const paneCanvas = (): HTMLElement => {
+      const canvas = chart.plot.querySelector<HTMLElement>(
+        "tr:first-child > td:nth-child(2) canvas:nth-of-type(2)");
+      assert.ok(canvas, "the price pane has no top canvas");
+      return canvas;
+    };
+    const pressAt = async (x: number, y: number) => {
+      const target = paneCanvas();
+      fireEvent.mouseMove(target, { clientX: x, clientY: y, bubbles: true });
+      fireEvent.mouseDown(target, { button: 0, clientX: x, clientY: y, bubbles: true });
+      fireEvent.mouseUp(target, { button: 0, clientX: x, clientY: y, bubbles: true });
+      await settle();
+    };
+    await selectTool(chart.container, "Horizontal line");
+    await pressAt(400, 300);
+    assert.equal(drawingStore.get(SYMBOL).length, 1, "the fixture needs one drawing");
+    await selectTool(chart.container, "Cross");
+    // Outside the picker the same press DOES select the line.
+    await pressAt(700, 302);
+    assert.ok(document.querySelector("[data-drawing-style-bar]"),
+      "the fixture's press must land on the line, or this proves nothing");
+
+    fireEvent.click(replayChip(chart));
+    await settle();
+    assertAbsent(document.querySelector("[data-drawing-style-bar]"),
+      "arming the picker leaves no drawing selected");
+
+    // Two pixels off the line: inside its hit radius.
+    await pressAt(700, 302);
+
+    assertAbsent(document.querySelector("[data-drawing-style-bar]"),
+      "the press selected the drawing instead of picking the bar");
+    assert.ok(screen.queryByRole("button", { name: "Exit Replay" }),
+      "the click on the bar must start the replay there — it never reached the picker");
+    await advance(2_000);
+    assert.equal(loops, 0, "a replay picked from the chart re-renders itself in a loop");
+  } finally {
+    console.error = original;
+  }
 });

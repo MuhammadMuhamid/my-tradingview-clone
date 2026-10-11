@@ -202,6 +202,35 @@ export function requestPriceScaleReconcile(): void {
   window.dispatchEvent(new window.Event(PRICE_SCALE_RECONCILE_EVENT));
 }
 
+/** The three price-scale options the chart writes, in the library's terms. */
+export interface LibraryScaleOptions<M = number> {
+  mode: M;
+  autoScale: boolean;
+  invertScale: boolean;
+}
+
+/**
+ * B-07: only the options that DIFFER from what the library already has.
+ *
+ * lightweight-charts 4.2 treats a `mode` in `applyOptions` as a mode change
+ * even when it is the same mode: `setMode` marks the price range invalid, and
+ * the next read recomputes it from the data — the auto-fit range — whatever
+ * `autoScale` says. So when the W2D-06 reconcile recorded a drag's
+ * `autoScale: false` and the chart wrote the scale back, re-sending the
+ * unchanged `mode` threw the dragged range away: autoScale off, `reset`
+ * offered, and the axis exactly where it was before the drag. An option that
+ * is already what we want is therefore never sent.
+ */
+export function changedScaleOptions<M>(
+  current: LibraryScaleOptions<M>, next: LibraryScaleOptions<M>,
+): Partial<LibraryScaleOptions<M>> {
+  const out: Partial<LibraryScaleOptions<M>> = {};
+  if (current.mode !== next.mode) out.mode = next.mode;
+  if (current.autoScale !== next.autoScale) out.autoScale = next.autoScale;
+  if (current.invertScale !== next.invertScale) out.invertScale = next.invertScale;
+  return out;
+}
+
 export function togglePriceScaleAuto(state: PriceScaleState): PriceScaleState {
   return setPriceScaleAuto(state, !state.autoScale);
 }
