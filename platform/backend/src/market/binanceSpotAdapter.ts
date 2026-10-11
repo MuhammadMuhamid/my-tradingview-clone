@@ -13,7 +13,7 @@ import type { MarketDataProviderAdapter, TickerObservation } from "./provider";
 export interface BinanceSpotAdapterDependencies {
   listSymbols(): Promise<ExchangeSymbol[]>;
   metadata(symbols: string[]): Promise<SymbolMetadata[]>;
-  candles(symbol: string, interval: Interval, startMs: number, endMs: number): Promise<Candle[]>;
+  candles(symbol: string, interval: Interval, startMs: number, endMs: number, signal?: AbortSignal): Promise<Candle[]>;
   tickers(symbols: readonly string[]): Promise<Ticker24h[]>;
   trades?(symbol: string, startMs: number, endMs: number, limit: number): Promise<import("./provider").TradeObservation[]>;
 }
@@ -152,7 +152,9 @@ export function createBinanceSpotAdapter(deps: BinanceSpotAdapterDependencies): 
       pagination: { maxPageSize: 1000, direction: "forward" },
       stream: { support: "supported", origins: BINANCE_SPOT_PROFILE.streamOrigins,
         protocol: "url_subscription", topic: "{symbol}@kline_{interval}" },
-      fetch: (symbol, interval, startMs, endMs) => deps.candles(symbol, interval, startMs, endMs),
+      // `fetchKlines` drops the still-forming kline (see `klinePages`).
+      closedBarsOnly: true,
+      fetch: (symbol, interval, startMs, endMs, signal) => deps.candles(symbol, interval, startMs, endMs, signal),
     },
     ticker: {
       availability: supported(),

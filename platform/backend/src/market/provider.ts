@@ -150,6 +150,13 @@ export interface MarketDataProviderAdapter {
     resolutions: readonly Interval[];
     pagination: CandlePaginationPolicy;
     stream: StreamContract;
+    /**
+     * True only when `fetch` never returns a bar that has not closed. The
+     * candle cache may then answer a window without asking the provider at
+     * all until the next bar boundary; without it, the tail is re-read on
+     * every request so a forming bar is always fresh. See `candleCache.ts`.
+     */
+    closedBarsOnly?: boolean;
     fetch(providerSymbol: string, interval: Interval, startMs: number, endMs: number,
       signal?: AbortSignal): Promise<Candle[]>;
   };

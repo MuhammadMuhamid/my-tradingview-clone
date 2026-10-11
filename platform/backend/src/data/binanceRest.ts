@@ -11,6 +11,7 @@ import {
   inspectCandleIntegrity, issueCounts,
   type CandleIntegrityState,
 } from "./candleIntegrity";
+import { RequestPacer } from "./requestPacer";
 
 /**
  * Public Spot market-data origin, read per request so a process can be pointed
@@ -24,22 +25,60 @@ function base(): string {
 const PAGE_LIMIT = 1000;
 const PAGE_DELAY_MS = 150;
 
+/**
+ * How many pages of ONE window `fetchKlines` keeps in flight. Ten covers the
+ * chart's default 10,000-bar request in a single round trip; the process-wide
+ * bound below is what actually protects the provider.
+ */
+export const KLINE_WINDOW_CONCURRENCY = 10;
+
+/**
+ * Every `/api/v3/klines` request in the process goes through this pace.
+ *
+ * Binance budgets REQUEST_WEIGHT per IP (6,000 per minute at the time of
+ * writing, reported by `/api/v3/exchangeInfo`), and a 1,000-bar klines page
+ * costs 2. Twenty requests per second sustained is 2,400 weight a minute — 40%
+ * of the budget even if the process did nothing but page klines — with a
+ * 40-request burst so a few charts loading at once (ten pages each) do not
+ * queue behind the bucket. Before this, each caller paced only itself, so N
+ * concurrent backfills meant N times the rate; now the rate is the process's.
+ *
+ * The budget is also shared with everything else this address asks Binance
+ * for, so the pacer listens to Binance's own count: once a response reports
+ * `X-MBX-USED-WEIGHT-1M` at or above `USED_WEIGHT_SOFT_LIMIT`, kline paging
+ * waits for the next minute's budget instead of spending the last of this one.
+ */
+export const klinePacer = new RequestPacer({ maxConcurrent: 12, ratePerSecond: 20, burst: 40 });
+export const USED_WEIGHT_SOFT_LIMIT = 4_800;
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-async function getJson(url: string, attempt = 0): Promise<unknown> {
+async function getJson(url: string, attempt = 0, pacer?: RequestPacer,
+  signal?: AbortSignal): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    const timeout = AbortSignal.timeout(20_000);
+    res = await fetch(url, { signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
   } catch (err) {
-    if (attempt >= 4) throw err;
+    // A caller that went away is not a transient failure to retry.
+    if (signal?.aborted || attempt >= 4) throw err;
     await sleep(Math.min(8_000, 500 * 2 ** attempt));
-    return getJson(url, attempt + 1);
+    return getJson(url, attempt + 1, pacer, signal);
+  }
+  if (pacer) {
+    const used = Number(res.headers.get("x-mbx-used-weight-1m"));
+    if (Number.isFinite(used) && used >= USED_WEIGHT_SOFT_LIMIT) {
+      pacer.pauseUntil((Math.floor(Date.now() / 60_000) + 1) * 60_000 + 1_000);
+    }
   }
   if (res.status === 429 || res.status === 418) {
     const retryAfter = Number(res.headers.get("retry-after") ?? "5");
     if (attempt >= 4) throw new Error(`Binance rate limit persisted: ${res.status}`);
-    await sleep((retryAfter + 1) * 1000);
-    return getJson(url, attempt + 1);
+    const waitMs = ((Number.isFinite(retryAfter) ? retryAfter : 5) + 1) * 1000;
+    // The budget is the address's, so every paced caller waits, not just this one.
+    pacer?.pauseUntil(Date.now() + waitMs);
+    await sleep(waitMs);
+    return getJson(url, attempt + 1, pacer, signal);
   }
   if (!res.ok) {
     throw new Error(`Binance ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -107,13 +146,14 @@ async function* klinePages(
   interval: Interval,
   startMs: number,
   endMs: number,
-  pageLimit: number
+  pageLimit: number,
+  signal?: AbortSignal
 ): AsyncGenerator<Candle[]> {
   let cursor = startMs;
   while (cursor <= endMs) {
     const url = `${base()}/api/v3/klines?symbol=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}` +
       `&startTime=${cursor}&endTime=${endMs}&limit=${pageLimit}`;
-    const rows = (await getJson(url)) as RawKline[];
+    const rows = (await klinePacer.run(() => getJson(url, 0, klinePacer, signal), signal)) as RawKline[];
     if (rows.length === 0) return;
     /*
      * ── A bar that has not closed is not a bar ────────────────────────────
@@ -157,22 +197,76 @@ async function* klinePages(
     if (page.length > 0) yield page;
     const lastOpen = rows[rows.length - 1]![0];
     cursor = lastOpen + INTERVAL_MS[interval];
-    if (rows.length < pageLimit) return;
+    // A full page that already reached the bound is the last page: sleeping
+    // before discovering that cost every window an extra 150 ms.
+    if (rows.length < pageLimit || cursor > endMs) return;
     await sleep(PAGE_DELAY_MS);
   }
 }
 
+/**
+ * Split [startMs, endMs] into consecutive windows of at most `barsPerWindow`
+ * bars each. Every bar's open time falls in exactly one window — they are
+ * contiguous and disjoint — so concatenating the windows' bars in order is the
+ * same series a single forward walk would have produced: no gap, no duplicate.
+ */
+export function klineWindows(startMs: number, endMs: number, stepMs: number,
+  barsPerWindow = PAGE_LIMIT): Array<{ startMs: number; endMs: number }> {
+  if (!(stepMs > 0) || !(barsPerWindow >= 1) || startMs > endMs) return [];
+  const span = stepMs * barsPerWindow;
+  const windows: Array<{ startMs: number; endMs: number }> = [];
+  for (let from = startMs; from <= endMs; from += span) {
+    windows.push({ startMs: from, endMs: Math.min(endMs, from + span - 1) });
+  }
+  return windows;
+}
+
+/**
+ * Every closed bar in [startMs, endMs], oldest first.
+ *
+ * The window is cut into page-sized pieces that are fetched together (at most
+ * `KLINE_WINDOW_CONCURRENCY` at a time, and always inside `klinePacer`), then
+ * joined in order. Each piece still walks `klinePages`, so a piece that somehow
+ * holds more than one page continues by cursor exactly as before. Measured on
+ * the chart's 10,000-bar 15m load against the public mirror: ten serial pages
+ * plus nine 150 ms sleeps took ~3.4 s; ten pages in flight over a warm
+ * connection pool take ~0.25 s.
+ *
+ * `signal` abandons the pages not yet sent (and aborts those in flight), so a
+ * chart that switched away stops spending the shared pace on a window nobody
+ * will draw.
+ */
 export async function fetchKlines(
   symbol: string,
   interval: Interval,
   startMs: number,
-  endMs: number
+  endMs: number,
+  signal?: AbortSignal
 ): Promise<Candle[]> {
-  const out: Candle[] = [];
   const ticker = assertSymbol(symbol);
-  for await (const page of klinePages(ticker, interval, startMs, endMs, PAGE_LIMIT)) {
-    for (const candle of page) out.push(candle);
-  }
+  const windows = klineWindows(startMs, endMs, INTERVAL_MS[interval]);
+  const pieces: Candle[][] = new Array(windows.length);
+  let next = 0;
+  let failed = false;
+  const worker = async (): Promise<void> => {
+    // One failed piece fails the window; the other workers stop taking pieces
+    // rather than spending the provider's budget on a result nobody will read.
+    while (!failed && next < windows.length) {
+      const index = next++;
+      const window = windows[index]!;
+      const rows: Candle[] = [];
+      try {
+        for await (const page of klinePages(ticker, interval, window.startMs, window.endMs, PAGE_LIMIT, signal)) {
+          for (const candle of page) rows.push(candle);
+        }
+      } catch (error) { failed = true; throw error; }
+      pieces[index] = rows;
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(KLINE_WINDOW_CONCURRENCY, windows.length) }, () => worker()));
+  const out: Candle[] = [];
+  for (const piece of pieces) for (const candle of piece) out.push(candle);
   const integrity = inspectCandleIntegrity(out, {
     symbol: ticker,
     interval,

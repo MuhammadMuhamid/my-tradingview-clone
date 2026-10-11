@@ -2,6 +2,9 @@ import type {
   MarketDataProviderAdapter, ProviderHealthSnapshot, ProviderHealthState,
 } from "./provider";
 import type { CanonicalInstrument } from "./model";
+import type { Candle, Interval } from "../types/market";
+import { INTERVAL_MS } from "../types/market";
+import { ProviderCandleCache, type CandleCacheOptions, type CandleCacheResult } from "./candleCache";
 
 interface MutableHealth {
   consecutiveFailures: number;
@@ -15,6 +18,12 @@ export class ProviderRegistry {
   private readonly healthByProvider = new Map<string, MutableHealth>();
   private readonly catalogCache = new Map<string, { expiresAt: number; value: readonly CanonicalInstrument[] }>();
   private readonly catalogInflight = new Map<string, Promise<readonly CanonicalInstrument[]>>();
+  /** Closed provider bars held between chart requests; one per registry. */
+  readonly candleCache: ProviderCandleCache;
+
+  constructor(options: { candleCache?: CandleCacheOptions } = {}) {
+    this.candleCache = new ProviderCandleCache(options.candleCache);
+  }
 
   register(provider: MarketDataProviderAdapter): void {
     const id = provider.id.toLowerCase();
@@ -50,6 +59,10 @@ export class ProviderRegistry {
       health.rateLimitedUntil = null;
       return value;
     } catch (error) {
+      // A caller that went away (a chart switching symbol) says nothing about
+      // the provider; counting it would mark a healthy venue unavailable after
+      // three quick switches.
+      if (error instanceof Error && error.name === "AbortError") throw error;
       health.consecutiveFailures += 1;
       health.lastFailureAt = now;
       const retryAfterMs = typeof error === "object" && error !== null &&
@@ -80,6 +93,28 @@ export class ProviderRegistry {
     }).finally(() => this.catalogInflight.delete(id));
     this.catalogInflight.set(id, request);
     return request;
+  }
+
+  /**
+   * A provider's bars for [startMs, endMs] through the candle cache.
+   *
+   * Every provider fetch the cache decides to make still goes through `call`,
+   * so health and rate-limit state see it; an answer served from held bars
+   * makes no provider call and so says nothing about the provider's health.
+   */
+  async candles(providerId: string, venueId: string, providerSymbol: string, interval: Interval,
+    startMs: number, endMs: number, signal?: AbortSignal): Promise<CandleCacheResult> {
+    const provider = this.get(providerId);
+    if (!provider) throw new Error(`provider is not registered: ${providerId}`);
+    return this.candleCache.read({
+      venueId, providerId: provider.id, providerSymbol, interval, stepMs: INTERVAL_MS[interval],
+      startMs, endMs, closedBarsOnly: provider.candles.closedBarsOnly === true,
+      // The caller's own signal. Reads of one series are serialised, never
+      // shared, so an abandoned read fails only itself: the next reader of the
+      // same series then makes its own fetch, and nothing half-read is stored.
+      fetch: (from, to): Promise<Candle[]> => this.call(provider.id, (registered) =>
+        registered.candles.fetch(providerSymbol, interval, from, to, signal)),
+    });
   }
 
   clearCatalog(providerId?: string): void {

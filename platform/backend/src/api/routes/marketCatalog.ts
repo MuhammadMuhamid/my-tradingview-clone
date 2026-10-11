@@ -318,8 +318,13 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
           ? { ...compact(named, canonicalId, requestedInterval), marketData: semantics }
           : { symbol: canonicalId, interval: requestedInterval, bars: named, marketData: semantics };
       }
-      const rows = await registry.call(provider.id, (registered) =>
-        registered.candles.fetch(mapping!.providerSymbol, plan.source, startMs, endMs, controller.signal));
+      // Through the candle cache (B-08): a warm switch is served from held
+      // closed bars and re-reads only what may have closed since; a cold one
+      // fetches the window's pages together. See `market/candleCache.ts`.
+      const cached = await registry.candles(provider.id, canonicalVenue(canonicalId) ?? provider.id,
+        mapping.providerSymbol, plan.source, startMs, endMs, controller.signal);
+      reply.header("x-candle-cache", cached.outcome);
+      const rows = cached.rows;
       const folded = foldBars(rows, plan).filter((row) => row.openTime >= requestedStartMs && row.openTime <= endMs);
       const named = folded.slice(-limit).map((row) => ({ ...row, symbol: canonicalId })) as Candle[];
       const completeness = candleCompleteness(named, Math.max(requestedStartMs, startMs), endMs, plan.ms,
