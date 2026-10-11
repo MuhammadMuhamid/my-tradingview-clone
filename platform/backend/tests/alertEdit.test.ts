@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { alertPatchHandler, patternSettingsSnapshot } from "../src/api/routes/maAlerts";
-import { AlertConflictError, type MaAlertPatch } from "../src/repositories/maAlerts";
+import { AlertConflictError, patchColumns, type MaAlertPatch } from "../src/repositories/maAlerts";
 import {
   alertRequestFromRow, EDITABLE_CONDITION_FIELDS, mergeConditionRequest,
 } from "../src/alerts/alertEdit";
@@ -410,4 +410,30 @@ test("every family exposes at least one editable field", () => {
       `${kind} would open an editor with nothing in it`
     );
   }
+});
+
+// ── C-02: an edited gate list reaches the column the runner reads ──────────
+
+test("C-02 — editing gates writes the `filters` list, and removing them clears it", async () => {
+  /*
+   * Every gate edit through the dialog or the bulk editor returned 200 and a
+   * success toast while `updateAlert` wrote only the legacy flat columns: the
+   * patch-to-column map had no `filters` entry. The runner reads `filters`
+   * first whenever it is non-null, so the alert kept running its OLD rule.
+   * This drives the real endpoint and the real map, end to end short of SQL.
+   */
+  const gates = [
+    { kind: "rsi", length: 50, level: 50, side: "above" },
+    { kind: "ma", type: "ema", length: 200, side: "above" },
+  ];
+  const edited = await patch({ filters: gates }, ROWS.sr_zone);
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  const cols = patchColumns(edited.call!.patch);
+  assert.ok(typeof cols.filters === "string", "the gate list was not written at all");
+  assert.deepEqual(JSON.parse(cols.filters as string).map((g: { kind: string }) => g.kind), ["rsi", "ma"]);
+
+  const removed = await patch({ filters: [] }, ROWS.sr_zone);
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.ok("filters" in patchColumns(removed.call!.patch), "removing every gate left the old list in place");
+  assert.equal(patchColumns(removed.call!.patch).filters, null, "no gates is NULL (ungated), never []");
 });

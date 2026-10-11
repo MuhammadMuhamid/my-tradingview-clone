@@ -549,7 +549,33 @@ const PATCH_COLUMNS: Record<string, string> = {
   filterStMultiplier: "filter_st_multiplier",
   filterStAtrMethod: "filter_st_atr_method",
   filterStSide: "filter_st_side",
+  // C-02: the gate LIST, which is what the reader trusts first. Without it an
+  // edit wrote only the legacy flat columns, `conditionFromRow` kept reading the
+  // old list, and a gate added, changed or removed in the editor — or by bulk
+  // edit — was silently not the rule the alert ran, behind a success toast.
+  filters: "filters",
 };
+
+/**
+ * The columns one patch writes, and their values.
+ *
+ * Pure, so the mapping — which is where C-02 lived — is tested without a
+ * database. `filters` is stored as JSON text, exactly as creation stores it;
+ * an empty or null list is NULL (ungated), never `[]`.
+ */
+export function patchColumns(patch: MaAlertPatch): Record<string, unknown> {
+  const cols: Record<string, unknown> = {};
+  for (const [key, column] of Object.entries(PATCH_COLUMNS)) {
+    const value = (patch as Record<string, unknown>)[key];
+    if (value === undefined) continue;
+    if (key === "symbol") cols[column] = String(value).toUpperCase();
+    else if (key === "filters") {
+      cols[column] = value === null || (Array.isArray(value) && value.length === 0)
+        ? null : JSON.stringify(value);
+    } else cols[column] = value;
+  }
+  return cols;
+}
 
 /**
  * An edit that would collide with another alert on the same per-kind unique
@@ -576,11 +602,7 @@ export class AlertConflictError extends Error {
  * alert ever reached a phone?" are all recorded against.
  */
 export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAlertRow | null> {
-  const cols: Record<string, unknown> = {};
-  for (const [key, column] of Object.entries(PATCH_COLUMNS)) {
-    const value = (patch as Record<string, unknown>)[key];
-    if (value !== undefined) cols[column] = key === "symbol" ? String(value).toUpperCase() : value;
-  }
+  const cols = patchColumns(patch);
   // Re-enabling a retired once_only alert must actually re-arm it. Otherwise the
   // UI shows an enabled alert that can never fire.
   if (patch.enabled === true) cols.completed_at = null;
