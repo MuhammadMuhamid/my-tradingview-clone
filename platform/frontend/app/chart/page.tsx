@@ -137,7 +137,7 @@ import { pushDrawings, syncDrawings } from "@/lib/chartStateSync";
 import { usePaneCandleOverlays } from "@/lib/useCandleOverlay";
 import { usePaneClassicalOverlays } from "@/lib/useClassicalPatterns";
 import {
-  activeReplayQuote, advanceReplay, liveActionsDisabled, reconcileReplay, replayCandles,
+  advanceReplay, liveActionsDisabled, reconcileReplay, replayCandles,
   replayClockDelay, replayClockTick, startReplay, startReplayClock, stepReplay,
   type ReplaySession, type ReplaySpeed,
 } from "@/lib/replay";
@@ -3153,7 +3153,6 @@ export default function TvWorkspace() {
           }
         }}
         onSymbolsChanged={refreshSymbols}
-        replayQuote={activeReplayQuote(candles, replay)}
         objects={objects}
         onOpenAutomation={openAutomation}
         indicators={activeIndicators}

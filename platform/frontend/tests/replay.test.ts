@@ -8,7 +8,7 @@ const readSource = (rel: string): string =>
 import type { Candle } from "../lib/types";
 import type { Drawing } from "../lib/drawings";
 import {
-  REPLAY_CONTEXT_BARS, REPLAY_SPEEDS, activeReplayQuote, barsToCoverReplay,
+  REPLAY_CONTEXT_BARS, REPLAY_SPEEDS, barsToCoverReplay,
   drawingsAtReplayHorizon, lastBarIndexAtOrBefore, liveActionsDisabled,
   reconcileReplay, replayCandles,
   replayCoverage, replayDelayMs, replayTick, startReplay, stepReplay,
@@ -47,11 +47,9 @@ test("start at historical N isolates every future price and active-symbol value"
     [1, 2, 3],
   );
   assert.equal(visible.at(-1)?.closeTime, replay.horizonCloseTime);
-  assert.deepEqual(activeReplayQuote(candles, replay), {
-    last: 3,
-    chg: 1,
-    chgPct: 50,
-  });
+  // B-05: the replayed price is the chart's alone. The watchlist used to be
+  // handed a "replay quote" for the active row; it now stays live during a
+  // Replay, as the reference's does, so there is no such value to pin.
 });
 
 test("Next and Previous move exactly one actual bar and recompute derived values", () => {

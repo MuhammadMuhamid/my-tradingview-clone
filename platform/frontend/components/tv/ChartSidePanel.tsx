@@ -27,7 +27,6 @@ import type { NativeStudiesApi } from "@/lib/useNativeStudies";
 import type { AppliedIndicator } from "@/lib/indicators";
 import type { IndicatorsApi } from "@/lib/useIndicators";
 import type { MaType } from "@/lib/movingAverages";
-import type { ReplayQuote } from "@/lib/replay";
 import type { SymbolInfo } from "@/lib/types";
 import type { IndicatorKind } from "@/components/tv/IndicatorAlertModal";
 import { canonicalDisplayParts, isCanonicalInstrumentId } from "@/lib/instrument";
@@ -62,7 +61,6 @@ export interface ChartSidePanelProps {
   onAddSymbolCompare?: (symbol: string) => void;
   canOpenNewPane?: boolean;
   onSymbolsChanged: () => void;
-  replayQuote: ReplayQuote | null;
 
   /** Real focused-pane state for the combined Objects / Data window panel. */
   objects: ObjectsDataPanelProps;
@@ -210,7 +208,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           {props.panel === "watchlist" && (
             <Watchlist symbols={props.symbols} selected={props.symbol}
               onSelect={props.onSelectSymbol}
-              onSymbolsChanged={props.onSymbolsChanged} replayQuote={props.replayQuote}
+              onSymbolsChanged={props.onSymbolsChanged}
               onOpenInNewPane={props.onOpenSymbolInNewPane}
               onAddAlert={props.onAddSymbolAlert}
               onAddCompare={props.onAddSymbolCompare}

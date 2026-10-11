@@ -39,7 +39,6 @@ import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { AssetMark, WatchlistDetails, type MarketLine } from "@/components/tv/WatchlistDetails";
 import { WatchlistAddBox } from "@/components/tv/WatchlistAddBox";
 
-type Ticker = Pick<WatchlistTicker, "last" | "chg" | "chgPct" | "stale" | "changeKnown">;
 type NamedWatchlist = ServerWatchlist;
 
 /**
@@ -346,7 +345,7 @@ function PanelMenu({ entries, label, width, onClose, onSelect, className = "" }:
 }
 
 export function Watchlist({
-  symbols, selected, onSelect, onSymbolsChanged, replayQuote = null,
+  symbols, selected, onSelect, onSymbolsChanged,
   onOpenInNewPane, onAddAlert, onAddCompare, canOpenNewPane = false, replayActive = false,
   onHide,
 }: {
@@ -354,7 +353,6 @@ export function Watchlist({
   selected: string;
   onSelect: (symbol: string) => void;
   onSymbolsChanged: () => void;
-  replayQuote?: Ticker | null;
   /**
    * The row's right-click actions. Facts about the WORKSPACE — whether another
    * pane can be opened, whether Replay is running — so they arrive as props;
@@ -1416,7 +1414,14 @@ export function Watchlist({
               {!collapsed.includes(section.label) && section.rows.map((s) => {
                 const identity = canonicalDisplayParts(s.symbol);
                 const selectedRow = s.symbol === selected;
-                const t = selectedRow && replayQuote ? replayQuote : tickers[s.symbol];
+                /*
+                 * B-05: the LIVE quote, Replay or not. The selected row used
+                 * to show the replay horizon's bar while the details panel
+                 * under it showed the market — two prices for one instrument
+                 * in one rail. The reference keeps the watchlist live during a
+                 * Replay; the replayed price is on the chart, where it belongs.
+                 */
+                const t = tickers[s.symbol];
                 const up = t ? t.chgPct >= 0 : true;
                 const known = Boolean(t) && t!.changeKnown !== false;
                 const changeClass = known ? (up ? "text-up" : "text-down") : "text-ink-faint";
@@ -1609,8 +1614,6 @@ export function Watchlist({
                           /* F-01: a value can never paint outside its track.
                              `fitDecimals` above keeps it from needing to. */
                           className="overflow-hidden whitespace-nowrap text-right tabular"
-                          title={column === "last" && selectedRow && replayQuote
-                            ? "Replay price at the current historical horizon" : undefined}
                         >
                           {column === "last"
                             ? <TickDigits text={text} className={tone} />

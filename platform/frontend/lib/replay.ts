@@ -245,29 +245,15 @@ export function canStepReplay(
   return current < end;
 }
 
-export interface ReplayQuote {
-  last: number;
-  chg: number;
-  chgPct: number;
-}
-
-/** The active symbol's only price readout while Replay is active. */
-export function activeReplayQuote(
-  candles: readonly Candle[],
-  session: ReplaySession | null,
-): ReplayQuote | null {
-  if (!session) return null;
-  const visible = replayCandles(candles, session);
-  const last = visible[visible.length - 1];
-  if (!last) return null;
-  const basis = visible[visible.length - 2]?.close ?? last.open;
-  const chg = last.close - basis;
-  return {
-    last: last.close,
-    chg,
-    chgPct: basis === 0 ? 0 : (chg / basis) * 100,
-  };
-}
+/*
+ * B-05: there is no "replay quote" for the watchlist any more.
+ *
+ * `activeReplayQuote` used to give the replayed symbol's watchlist row the
+ * horizon bar's price and change, while the details panel under that row kept
+ * the live market — so the right rail printed two prices for one instrument.
+ * The reference keeps the watchlist live during a Replay, and so does this:
+ * the replayed price is the chart's, and only the chart's.
+ */
 
 /** Persisted drawings have no creation provenance, so Replay V1 never shows them. */
 export function drawingsAtReplayHorizon(
