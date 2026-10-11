@@ -311,6 +311,8 @@ function PanelMenu({ entries, label, width, onClose, onSelect, className = "" }:
               role={entry.radio ? "menuitemradio" : entry.checked === undefined
                 ? "menuitem" : "menuitemcheckbox"}
               aria-checked={entry.checked}
+              /* The ✓ below is this row's state; no inverted chip as well. */
+              data-check-mark={entry.checked !== undefined ? "" : undefined}
               disabled={entry.disabled}
               aria-disabled={entry.disabled || undefined}
               title={entry.disabled ? entry.disabledReason : undefined}
@@ -320,9 +322,9 @@ function PanelMenu({ entries, label, width, onClose, onSelect, className = "" }:
                   : entry.destructive ? "text-down" : "text-ink"}`}
             >
               <span className="min-w-0 truncate">{entry.label}</span>
-              {/* A check is state told in a mark as well as in a chip: a
-                  selected row's inverted ground is invisible to a reader who
-                  cannot see it. */}
+              {/* The check IS the state: a toggle row wears no inverted chip
+                  (`data-check-mark` above), as on the reference, so several
+                  ticked rows never read as several selected ones. */}
               <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">
                 {entry.checked && (
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"

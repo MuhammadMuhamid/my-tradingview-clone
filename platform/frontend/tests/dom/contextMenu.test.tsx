@@ -283,3 +283,36 @@ test("every enabled item in the chart menu is answered by a handler", async () =
   await settle();
   assert.ok(screen.getByRole("button", { name: "Object tree and Data window" }));
 });
+
+test("a ticked toggle row says so with its check, not with the selected chip", async () => {
+  /*
+   * Live Premium's price-axis menu opens `Auto (fits data to screen) ✓` and
+   * `Regular ✓` as two plain rows. Ours painted every `aria-checked="true"`
+   * row as the inverted selection chip, so the same menu opened with two rows
+   * that each looked selected. A row that draws its own ✓ is marked
+   * `data-check-mark`, which is what `globals.css` excludes from the chip; a
+   * plain verb row is not a toggle and carries no mark.
+   */
+  const chart = await mountChart();
+  await rightClickAt(chart.plot, AXIS_X, PLOT.y);
+  const menu = document.querySelector<HTMLElement>('[role="menu"]');
+  assert.ok(menu, "the axis menu did not open");
+  const row = (name: RegExp): HTMLElement => {
+    const found = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+      .find((el) => name.test(el.textContent ?? ""));
+    assert.ok(found, `no ${name} row`);
+    return found;
+  };
+  for (const name of [/^Auto/, /^Regular/]) {
+    const toggle = row(name);
+    assert.equal(toggle.getAttribute("aria-checked"), "true", `${name} is on by default`);
+    assert.ok(toggle.hasAttribute("data-check-mark"),
+      `${name} is a ticked toggle; without the mark it is painted as the selected row`);
+    assert.ok(toggle.querySelector("svg"), `${name} must draw its ✓, since the fill is gone`);
+  }
+  // An OFF toggle is still a toggle, so it takes the same exemption.
+  assert.ok(row(/^Logarithmic/).hasAttribute("data-check-mark"));
+  assert.ok(!row(/^Reset scale/).hasAttribute("data-check-mark"),
+    "a verb row has no check to stand in for a chip");
+  await press("Escape");
+});

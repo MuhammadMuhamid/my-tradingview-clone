@@ -264,6 +264,17 @@ Every dropdown, flyout and context menu. Popover `--ts-popover` at radius 6
 with `--ts-popover-shadow` and no border; rows 40px inset 6px; a **selected
 row is an inverted chip** (`--ts-menu-selected-bg` on `-ink`), not a tint.
 
+**A checked toggle is not a selected row.** Selection in a list — the interval
+you are on, the chart type, a filter value — is the inverted chip. A checkbox
+or radio row (`Auto (fits data to screen)`, `Regular`, `Compact list`) and a
+switch row (`Autosave`) state themselves with a ✓ in the mark column or with
+the switch's track, and take **no fill**: measured on live Premium's
+price-axis and Manage layouts menus (2026-10-11), where `Auto ✓` and
+`Regular ✓` are both plain rows. One paint for both facts made the axis menu
+open with two rows that each looked selected. A row that draws its own mark
+carries `data-check-mark` (or is `role="switch"`) and `globals.css` excludes
+it from the chip; a row whose fill is its only mark keeps it.
+
 Both `.tv-workstation` and `.ts-app` are inside this grammar — see the
 `:is(…)` guards in `globals.css`. A button must not hover differently
 depending on which page it is on.

@@ -391,6 +391,12 @@ export function ContextMenu({ at, entries, label, onSelect, onClose, width }: Co
         disabled={entry.disabled}
         aria-disabled={entry.disabled || undefined}
         aria-checked={entry.checked}
+        /*
+          A toggle row draws its state as the ✓ in the mark column, so it opts
+          out of the inverted selection chip (`globals.css`, "A CHECKED toggle
+          is not a SELECTED row"). Premium shows `Auto ✓` with no fill.
+        */
+        data-check-mark={entry.checked !== undefined ? "" : undefined}
         aria-haspopup={hasChildren ? "menu" : undefined}
         aria-expanded={hasChildren ? sub?.index === index : undefined}
         // The reason a greyed item is greyed, for a reader as well as a

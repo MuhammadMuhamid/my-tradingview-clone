@@ -138,6 +138,29 @@ test("CONTRACT — the state chip is driven by the ANNOUNCED state", () => {
     "the chip is inset, so adjacent lit controls keep a hairline between them");
 });
 
+test("CONTRACT — a checked toggle row is not painted as the selected row", () => {
+  /*
+   * Live Premium (2026-10-11): the price-axis menu's `Auto ✓` and `Regular ✓`
+   * are plain rows with a check, and Manage layouts' `Autosave` is a track.
+   * Ours painted every `aria-checked="true"` menu row as the inverted
+   * selection chip, so that menu opened with two rows that each looked
+   * selected. The rule that paints the chip must exclude a row that states
+   * its own state — a switch, or a row carrying its ✓ (`data-check-mark`).
+   */
+  const rule = css.match(/([^{}]*\.tvc-menu-row\[aria-checked="true"\][^{}]*)\{([^}]*)\}/);
+  assert.ok(rule, "the menu row's checked-state rule is gone");
+  assert.match(rule![2]!, /--ts-menu-selected-bg/, "this is the rule that paints the chip");
+  // One line per selector; a `,` inside `:not(…)` is not a selector boundary.
+  const checked = rule![1]!.split("\n").find((s) => s.includes('.tvc-menu-row[aria-checked="true"]'))!;
+  assert.match(checked, /\[aria-checked="true"\]:where\(:not\(\[role="switch"\], \[data-check-mark\]\)\)/,
+    "a ticked toggle or a switch row would wear the selected chip as well as its own mark");
+  // Selection in a list keeps the chip: that is the grammar the contract names.
+  assert.match(rule![1]!, /\.tvc-menu-row\[aria-selected="true"\]/);
+  // And the one menu that draws ticks says which rows those are.
+  assert.match(read("components/tv/ContextMenu.tsx"),
+    /data-check-mark=\{entry\.checked !== undefined \? "" : undefined\}/);
+});
+
 test("CONTRACT — the shared grammar reaches the whole product, not only the chart", () => {
   /*
    * These rules were scoped to `.tv-workstation`, so a button on Research

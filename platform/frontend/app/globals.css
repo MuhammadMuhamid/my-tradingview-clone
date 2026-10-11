@@ -580,7 +580,25 @@
 :is(.tv-workstation, .ts-app) .tvc-menu-row[data-cell-row]:hover:not(:disabled):not([aria-disabled="true"]) {
   background-color: transparent;
 }
-:is(.tv-workstation, .ts-app) .tvc-menu-row[aria-checked="true"],
+/*
+ * ── A CHECKED toggle is not a SELECTED row ─────────────────────────────────
+ *
+ * Two different facts had one paint. "This is the interval / chart type /
+ * filter you are on" is selection in a list, and the reference marks it with
+ * the inverted chip. "Auto scale is on", "Regular is the axis mode",
+ * "Autosave is on" are toggles and radios, and the reference marks them with a
+ * ✓ in the mark column (or the switch's own track) and NO fill — measured on
+ * live Premium's price-axis menu and its Manage layouts menu, 2026-10-11. With
+ * one rule for both, the price-axis menu opened with `Auto` and `Regular` both
+ * painted as full white chips, so a menu with nothing hovered showed two rows
+ * that each looked like the selected one.
+ *
+ * So a row that states its own state — a `role="switch"`, or a row marked
+ * `data-check-mark` because it draws the ✓ itself — is excluded here, and only
+ * a row whose fill IS its only mark keeps the chip. `:where()` keeps the
+ * selector's weight where it was, so hover still wins over it as before.
+ */
+:is(.tv-workstation, .ts-app) .tvc-menu-row[aria-checked="true"]:where(:not([role="switch"], [data-check-mark])),
 :is(.tv-workstation, .ts-app) .tvc-menu-row[aria-selected="true"],
 :is(.tv-workstation, .ts-app) .tvc-menu-row[data-active="true"] {
   background-color: var(--ts-menu-selected-bg);
