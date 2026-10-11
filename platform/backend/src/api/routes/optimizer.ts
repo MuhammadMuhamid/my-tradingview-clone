@@ -23,7 +23,7 @@ import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { assertSymbol } from "../../data/binanceRest";
 import {
-  listTrees, optimizerRoot, resolveTree, treeResults,
+  listTrees, resolveTree, treeResults,
   type OptimizerTree,
 } from "../../optimizer/registry";
 import { countsFor, scanRanked, type RankedRecord } from "../../optimizer/resultsIndex";
@@ -108,9 +108,10 @@ function treeSummary(tree: OptimizerTree) {
 }
 
 function notFound(reply: FastifyReply, reason: string, candidates: string[]) {
+  // No `root`: an absolute path on the server's disk is not something a
+  // browser needs, and it told every visitor where the checkout lives.
   return reply.code(404).send({
     error: reason,
-    root: optimizerRoot(),
     availableTrees: candidates,
   });
 }
@@ -152,7 +153,6 @@ export async function optimizerRoutes(app: FastifyInstance): Promise<void> {
    * historical/not-comparable status the UI must show beside its numbers.
    */
   app.get("/api/optimizer/trees", async () => ({
-    root: optimizerRoot(),
     trees: listTrees().map(treeSummary),
   }));
 

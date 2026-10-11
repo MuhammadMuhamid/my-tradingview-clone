@@ -297,9 +297,10 @@ export default function OptimizersPage() {
         )}
         <p className="px-4 pb-2 text-xs text-ink-faint">
           Left of the divider is <strong>in-sample</strong> — the window the optimizer searched.
-          Right is <strong>out-of-sample</strong>, which it never saw. Only trust a row where both
-          halves are green: <span className="text-down">FAILED</span> means the edge did not survive
-          on unseen data.
+          Right is <strong>out-of-sample</strong>: not searched, but the selection rule ranked
+          candidates on it, so it is not unseen data (see above). <span className="text-down">FAILED</span>{" "}
+          means the edge did not hold there; a pass is necessary, not proof — only forward or paper
+          results are.
         </p>
         {/*
           TVP8: the first two were `<Empty>{rawProviderMessage}</Empty>` — the
