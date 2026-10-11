@@ -14,7 +14,10 @@ beforeEach(() => {
 after(closeBrowser);
 
 async function openIndicators(): Promise<HTMLElement> {
-  fireEvent.click(screen.getAllByRole("button", { name: "Indicators" })[0]!);
+  // The toolbar control, by its tooltip: its accessible name carries the
+  // on-chart study count (W2A-13), and the rail cell is also "Indicators".
+  fireEvent.click(screen.getAllByRole("button", { name: /^Indicators/ })
+    .find((b) => b.getAttribute("data-tooltip") === "Indicators, metrics, and strategies")!);
   await settle();
   return screen.getByRole("dialog", { name: "Indicators, metrics, and strategies" });
 }
