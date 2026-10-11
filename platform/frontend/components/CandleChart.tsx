@@ -7,6 +7,7 @@ import {
   BarCountdownPrimitive, chipBackColor, chipTextColor, countdownText,
 } from "@/lib/barCountdown";
 import { PointFigurePrimitive } from "@/lib/pointFigurePrimitive";
+import { VolumeCandlePrimitive } from "@/lib/volumeCandlePrimitive";
 import type { PointFigureColumn } from "@/lib/chartTransforms";
 import {
   createChart, IChartApi, ISeriesApi, Time, UTCTimestamp,
@@ -580,8 +581,12 @@ function addMainSeries(
      * still what the price scale fits, what the crosshair reads and what the
      * legend and the last-price label come from. Drawing a body underneath the
      * marks would be a second, contradictory rendering of the same column.
+     *
+     * Volume candles take the same route (D-F6): their bodies are as wide as
+     * their volume, which no candlestick option can say, so
+     * `VolumeCandlePrimitive` draws them over a transparent series.
      */
-    const invisible = type === "pointAndFigure";
+    const invisible = type === "pointAndFigure" || type === "volumeCandles";
     const clear = "rgba(0,0,0,0)";
     if (invisible) {
       return chart.addCandlestickSeries({
@@ -663,12 +668,6 @@ function addMainSeries(
 function lineStyleOf(style: "solid" | "dotted" | "dashed"): LineStyle {
   return style === "solid" ? LineStyle.Solid
     : style === "dotted" ? LineStyle.Dotted : LineStyle.Dashed;
-}
-
-function volumeCandleColor(candle: Candle, max: number): string {
-  const ratio = max > 0 ? Math.max(0.18, Math.min(1, candle.volume / max)) : 0.5;
-  const alpha = Math.round((0.35 + ratio * 0.6) * 255).toString(16).padStart(2, "0");
-  return candle.close >= candle.open ? `${CHART_UP}${alpha}` : `${CHART_DOWN}${alpha}`;
 }
 
 /**
@@ -2401,7 +2400,7 @@ export function CandleChart({
      * Without this the settings effect painted them straight back in.
      */
     if (chartType === "hollowCandles" || chartType === "highLow"
-      || chartType === "pointAndFigure") return;
+      || chartType === "pointAndFigure" || chartType === "volumeCandles") return;
     const clear = "rgba(0,0,0,0)";
     try {
       (series as ISeriesApi<"Candlestick">).applyOptions({
@@ -2537,11 +2536,10 @@ export function CandleChart({
     const kind = mainKindRef.current;
     const transform = chartTransform(kind);
     const tick = Number.isFinite(priceTick) && (priceTick ?? 0) > 0 ? priceTick! : null;
-    const maxVolume = candles.reduce((max, candle) => Number.isFinite(candle.volume)
-      ? Math.max(max, candle.volume) : max, 0);
+    // A volume candle's series body stays transparent: its colour, own or
+    // Pine's, is painted by `VolumeCandlePrimitive` from `barColorRef`.
     const candleDatum = (c: Candle) =>
-      mainSeriesDatum(kind, c, nextColors.get(c.openTime / 1000)
-        ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
+      mainSeriesDatum(kind, c, isVolumeCandle(kind) ? null : nextColors.get(c.openTime / 1000) ?? null);
     const volumeDatum = (c: Candle) => ({
       time: (c.openTime / 1000) as UTCTimestamp,
       value: c.volume,
@@ -3285,8 +3283,6 @@ export function CandleChart({
 
       const kind = mainKindRef.current;
       const transform = chartTransform(kind);
-      const maxVolume = list.reduce((max, candle) => Number.isFinite(candle.volume)
-        ? Math.max(max, candle.volume) : max, 0);
       /*
        * Footprint joins the live path now that its series holds canonical
        * candles: the forming bar is an ordinary candle like any other, and it
@@ -3306,8 +3302,8 @@ export function CandleChart({
                 ...mainSeriesDatum(kind, c), color: FOOTPRINT_GHOST,
                 wickColor: FOOTPRINT_GHOST, borderColor: FOOTPRINT_GHOST,
               }
-            : mainSeriesDatum(kind, c, barColorRef.current.get(c.openTime / 1000)
-              ?? (isVolumeCandle(kind) ? volumeCandleColor(c, maxVolume) : null));
+            : mainSeriesDatum(kind, c, isVolumeCandle(kind)
+              ? null : barColorRef.current.get(c.openTime / 1000) ?? null);
         /*
          * The repaint is not optional here either.
          *
@@ -3321,8 +3317,7 @@ export function CandleChart({
          */
         updateMainSeries(series, kind, kind === "columns"
           ? { time: timeSec, value: tick.close }
-          : mainSeriesDatum(kind, liveOhlc, override
-            ?? (isVolumeCandle(kind) ? volumeCandleColor(liveBar, maxVolume) : null)), mainHeadRef,
+          : mainSeriesDatum(kind, liveOhlc, isVolumeCandle(kind) ? null : override), mainHeadRef,
           () => setMainSeriesData(series, kind, list.map(liveDatum), mainHeadRef));
       } else if (transform !== null) {
         if ((transform === "kagi" || transform === "pointAndFigure")
@@ -3774,6 +3769,34 @@ export function CandleChart({
    * the crosshair, the legend and the last-price label reading from real data,
    * and leaves this primitive with nothing to own but the painting.
    */
+  /*
+   * D-F6: volume candles, drawn with volume as body WIDTH — see
+   * `lib/volumeCandlePrimitive`. The bars and the per-bar colours are read at
+   * paint time from the chart's own record, so a live tick repaints them in
+   * the same frame as the transparent series it rides on.
+   */
+  const volumeCandleRef = useRef<VolumeCandlePrimitive | null>(null);
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || chartType !== "volumeCandles") return;
+    const primitive = new VolumeCandlePrimitive(
+      () => candlesRef.current, (time) => barColorRef.current.get(time));
+    volumeCandleRef.current = primitive;
+    try { series.attachPrimitive(primitive); }
+    catch { volumeCandleRef.current = null; return; }
+    return () => {
+      volumeCandleRef.current = null;
+      try { series.detachPrimitive(primitive); }
+      catch { /* the series went away first; the primitive went with it */ }
+    };
+  }, [chartReady, chartType]);
+  useEffect(() => {
+    volumeCandleRef.current?.update({
+      up: upColor, down: downColor, wickUp: wickUpColor, wickDown: wickDownColor,
+      body: candleBody, wicks: candleWicks,
+    });
+  }, [chartReady, chartType, upColor, downColor, wickUpColor, wickDownColor, candleBody, candleWicks]);
+
   const pnfRef = useRef<PointFigurePrimitive | null>(null);
   useEffect(() => {
     const series = seriesRef.current;

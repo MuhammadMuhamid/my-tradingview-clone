@@ -136,7 +136,7 @@ export const CHART_TYPES: readonly ChartTypeSpec[] = [
   {
     value: "volumeCandles", label: "Volume candles", group: "presentation",
     renderKind: "candles", transform: null, timeBase: "canonical",
-    hint: "Candles shaded by each bar's traded volume",
+    hint: "Candles as wide as each bar's traded volume",
   },
   {
     value: "line", label: "Line", group: "presentation",
