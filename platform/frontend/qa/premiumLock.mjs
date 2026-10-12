@@ -33,6 +33,7 @@
  * hovers and pans the chart, and resets the side-panel preference it found.
  */
 import { createRequire } from "node:module";
+import { hasExpectedCheckCount } from "./premiumLockContract.mjs";
 
 const { chromium } = createRequire(process.env.QA_PLAYWRIGHT_FROM ?? import.meta.url)("playwright");
 
@@ -45,6 +46,17 @@ const check = (surface, name, ok, detail = "") => {
 // `QA_CHANNEL=chrome` uses an installed Chrome instead of Playwright's own build.
 const browser = await chromium.launch(process.env.QA_CHANNEL ? { channel: process.env.QA_CHANNEL } : {});
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+// A clean browser profile previously had no indicator pane, so its pane
+// controls (and two mandatory assertions) never existed. Seed the persisted
+// RSI study used by a returning production user to make this prerequisite
+// deterministic without changing product defaults.
+await context.addInitScript(() => {
+  if (!localStorage.getItem("tv.nativeStudies.v1")) {
+    localStorage.setItem("tv.nativeStudies.v1", JSON.stringify([{
+      key: "qa-rsi", defId: "rsi", params: {}, visible: true, styles: {},
+    }]));
+  }
+});
 const page = await context.newPage();
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(String(e)));
@@ -294,6 +306,14 @@ if (paneControl) {
     await page.waitForTimeout(300);
   }
 }
+else {
+  // A required prerequisite is itself a failed validation. Keep both named
+  // assertions in the result set so its absence cannot shrink the denominator.
+  check("study pane", "one 24×24 Manage panes button in ink", false,
+    "required study-pane prerequisite missing: no indicator pane controls rendered");
+  check("study pane", "Manage panes: Premium's five 32px rows, 18px glyphs in 28px boxes", false,
+    "required study-pane prerequisite missing: no indicator pane controls rendered");
+}
 
 // ── Series legend: Flag symbol + More, in flow, covering no value ──────────
 // F-02 (2026-10-11): the cluster was a zero-width overlay that painted More
@@ -452,5 +472,8 @@ await browser.close();
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  [${r.surface}] ${r.name}${r.ok ? "" : `  — ${r.detail}`}`);
+if (!hasExpectedCheckCount(results.length)) {
+  console.error(`INCOMPLETE  expected 61 mandatory checks, observed ${results.length}`);
+}
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
-process.exit(failed.length === 0 ? 0 : 1);
+process.exit(failed.length === 0 && hasExpectedCheckCount(results.length) ? 0 : 1);

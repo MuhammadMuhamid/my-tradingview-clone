@@ -11,8 +11,9 @@
  * It is bounded: it drops and recreates the configured test database, applies
  * the real migration set, uses SYNTHETIC base assets only (no real Binance
  * asset is ever classified here), and makes no network call. When no local
- * PostgreSQL is listening on DATABASE_URL the whole file skips with a reason
- * rather than failing — see platform/scripts/db.sh to start one.
+ * PostgreSQL is listening on DATABASE_URL the parent fails with an explicit
+ * environment error rather than reporting a misleading green skip — see
+ * platform/scripts/db.sh to start one.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -96,7 +97,9 @@ async function syncRouteApp(exchangeSymbols: () => Promise<readonly BinanceSpotS
 
 test("SH-2 publication, history and snapshot behaviour on real PostgreSQL", async (t) => {
   const unavailable = await prepareDatabase().catch((error: Error) => error.message);
-  if (unavailable) return t.skip(unavailable);
+  if (unavailable) {
+    throw new Error(`VALIDATION INCOMPLETE: PostgreSQL prerequisite unavailable: ${unavailable}`);
+  }
 
   const client = await pool.connect();
   t.after(async () => { client.release(); await closePool(); });
