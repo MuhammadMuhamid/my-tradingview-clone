@@ -110,7 +110,7 @@ def render() -> str:
                 risk=f.get("risk", "—"),
             ))
         w("")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def main() -> int:
