@@ -282,3 +282,27 @@ heartbeat state drives presence, but the owed result keeps retrying to A only. A
 been revoked, the result would never be sent: it stays in `retained/` with a status line saying so.
 If the disk had also been full, the result would stay in memory with the slot held until
 retention succeeds.
+
+
+## Post-release usability update — 2026-10-12
+
+Research and Helper now state eligibility before pairing/run creation: helpers
+support only the built-in `full3y1h` replay with `topN=1`. Search, Walk-forward,
+Holdout, other replay families and custom definitions run locally. A connected
+helper is not a claim of eligible or active work.
+
+Helping OFF stops **new** work; an active job continues. Drain means finish the
+current job and accept no new work. Profile thresholds govern admission of the
+existing single slot, not per-process CPU/memory caps or preemption.
+
+The result-preservation surface distinguishes durable disk archives from
+memory-only results. Disk archives survive restart but are evidence, not
+accepted progress, and restart does not automatically resume delivery. Memory-only
+results require keeping the Helper process open while freeing storage/fixing
+permissions until retention or delivery succeeds. Retries target the original
+coordinator; replacement pairing does not migrate results. Existing owner,
+revocation, lease and transport safeguards are unchanged.
+
+Distributed Compute includes the concrete package assembly/start handoff, using
+the shipped script. It does not install dependencies or download data simply
+because the page is opened. Terminal provisioning remains a deliberate owner step.

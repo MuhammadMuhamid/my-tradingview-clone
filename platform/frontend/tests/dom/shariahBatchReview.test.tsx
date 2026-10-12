@@ -158,7 +158,7 @@ async function chooseFilter(label: string): Promise<void> {
 }
 
 async function checkPastedResults(): Promise<void> {
-  fireEvent.change(screen.getByLabelText(/ChatGPT results/), { target: { value: '{"format":"x"}' } });
+  fireEvent.change(screen.getByLabelText(/ChatGPT results/), { target: { value: JSON.stringify({format: 'x', results: PREVIEW.results}) } });
   fireEvent.click(screen.getByRole("button", { name: "Check results" }));
   await settle();
 }
@@ -250,7 +250,7 @@ test("the preview shows each decision's grounds, not just its verdict", async ()
 test("an ELIGIBLE with open questions blocks the batch until that row is acknowledged, and the import says so", async () => {
   await openScreening();
   await checkPastedResults();
-  const publish = () => screen.getByRole("button", { name: /Import & publish/ }) as HTMLButtonElement;
+  const publish = () => screen.getByRole("button", { name: /Review publication summary/ }) as HTMLButtonElement;
   assert.equal(publish().disabled, true, "an unacknowledged ELIGIBLE-with-uncertainties could publish");
   assert.ok(screen.getByText(/ELIGIBLE with 1 open question/), "the row is not flagged");
 
@@ -261,6 +261,10 @@ test("an ELIGIBLE with open questions blocks the batch until that row is acknowl
   assert.equal(publish().disabled, false);
 
   fireEvent.click(publish());
+  await settle();
+  assert.equal(server.callsTo("/api/shariah/review-results/import").length, 0, "summary must not publish");
+  assert.ok(screen.getByRole("region", { name: "Final publication summary" }));
+  fireEvent.click(screen.getByRole("button", { name: /Confirm publication of/ }));
   await settle();
   const call = server.callsTo("/api/shariah/review-results/import").at(-1)!;
   assert.equal(new URL(call.path, "http://x").searchParams.get("acknowledgedAssetIds"), "1",
@@ -321,7 +325,7 @@ test("editing the pasted file discards every acknowledgement", async () => {
   await checkPastedResults();
   assert.equal((screen.getByRole("checkbox", {
     name: "Acknowledge AAA's unresolved uncertainties and publish it as ELIGIBLE" }) as HTMLInputElement).checked, false);
-  assert.equal((screen.getByRole("button", { name: /Import & publish/ }) as HTMLButtonElement).disabled, true);
+  assert.equal((screen.getByRole("button", { name: /Review publication summary/ }) as HTMLButtonElement).disabled, true);
 });
 
 // ── D-7 ─────────────────────────────────────────────────────────────────────
@@ -394,4 +398,37 @@ test("a published decision keeps its answers on their own lines, stamped in UTC"
   assert.match(history.textContent ?? "", /2026-09-02 15:04 UTC · owner/,
     "a publication is stamped in UTC, 24-hour, and says so");
   assert.doesNotMatch(history.textContent ?? "", /\b(AM|PM)\b/);
+});
+
+
+test("structured draft correction preserves the original research and invalidates approval", async () => {
+  await openScreening();
+  await checkPastedResults();
+  const row = within(screen.getByRole("list", { name: "Researched decisions" })).getAllByRole("listitem")[0];
+  fireEvent.click(within(row).getByRole("button", { name: "Correct draft decision" }));
+  fireEvent.change(screen.getByLabelText("Your classification"), { target: { value: "REVIEW" } });
+  fireEvent.change(screen.getByLabelText(/^Correction reason/), { target: { value: "Material treasury uncertainty remains." } });
+  fireEvent.click(screen.getByRole("button", { name: /Apply correction/ }));
+  await settle();
+  const document = JSON.parse((screen.getByLabelText(/ChatGPT results/) as HTMLTextAreaElement).value);
+  assert.equal(document.results[0].classification, "REVIEW");
+  assert.match(document.results[0].reason, /Operator correction/);
+  assert.match(document.results[0].reason, /Original researcher classification: ELIGIBLE/);
+  assert.equal(screen.queryByRole("region", { name: "Final publication summary" }), null);
+  assert.equal((screen.getByRole("button", { name: /Review publication summary/ }) as HTMLButtonElement).disabled, true);
+  assert.equal(server.callsTo("/api/shariah/review-results/import").length, 0);
+});
+
+
+test("existing publications expose exact safe citations and research freshness", async () => {
+  const cited = { id: "e1", assetId: "2", url: "https://example.com/protocol", title: "Protocol source", publisher: "Foundation", retrievedAt: "2026-09-01T00:00:00.000Z", excerpt: "Published activity evidence.", createdAt: "2026-09-01T00:00:00.000Z", createdBy: "owner" };
+  server.routes.set("GET /api/shariah/assets/2", () => ({asset: ASSETS[1], evidence: [cited, {...cited, id: "e2", title: "Unsafe URL", url: "javascript:alert(1)"}], publications: [{publicationId:"12", assetId:"2", policyVersion:"TS_SHARIAH_V1", classification:"REVIEW", lifecycle:"SCREENED", reason:"Review recorded.", prohibitedCategories:[], baseAssetAtPublication:"BBB", reviewedAt:"2026-09-01T00:00:00.000Z", publishedAt:"2026-09-02T00:00:00.000Z", publishedBy:"owner", evidenceIds:["e1"], source:"manual"}]}));
+  await openScreening();
+  fireEvent.click(screen.getByRole("button", {name: /BBB/})); await settle();
+  assert.ok(screen.getByText(/Citations for publication #12/));
+  assert.ok(screen.getByText(/Research completed:/));
+  const source = screen.getByRole("link", {name:"Open source"});
+  assert.equal(source.getAttribute("href"), cited.url);
+  assert.equal(source.getAttribute("rel"), "noopener noreferrer nofollow");
+  assert.equal(document.querySelectorAll('a[href^="javascript:"]').length, 0);
 });

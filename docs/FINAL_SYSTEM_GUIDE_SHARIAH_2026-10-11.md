@@ -74,7 +74,7 @@ CONVENTIONAL_INSURANCE, PROHIBITED_BUSINESS_OWNERSHIP_OR_FINANCING`.
 
 ## 5. Export pack (`TS_SHARIAH_REVIEW_PACK_V1`)
 
-*Download next 20 for ChatGPT* (queue order: due and stale first) or *Download pack for selected*
+*Download next 20 for ChatGPT* (queue order: STALE, UNSCREENED, published REVIEW, then advisory-due settled decisions) or *Download pack for selected*
 (`GET /api/shariah/review-pack`, `src/shariah/reviewPack.ts`). The pack is self-contained JSON
 containing the policy questions, interpretation rules, prohibited categories, the
 `TS_SHARIAH_REVIEW_RESULTS_V1` template to return, and per asset: `assetId`, base symbol, Binance
@@ -96,7 +96,7 @@ Trading Scene by design.
 ## 7. Import and validation (`TS_SHARIAH_REVIEW_RESULTS_V1`)
 
 Paste the JSON (or choose the file) → **Check results** (`POST /api/shariah/review-results/preview`)
-→ read each decision → **Import & publish** (`POST /api/shariah/review-results/import`). *"This one
+→ read each decision → **Review publication summary** → **Import & publish** (`POST /api/shariah/review-results/import`). *"This one
 action is your approval for the whole batch."* `src/shariah/reviewImport.ts` refuses the **whole
 batch** on any problem, with one line per problem. Live example from this session: an incomplete
 document returned *"Nothing was published. Fix the file and check again."* plus
@@ -298,3 +298,30 @@ Platform backend: `shariahGate`, `shariahExitAvailability`, `shariahPublication`
    be reused because its `retrievedAt` predates `staleSince`.
 8. **Outage.** The database read fails during an exit → the SELL still goes (without
    provenance); a BUY at that moment fails closed.
+
+
+## Post-release usability update — 2026-10-12
+
+The landing view now explains the religious-authority boundary, each status,
+Mode ON/OFF consequences, SELL availability and the absence of automatic
+liquidation. **Review today** selects advisory reminders; unresolved work and
+STALE/UNSCREENED counts are separate. Search finds ticker/project names. Selecting
+due assets uses the existing bounded selected-pack contract. Downloading a pack
+does not reserve or advance the queue.
+
+Existing decisions show clickable HTTP(S) sources, publisher, retrieval time,
+research age and exact publication citations. Research completion and publication
+time remain distinct. A due ELIGIBLE decision remains ELIGIBLE; event-driven
+STALE is effective REVIEW and blocks new BUY exposure when Mode is ON.
+
+Checked batches now require a final summary showing counts, previous decisions,
+citations and unresolved uncertainties. **Edit draft decision** lets the operator
+explicitly correct classification, reason or categories before publication. The
+original classification/reason is retained in the corrected reason. Any edit
+invalidates the preview and acknowledgements; **Check results** reuses the strict
+backend validator. Corrections do not silently change imported research or write
+publications. Final **Import & publish** remains deliberate and all-or-nothing.
+
+A blocked order offers an asset/symbol-specific `/shariah` link to review or view
+the decision and evidence. This does not bypass the BUY gate; SELL/exits remain
+available. Unknown identity cannot be made eligible merely by following a link.

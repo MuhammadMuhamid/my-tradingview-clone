@@ -1,18 +1,18 @@
 "use client";
 import { useState } from "react";
-import { Card, CardHeader, Button, Field, TextInput, Select } from "@/components/ui";
+import { Card, CardHeader, Button, Field, TextInput, Select, Notice } from "@/components/ui";
 import { ParamForm } from "@/components/ParamForm";
 import { ApiError, api } from "@/lib/api";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
-import { defaultParamsFor } from "@/lib/paramSchema";
+import { ENGINE_ORDER_SIZE, defaultParamsFor } from "@/lib/paramSchema";
 import {
   DEFAULT_VALIDATION_FRACTION, RUN_LIMITS, VALIDATION_FRACTIONS, orderSizeHint, runFormProblem, strategyFor,
 } from "@/lib/backtestFigures";
-import type { Backtest, Interval, Strategy, StrategyParams, SymbolInfo } from "@/lib/types";
+import { INTERVAL_VALUES, type Backtest, type Interval, type Strategy, type StrategyParams, type SymbolInfo } from "@/lib/types";
 import { displaySymbol } from "@/lib/instrument";
 import { researchAssumptions } from "@/lib/workstation";
 
-const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h"];
+const INTERVALS = INTERVAL_VALUES;
 
 /** The engine's defaults when a request states none — `backend/src/api/routes/backtests.ts`. */
 const DEFAULT_COMMISSION_PCT = 0.1;
@@ -64,6 +64,8 @@ export function BacktestForm({
   // render included; they ride through to the request untouched.
   const [params, setParams] = useState<StrategyParams>(
     preset ? { ...preset.params } : defaultParamsFor((preset && strategyFor(preset, strategies)?.key) ?? "ma_rr_v9"));
+  const [sizingMode, setSizingMode] = useState<"cash" | "equity">(
+    Number((preset?.params ?? defaultParamsFor("ma_rr_v9")).qty_pct_equity ?? 0) > 0 ? "equity" : "cash");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<FailureCopy | null>(null);
 
@@ -73,6 +75,9 @@ export function BacktestForm({
      * reads the parameter schema's own min/max, which the number inputs
      * carried as attributes and nothing ever checked.
      */
+    if (sizingMode === "equity" && !(Number(params.qty_pct_equity) > 0)) {
+      setErr(said("Enter an equity percentage greater than 0 and at most 100.")); return;
+    }
     const problem = runFormProblem({ capital, commissionPct, slippageTicks, start, end, params, strategyKey }, Date.now());
     if (problem) { setErr(said(problem)); return; }
     setBusy(true);
@@ -105,6 +110,10 @@ export function BacktestForm({
 
   const num = (raw: string): number => (raw.trim() === "" ? Number.NaN : Number(raw));
   const hint = orderSizeHint(params, capital, strategyKey);
+  const sizingDefault = ENGINE_ORDER_SIZE[strategyKey];
+  const equityPct = Number(params.qty_pct_equity ?? sizingDefault?.qty_pct_equity ?? 0);
+  const cashSize = Number(params.qty_cash ?? sizingDefault?.qty_cash ?? 1000);
+  const byEquity = sizingMode === "equity";
 
   return (
     <Card>
@@ -125,6 +134,7 @@ export function BacktestForm({
                 const next = e.target.value;
                 setStrategyKey(next);
                 setParams(defaultParamsFor(next));
+                setSizingMode(Number(defaultParamsFor(next).qty_pct_equity ?? ENGINE_ORDER_SIZE[next]?.qty_pct_equity ?? 0) > 0 ? "equity" : "cash");
               }}
             >
               {strategies.length === 0
@@ -175,6 +185,25 @@ export function BacktestForm({
             </Select>
           </Field>
         </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Position size" help="Fixed cash requests the same amount each entry; percentage sizing changes with equity and compounds.">
+            <Select value={byEquity ? "equity" : "cash"} onChange={(e) => { setSizingMode(e.target.value as "cash" | "equity"); setParams({ ...params,
+              qty_cash: Number.isFinite(cashSize) && cashSize > 0 ? cashSize : sizingDefault?.qty_cash ?? 1000,
+              qty_pct_equity: e.target.value === "equity" ? 25 : 0,
+            }); }}>
+              <option value="cash">Fixed cash per entry</option>
+              <option value="equity">Percentage of current equity</option>
+            </Select>
+          </Field>
+          <Field label={byEquity ? "Equity per entry (%)" : "Cash per entry"}
+            help={byEquity ? "Uses the current account equity, including prior gains and losses." : "Fees also need available cash. After losses, entries may become unaffordable and be skipped."}>
+            <TextInput type="number" min={0.01} max={byEquity ? 100 : 1e12} step={0.01}
+              value={Number.isFinite(byEquity ? equityPct : cashSize) ? (byEquity ? equityPct : cashSize) : ""}
+              onChange={(e) => setParams({ ...params, [byEquity ? "qty_pct_equity" : "qty_cash"]: num(e.target.value) })} />
+          </Field>
+        </div>
+        {timeframe === "1s" && <Notice>One-second history can be a large job. Start with a short date range; available history depends on the provider and instrument.</Notice>}
 
         {/*
           The full parameter tree is the strategy's, not the everyday test's.

@@ -307,3 +307,21 @@ the nonvisual closure). Other deployments must apply it through the normal migra
 9. **Reproduce.** *Re-run with these settings* produces the same figures while the engine
    fingerprint is current. If the engine later gains a correction, the old run is badged "Older
    engine" instead of being silently relabelled.
+
+
+## Post-release usability update — 2026-10-12
+
+Quick backtest now exposes **Position size → Fixed cash per entry / Percentage of
+current equity**, using the canonical `qty_cash` and `qty_pct_equity` request
+inputs. Fixed cash can become unaffordable after losses; percentage sizing
+changes with equity and compounds. The normal timeframe picker uses the shared
+13-interval capability list (1s through 1d); 1s carries a cost warning. There is
+no product year maximum: actual provider history and coverage govern availability.
+
+The Research application handoff is visible on `/research`: start
+`python3 -m backtester` from the Research checkout and open its loopback page.
+**Tree Definitions** there can duplicate supported built-ins into custom immutable
+versions, including custom Replay dates. Individual runs continue to inherit
+locked definition assumptions. This is separate from one-configuration Quick backtest;
+a saved custom definition does not automatically establish comparable methodology
+or qualify for distributed work.

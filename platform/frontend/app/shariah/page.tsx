@@ -163,7 +163,8 @@ function shortReason(raw: string): string {
   if (/\b(401|403|unauthor|forbidden)/i.test(raw)) return "You may need to sign in again.";
   if (/\b(404|no route)/i.test(raw)) return "This environment does not serve it.";
   if (/\b(5\d\d|timeout|fetch failed|network)/i.test(raw)) return "The service did not answer. Try again shortly.";
-  return "Hover for the reason reported.";
+  if (/reason|evidence|classification|categor|reviewed|retrieved|fresh|timestamp|must |required|invalid/i.test(raw) && !/\b(src|stack|SELECT|INSERT|UPDATE)\b/i.test(raw)) return raw;
+  return "Open the reported detail or retry after checking the service.";
 }
 
 /**
@@ -186,6 +187,7 @@ export default function ShariahPage() {
   const [snapshots, setSnapshots] = useState<ShariahSnapshotMeta[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<ShariahAssetDetail | null>(null);
+  const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ShariahUniverseFilter>("needs-review");
   /*
    * The assets the operator has chosen to research, by id.
@@ -279,7 +281,18 @@ export default function ShariahPage() {
   useEffect(() => { void loadUniverse(); }, [loadUniverse]);
   useEffect(() => { if (selected) void loadDetail(selected); else setDetail(null); }, [selected, loadDetail]);
 
-  const assets = useMemo(() => filterUniverse(universe?.assets ?? [], filter), [universe, filter]);
+  const assets = useMemo(() => filterUniverse(universe?.assets ?? [], filter).filter((a) =>
+    `${a.baseAsset} ${a.projectName ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())), [universe, filter, search]);
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("view") === "screening" || query.has("asset") || query.has("symbol")) setView("screening");
+    if (query.has("asset")) { setSelected(query.get("asset")); setFilter("all"); }
+    else if (query.has("symbol") && universe) {
+      const ticker = query.get("symbol")!.toUpperCase().replace(/USDT$/, "");
+      const found = universe.assets.find((a) => a.baseAsset === ticker);
+      if (found) { setSelected(found.assetId); setFilter("all"); }
+    }
+  }, [universe]);
 
   const toggleChosen = (assetId: string, on: boolean) => {
     setChosen((prev) => {
@@ -405,6 +418,12 @@ export default function ShariahPage() {
             title="Shariah"
             description={`Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`}
           />
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">You publish evidence-backed screening decisions; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
+          <details className="mt-1 text-xs text-ink-muted"><summary className="cursor-pointer">Understand screening statuses</summary>
+            <p className="mt-1">ELIGIBLE: approved under a published decision. REVIEW: evidence needs further review. EXCLUDED: excluded under the published policy. UNSCREENED: no decision yet. UNKNOWN: registry identity cannot be established. STALE: a prior decision was invalidated and fresh review is required. All except ELIGIBLE block new BUY when Mode is ON.</p>
+            <p>Due for re-review is an advisory reminder: the existing decision still stands. It is different from STALE.</p>
+            <a className="text-accent underline" href="/getting-started">Read the screening workflow in the Manual</a>
+          </details>
           <div role="tablist" aria-label="Shariah views" className="mt-2 flex gap-1">
             {([["status", "Status"], ["screening", "Screening & publication"]] as const).map(([id, label]) => (
               <button
@@ -550,7 +569,7 @@ export default function ShariahPage() {
             <div className="border-b border-border px-4 py-2 text-[11px] leading-5 text-ink-muted">
               {universe.counts.dueForReReview} settled decision(s) were researched more than{" "}
               {universe.reviewPolicy.reviewMaxAgeDays} days ago. They still stand and are still
-              enforced — age withdraws nothing — but they reach the front of the next review pack
+              enforced — age withdraws nothing — but they join after unresolved assets in the next review pack
               so a project that has changed since gets looked at again.
             </div>
           )}
@@ -592,8 +611,16 @@ export default function ShariahPage() {
         </Card>
       )}
 
+      {universe && <Card className="mb-3"><div className="flex flex-wrap items-center gap-3 px-4 py-2 text-xs text-ink-muted">
+        <span>Needs attention: {universe.assets.filter((a) => a.lifecycle === "UNSCREENED").length} unscreened · {universe.assets.filter((a) => a.lifecycle === "STALE").length} stale</span>
+        <Button onClick={() => { setView("screening"); setFilter("needs-review"); }}>Review unresolved assets</Button>
+        <Button onClick={() => { setView("screening"); setFilter("due"); }}>Review today — {universe.counts.dueForReReview} advisory reminders</Button>
+        <Button disabled={!universe.counts.dueForReReview} onClick={() => { setView("screening"); setFilter("due"); setChosen(new Set(universe.assets.filter((a) => a.dueForReReview && a.binanceAvailable).slice(0, MAX_REVIEW_PACK_ASSETS).map((a) => a.assetId))); }}>Select due assets for a pack (up to {MAX_REVIEW_PACK_ASSETS})</Button>
+      </div></Card>}
       {screeningView && (
       <BatchReviewCard
+        currentAssets={universe?.assets ?? []}
+        categoryOptions={universe?.prohibitedCategories ?? []}
         needsReview={universe ? universe.counts.review : null}
         universeLoaded={loaded}
         chosenIds={[...chosen]}
@@ -649,6 +676,7 @@ export default function ShariahPage() {
                 </Button>
               </div>
             )}
+            <div className="px-3 py-2"><Field label="Find an asset"><TextInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticker or project name" /></Field></div>
             <div className="max-h-[520px] overflow-y-auto">
               {assets.length === 0 && (universe
                 ? <Empty>{UNIVERSE_FILTER_EMPTY[filter]}</Empty>
@@ -685,7 +713,8 @@ export default function ShariahPage() {
                   >
                     <span className="min-w-0">
                       <span className="font-medium text-ink">{asset.baseAsset}</span>
-                      {!asset.binanceAvailable && (
+                      <p className="mt-1">Research age: {asset.decisionAgeDays ?? "unknown"} days. {asset.lifecycle === "STALE" ? "STALE: requires fresh screening; new BUY exposure is blocked when Mode is ON." : asset.dueForReReview ? "Due for re-review — advisory; the decision still stands." : "No advisory reminder due."}</p>
+          {!asset.binanceAvailable && (
                         <span className="ml-2 text-[11px] text-ink-faint">delisted</span>
                       )}
                       <span className="block text-[11px] text-ink-faint">
@@ -773,8 +802,10 @@ const PACK_SIZES = [
 ] as const;
 
 function BatchReviewCard({
-  needsReview, universeLoaded, chosenIds, onClearChosen, onError, onNotice, onImported,
+  currentAssets, categoryOptions, needsReview, universeLoaded, chosenIds, onClearChosen, onError, onNotice, onImported,
 }: {
+  currentAssets: ShariahUniverse["assets"];
+  categoryOptions: string[];
   needsReview: number | null;
   /** The universe read has come back — so a null count is unknown, not pending. */
   universeLoaded: boolean;
@@ -792,6 +823,11 @@ function BatchReviewCard({
   /** A check/import failure that is not a per-row issue; said under the paste box. */
   const [fileProblem, setFileProblem] = useState<
     { text: string; title?: string; service: boolean } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [correction, setCorrection] = useState<ShariahImportPreviewResult | null>(null);
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [correctionStatus, setCorrectionStatus] = useState<ShariahClassification>("REVIEW");
+  const [correctionCategories, setCorrectionCategories] = useState("");
   const [size, setSize] = useState("20");
   const [includeSettled, setIncludeSettled] = useState(false);
   /*
@@ -806,6 +842,8 @@ function BatchReviewCard({
   /** Any edit invalidates a checked preview: you cannot approve text you did not check. */
   const editResults = (text: string) => {
     setResultsText(text);
+    setConfirming(false);
+    setCorrection(null);
     setPreview(null);
     setIssues([]);
     setFileProblem(null);
@@ -873,7 +911,7 @@ function BatchReviewCard({
   };
 
   const check = async () => {
-    setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]); setFileProblem(null);
+    setConfirming(false); setBusy(true); onError(null); onNotice(null); setPreview(null); setIssues([]); setFileProblem(null);
     setAcknowledged(new Set());
     try {
       setPreview(await shariahApi.previewResults(parseResultsFile(resultsText)));
@@ -888,7 +926,7 @@ function BatchReviewCard({
   const unacknowledged = needingAck.filter((r) => !acknowledged.has(r.assetId));
 
   const publish = async () => {
-    if (!preview) return;
+    if (!preview || !confirming) return;
     setBusy(true); onError(null); onNotice(null); setIssues([]); setFileProblem(null);
     try {
       // Only the rows that need one, so a stale tick from an earlier preview
@@ -929,6 +967,7 @@ function BatchReviewCard({
           <li><span className="font-semibold text-ink">3.</span> Paste the JSON back here, read each decision, and publish.</li>
         </ol>
 
+        <p className="mb-2 text-[11px] text-ink-muted">Queue order: STALE, UNSCREENED, published REVIEW, then due settled decisions. Downloading does not advance or reserve the queue; unchanged decisions produce the same next pack. Verify external sources: an AI assertion alone is not evidence.</p>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Dropdown label="Assets per pack" width={100} value={size} options={PACK_SIZES}
             onChange={setSize} disabled={busy} />
@@ -1030,6 +1069,7 @@ function BatchReviewCard({
                 <PreviewRow key={r.assetId} result={r}
                   notInLastPack={notInPack.has(r.assetId)}
                   acknowledged={acknowledged.has(r.assetId)}
+                  onCorrect={() => { setCorrection(r); setCorrectionStatus(r.classification); setCorrectionReason(""); setCorrectionCategories(r.prohibitedCategories.join(", ")); setConfirming(false); }}
                   onAcknowledge={(on) => setAcknowledged((prev) => {
                     const next = new Set(prev);
                     if (on) next.add(r.assetId); else next.delete(r.assetId);
@@ -1063,16 +1103,41 @@ function BatchReviewCard({
           </div>
         )}
 
+        {correction && <section className="mt-3 rounded-md border border-border p-3" aria-label="Correct draft decision">
+          <p className="mb-2 text-xs font-medium">Correct {correction.baseAsset} — original research remains recorded in the reason</p>
+          <Field label="Your classification"><Select value={correctionStatus} onChange={(e) => setCorrectionStatus(e.target.value as ShariahClassification)}><option>ELIGIBLE</option><option>REVIEW</option><option>EXCLUDED</option></Select></Field>
+          <Field label="Correction reason" help="Explain your explicit change. The original classification and researcher reason are preserved."><textarea className="w-full rounded-md border border-border bg-surface-2 p-2 text-xs" value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} /></Field>
+          <Field label="Prohibited categories" help="EXCLUDED requires at least one. Validation checks the policy categories."><div className="flex flex-wrap gap-3">{categoryOptions.map((c) => <label className="flex gap-1 text-xs" key={c}><input type="checkbox" checked={correctionCategories.split(", ").includes(c)} onChange={(e) => { const next = new Set(correctionCategories.split(", ").filter(Boolean)); if (e.target.checked) next.add(c); else next.delete(c); setCorrectionCategories([...next].join(", ")); }} />{c.replaceAll("_", " ").toLowerCase()}</label>)}</div></Field>
+          <div className="mt-2 flex gap-2"><Button disabled={busy || !correctionReason.trim()} onClick={() => {
+            const doc = parseResultsFile(resultsText) as { results: Array<Record<string, unknown>> };
+            const updated = { ...doc, results: doc.results.map((r) => r.assetId !== correction.assetId ? r : { ...r,
+              classification: correctionStatus,
+              prohibitedCategories: correctionStatus === "ELIGIBLE" ? [] : correctionCategories.split(",").map((v) => v.trim()).filter(Boolean),
+              reason: `Operator correction (${new Date().toISOString()}): ${correctionReason.trim()}\nOriginal researcher classification: ${r.classification}\nOriginal researcher reason: ${r.reason}`,
+            }) };
+            editResults(JSON.stringify(updated, null, 2));
+          }}>Apply correction — then Check results again</Button><Button onClick={() => setCorrection(null)}>Cancel correction</Button></div>
+        </section>}
+        {confirming && preview && <section className="mt-3 rounded-md border border-warn/30 bg-warn/10 p-3 text-xs" aria-label="Final publication summary">
+          <p className="font-semibold">Final review: {preview.assetCount} decisions — {preview.counts.ELIGIBLE} ELIGIBLE · {preview.counts.REVIEW} REVIEW · {preview.counts.EXCLUDED} EXCLUDED</p>
+          <p>Append-only publication. When Mode is ON, only ELIGIBLE permits new exposure. Exits remain possible.</p>
+          <ul className="mt-2 max-h-48 overflow-auto">{preview.results.map((r) => {
+            const prior = currentAssets.find((a) => a.assetId === r.assetId);
+            return <li key={r.assetId}>{r.baseAsset}: {prior?.effectiveStatus ?? "Unknown prior decision"} → {r.classification}; {r.evidenceCount} citations; {r.unresolvedUncertainties.length} uncertainties{prior?.lifecycle === "STALE" ? " · fresh review required" : ""}</li>;
+          })}</ul>
+          <p className="mt-2">Validation passed. {needingAck.length} uncertain ELIGIBLE decision(s) require individual acknowledgement; {unacknowledged.length} remain unacknowledged. Read the sources and grounds before publishing.</p>
+          <Button variant="primary" disabled={busy || unacknowledged.length > 0} onClick={publish}>Confirm publication of {preview.assetCount} decisions</Button> <Button onClick={() => setConfirming(false)}>Back to review</Button>
+        </section>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button onClick={check} disabled={busy || resultsText.trim().length === 0}>
             Check results
           </Button>
-          <Button variant="primary" onClick={publish}
+          <Button variant="primary" onClick={() => setConfirming(true)}
             disabled={busy || preview === null || unacknowledged.length > 0}
             title={unacknowledged.length > 0
               ? `Acknowledge the open questions on ${unacknowledged.map((r) => r.baseAsset).join(", ")} first.`
               : undefined}>
-            Import &amp; publish {preview ? `${preview.assetCount} decisions` : ""}
+            Review publication summary {preview ? `${preview.assetCount} decisions` : ""}
           </Button>
           <span className="text-[11px] text-ink-faint">
             This one action is your approval for the whole batch. A STALE asset always needs a full
@@ -1094,11 +1159,12 @@ function BatchReviewCard({
  * link is rendered only for an http(s) URL (the backend refuses anything else,
  * this is the belt to that brace).
  */
-function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, disabled }: {
+function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, onCorrect, disabled }: {
   result: ShariahImportPreviewResult;
   notInLastPack: boolean;
   acknowledged: boolean;
   onAcknowledge: (on: boolean) => void;
+  onCorrect: () => void;
   disabled: boolean;
 }) {
   const needsAck = r.requiresAcknowledgement;
@@ -1123,6 +1189,7 @@ function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, dis
         </summary>
         <div className="mt-1 grid gap-2 pb-1 pl-2">
           <p className="whitespace-pre-wrap text-ink">{r.reason}</p>
+          <Button disabled={disabled} onClick={onCorrect}>Correct draft decision</Button>
           <dl className="grid gap-x-3 gap-y-0.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
             {SHARIAH_ANSWER_LABELS.map(([key, label]) => (
               <div key={key} className="contents">
@@ -1262,7 +1329,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
       </Card>
 
       <Card>
-        <CardHeader title="Evidence" />
+        <CardHeader title="Evidence — select citations for the new decision" />
         {detail.evidence.length === 0 && <Empty>No evidence recorded.</Empty>}
         {detail.evidence.map((e) => (
           <label key={e.id} className="flex items-start gap-2 border-b border-border px-4 py-2 text-xs">
@@ -1276,7 +1343,8 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               <span className="font-medium text-ink">{e.title ?? e.url ?? `Evidence #${e.id}`}</span>
               {e.publisher && <span className="text-ink-faint"> · {e.publisher}</span>}
               {e.excerpt && <span className="block text-ink-muted">{e.excerpt}</span>}
-              {e.url && <span className="block truncate text-ink-faint">{e.url}</span>}
+              {e.url && /^https?:\/\//i.test(e.url) && <a href={e.url} target="_blank" rel="noopener noreferrer nofollow" className="block break-all text-accent underline">{e.url}</a>}
+              <span className="block text-ink-faint">Retrieved: {e.retrievedAt ? fmtUtcStamp(e.retrievedAt) : "Not recorded"}</span>
             </span>
           </label>
         ))}
@@ -1337,7 +1405,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
                       checked={selectedCategories.includes(category)}
                       onChange={() => setSelectedCategories((prev) => toggle(prev, category))}
                     />
-                    {category}
+                    {category.replaceAll("_", " ").toLowerCase()}
                   </label>
                 ))}
               </div>
@@ -1379,11 +1447,14 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
             </div>
             <p className="mt-1 whitespace-pre-line text-ink-muted" data-publication-reason>{p.reason}</p>
             {p.prohibitedCategories.length > 0 && (
-              <p className="text-ink-faint">Categories: {p.prohibitedCategories.join(", ")}</p>
+              <p className="text-ink-faint">Categories: {p.prohibitedCategories.map((c) => c.replaceAll("_", " ").toLowerCase()).join(", ")}</p>
             )}
             <p className="text-ink-faint">
-              {evidenceCitedLabel(p.evidenceIds)}
+              Research completed: {fmtUtcStamp(p.reviewedAt)} · {evidenceCitedLabel(p.evidenceIds)}
             </p>
+            <details className="mt-1"><summary className="cursor-pointer">Citations for publication #{p.publicationId}</summary>
+              {p.evidenceIds.map((id) => { const e = detail.evidence.find((v) => v.id === id); return <p key={id} className="mt-1 break-all">{e ? <>{e.title ?? `Evidence #${id}`} · {e.publisher ?? "Publisher not recorded"} · retrieved {e.retrievedAt ? fmtUtcStamp(e.retrievedAt) : "not recorded"}{e.url && /^https?:\/\//i.test(e.url) && <> · <a className="text-accent underline" href={e.url} target="_blank" rel="noopener noreferrer nofollow">Open source</a></>}{e.excerpt && <span className="block">{e.excerpt}</span>}</> : `Evidence #${id} is not available in this response.`}</p>; })}
+            </details>
           </div>
         ))}
         <p className="px-4 py-2 text-[11px] text-ink-faint">

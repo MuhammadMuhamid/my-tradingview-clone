@@ -128,7 +128,13 @@ export default function BacktestsPage() {
         had just started among the others; the result page waits for a queued
         run itself, and the list is one Back away.
       */}
-      <BacktestForm key={preset ? `${preset.id}:${strategies.length > 0}` : "new"}
+      <section className="mb-3 rounded-md border border-border px-3 py-2 text-xs text-ink-muted">
+            Quick backtest tests one configuration. <a className="text-accent underline" href="http://127.0.0.1:8765" target="_blank" rel="noreferrer">Open Research Backtester / Optimizer</a> to search many configurations.
+            <details className="mt-1"><summary className="cursor-pointer">Research is not running?</summary>
+              <p>On this Mac, open a terminal in the Research checkout and run <code>python3 -m backtester</code>, then reopen the link. Both checkouts and the prepared market data must be available. Opening this link starts no service or download.</p>
+            </details>
+          </section>
+          <BacktestForm key={preset ? `${preset.id}:${strategies.length > 0}` : "new"}
         symbols={symbols} strategies={strategies} preset={preset}
         onQueued={(id) => router.push(`/research/${id}`)} />
 
