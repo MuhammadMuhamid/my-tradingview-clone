@@ -20,6 +20,20 @@ is_allowed() {
     platform/deployment/aws/security_audit_*.mjs) return 0 ;;   # sha256 of the EXPECTED secret
     platform/deployment/aws/audit_live_lean15m_exact.mjs) return 0 ;; # config fingerprints
     */graphify-out/*) return 0 ;;                                # generated content hashes
+    docs/FINAL_RELEASE_ACCEPTANCE_2026-10-11.md|\
+    docs/NONVISUAL_ENGINEERING_CLOSURE_2026-10-11.md|\
+    docs/archive/HANDOFF-2026-09-18.md|\
+    evidence/TVP5_FX1_FINAL_ENGINEERING_CLOSURE_AND_RECONCILIATION.md|\
+    evidence/TVP5_FX2_RF3_FINAL_REPAIR.md|\
+    evidence/TVP5_FX3_RF4_ROOT_CAUSE_REPAIR.md)
+      # Manually reviewed dated release reports: the matching fields are Git
+      # object IDs or SHA-256 evidence digests, never operational keys. Scope
+      # this exception to those frozen reports and the hex-shape rule only.
+      [ "$message" = "credential-shaped hex literal in tracked source" ] || return 1
+      cleaned="$(printf '%s' "$content" | sed -E 's/[0-9a-f]{40,64}/<review-digest>/g')"
+      ! grep -Eq '[0-9a-f]{40,}' <<<"$cleaned"
+      return
+      ;;
     # CONTRACT_FINGERPRINT is a sha256 digest of this file's own source, used to
     # detect drift between the two repositories' vendored copies. The module is
     # import-free and holds no configuration, so a credential there would be

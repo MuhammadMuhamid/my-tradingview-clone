@@ -81,9 +81,8 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   });
 
   /**
-   * Sign-in rate limit. Each attempt costs ~100 ms of scrypt on the same event
-   * loop that evaluates live bar closes, so unbounded guessing is a denial of
-   * service as well as a credential risk.
+   * Sign-in rate limit. Password checks run asynchronously with bounded
+   * concurrency, but unbounded guessing would still consume CPU and memory.
    *
    * Only the sign-in attempt is counted. The sliding session cookie is renewed
    * on every other request and must never be throttled, or a normal browsing

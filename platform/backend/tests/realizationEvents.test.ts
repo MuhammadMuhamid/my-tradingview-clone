@@ -95,6 +95,17 @@ test("authenticated bounded batch accepts identical replay exactly once", async 
     now: Number(timestamp) }).ok, true);
   assert.equal(verifyRealizationRequest({ ...input, secret, signature: `${signature}0`,
     now: Number(timestamp) }).ok, false);
+  const future = String(Number(timestamp) + 60_000);
+  const futureInput = { ...input, timestamp: future };
+  const futureSignature = signManualCommand(futureInput, secret);
+  const first = verifyRealizationRequest({ ...futureInput, secret,
+    signature: futureSignature, now: Number(timestamp) });
+  assert.equal(first.ok, true);
+  if (first.ok) {
+    assert.ok(first.expiresAt.getTime() > Number(future) + 60_000);
+    assert.equal(verifyRealizationRequest({ ...futureInput, secret,
+      signature: futureSignature, now: Number(future) + 60_000 }).ok, true);
+  }
 });
 
 test("same event identity with different immutable economics fails closed", async () => {

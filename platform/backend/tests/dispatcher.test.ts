@@ -133,6 +133,24 @@ test("deliver posts JSON and returns sent on 200", async () => {
   }
 });
 
+test("webhook delivery never follows a receiver redirect with its signed order body", async () => {
+  const { createServer } = await import("node:http");
+  let redirected = 0;
+  const server = createServer((req, res) => {
+    if (req.url === "/target") { redirected++; res.writeHead(200); res.end("ok"); return; }
+    res.writeHead(307, { location: "/target" });
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const result = await deliver(`http://localhost:${port}/hook`, buildPayload(dep({}), ctx).payload,
+      { allowUnsafeTestUrl: true, maxAttempts: 1 });
+    assert.equal(result.status, "failed");
+    assert.equal(redirected, 0);
+  } finally { server.close(); }
+});
+
 test("deliver stops early on 4xx (no retry storm)", async () => {
   const { createServer } = await import("node:http");
   let hits = 0;

@@ -37,5 +37,6 @@ export function verifyRealizationRequest(input: {
     return { ok: false, error: "invalid realization signature" };
   }
   return { ok: true, nonce, requestId,
-    expiresAt: new Date(now + REALIZATION_AUTH_FRESHNESS_MS) };
+    // Accepted future skew must not let a request outlive its nonce record.
+    expiresAt: new Date(millis + REALIZATION_AUTH_FRESHNESS_MS + 1) };
 }

@@ -8,25 +8,25 @@ import {
 
 const SECRET = "a".repeat(48);
 
-test("scrypt hashes round-trip and reject the wrong password", () => {
+test("scrypt hashes round-trip and reject the wrong password", async () => {
   const stored = hashPassword("hunter2");
   assert.ok(stored.startsWith("scrypt$"));
-  assert.equal(verifyPassword("hunter2", stored), true);
-  assert.equal(verifyPassword("hunter3", stored), false);
+  assert.equal(await verifyPassword("hunter2", stored), true);
+  assert.equal(await verifyPassword("hunter3", stored), false);
 });
 
-test("bcrypt hashes from the old Caddy config still verify", () => {
+test("bcrypt hashes from the old Caddy config still verify", async () => {
   // The exact situation on the live server: ADMIN_PASSWORD_HASH is bcrypt.
   const stored = bcrypt.hashSync("caddy-era-password", 10);
-  assert.equal(verifyPassword("caddy-era-password", stored), true);
-  assert.equal(verifyPassword("wrong", stored), false);
+  assert.equal(await verifyPassword("caddy-era-password", stored), true);
+  assert.equal(await verifyPassword("wrong", stored), false);
 });
 
-test("malformed hashes are rejected rather than throwing", () => {
-  assert.equal(verifyPassword("x", ""), false);
-  assert.equal(verifyPassword("x", "not-a-hash"), false);
-  assert.equal(verifyPassword("x", "scrypt$zz$zz"), false);
-  assert.equal(verifyPassword("x", "$2b$broken"), false);
+test("malformed hashes are rejected rather than throwing", async () => {
+  assert.equal(await verifyPassword("x", ""), false);
+  assert.equal(await verifyPassword("x", "not-a-hash"), false);
+  assert.equal(await verifyPassword("x", "scrypt$zz$zz"), false);
+  assert.equal(await verifyPassword("x", "$2b$broken"), false);
 });
 
 test("a signed session verifies and carries the username", () => {
@@ -76,4 +76,18 @@ test("a session signed for a different username is rejected", () => {
   // for a username that is no longer configured must stop working.
   assert.equal(verifySession(token, SECRET, { expectedUsername: "admin" }), null);
   assert.equal(verifySession(token, SECRET, { expectedUsername: "" }), null);
+});
+
+ test("malformed cookie encoding fails closed", () => {
+  for (const value of ["%", "%GG", "%E0%A4%A"]) {
+    assert.equal(readCookie(`srtrend_session=${value}`, "srtrend_session"), null);
+  }
+});
+
+test("password verification yields to the API event loop", async () => {
+  const stored = hashPassword("fixture-password");
+  const timer = new Promise<string>((resolve) => setTimeout(() => resolve("timer"), 0));
+  const checks = Array.from({ length: 4 }, () => verifyPassword("fixture-password", stored));
+  assert.equal(await Promise.race([timer, Promise.all(checks).then(() => "checks")]), "timer");
+  assert.deepEqual(await Promise.all(checks), [true, true, true, true]);
 });

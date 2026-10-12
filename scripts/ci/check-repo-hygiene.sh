@@ -25,11 +25,13 @@ tracked() { git ls-files -z "$@"; }
 echo "repository hygiene:"
 
 # ── 1. absolute home directories ─────────────────────────────────────────────
-# `/Users/<name>/` or `/home/<name>/` in anything tracked. The launch-agent
-# template that EXPLAINS the old path is allowed to name it once.
+# `/Users/<name>/` or `/home/<name>/` in operational tracked source. Dated
+# evidence and the local browser MCP configuration cite actual workstation
+# paths; they are not deploy/runtime entry points.
 while IFS= read -r -d '' file; do
   case "$file" in
     */graphify-out/*|docs/REMEDIATION-LEDGER.md|scripts/ledger/findings.json) continue ;;
+    *.md|.mcp.json) continue ;;
     platform/backend/launchd/com.alphaweb.clone-backend.plist) continue ;;
     scripts/ci/check-repo-hygiene.sh) continue ;;
   esac

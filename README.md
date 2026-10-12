@@ -48,7 +48,7 @@ and handoff.
 | `platform/frontend` | Next.js chart application: candles, 25 drawing tools, indicators, a Pine editor, layouts, alerts. |
 | `platform/backend` | Fastify API, strategy engines, backtester, Binance data pipeline, live runner, alert dispatch, Postgres access. |
 | `platform/deployment` | AWS deployment scripts. Run by the owner only; nothing here is executed by CI. |
-| `docs` | Source-of-truth documentation. Machine-checked by `scripts/ci/check-docs.sh`. |
+| `docs` | Source-of-truth documentation. Start at `docs/README.md`; machine-checked by `scripts/ci/check-docs.sh`. |
 | `scripts` | Repository tooling, including the CI hygiene checks. |
 | the optimizer trees | Live in the [research repository](https://github.com/2ms-muzammil/trading-scene-research) under `research:trees/`. Each owns a `tree.json` the application routes through. Point `OPTIMIZER_ROOT` at that checkout to serve them; with no trees present the optimizer API reports an empty registry rather than failing. |
 | the retired research archive | Also in the research repository, under `research:legacy/`. Nothing there runs, and no live code path may depend on it. |
@@ -104,7 +104,8 @@ it reports file and line only, never the value.
 
 | Document | Subject |
 |---|---|
-| [docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md](docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md) | **Start here.** The final release documents: Backtester, Shariah and Compute Helper system guides, and the release acceptance report. |
+| [docs/README.md](docs/README.md) | **Start here.** Current architecture, operations, security and release guides. |
+| [docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md](docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md) | Accepted release documents: Backtester, Shariah and Compute Helper system guides, and the release acceptance report. |
 | [docs/TRADING_SCENE_UI_UX_CONTRACT.md](docs/TRADING_SCENE_UI_UX_CONTRACT.md) | The authority on how the product looks and behaves. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |

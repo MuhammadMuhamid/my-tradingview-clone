@@ -330,6 +330,7 @@ export async function deliver(
         headers: { "content-type": "application/json", ...opts.headers },
         body: JSON.stringify(payload),
         signal: controller.signal,
+        redirect: "error",
       });
       lastStatus = res.status;
       lastBody = (await res.text()).slice(0, 1000);

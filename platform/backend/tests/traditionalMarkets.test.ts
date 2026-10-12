@@ -129,7 +129,8 @@ test("Platform-to-Bot paper boundary derives futures truth and rejects invalid i
   const old = config.traditionalPaperExecutionEnabled; config.traditionalPaperExecutionEnabled = true;
   const registry = new ProviderRegistry(); registry.register(ibkrFuturesPaperAdapter); let calls = 0; const sent: Record<string, unknown>[] = [];
   const make = async (clock: string) => { const app = Fastify(); await app.register(async (child) => traditionalExecutionRoutes(child, {
-    registry, now: () => Date.parse(clock), claimIntent: async () => ({ claimed: true, intent: pending }),
+    registry, now: () => Date.parse(clock), shariah: { readMode: async () => "off" },
+    claimIntent: async () => ({ claimed: true, intent: pending }),
     resolveIntent: async () => {}, botRequest: async (input) => { calls += 1; sent.push(input.body as Record<string, unknown>); return { status: "accepted" }; },
   })); await app.ready(); return app; };
   try {
@@ -158,7 +159,8 @@ test("Platform boundary derives FX side basis and rejects caller/provider assert
   const old = config.traditionalPaperExecutionEnabled; config.traditionalPaperExecutionEnabled = true;
   const registry = new ProviderRegistry(); registry.register(oandaFxPracticeAdapter); let calls = 0;
   const app = Fastify(); await app.register(async (child) => traditionalExecutionRoutes(child, { registry,
-    now: () => Date.parse("2026-09-09T15:00:00Z"), claimIntent: async () => ({ claimed: true, intent: pending }),
+    now: () => Date.parse("2026-09-09T15:00:00Z"), shariah: { readMode: async () => "off" },
+    claimIntent: async () => ({ claimed: true, intent: pending }),
     resolveIntent: async () => {}, botRequest: async (input) => { calls += 1; assert.equal((input.body as Record<string, unknown>).priceBasis, "ASK"); return {}; },
   }));
   try {

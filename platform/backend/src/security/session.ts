@@ -13,7 +13,7 @@
  * No new dependency: HMAC and scrypt both come from node:crypto.
  */
 import {
-  createHmac, randomBytes, scryptSync, timingSafeEqual,
+  createHmac, randomBytes, scrypt, scryptSync, timingSafeEqual,
 } from "node:crypto";
 import bcrypt from "bcryptjs";
 
@@ -38,10 +38,10 @@ export function hashPassword(password: string): string {
  * it would lock the user out of their own app on the first deploy — so the old
  * password keeps working, and `hashPassword` emits scrypt for anything new.
  */
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (/^\$2[aby]?\$/.test(stored)) {
     try {
-      return bcrypt.compareSync(password, stored);
+      return await bcrypt.compare(password, stored);
     } catch {
       return false;
     }
@@ -56,7 +56,11 @@ export function verifyPassword(password: string, stored: string): boolean {
     return false;
   }
   if (expected.length !== SCRYPT_PARAMS.keylen) return false;
-  const actual = scryptSync(password, salt, SCRYPT_PARAMS.keylen, SCRYPT_PARAMS);
+  const actual = await new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, SCRYPT_PARAMS.keylen, SCRYPT_PARAMS, (error, key) => {
+      if (error) reject(error); else resolve(key);
+    });
+  });
   return timingSafeEqual(actual, expected);
 }
 
@@ -125,7 +129,8 @@ export function readCookie(header: string | undefined, name: string): string | n
     const eq = part.indexOf("=");
     if (eq < 0) continue;
     if (part.slice(0, eq).trim() !== name) continue;
-    return decodeURIComponent(part.slice(eq + 1).trim());
+    try { return decodeURIComponent(part.slice(eq + 1).trim()); }
+    catch { return null; }
   }
   return null;
 }

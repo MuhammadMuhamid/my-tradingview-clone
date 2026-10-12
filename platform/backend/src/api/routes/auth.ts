@@ -11,6 +11,10 @@ import {
   signSession, verifyPassword, verifySession,
 } from "../../security/session";
 
+// Bound expensive checks across all client IPs without queueing passwords.
+let activePasswordChecks = 0;
+const MAX_PASSWORD_CHECKS = 4;
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/auth/me", async (req) => {
     if (!config.authEnabled) return { authenticated: true, username: null, authEnabled: false };
@@ -30,11 +34,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const { username, password } = (req.body ?? {}) as {
       username?: string; password?: string;
     };
-    if (!username || !password) {
+    if (typeof username !== "string" || typeof password !== "string"
+      || !username || !password || username.length > 256 || password.length > 1024) {
       return reply.code(400).send({ error: "username and password are required" });
     }
+    if (activePasswordChecks >= MAX_PASSWORD_CHECKS) {
+      reply.header("retry-after", "1");
+      return reply.code(429).send({ error: "Sign-in is busy. Try again shortly." });
+    }
     const userOk = safeEqual(username, config.adminUsername);
-    const passOk = verifyPassword(password, config.adminPasswordHash);
+    let passOk: boolean;
+    activePasswordChecks++;
+    try { passOk = await verifyPassword(password, config.adminPasswordHash); }
+    finally { activePasswordChecks--; }
     // Both checks always run, and the message never says which half failed.
     if (!userOk || !passOk) {
       req.log.warn({ ip: req.ip }, "failed sign-in attempt");

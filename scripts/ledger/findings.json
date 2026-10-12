@@ -1256,7 +1256,7 @@
     {
       "id": "FE-12",
       "repo": "platform",
-      "verified": "Confirmed: `platform/frontend/app/deployments/page.tsx` `toggle`/`remove` had no try/catch at all, and `platform/frontend/components/tv/AlertsPanel.tsx` had `finally { setBusy(null) }` with no catch. A failure left the row reading 'active' with the rejection in the console.",
+      "verified": "Confirmed: `platform/frontend/app/trading/page.tsx` `toggle`/`remove` had no try/catch at all, and `platform/frontend/components/tv/AlertsPanel.tsx` had `finally { setBusy(null) }` with no catch. A failure left the row reading 'active' with the rejection in the console.",
       "disposition": "fixed",
       "phase": "Phase 6",
       "commit": "4df6bd0",
