@@ -104,6 +104,8 @@ it reports file and line only, never the value.
 
 | Document | Subject |
 |---|---|
+| [docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md](docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md) | **Start here.** The final release documents: Backtester, Shariah and Compute Helper system guides, and the release acceptance report. |
+| [docs/TRADING_SCENE_UI_UX_CONTRACT.md](docs/TRADING_SCENE_UI_UX_CONTRACT.md) | The authority on how the product looks and behaves. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
 | [research/docs/COST-MODELS.md](https://github.com/2ms-muzammil/trading-scene-research/blob/main/docs/COST-MODELS.md) | The cost model each research tree actually ran (research repository). |
@@ -117,6 +119,7 @@ it reports file and line only, never the value.
 | `BACKTESTING_SYSTEMS.md` (backtesting repository) | Metric definitions and per-tree research notes. |
 | `OPTIMIZATION_SYSTEM_BLUEPRINT.md` (backtesting repository) | Optimizer design. Contains figures superseded by the backtesting repository's `backtesting:docs/COST-MODELS.md`. |
 | `CLAUDE_HANDOFF.md` | Historical handover. Parts of it describe directories and deployments that no longer match this checkout; treat `docs/` as authoritative where they disagree. |
+| `docs/archive/` | Superseded campaign handoffs (2026-09-18), kept for history. The final documents above replace them. |
 
 ## What CI does, and what it must never do
 
