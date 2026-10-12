@@ -46,7 +46,13 @@ export function WatchlistAddBox({ onAdd, onClose, inList }: {
   const reqId = useRef(0);
   const flush = useRef<(() => void) | null>(null);
   const live = useRef(true);
-  useEffect(() => () => { live.current = false; }, []);
+  // Set on mount, not only at construction: StrictMode (on in dev) mounts,
+  // cleans up and mounts again, and a flag only ever cleared left every
+  // search answer discarded and the box on "Searching…" for good.
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
 
   const choose = useCallback(async (row: SymbolSearchResult) => {
     const added = await onAdd(row);
