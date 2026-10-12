@@ -147,6 +147,12 @@ export interface PaneCompare {
   mode: "percent" | "correlation" | "beta" | "ratio" | "zspread";
   /** Window for the rolling statistics. Unused by `percent` and `ratio`. */
   length: number;
+  /**
+   * The legend's eye switched it off: nothing is drawn and the row waits on
+   * the price legend with Show/Remove, as a hidden study's does. Absent means
+   * shown, which is every record written before the eye worked.
+   */
+  hidden?: boolean;
 }
 
 export const DEFAULT_COMPARE_LENGTH = 60;
@@ -550,6 +556,21 @@ export function paneChartSettings(ws: ChartWorkspace, id: PaneId): ChartSettings
   return normalizeChartSettings(pane.chartSettings);
 }
 
+/**
+ * A ticker is stored upper-cased, as chosen; a canonical id stays canonical.
+ *
+ * Upper-casing everything turned a restored `instrument:v1:…:spot` id (what
+ * `validCompare` returns) into `INSTRUMENT:V1:…:SPOT` on any write-back — a
+ * mode change from the chip, the legend's eye — which is a different key: the
+ * series refetched and the chart re-framed as if a comparison had arrived.
+ */
+function storedCompareSymbol(raw: string): string {
+  const symbol = raw.trim();
+  return /^instrument:v1:/i.test(symbol)
+    ? canonicalizeLegacySpotSymbol(symbol) ?? symbol
+    : symbol.toUpperCase();
+}
+
 export function setPaneCompare(
   ws: ChartWorkspace, id: PaneId, compare: PaneCompare | null
 ): ChartWorkspace {
@@ -567,9 +588,10 @@ export function setPaneCompare(
       return {
         ...p,
         compare: {
-          symbol: compare.symbol.trim().toUpperCase(),
+          symbol: storedCompareSymbol(compare.symbol),
           mode: compare.mode,
           length: Math.max(2, Math.min(1000, Math.round(compare.length))),
+          ...(compare.hidden ? { hidden: true } : {}),
         },
       };
     }),
@@ -605,7 +627,7 @@ function validCompare(value: unknown): PaneCompare | null {
     ? Math.max(2, Math.min(1000, Math.round(raw.length)))
     : DEFAULT_COMPARE_LENGTH;
   const symbol = canonicalizeLegacySpotSymbol(raw.symbol) ?? raw.symbol.trim().toUpperCase();
-  return { symbol, mode: raw.mode, length };
+  return { symbol, mode: raw.mode, length, ...(raw.hidden === true ? { hidden: true } : {}) };
 }
 
 function validPane(value: unknown): PaneState | null {

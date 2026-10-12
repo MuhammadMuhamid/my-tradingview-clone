@@ -466,6 +466,28 @@ test("a comparison survives a round trip through storage", () => {
     { symbol: "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot", mode: "beta", length: 120 });
 });
 
+test("writing a restored comparison back keeps its canonical id and key", () => {
+  // Final closure: a restored comparison holds the canonical id; the legend's
+  // eye and the chip's mode change write it back. Upper-casing it produced
+  // `INSTRUMENT:V1:…:SPOT` — a new key, a refetch and a re-framed chart.
+  const canonical = "instrument:v1:BINANCE:spot:ETH:USDT:USDT:spot";
+  const ws = setPaneCompare(workspace(), "p1", { symbol: canonical, mode: "percent", length: 60 });
+  assert.equal(ws.panes[0]!.compare!.symbol, canonical);
+});
+
+test("a hidden comparison stays hidden across storage, and shown is the default", () => {
+  const hidden = setPaneCompare(workspace(), "p1", {
+    symbol: "ETHUSDT", mode: "percent", length: 60, hidden: true,
+  });
+  assert.equal(parseWorkspace(JSON.parse(JSON.stringify(hidden)))!.panes[0]!.compare!.hidden, true);
+  const shown = setPaneCompare(hidden, "p1", { ...hidden.panes[0]!.compare!, hidden: false });
+  assert.equal("hidden" in shown.panes[0]!.compare!, false, "shown stores no flag");
+  const record = JSON.parse(JSON.stringify(shown));
+  record.panes[0].compare.hidden = "yes";
+  assert.equal("hidden" in parseWorkspace(record)!.panes[0]!.compare!, false,
+    "an unreadable flag is read as shown");
+});
+
 // ── what a reader is shown, vs what the pane is keyed by ───────────────────
 
 /**

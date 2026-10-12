@@ -318,6 +318,9 @@ export function isSelfCompare(baseSymbol: string, otherSymbol: string): boolean 
 
 export { storedSymbol };
 
+/** Whether a legend/pane key names the comparison's own pane (`compareOverlays`). */
+export const isCompareInstance = (key: string): boolean => key.startsWith("compare:");
+
 // ── as chart overlays ──────────────────────────────────────────────────────
 
 /**

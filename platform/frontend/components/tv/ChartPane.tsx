@@ -64,7 +64,7 @@ import type { PaneState } from "@/lib/workspace";
 import { drawingsAtReplayHorizon, replayCandles, type ReplaySession } from "@/lib/replay";
 import { anchoredVwapOverlays } from "@/lib/anchoredVwap";
 import { fixedRangeDecorations, fixedRangeOverlays } from "@/lib/volumeProfileDrawing";
-import { compareOverlays, useCompareSeries } from "@/lib/compare";
+import { compareOverlays, isCompareInstance, useCompareSeries } from "@/lib/compare";
 import { alertEventMarkers, placeAlertEvents } from "@/lib/alertMarkers";
 import { useAlertEvents } from "@/lib/useAlertEvents";
 import { overlayNotice, patternMarkers, placePatterns } from "@/lib/candleOverlay";
@@ -538,6 +538,9 @@ function ChartPaneImpl(props: ChartPaneProps) {
    * happening.
    */
   const compare = pane.compare ?? null;
+  // Read by `paneAction`, which is memoised on stable props only.
+  const compareRef = useRef(compare);
+  compareRef.current = compare;
   const compareRequested = props.comparePaneId === pane.id;
   const [compareSettingsOpen, setCompareSettingsOpen] = useState(false);
   const compareSeries = useCompareSeries(
@@ -566,12 +569,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
     ? compareKey
     : compare && !compareSeries.loading && compareSeries.closes.length > 0 ? compareKey : null;
 
-  const compared = useMemo(
+  const comparedAll = useMemo(
     () => (compare
       ? compareOverlays(
         visibleCandles, compareSeries, compare.mode, compare.length, pane.symbol)
       : { overlays: [], notice: null }),
     [compare, compareSeries, visibleCandles, pane.symbol]);
+  /*
+   * A hidden comparison draws nothing — no lines, so no pane — and is offered
+   * back from the price legend by `hiddenStudies`, exactly as a hidden study.
+   */
+  const compareHidden = compare?.hidden === true;
+  const compared = useMemo(
+    () => (compareHidden ? { overlays: [], notice: comparedAll.notice } : comparedAll),
+    [compareHidden, comparedAll]);
 
   /*
    * Fixed Range Volume Profile is a DRAWING that produces a profile.
@@ -763,6 +774,20 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const paneAction = useCallback((subPaneId: string, action: PaneAction, target?: string) => {
     const key = subPaneId.replace(/^indicator:/, "");
     /*
+     * The comparison's pane carries the same Hide/Settings/Remove row as a
+     * study's, but it is pane state, not a study: neither API below knows its
+     * key, so all three verbs were silently dropped. It answers from the
+     * pane's own compare record and the chip's settings menu.
+     */
+    if (isCompareInstance(key)) {
+      const current = compareRef.current;
+      if (!current) return;
+      if (action === "remove") props.onCompareChange?.(paneId, null);
+      else if (action === "hide") props.onCompareChange?.(paneId, { ...current, hidden: !current.hidden });
+      else if (action === "settings") setCompareSettingsOpen(true);
+      return;
+    }
+    /*
      * A1: the moving-average set is not a study, and none of the APIs below
      * owns it. Its legend row was a label with no verbs — hover offered
      * nothing and a click did nothing — while every other row on the same
@@ -810,7 +835,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
     // `props.onMaAction` and `props.onStudyAlert` are stable in the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId, props.onFocusIndicator, props.onEditNative, props.onEditPine,
-    props.onMaAction, props.onStudyAlert, props.onMaAlert]);
+    props.onMaAction, props.onStudyAlert, props.onMaAlert, props.onCompareChange]);
 
   /*
    * The other half of `paneAction`: whether a key names a study at all.
@@ -823,6 +848,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
   const hasMaAction = props.onMaAction !== undefined;
   const studyActionable = useCallback((key: string) =>
     (key === MA_INSTANCE_ID && hasMaAction)
+    || (isCompareInstance(key) && compareRef.current !== null)
     || nativeRef.current.list.some((study) => study.key === key)
     || indicatorsRef.current.list.some((study) => study.key === key), [hasMaAction]);
 
@@ -867,7 +893,11 @@ function ChartPaneImpl(props: ChartPaneProps) {
     ...((pane.maHiddenSet?.length ?? 0) > 0 && hasMaAction
       && !pane.maLines.some((line) => line.visible)
       ? [{ id: MA_INSTANCE_ID, title: MA_INSTANCE_TITLE }] : []),
-  ], [nativeStudies.rows, indicators.list, pane.maHiddenSet, pane.maLines, hasMaAction]);
+    ...(compareHidden && comparedAll.overlays[0]?.instanceId
+      ? [{ id: comparedAll.overlays[0].instanceId,
+        title: comparedAll.overlays[0].instanceTitle ?? comparedAll.overlays[0].title }] : []),
+  ], [nativeStudies.rows, indicators.list, pane.maHiddenSet, pane.maLines, hasMaAction,
+    compareHidden, comparedAll.overlays]);
 
   const { onCrosshairMove, onVisibleRangeChange, onViewportChange } = props;
   const emitCrosshair = useMemo(
