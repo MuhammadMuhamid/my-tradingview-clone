@@ -325,3 +325,12 @@ versions, including custom Replay dates. Individual runs continue to inherit
 locked definition assumptions. This is separate from one-configuration Quick backtest;
 a saved custom definition does not automatically establish comparable methodology
 or qualify for distributed work.
+
+### Research bad-market Stress handoff — 2026-10-12
+
+Platform Quick Backtest remains the place to test one chosen setup. Research
+Search can rank many combinations. On a Research result, **Test candidates in
+bad periods** creates an immutable local Stress study for reviewed date windows
+from locally stored candles. This does not replace Platform's ordinary
+Backtester or an untouched Holdout. Compute Helpers currently accelerate only
+the eligible `full3y1h` replay preset with `topN=1`.

@@ -27,7 +27,7 @@ not a fatwa generator."*
 
 ```
 SELECT ASSETS → EXPORT PACK → EXTERNAL RESEARCH → IMPORT (Check results) → VALIDATE
-   → REVIEW (read each decision) → PUBLISH (Import & publish / single publish) → MONITOR
+   → REVIEW (read each decision) → PUBLISH (confirm batch / single publish) → MONITOR
 ```
 
 Screen: `/shariah` (`frontend/app/shariah/page.tsx`), two tabs.
@@ -96,8 +96,7 @@ Trading Scene by design.
 ## 7. Import and validation (`TS_SHARIAH_REVIEW_RESULTS_V1`)
 
 Paste the JSON (or choose the file) → **Check results** (`POST /api/shariah/review-results/preview`)
-→ read each decision → **Review publication summary** → **Import & publish** (`POST /api/shariah/review-results/import`). *"This one
-action is your approval for the whole batch."* `src/shariah/reviewImport.ts` refuses the **whole
+→ read each decision → **Review publication summary** → **Confirm publication of N decisions** (`POST /api/shariah/review-results/import`). The final confirmation is approval for the whole batch. `src/shariah/reviewImport.ts` refuses the **whole
 batch** on any problem, with one line per problem. Live example from this session: an incomplete
 document returned *"Nothing was published. Fix the file and check again."* plus
 `policyVersion must be TS_SHARIAH_V1`, `researchCompletedAt must be an ISO-8601 timestamp`,
@@ -320,7 +319,7 @@ explicitly correct classification, reason or categories before publication. The
 original classification/reason is retained in the corrected reason. Any edit
 invalidates the preview and acknowledgements; **Check results** reuses the strict
 backend validator. Corrections do not silently change imported research or write
-publications. Final **Import & publish** remains deliberate and all-or-nothing.
+publications. Final **Confirm publication of N decisions** remains deliberate and all-or-nothing.
 
 A blocked order offers an asset/symbol-specific `/shariah` link to review or view
 the decision and evidence. This does not bypass the BUY gate; SELL/exits remain

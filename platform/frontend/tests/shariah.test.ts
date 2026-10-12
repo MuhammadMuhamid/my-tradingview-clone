@@ -126,13 +126,14 @@ test("the browser never re-derives the exposure rule", () => {
   assert.match(panel, /side === "BUY" && shariah !== null && !shariah\.buyAllowed/);
 });
 
-test("the review console treats importing as the batch approval, and says so", () => {
+test("the review console separates checking, summary review, and batch approval", () => {
   const page = read("app/shariah/page.tsx");
   // The queue download is sized by a picker now (10/20/50, 20 by default).
   assert.match(page, /Download next \{size\} for ChatGPT/);
   assert.match(page, /useState\("20"\)/);
-  assert.match(page, /Import &amp; publish/);
-  assert.match(page, /This one action is your approval for the whole batch/);
+  assert.match(page, /Review publication summary/);
+  assert.match(page, /Confirm publication of/);
+  assert.match(page, /Review the summary, then confirm publication for the whole batch/);
   assert.match(page, /STALE asset always needs a full\s*\n?\s*fresh screening/);
   // Editing the pasted text invalidates a checked preview.
   assert.match(page, /setPreview\(null\);/);

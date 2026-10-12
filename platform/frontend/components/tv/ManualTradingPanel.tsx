@@ -783,6 +783,7 @@ export function ManualTradingPanel({
             : <span className="block text-ink-muted">
                 New exposure is allowed under {shariah.shariah.policyVersion}.
               </span>}
+          {/* accent-is-meaning: the blocked BUY recovery action is a link. */}
           {!shariah.buyAllowed && <a className="mt-1 block text-accent underline" href={`/shariah?view=screening&symbol=${encodeURIComponent(symbol)}`}>{shariah.shariah.effectiveStatus === "EXCLUDED" ? "View decision and evidence" : shariah.shariah.assetId === null ? "Resolve screening identity / open Shariah status" : "Review asset / start fresh research"}</a>}
         </div>
       )}

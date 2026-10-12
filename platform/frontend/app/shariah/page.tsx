@@ -786,9 +786,9 @@ export default function ShariahPage() {
  * uploads the pack to a ChatGPT session they already pay for, and brings the
  * JSON back.
  *
- * Importing IS the approval. One "Import & publish" click publishes the whole
- * researched batch, rather than making the operator approve twenty assets one
- * at a time — which is why the preview above it exists: it is the last look
+ * The final confirmation is the approval. One deliberate confirmation publishes
+ * the whole researched batch after Check results and summary review. The preview
+ * is the last look
  * before a batch of real, immutable publications. So it shows each decision
  * whole (reason, answers, evidence, open questions) one expandable row per
  * asset, and an ELIGIBLE that lists unresolved uncertainties must be
@@ -1008,7 +1008,7 @@ function BatchReviewCard({
         </div>
 
         <Field label="ChatGPT results (TS_SHARIAH_REVIEW_RESULTS_V1)"
-          help="Paste only the JSON document — no markdown fence, no commentary. Nothing is published until you press Import & publish.">
+          help="Paste only the JSON document — no markdown fence, no commentary. Check results, review the summary, then confirm publication.">
           <textarea
             value={resultsText}
             onChange={(e) => editResults(e.target.value)}
@@ -1140,7 +1140,7 @@ function BatchReviewCard({
             Review publication summary {preview ? `${preview.assetCount} decisions` : ""}
           </Button>
           <span className="text-[11px] text-ink-faint">
-            This one action is your approval for the whole batch. A STALE asset always needs a full
+            Review the summary, then confirm publication for the whole batch. A STALE asset always needs a full
             fresh screening — its old classification can never be reconfirmed.
           </span>
         </div>
@@ -1343,6 +1343,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               <span className="font-medium text-ink">{e.title ?? e.url ?? `Evidence #${e.id}`}</span>
               {e.publisher && <span className="text-ink-faint"> · {e.publisher}</span>}
               {e.excerpt && <span className="block text-ink-muted">{e.excerpt}</span>}
+              {/* accent-is-meaning: a source citation is a navigable link. */}
               {e.url && /^https?:\/\//i.test(e.url) && <a href={e.url} target="_blank" rel="noopener noreferrer nofollow" className="block break-all text-accent underline">{e.url}</a>}
               <span className="block text-ink-faint">Retrieved: {e.retrievedAt ? fmtUtcStamp(e.retrievedAt) : "Not recorded"}</span>
             </span>
@@ -1453,6 +1454,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               Research completed: {fmtUtcStamp(p.reviewedAt)} · {evidenceCitedLabel(p.evidenceIds)}
             </p>
             <details className="mt-1"><summary className="cursor-pointer">Citations for publication #{p.publicationId}</summary>
+              {/* accent-is-meaning: publication citations are navigable links. */}
               {p.evidenceIds.map((id) => { const e = detail.evidence.find((v) => v.id === id); return <p key={id} className="mt-1 break-all">{e ? <>{e.title ?? `Evidence #${id}`} · {e.publisher ?? "Publisher not recorded"} · retrieved {e.retrievedAt ? fmtUtcStamp(e.retrievedAt) : "not recorded"}{e.url && /^https?:\/\//i.test(e.url) && <> · <a className="text-accent underline" href={e.url} target="_blank" rel="noopener noreferrer nofollow">Open source</a></>}{e.excerpt && <span className="block">{e.excerpt}</span>}</> : `Evidence #${id} is not available in this response.`}</p>; })}
             </details>
           </div>
