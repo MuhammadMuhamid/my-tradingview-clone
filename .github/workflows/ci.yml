@@ -4,7 +4,10 @@
 #   * no deployment, no AWS credentials, no production database
 #   * no exchange, webhook or TradingView network calls
 #   * no optimizer or backtest runs (they read multi-GB result files)
-# Every job runs offline apart from the npm registry.
+# Every job runs offline apart from the npm registry, with one exception: the
+# backend job starts a THROWAWAY PostgreSQL service container (image pulled
+# from Docker Hub) for the SH-2 test. It holds only synthetic fixtures, is
+# destroyed with the runner, and is never a production database.
 name: CI
 
 on:
@@ -31,6 +34,25 @@ jobs:
     defaults:
       run:
         working-directory: platform/backend
+    # shariahUniverseDb.test.ts (SH-2) proves database properties — append-only
+    # history, snapshot immutability, CHECK constraints — that no fake can, and
+    # it FAILS rather than skips when no server answers, so a green run is never
+    # a silent skip. It recreates the database named in tests/test.env; the
+    # credentials and port below must match that URL. 16 matches production.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
