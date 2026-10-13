@@ -97,6 +97,24 @@ const nextConfig = {
   // Produce a minimal self-contained Node server for the production container.
   output: "standalone",
   /*
+   * The production image is built ON the app instance — a t3.micro, where Node
+   * sizes its heap at a quarter of physical RAM: about 230 MB. The compile fits
+   * in that. The type-check does not: on 2026-10-13 the release's first deploy
+   * died with "Reached heap limit … Failed to type check" after "Compiled
+   * successfully", reproduced exactly by capping a local build at 230 MB.
+   *
+   * So the Docker build — and only the Docker build, via SKIP_BUILD_TYPECHECK
+   * in its build stage — skips Next's type-check. That is not a loss of the
+   * check: CI runs `npm run typecheck` on every push, deploys are built from
+   * a commit's archive, and a local `next build` still type-checks as before.
+   * Raising the heap instead was rejected: on this box that trades a clean V8
+   * heap error for kernel memory pressure, which is what once took the SSM
+   * agent down with a build.
+   */
+  typescript: {
+    ignoreBuildErrors: process.env.SKIP_BUILD_TYPECHECK === "1",
+  },
+  /*
    * W2D-01: how long the `/api` rewrite waits for the backend.
    *
    * Next's proxy (`server/lib/router-utils/proxy-request.js`) defaults to 30 s

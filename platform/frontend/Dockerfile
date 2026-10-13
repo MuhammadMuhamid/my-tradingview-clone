@@ -6,6 +6,9 @@ RUN npm ci
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# The app instance's ~230 MB Node heap fits the compile but not the type-check;
+# CI type-checks every push. See `typescript` in next.config.mjs.
+ENV SKIP_BUILD_TYPECHECK=1
 ARG BACKEND_URL=http://backend:4000
 ENV BACKEND_URL=$BACKEND_URL
 # Next inlines process.env into Edge middleware at BUILD time, so the sign-in
