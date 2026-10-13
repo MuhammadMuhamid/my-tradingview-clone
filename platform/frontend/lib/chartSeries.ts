@@ -497,7 +497,11 @@ export function studyPriceFormat(precision?: number | null): {
     ? 2 : Math.max(0, Math.min(12, Math.trunc(precision)));
   return {
     type: "custom",
-    minMove: 10 ** -digits,
+    // `1 / 10 ** digits`, not `10 ** -digits`: the latter is not the nearest
+    // double to 10^-d for every d — `10 ** -4` is 0.00009999999999999999 — so
+    // the step was a hair under the precision it claims. Division of two exact
+    // values is correctly rounded, which makes this equal the literal 0.0001.
+    minMove: 1 / 10 ** digits,
     formatter: (price: number) => formatStudyAxisValue(price, digits),
   };
 }

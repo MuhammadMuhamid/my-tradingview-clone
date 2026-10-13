@@ -3547,7 +3547,8 @@ export function CandleChart({
       let entry = overlayRefs.current.get(overlay.id);
       const precision = overlay.precision;
       const priceFormat = precision === null || precision === undefined ? undefined : {
-        type: "price" as const, precision, minMove: 10 ** -precision,
+        // `1 / 10 ** n`, not `10 ** -n` — see `studyPriceFormat`.
+        type: "price" as const, precision, minMove: 1 / 10 ** precision,
       };
       /*
        * R6 SC-3: the study's price tag on the scale, as a setting.
