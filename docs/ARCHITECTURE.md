@@ -7,9 +7,9 @@ owns multi-asset market/provider contracts plus the canonical backtest engine
 (crypto spot and derivatives, U.S. stocks/ETFs, FX, dated and continuous
 futures). External authenticated/data-entitlement paths are
 `UNVERIFIED_DISABLED`; the current live execution and native Scanner workflows
-are Binance Spot-only and the Bot remains the sole order-placement owner. See
-the [V3 owner handoff](../../evidence/TRADING_SCENE_V3_OWNER_HANDOFF.md) for the
-authoritative provider matrix.
+are Binance Spot-only and the Bot remains the sole order-placement owner. The
+authoritative provider matrix is in the V3 owner handoff, which is kept with the
+release evidence outside this repository.
 
 ## The three systems
 

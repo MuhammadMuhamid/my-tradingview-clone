@@ -10,7 +10,8 @@ the separate execution boundary.
 The canonical V3 engine covers crypto spot, crypto derivatives, U.S.
 stocks/ETFs, FX, dated futures and continuous futures rolls. Read-only provider
 adapters and fixture contracts are present for the providers listed in the
-[owner handoff](../evidence/TRADING_SCENE_V3_OWNER_HANDOFF.md). Alpaca, OANDA,
+V3 owner handoff, which is kept with the release evidence outside this
+repository. Alpaca, OANDA,
 IBKR and other external authenticated/data-entitlement boundaries are
 `UNVERIFIED_DISABLED` in this local workspace; no credentials, subscriptions,
 paper/demo/testnet handshakes or production execution are claimed.
