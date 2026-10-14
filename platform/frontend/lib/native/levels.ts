@@ -21,13 +21,14 @@
  * make every Replay and every backtest read the future.
  */
 import {
+  AUTO_FIB_DEFAULTS, AUTO_FIB_LEVELS, autoFib, autoFibLevelPrice,
   buildZones, DEFAULT_SR_OPTIONS, isPivotType, pivotLevels, swingPoints,
   zonesAsOfSeries, type PivotType,
 } from "@/lib/ta/core";
 import type { NativeStudyDef } from "@/lib/native/registry";
 import { INTERVAL_MS, type Candle } from "@/lib/types";
 import {
-  ACCENT, AMBER, DOWN, MUTED, UP, VIOLET, num, ohlcv, str,
+  ACCENT, AMBER, DOWN, MUTED, UP, VIOLET, bool, num, ohlcv, str,
 } from "@/lib/native/shared";
 
 /** The anchor periods a pivot study can be computed from. */
@@ -321,8 +322,80 @@ export const previousPeriodStudy: NativeStudyDef = {
   },
 };
 
+
+/** A fib level's plot id: "fib_0_618", "fib_neg_0_382". Stable — styles are keyed by it. */
+export const fibPlotId = (value: number): string =>
+  `fib_${value < 0 ? "neg_" : ""}${String(Math.abs(value)).replace(".", "_")}`;
+
+/**
+ * Auto Fib Retracement — TradingView's script, on this chart.
+ *
+ * Levels are drawn across the latest confirmed zig-zag swing, from its start
+ * pivot to the right edge (Extend Right, on by default as on the owner's
+ * chart). The swing, and every level price, come from `autoFib` in
+ * `lib/ta/core` — the SAME function the alert engine evaluates a fib alert
+ * with, so the line on the chart is the line an alert fires on.
+ *
+ * Defaults are the owner's own chart, not the script's: Depth 30 (the script
+ * says 10), 0 through 1 shown except 0.65, the extensions and negatives off,
+ * 0 and 1 grey and the retracements white. Which levels show and their
+ * colours are the Style tab's per-plot visibility and colour.
+ *
+ * Not drawn: the script's text labels beside each line and the shaded bands.
+ * Each level's price is on the price scale instead, and the owner's background
+ * transparency of 100 already draws no bands.
+ */
+export const autoFibStudy: NativeStudyDef = {
+  id: "auto_fib",
+  name: "Auto fib retracement",
+  aliases: ["fib", "fibonacci", "auto fib", "retracement", "zigzag"],
+  category: "levels",
+  overlay: true,
+  description: "Fibonacci levels across the latest zig-zag swing, redrawn as new swings confirm.",
+  inputs: [
+    { kind: "number", key: "deviation", title: "Deviation", defval: AUTO_FIB_DEFAULTS.deviation, min: 0, max: 100, step: 0.1 },
+    { kind: "number", key: "depth", title: "Depth", defval: AUTO_FIB_DEFAULTS.depth, min: 2, max: 500, integer: true },
+    { kind: "boolean", key: "reverse", title: "Reverse", defval: false },
+    { kind: "boolean", key: "extendLeft", title: "Extend Left", defval: false },
+    { kind: "boolean", key: "extendRight", title: "Extend Right", defval: true },
+  ],
+  plots: AUTO_FIB_LEVELS.map((l) => ({
+    id: fibPlotId(l.value),
+    title: String(l.value),
+    style: "line" as const,
+    color: l.value === 0 || l.value === 1 ? "#787b86" : "#ffffff",
+    width: 1,
+    hiddenByDefault: !l.on,
+    notASource: true,
+  })),
+  precision: null,
+  warmup: () => 0,
+  // Path-dependent, like any zig-zag: the latest swing depends on every pivot
+  // before it, so it is computed over the whole loaded series.
+  unbounded: true,
+  compute: ({ candles, params }) => {
+    const { high, low, close } = ohlcv(candles);
+    const n = candles.length;
+    const plots: Record<string, number[]> = {};
+    for (const l of AUTO_FIB_LEVELS) plots[fibPlotId(l.value)] = new Array<number>(n).fill(NaN);
+    const fib = autoFib(high, low, close,
+      num(params, "deviation", AUTO_FIB_DEFAULTS.deviation),
+      num(params, "depth", AUTO_FIB_DEFAULTS.depth),
+      bool(params, "reverse", false));
+    if (!fib) return { plots };
+    const from = bool(params, "extendLeft", false) ? 0 : fib.leg.start.index;
+    const to = bool(params, "extendRight", true) ? n - 1 : fib.leg.end.index;
+    for (const l of AUTO_FIB_LEVELS) {
+      const price = autoFibLevelPrice(fib, l.value);
+      const series = plots[fibPlotId(l.value)]!;
+      for (let i = from; i <= to; i++) series[i] = price;
+    }
+    return { plots };
+  },
+};
+
 export const LEVEL_STUDIES: readonly NativeStudyDef[] = [
-  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy,
+  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy, autoFibStudy,
 ];
 
 export { ACCENT, VIOLET, INTERVAL_MS };

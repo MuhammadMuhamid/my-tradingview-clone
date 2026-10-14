@@ -67,6 +67,11 @@ const ALERTS: Record<ConditionKind, MaAlert> = {
     ...BASE, conditionKind: "pivot_level", targetPrice: null, priceDirection: null,
     pivotType: "Camarilla", pivotLevelName: "R3", pivotAnchor: "4h", mode: "touch",
   },
+  fib_level: {
+    ...BASE, conditionKind: "fib_level", targetPrice: null, priceDirection: null,
+    fibLevel: 0.786, fibDeviation: 2.5, fibDepth: 24, fibReverse: true,
+    mode: "near_below", nearMinPct: 0.1, nearMaxPct: 0.4,
+  },
   rsi: {
     ...BASE, conditionKind: "rsi", targetPrice: null, priceDirection: null,
     rsiLength: 14, rsiLevel: 70, rsiMaLength: 9, indicatorTarget: "level", mode: "cross_down",
@@ -499,6 +504,7 @@ const EDITABLE_FIELDS: Record<ConditionKind, (keyof AlertEditForm)[]> = {
   ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length", "mode"],
   sr_zone: ["srSide", "pivotLength", "invalidation", "mode"],
   pivot_level: ["pivotType", "levelName", "anchor", "mode"],
+  fib_level: ["fibLevel", "fibDeviation", "fibDepth", "fibReverse", "mode"],
   rsi: ["rsiLength", "rsiTarget", "rsiLevel", "rsiMaLength", "mode"],
   macd: ["macdFast", "macdSlow", "macdSignal", "macdTarget", "mode"],
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode"],
@@ -530,6 +536,7 @@ const FAMILY_ROW: Record<ConditionKind, Partial<MaAlert>> = {
   pivot_level: {
     pivotType: "Fibonacci", pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
   },
+  fib_level: { fibLevel: 0.618, fibDeviation: 3, fibDepth: 30, fibReverse: false, mode: "touch" },
   rsi: { rsiLength: 50, rsiLevel: 50, rsiMaLength: 14, indicatorTarget: "level", mode: "cross_up" },
   macd: { macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
   supertrend: { stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },

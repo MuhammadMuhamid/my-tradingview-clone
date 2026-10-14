@@ -53,6 +53,7 @@ const fixtures = [
   alert("bollinger", { conditionKind: "bollinger", mode: "touch" }),
   alert("stochastic", { conditionKind: "stochastic", mode: "cross_up" }),
   alert("adx", { conditionKind: "adx", mode: "cross_up" }),
+  alert("fib", { conditionKind: "fib_level", fibLevel: 0.618, fibDeviation: 3, fibDepth: 30, fibReverse: false, mode: "touch" }),
 ];
 
 test("symbol search is case-insensitive for exact and partial coin names", () => {
@@ -80,7 +81,7 @@ test("every family mapping and reliable EMA/SMA subtype mapping is covered", () 
   const expected: Record<AlertTypeFilter, string[]> = {
     all: fixtures.map((item) => item.id),
     price: ["price"], ma: ["ema", "sma"], ma_ema: ["ema"], ma_sma: ["sma"],
-    ma_vs_ma: ["cross"], sr_zone: ["sr"], pivot_level: ["pivot"],
+    ma_vs_ma: ["cross"], sr_zone: ["sr"], pivot_level: ["pivot"], fib_level: ["fib"],
     rsi: ["rsi"], macd: ["macd"], supertrend: ["supertrend"],
     bollinger: ["bollinger"], stochastic: ["stochastic"], adx: ["adx"],
   };

@@ -37,7 +37,9 @@ import * as maAlertRepo from "../repositories/maAlerts";
 import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
-import { adx, bollinger, ema, macd, rsi, sma, stochastic, supertrend } from "./ta";
+import {
+  adx, autoFib, autoFibLevelPrice, bollinger, ema, macd, rsi, sma, stochastic, supertrend,
+} from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
   levelByName, nearestLevel, pivotLevels, type PivotType, type Period,
@@ -482,6 +484,31 @@ export class MaAlertRunner {
     };
 
     /** Pivot levels from the completed anchor period, cached per anchor+type. */
+    /**
+     * One Auto Fib level on this feed's own bars.
+     *
+     * `autoFib` is `ta/core`'s — the function the chart's Auto Fib study draws
+     * with — over the same bounded history every family here uses. The latest
+     * swing is stable well inside that window (measured: identical from 150
+     * bars to 1000 on BTC, NEAR and SOL at 15m, 1h and 4h), so the level an
+     * alert fires on is the level the chart shows. Cached per zig-zag input:
+     * five alerts at different ratios share one zig-zag.
+     */
+    const fibCache = new Map<string, ReturnType<typeof autoFib>>();
+    const fibFor = (
+      deviation: number, depth: number, reverse: boolean, level: number
+    ): { price: number; label: string } | undefined => {
+      const key = `${deviation}|${depth}|${reverse}`;
+      let fib = fibCache.get(key);
+      if (fib === undefined) {
+        fib = autoFib(highs, lows, closes, deviation, depth, reverse);
+        fibCache.set(key, fib);
+      }
+      if (!fib) return undefined;
+      const price = autoFibLevelPrice(fib, level);
+      return Number.isFinite(price) ? { price, label: String(level) } : undefined;
+    };
+
     const pivotFor = (
       type: PivotType, anchor: string, levelName: string
     ): { price: number; label: string } | undefined => {
@@ -656,6 +683,7 @@ export class MaAlertRunner {
       series: seriesFor,
       srZone: srFor,
       pivotLevel: pivotFor,
+      fibLevel: fibFor,
       rsi: rsiFor,
       rsiMa: rsiMaFor,
       macd: macdFor,

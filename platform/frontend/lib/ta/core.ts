@@ -2423,3 +2423,137 @@ export function normalizedCompare(
   }
   return { base: outBase, other: outOther, referenceIndex: ref };
 }
+
+// ── Auto Fib Retracement ────────────────────────────────────────────────────
+
+/**
+ * One confirmed swing of the zig-zag Auto Fib draws its levels from.
+ *
+ * `start` is the previous pivot and `end` the latest; a leg is `isHigh` when
+ * it ENDS on a high. `index` is the pivot bar's position in the input arrays.
+ */
+export interface ZigZagPoint { index: number; price: number }
+export interface ZigZagLeg { start: ZigZagPoint; end: ZigZagPoint; isHigh: boolean }
+
+/**
+ * TradingView's `ZigZag/7` library, as "Auto fib retracement" drives it.
+ *
+ * Ported from the library's behaviour rather than approximated, because the
+ * chart and the alert must agree on WHICH swing is being retraced, and a zig-zag
+ * is path-dependent — one differently-classified pivot changes every leg after.
+ *
+ *  - The pivot window is `max(2, floor(depth / 2))` bars on EACH side: a high
+ *    at bar `c` needs every newer bar's high `<=` it and every older bar's high
+ *    strictly `<` it (Pine's `findPivotPoint`), and is only knowable `window`
+ *    bars later. That delay is what keeps it free of lookahead.
+ *  - The threshold is re-set every bar BEFORE the update, exactly as the
+ *    script does: `ATR(10) / close * 100 * deviation`, in percent.
+ *  - A pivot in the SAME direction as the last leg's end replaces that end when
+ *    it is more extreme; an OPPOSITE pivot starts a new leg only when it moved at
+ *    least the threshold from the last end. During ATR warm-up the threshold is
+ *    NaN, every comparison is false, and no reversal is taken — as in Pine.
+ *  - Highs are tried before lows on the same bar (`allowZigZagOnOneBar`).
+ *
+ * Returns every leg; Auto Fib reads only the last. Fewer than two legs is
+ * "not enough data", the case the script reports with `runtime.error`.
+ */
+export function zigZagLegs(
+  high: readonly number[], low: readonly number[], close: readonly number[],
+  deviation: number, depth: number, atrLength = 10,
+): ZigZagLeg[] {
+  const n = close.length;
+  const w = Math.max(2, Math.floor(depth / 2));
+  const atrs = atr(high as number[], low as number[], close as number[], atrLength);
+  const legs: ZigZagLeg[] = [];
+
+  const pivotAt = (src: readonly number[], i: number, isHigh: boolean): ZigZagPoint | null => {
+    if (w * 2 > i) return null;
+    const c = i - w;
+    const p = src[c]!;
+    if (!Number.isFinite(p)) return null;
+    for (let k = 0; k < w; k++) {
+      const v = src[i - k]!;
+      if (isHigh ? v > p : v < p) return null;
+    }
+    for (let k = w + 1; k <= 2 * w; k++) {
+      const v = src[i - k]!;
+      if (isHigh ? v >= p : v <= p) return null;
+    }
+    return { index: c, price: p };
+  };
+
+  const found = (isHigh: boolean, point: ZigZagPoint, threshold: number): void => {
+    const last = legs[legs.length - 1];
+    if (!last) { legs.push({ start: point, end: point, isHigh }); return; }
+    if (last.isHigh === isHigh) {
+      if (isHigh ? point.price > last.end.price : point.price < last.end.price) last.end = point;
+      return;
+    }
+    const dev = 100 * (point.price - last.end.price) / Math.abs(last.end.price);
+    if ((!last.isHigh && dev >= threshold) || (last.isHigh && dev <= -threshold)) {
+      legs.push({ start: last.end, end: point, isHigh });
+    }
+  };
+
+  for (let i = 0; i < n; i++) {
+    const threshold = (atrs[i]! / close[i]!) * 100 * deviation;
+    const h = pivotAt(high, i, true);
+    if (h) found(true, h, threshold);
+    const l = pivotAt(low, i, false);
+    if (l) found(false, l, threshold);
+  }
+  return legs;
+}
+
+/** The anchor of an Auto Fib drawing: the swing it retraces. */
+export interface AutoFib {
+  leg: ZigZagLeg;
+  /** Price of level 0. */
+  startPrice: number;
+  /** Signed distance from level 0 to level 1. */
+  height: number;
+}
+
+/**
+ * The script's `update()`: the latest leg, oriented, or null when there are
+ * fewer than two legs. Level `m` sits at `startPrice + height * m`.
+ *
+ * Not reversed, level 0 is the swing's END (the most recent pivot) and 1 its
+ * start — a leg up from 100 to 200 puts 0 at 200, 1 at 100 and 0.618 at 138.2.
+ */
+export function autoFib(
+  high: readonly number[], low: readonly number[], close: readonly number[],
+  deviation: number, depth: number, reverse = false,
+): AutoFib | null {
+  const legs = zigZagLegs(high, low, close, deviation, depth);
+  if (legs.length < 2) return null;
+  const leg = legs[legs.length - 1]!;
+  const startPrice = reverse ? leg.start.price : leg.end.price;
+  const endPrice = reverse ? leg.end.price : leg.start.price;
+  const height = (startPrice > endPrice ? -1 : 1) * Math.abs(startPrice - endPrice);
+  return { leg, startPrice, height };
+}
+
+export const autoFibLevelPrice = (fib: AutoFib, level: number): number =>
+  fib.startPrice + fib.height * level;
+
+/**
+ * The levels the indicator offers, in the script's order, with the defaults
+ * the owner's own chart uses: on for 0 through 1 (bar 0.65), off for the
+ * extensions and the negatives.
+ */
+export const AUTO_FIB_LEVELS: readonly { value: number; on: boolean }[] = [
+  { value: -0.65, on: false }, { value: -0.618, on: false },
+  { value: -0.382, on: false }, { value: -0.236, on: false },
+  { value: 0, on: true }, { value: 0.236, on: true }, { value: 0.382, on: true },
+  { value: 0.5, on: true }, { value: 0.618, on: true }, { value: 0.65, on: false },
+  { value: 0.786, on: true }, { value: 1, on: true },
+  { value: 1.272, on: false }, { value: 1.414, on: false },
+  { value: 1.618, on: false }, { value: 1.65, on: false },
+  { value: 2.618, on: false }, { value: 2.65, on: false },
+  { value: 3.618, on: false }, { value: 3.65, on: false },
+  { value: 4.236, on: false }, { value: 4.618, on: false },
+];
+
+/** The owner's chart settings: Deviation 3, Depth 30. */
+export const AUTO_FIB_DEFAULTS = { deviation: 3, depth: 30, reverse: false } as const;

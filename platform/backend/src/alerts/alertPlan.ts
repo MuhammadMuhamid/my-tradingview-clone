@@ -77,6 +77,14 @@ export interface FeedSample {
     type: PivotType, anchor: string, levelName: string
   ) => { price: number; label: string } | undefined;
   /**
+   * One level of the Auto Fib Retracement on this feed's own bars, or
+   * undefined while the zig-zag has fewer than two legs. Computed with
+   * `autoFib` from `ta/core` — the function the chart's study draws with.
+   */
+  fibLevel?: (
+    deviation: number, depth: number, reverse: boolean, level: number
+  ) => { price: number; label: string } | undefined;
+  /**
    * RSI at this bar, and the reference it is compared against — the fixed
    * level, or the RSI-based SMA. Both come from the runner because only it
    * holds the bar history the oscillator needs.
@@ -248,6 +256,12 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
         condition.srSide, condition.pivotLength, condition.invalidation
       );
       return { ...base, refValue: zone?.price, refLabel: zone?.label };
+    }
+    case "fib_level": {
+      const fib = sample.fibLevel?.(
+        condition.deviation, condition.depth, condition.reverse, condition.level
+      );
+      return { ...base, refValue: fib?.price, refLabel: fib?.label };
     }
     case "pivot_level": {
       const level = sample.pivotLevel?.(

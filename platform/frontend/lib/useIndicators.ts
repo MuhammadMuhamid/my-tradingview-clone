@@ -17,7 +17,8 @@ import type { Trade } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
 import {
   NO_DRAWINGS, PINE_RUN_LOADING, PRIMARY_INDICATOR_SCOPE, hydrate, invalidateReplayOutput,
-  loadStored, newKey, pineRunStatus, runIndicator, saveStored, storable,
+  applyPlotStyles, loadStored, newKey, pineRunStatus, runIndicator, saveStored, storable,
+  type PlotLook,
   type AppliedIndicator, type PineParams,
 } from "@/lib/indicators";
 import { pushPanePine, syncPanePine } from "@/lib/chartStateSync";
@@ -357,6 +358,26 @@ export function useIndicators(ctx: IndicatorContext) {
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
   }, []);
 
+  /**
+   * One plot's look, or with `null` the script's own back. Not a re-run: a
+   * colour changes how the answer is drawn, not the answer, so it is applied
+   * over the existing output (`applyPlotStyles`) and saved with the study.
+   */
+  const setPlotStyle = useCallback((key: string, plot: string, look: PlotLook | null) => {
+    setList((cur) => cur.map((i) => {
+      if (i.key !== key) return i;
+      const next = { ...(i.plotStyles ?? {}) };
+      if (look === null || Object.keys(look).length === 0) delete next[plot];
+      else next[plot] = look;
+      return { ...i, plotStyles: Object.keys(next).length > 0 ? next : undefined };
+    }));
+  }, []);
+
+  /** Every plot back to the script's own look. */
+  const resetPlotStyles = useCallback((key: string) => {
+    setList((cur) => cur.map((i) => (i.key === key ? { ...i, plotStyles: undefined } : i)));
+  }, []);
+
   const resetParams = useCallback((key: string) => {
     setList((cur) => cur.map((i) => (i.key === key ? { ...i, params: {} } : i)));
     setDirtyKeys((d) => (d.includes(key) ? d : [...d, key]));
@@ -409,7 +430,7 @@ export function useIndicators(ctx: IndicatorContext) {
        */
       const status = i.overlays.length > 0 ? null
         : i.loading ? PINE_RUN_LOADING : pineRunStatus(i.error);
-      return status === null ? i.overlays : [{
+      return status === null ? applyPlotStyles(i.overlays, i.plotStyles) : [{
         id: `${i.key}:status`, title: "", color: "#9c9c9c", data: [], paneId: PRICE_PANE_ID,
         instanceId: i.key, instanceTitle: i.name || "Script", instanceParams: status,
         statusValueVisible: false, priceScaleLabelVisible: false,
@@ -446,7 +467,8 @@ export function useIndicators(ctx: IndicatorContext) {
     return withTrades.length > 0 ? withTrades[withTrades.length - 1]!.trades : null;
   }, [outputList]);
 
-  return { list, add, remove, clear, toggleVisible, setParam, resetParams, updateSource, rerun,
+  return { list, add, remove, clear, toggleVisible, setParam, resetParams,
+    setPlotStyle, resetPlotStyles, updateSource, rerun,
     rerunAll, overlays, decorations, barColors, markers, drawings, trades };
 }
 

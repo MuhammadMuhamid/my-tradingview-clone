@@ -104,6 +104,7 @@ export const ALERT_FAMILY_LABELS: Record<ConditionKind, string> = {
   ma_vs_ma: "MA cross",
   sr_zone: "Support / resistance",
   pivot_level: "Pivot level",
+  fib_level: "Auto fib level",
   rsi: "RSI",
   macd: "MACD",
   supertrend: "Supertrend",
@@ -155,7 +156,8 @@ export const modesFor = (kind: ConditionKind): MaAlertMode[] =>
 
 /** Whether the percentage approach band is meaningful for this state. */
 export const usesBand = (kind: ConditionKind, mode: MaAlertMode): boolean =>
-  (kind === "ma" || kind === "sr_zone" || kind === "pivot_level" || kind === "bollinger") &&
+  (kind === "ma" || kind === "sr_zone" || kind === "pivot_level" || kind === "fib_level"
+    || kind === "bollinger") &&
   (mode === "near_above" || mode === "near_below");
 
 /**
@@ -203,6 +205,10 @@ export interface AlertEditForm {
   pivotType: PivotType;
   levelName: string;
   anchor: string;
+  fibLevel: number;
+  fibDeviation: number;
+  fibDepth: number;
+  fibReverse: boolean;
   rsiLength: number;
   rsiTarget: RsiTarget;
   rsiLevel: number;
@@ -273,6 +279,10 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     pivotType: alert.pivotType ?? "Fibonacci",
     levelName: alert.pivotLevelName ?? "any",
     anchor: alert.pivotAnchor ?? "1d",
+    fibLevel: alert.fibLevel ?? 0.618,
+    fibDeviation: alert.fibDeviation ?? 3,
+    fibDepth: alert.fibDepth ?? 30,
+    fibReverse: alert.fibReverse ?? false,
     rsiLength: alert.rsiLength ?? RSI_DEFAULTS.length,
     // Every MA target is carried through. Reading only "sma" here once meant
     // an EMA alert opened in the editor came back as "level" and a plain Save
@@ -340,6 +350,14 @@ export function validateAlertForm(
   if (kind === "sr_zone") {
     if (!Number.isInteger(form.pivotLength) || form.pivotLength < 2 || form.pivotLength > 100) {
       return "Swing length must be a whole number from 2 to 100.";
+    }
+  }
+  if (kind === "fib_level") {
+    if (!(Number.isFinite(form.fibDeviation) && form.fibDeviation >= 0 && form.fibDeviation <= 100)) {
+      return "Deviation must be a number from 0 to 100.";
+    }
+    if (!Number.isInteger(form.fibDepth) || form.fibDepth < 2 || form.fibDepth > 500) {
+      return "Depth must be a whole number from 2 to 500.";
     }
   }
   if (kind === "pivot_level" && !pivotLevelNames(form.pivotType).includes(form.levelName)) {
@@ -512,6 +530,14 @@ export function alertEditRequest(
       set("srSide", form.srSide, alert.srSide);
       set("pivotLength", form.pivotLength, alert.srPivotLength);
       set("invalidation", form.invalidation, alert.srInvalidation);
+      set("mode", form.mode, alert.mode);
+      setBand(body, form, alert);
+      break;
+    case "fib_level":
+      set("fibLevel", form.fibLevel, alert.fibLevel);
+      set("fibDeviation", form.fibDeviation, alert.fibDeviation);
+      set("fibDepth", form.fibDepth, alert.fibDepth);
+      set("fibReverse", form.fibReverse, alert.fibReverse);
       set("mode", form.mode, alert.mode);
       setBand(body, form, alert);
       break;

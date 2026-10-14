@@ -13,7 +13,9 @@ import type { Candle } from "../src/types/market";
 import type { AlertFrequency } from "../src/alerts/alertFrequency";
 import type { MaAlertRow } from "../src/types/maAlerts";
 import type { PushMessage, PushResult } from "../src/alerts/webPush";
-import { ema, rsi, sma } from "../src/engine/ta";
+import { autoFib, autoFibLevelPrice, ema, rsi, sma } from "../src/engine/ta";
+import fs from "node:fs";
+import path from "node:path";
 
 type EvaluationWrite = Parameters<
   (typeof import("../src/repositories/maAlerts"))["recordEvaluation"]
@@ -354,4 +356,51 @@ test("an RSI alert can cross its own EMA, and it is not its SMA", async () => {
   const sideOf = (id: string) => fake.evaluations.find((e) => e.id === id)?.side;
   assert.equal(sideOf("vs-ema"), viaEma, "the EMA alert is measured against the EMA of the RSI");
   assert.equal(sideOf("vs-sma"), viaSma, "and the SMA alert, unchanged, against its SMA");
+});
+
+/**
+ * A fib-level alert fires through the real runner when price touches the
+ * level the chart's Auto Fib draws — on real, unmodified candles.
+ *
+ * The alert is armed at the exact ratio where the last of 1000 real NEARUSDT
+ * 1h bars closed, so that level lies inside the bar by construction and a
+ * touch alert must fire. A second alert at a ratio far outside the bar's range
+ * must not. Nothing is reshaped, so nothing can have moved the swing.
+ */
+test("a fib-level alert fires when price touches the Auto Fib level, and not elsewhere", async () => {
+  const fx = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "fixtures", "autoFibGolden.json"), "utf8")) as {
+    high: number[]; low: number[]; close: number[];
+  };
+  const bars: Candle[] = fx.close.map((close, i) => ({
+    symbol: "BTCUSDT", interval: "1m" as const,
+    openTime: T0 + i * STEP, closeTime: T0 + (i + 1) * STEP - 1,
+    open: close, high: fx.high[i]!, low: fx.low[i]!, close, volume: 10,
+  }));
+  const last = bars[bars.length - 1]!;
+  const fib = autoFib(fx.high, fx.low, fx.close, 3, 30)!;
+  assert.ok(fib, "the fixture has a swing");
+
+  const atClose = (last.close - fib.startPrice) / fib.height;
+  assert.ok(Math.abs(autoFibLevelPrice(fib, atClose) - last.close) < 1e-9);
+  // A ratio whose price is well outside this bar, on the far side of 0 or 1.
+  const far = atClose > 0.5 ? -3 : 4;
+  const farPrice = autoFibLevelPrice(fib, far);
+  assert.ok(farPrice > last.high * 1.01 || farPrice < last.low * 0.99, "the far level is off the bar");
+
+  const fibRow = (id: string, level: number) => row(id, {
+    conditionKind: "fib_level", targetPrice: null, priceDirection: null,
+    fibDeviation: 3, fibDepth: 30, fibReverse: false, fibLevel: level,
+    mode: "touch", lastSide: null,
+  });
+  const fake = localRunner([fibRow("at-close", atClose), fibRow("far", far)]);
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars, sampleBar: last, isClosedBar: true, now: T0,
+  });
+
+  const fired = (id: string) => fake.evaluations.find((e) => e.id === id)?.fired;
+  assert.equal(fired("at-close"), true, "price is ON this level — the alert must fire");
+  assert.equal(fired("far"), false, "that level is nowhere near this bar");
+  assert.equal(fake.pushes.length, 1);
+  assert.match(fake.pushes[0]!.title, /fib /);
 });

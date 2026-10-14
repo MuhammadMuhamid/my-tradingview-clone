@@ -54,6 +54,8 @@ test("the dialog edits the script's own inputs, live, under the study's name", a
       onClose={() => calls.push("close")}
       onParam={(key, param, value) => calls.push(`${key}:${param}=${JSON.stringify(value)}`)}
       onReset={(key) => calls.push(`${key}:reset`)}
+      onStyle={() => {}}
+      onResetStyles={() => {}}
     />);
   await settle();
 
@@ -62,12 +64,11 @@ test("the dialog edits the script's own inputs, live, under the study's name", a
   assert.doesNotMatch(dialog.textContent ?? "", /peefk/, "never the instance's storage key");
 
   /*
-   * One tab. Style and Visibility are absent rather than greyed: a Pine
-   * study's plots are what the script returns, and nothing in `useIndicators`
-   * stores a per-plot override or a timeframe allow-list to write to.
+   * Inputs and Style. Visibility is absent rather than greyed: nothing in
+   * `useIndicators` stores a timeframe allow-list to write to.
    */
   const tabs = within(dialog).getAllByRole("tab").map((t) => t.textContent);
-  assert.deepEqual(tabs, ["Inputs"]);
+  assert.deepEqual(tabs, ["Inputs", "Style"]);
 
   // The `group=` the script declared is a heading, as the reference prints it.
   assert.match(dialog.textContent ?? "", /Trend/);
@@ -88,7 +89,8 @@ test("the dialog edits the script's own inputs, live, under the study's name", a
 });
 
 test("W2D-09 — the Pine dialog takes the built-in dialog's one fixed box", async () => {
-  render(<PineStudySettings study={pine()} onClose={() => {}} onParam={() => {}} onReset={() => {}} />);
+  render(<PineStudySettings study={pine()} onClose={() => {}} onParam={() => {}} onReset={() => {}}
+    onStyle={() => {}} onResetStyles={() => {}} />);
   await settle();
   const dialog = screen.getByRole("dialog");
   assert.match(dialog.className, /!max-w-\[550px\]/);
@@ -106,6 +108,8 @@ test("Cancel puts back exactly the overrides the study had when the dialog opene
       onClose={() => calls.push("close")}
       onParam={(key, param, value) => calls.push(`${param}=${JSON.stringify(value)}`)}
       onReset={() => calls.push("reset")}
+      onStyle={(key, plot, look) => calls.push(`style ${plot}=${JSON.stringify(look)}`)}
+      onResetStyles={() => calls.push("reset-styles")}
     />);
   await settle();
   const dialog = screen.getByRole("dialog");
@@ -118,7 +122,7 @@ test("Cancel puts back exactly the overrides the study had when the dialog opene
    * Reset first, then the entry overrides: `show` was not overridden on
    * entry, so it must go back to its default rather than keep the new value.
    */
-  assert.deepEqual(calls, ["reset", "len=21", "close"]);
+  assert.deepEqual(calls, ["reset", "len=21", "reset-styles", "close"]);
 });
 
 test("Ok submits the whole draft, not only whatever live write happened to stick", async () => {
@@ -129,6 +133,8 @@ test("Ok submits the whole draft, not only whatever live write happened to stick
       onClose={() => calls.push("close")}
       onParam={(key, param, value) => calls.push(`${param}=${JSON.stringify(value)}`)}
       onReset={() => calls.push("reset")}
+      onStyle={(key, plot, look) => calls.push(`style ${plot}=${JSON.stringify(look)}`)}
+      onResetStyles={() => calls.push("reset-styles")}
     />);
   await settle();
   const dialog = screen.getByRole("dialog");
@@ -137,6 +143,46 @@ test("Ok submits the whole draft, not only whatever live write happened to stick
   fireEvent.click(within(dialog).getByRole("button", { name: "Ok" }));
   // B-06: the study is put exactly at the draft, whatever the live path did.
   assert.deepEqual(calls, ["reset", "len=30", "close"]);
+});
+
+test("the Style tab writes one plot's look, and Cancel puts back the looks it had on entry", async () => {
+  const calls: string[] = [];
+  const study = pine({
+    overlays: [
+      { id: "a", title: "Basis", color: "#2962ff", width: 1, data: [] },
+      { id: "b", title: "Upper", color: "#f23645", width: 2, data: [] },
+    ] as unknown as AppliedIndicator["overlays"],
+    plotStyles: { Upper: { lineStyle: "dotted" } },
+  });
+  render(
+    <PineStudySettings
+      study={study}
+      onClose={() => calls.push("close")}
+      onParam={(key, param, value) => calls.push(`${param}=${JSON.stringify(value)}`)}
+      onReset={() => calls.push("reset")}
+      onStyle={(key, plot, look) => calls.push(`style ${plot}=${JSON.stringify(look)}`)}
+      onResetStyles={() => calls.push("reset-styles")}
+    />);
+  await settle();
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Style" }));
+  await settle();
+
+  // One row per plot, named by the script's own titles.
+  const basis = within(dialog).getByRole("checkbox", { name: "Basis" });
+  assert.ok(within(dialog).getByRole("checkbox", { name: "Upper" }));
+  assert.ok(within(dialog).getByRole("button", { name: "Basis colour" }));
+  assert.ok(within(dialog).getByRole("button", { name: "Upper line" }));
+
+  // Hiding a plot keeps the look it already had on the other parts.
+  fireEvent.click(basis);
+  assert.deepEqual(calls.slice(-1), ['style Basis={"hidden":true}']);
+
+  calls.length = 0;
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  assert.deepEqual(calls, [
+    "reset", "len=21", "reset-styles", 'style Upper={"lineStyle":"dotted"}', "close",
+  ]);
 });
 
 function fakeIndicators(list: AppliedIndicator[], log: string[]): IndicatorsApi {

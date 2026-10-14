@@ -360,12 +360,6 @@ export function IndicatorAlertModal({
   };
 
   const box = `w-full ${FIELD}`;
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-      <span className="text-sm text-ink-muted">{label}</span>
-      {children}
-    </div>
-  );
 
   /** The sentence the alert will actually watch for, echoed back before saving. */
   const bandName = bbBand === "basis" ? "Bollinger basis" : `${bbBand} Bollinger band`;
@@ -710,5 +704,20 @@ export function IndicatorAlertModal({
         {err && <p className="text-sm text-down" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * A labelled row. Declared at MODULE level, never inside the dialog: a
+ * component created during render is a new type on every render, so React
+ * remounted this row — and the focused <input> inside it — on each keystroke.
+ * Typing "30" landed "3" and dropped the caret. `alertInputsKeepFocus.test.tsx`.
+ */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[120px_1fr] items-center gap-3">
+      <span className="text-sm text-ink-muted">{label}</span>
+      {children}
+    </div>
   );
 }

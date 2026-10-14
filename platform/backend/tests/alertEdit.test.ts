@@ -28,6 +28,8 @@ import { CONDITION_KINDS, type ConditionKind, type MaAlertRow } from "../src/typ
 const ID = "11111111-1111-4111-8111-111111111111";
 
 const BASE: MaAlertRow = {
+  // As `toRow` returns them for every non-fib row: null, never absent.
+  fibDeviation: null, fibDepth: null, fibReverse: null, fibLevel: null,
   id: ID, symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
   // A real row always HAS the column; NULL is what "ungated" looks like.
   filters: null,
@@ -59,6 +61,13 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
   candlestick_pattern: {
     ...BASE, conditionKind: "candlestick_pattern", targetPrice: null, priceDirection: null,
     patternId: "engulfing_bullish",
+  },
+  // Non-default on every input, so a field dropped anywhere on the round trip
+  // shows as a changed value rather than hiding behind a default.
+  fib_level: {
+    ...BASE, conditionKind: "fib_level", targetPrice: null, priceDirection: null,
+    fibDeviation: 2.5, fibDepth: 24, fibReverse: true, fibLevel: 0.786,
+    mode: "near_below", nearMinPct: 0.1, nearMaxPct: 0.4,
   },
   price: { ...BASE, conditionKind: "price", targetPrice: 64250.5, priceDirection: "cross_up" },
   ma: {

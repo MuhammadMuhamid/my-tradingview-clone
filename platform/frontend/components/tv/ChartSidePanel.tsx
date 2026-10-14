@@ -1,4 +1,6 @@
 "use client";
+import type { LevelKind } from "@/components/tv/LevelAlertModal";
+import type { MaLine } from "@/lib/movingAverages";
 /**
  * Everything to the right of the charts, plus the phone chrome that replaces
  * it on a small screen.
@@ -91,10 +93,11 @@ export interface ChartSidePanelProps {
   maValues: Record<string, number | null>;
   maAlerts: MaAlert[];
   onToggleMa: (type: MaType, length: number) => void;
+  onStyleMa: (type: MaType, length: number, look: Pick<MaLine, "color" | "width" | "style"> | null) => void;
   onToggleAllMa: (visible: boolean) => void;
   onArmMa: (type: MaType, length: number) => void;
   onArmPrice: () => void;
-  onArmLevel: (kind: "sr_zone" | "pivot_level") => void;
+  onArmLevel: (kind: LevelKind) => void;
   onArmOscillator: (kind: IndicatorKind) => void;
   onOpenAlert: (alert: MaAlert) => void;
   onToast: (message: string) => void;
@@ -275,6 +278,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 alerts={props.replayActive ? [] : props.maAlerts}
                 timeframe={props.interval}
                 onToggle={props.onToggleMa}
+                onStyle={props.onStyleMa}
                 onToggleAll={props.onToggleAllMa}
                 onArm={props.onArmMa}
                 onArmPrice={props.onArmPrice}

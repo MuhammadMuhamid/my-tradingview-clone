@@ -23,6 +23,8 @@ import { isAbortError } from "@/lib/requestGuard";
 export type PineParams = Record<string, number | string | boolean>;
 
 export interface AppliedIndicator {
+  /** The user's look per plot (`plotKey`), applied over every run's output. */
+  plotStyles?: Record<string, PlotLook>;
   /** instance id — the same script can be applied twice with different inputs */
   key: string;
   /** saved-script id, or null for a script applied straight from the editor */
@@ -119,6 +121,86 @@ export interface StoredIndicator {
   source: string;
   params: PineParams;
   visible: boolean;
+  /** The user's look per plot, keyed by `plotKey`. Absent: the script's own. */
+  plotStyles?: Record<string, PlotLook>;
+}
+
+/**
+ * The user's override of one Pine plot's look — the Style tab's row.
+ *
+ * Stored BESIDE the run output, never written into it, and applied after
+ * every run (`applyPlotStyles`): a script's plots are recomputed on each run,
+ * so a colour written into the output would be repainted by the next one.
+ * That was the release's reason for offering no Style tab at all.
+ */
+export interface PlotLook {
+  color?: string;
+  width?: number;
+  lineStyle?: "solid" | "dashed" | "dotted";
+  hidden?: boolean;
+}
+
+/**
+ * A plot's stable key: its title, which a script declares and which does not
+ * change between runs. Untitled plots fall back to their position.
+ */
+export const plotKey = (o: { title: string }, index: number): string =>
+  o.title && o.title.trim() ? o.title : `plot ${index + 1}`;
+
+/** Only well-formed parts survive a load; a bad part drops itself, not the look. */
+export function validPlotStyles(raw: unknown): Record<string, PlotLook> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Record<string, PlotLook> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const l = v as Record<string, unknown>;
+    const look: PlotLook = {
+      ...(typeof l.color === "string" && /^#[0-9a-fA-F]{6}$/.test(l.color) ? { color: l.color } : {}),
+      ...(typeof l.width === "number" && [1, 2, 3, 4].includes(l.width) ? { width: l.width } : {}),
+      ...(l.lineStyle === "solid" || l.lineStyle === "dashed" || l.lineStyle === "dotted"
+        ? { lineStyle: l.lineStyle } : {}),
+      ...(l.hidden === true ? { hidden: true } : {}),
+    };
+    if (Object.keys(look).length > 0) out[k] = look;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * The run's plots, as the user styled them.
+ *
+ * A chosen colour also clears per-point colours: a Pine plot can colour each
+ * bar, and leaving those would show the choice only on the bars the script
+ * did not colour — which reads as the setting half-working. A point the script
+ * HIDES (`color: null`) stays hidden.
+ */
+export function applyPlotStyles(
+  overlays: readonly ChartOverlay[], styles: Record<string, PlotLook> | undefined,
+): ChartOverlay[] {
+  if (!styles) return overlays as ChartOverlay[];
+  const out: ChartOverlay[] = [];
+  overlays.forEach((o, i) => {
+    const look = styles[plotKey(o, i)];
+    if (!look) { out.push(o); return; }
+    if (look.hidden) return;
+    out.push({
+      ...o,
+      ...(look.color ? {
+        color: look.color,
+        // A string colour is the script's tint and gives way to the user's; a
+        // NULL colour is the script HIDING that point (Pine's `na`) and is
+        // kept — clearing it would draw points the script deliberately blanks.
+        data: o.data.map((pt) => {
+          if (typeof pt.color !== "string") return pt;
+          const { color: _c, ...rest } = pt;
+          return rest;
+        }),
+      } : {}),
+      ...(look.width ? { width: look.width } : {}),
+      ...(look.lineStyle ? { lineStyle: look.lineStyle, dashed: look.lineStyle === "dashed" } : {}),
+    });
+  });
+  return out;
 }
 
 const STORAGE_KEY = "tv.indicators.v1";
@@ -165,6 +247,7 @@ export function storable(list: readonly AppliedIndicator[]): StoredIndicator[] {
   return list.map((i) => ({
     key: i.key, scriptId: i.scriptId, name: i.name,
     source: i.source, params: i.params, visible: i.visible,
+    ...(i.plotStyles ? { plotStyles: i.plotStyles } : {}),
   }));
 }
 
@@ -212,6 +295,7 @@ export function hydrate(s: StoredIndicator): AppliedIndicator {
     source: s.source,
     inputs: [],
     params: s.params ?? {},
+    plotStyles: validPlotStyles(s.plotStyles),
     visible: s.visible !== false,
     loading: true,
     error: null,

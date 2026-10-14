@@ -65,12 +65,6 @@ export function EditAlertModal({
     }
   };
 
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="grid grid-cols-[110px_1fr] items-center gap-3">
-      <span className="text-sm text-ink-muted">{label}</span>
-      {children}
-    </div>
-  );
   const box = `w-full ${FIELD}`;
 
   // W2A-08: the symbol in the title is ink, as live Premium's alert dialog
@@ -145,5 +139,20 @@ export function EditAlertModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * A labelled row. Declared at MODULE level, never inside the dialog: a
+ * component created during render is a new type on every render, so React
+ * remounted this row — and the focused <input> inside it — on each keystroke.
+ * Typing "30" landed "3" and dropped the caret. `alertInputsKeepFocus.test.tsx`.
+ */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[110px_1fr] items-center gap-3">
+      <span className="text-sm text-ink-muted">{label}</span>
+      {children}
+    </div>
   );
 }

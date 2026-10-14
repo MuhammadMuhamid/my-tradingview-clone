@@ -285,6 +285,10 @@ const FAMILY_ROWS: Record<ConditionKind, Partial<MaAlert>> = {
     filters: null, pivotType: "Fibonacci",
     pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
   },
+  fib_level: {
+    conditionKind: "fib_level", fibLevel: 0.618, fibDeviation: 3, fibDepth: 30,
+    fibReverse: false, mode: "touch",
+  },
   rsi: { conditionKind: "rsi", rsiLength: 14, rsiLevel: 70, indicatorTarget: "level", mode: "cross_up" },
   macd: { conditionKind: "macd", macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
   supertrend: { conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },

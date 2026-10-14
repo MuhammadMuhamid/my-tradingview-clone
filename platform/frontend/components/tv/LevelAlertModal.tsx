@@ -17,6 +17,10 @@ import {
   type AlertFrequency, type MaAlert, type MaAlertMode, type PivotType, type SrSide,
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
+import { AUTO_FIB_DEFAULTS, AUTO_FIB_LEVELS } from "@/lib/ta/core";
+
+/** The level families this dialog arms. */
+export type LevelKind = "sr_zone" | "pivot_level" | "fib_level";
 import { displayTicker } from "@/lib/instrument";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
@@ -61,13 +65,13 @@ export function LevelAlertModal({
   defaultTimeframe: Interval;
   /** Why the chart's resolution is not this alert's timeframe, or null. */
   resolutionNotice?: string | null;
-  /** Which of the two level families to open on, when the caller already knows. */
-  initialKind?: "sr_zone" | "pivot_level";
+  /** Which level family to open on, when the caller already knows. */
+  initialKind?: LevelKind;
   /** The alerts already on this symbol, so Save cannot silently re-arm one. */
   existing?: readonly MaAlert[];
   onSaved: (message: string) => void;
 }) {
-  const [kind, setKind] = useState<"sr_zone" | "pivot_level">(initialKind);
+  const [kind, setKind] = useState<LevelKind>(initialKind);
   const [timeframes, setTimeframes] = useState<Interval[]>([defaultTimeframe]);
   const [srSide, setSrSide] = useState<SrSide>("support");
   const [pivotType, setPivotType] = useState<PivotType>("Fibonacci");
@@ -76,6 +80,11 @@ export function LevelAlertModal({
   const [mode, setMode] = useState<MaAlertMode>("near_above");
   const [nearMinPct, setNearMinPct] = useState(0.2);
   const [nearMaxPct, setNearMaxPct] = useState(0.5);
+  // Auto Fib Retracement — the indicator's own defaults, and the 0.618.
+  const [fibLevel, setFibLevel] = useState(0.618);
+  const [fibDeviation, setFibDeviation] = useState<number>(AUTO_FIB_DEFAULTS.deviation);
+  const [fibDepth, setFibDepth] = useState<number>(AUTO_FIB_DEFAULTS.depth);
+  const [fibReverse, setFibReverse] = useState(false);
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
@@ -95,11 +104,21 @@ export function LevelAlertModal({
    * Arming follows them only when they AGREE — a mixed selection has no one
    * truthful value, and the notice below says so instead of picking one.
    */
+  /**
+   * Whether an existing alert is the one this dialog describes. For a fib, the
+   * ratio AND the zig-zag inputs: a different depth anchors a different swing,
+   * so it is a different level even at the same ratio.
+   */
+  const sameLevel = (a: MaAlert): boolean =>
+    kind === "sr_zone" ? a.srSide === srSide
+      : kind === "pivot_level" ? a.pivotLevelName === levelName
+        : a.fibLevel === fibLevel && a.fibDeviation === fibDeviation
+          && a.fibDepth === fibDepth && a.fibReverse === fibReverse;
   const matches = existing.filter((a) =>
     a.conditionKind === kind
     && a.mode === mode
     && timeframes.includes(a.timeframe)
-    && (kind === "sr_zone" ? a.srSide === srSide : a.pivotLevelName === levelName));
+    && sameLevel(a));
   const matchedArmed = matches.length > 0 && matches.every((a) => a.enabled === matches[0]!.enabled)
     ? matches[0]!.enabled : null;
 
@@ -121,8 +140,9 @@ export function LevelAlertModal({
   const sameAlert = useCallback(
     (a: MaAlert, timeframe: Interval) =>
       a.conditionKind === kind && a.mode === mode && a.timeframe === timeframe
-      && (kind === "sr_zone" ? a.srSide === srSide : a.pivotLevelName === levelName),
-    [kind, mode, srSide, levelName]);
+      && sameLevel(a),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, mode, srSide, levelName, fibLevel, fibDeviation, fibDepth, fibReverse]);
 
   // Follow the matched rows, so an untouched Save cannot change what they hold.
   useEffect(() => {
@@ -142,6 +162,12 @@ export function LevelAlertModal({
     }
   }, [open, defaultTimeframe, initialKind, thisCoinOnly]);
 
+  // "Alert me when price reaches the 0.618" is a touch. Chosen when the fib
+  // family is, so the user starts from what they asked for.
+  useEffect(() => {
+    if (kind === "fib_level") setMode("touch");
+  }, [kind]);
+
   const isNear = mode === "near_above" || mode === "near_below";
   const toggleTf = (tf: Interval): void =>
     setTimeframes((cur) => cur.includes(tf) ? cur.filter((t) => t !== tf) : [...cur, tf]);
@@ -152,7 +178,9 @@ export function LevelAlertModal({
     nearMinPct, nearMaxPct, frequency, cooldownMin,
     ...(kind === "sr_zone"
       ? { srSide }
-      : { pivotType, levelName, anchor }),
+      : kind === "pivot_level"
+        ? { pivotType, levelName, anchor }
+        : { fibLevel, fibDeviation, fibDepth, fibReverse }),
     note: note.trim() || null,
     enabled: armed,
   });
@@ -238,12 +266,6 @@ export function LevelAlertModal({
   };
 
   const box = `w-full ${FIELD}`;
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-      <span className="text-sm text-ink-muted">{label}</span>
-      {children}
-    </div>
-  );
 
   return (
     <Modal
@@ -266,10 +288,42 @@ export function LevelAlertModal({
           <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className={box}>
             <option value="sr_zone">Support / resistance zones</option>
             <option value="pivot_level">Pivot points</option>
+            <option value="fib_level">Auto fib retracement</option>
           </select>
         </Row>
 
-        {kind === "sr_zone" ? (
+        {kind === "fib_level" ? (
+          <>
+            <Row label="Level">
+              <select value={String(fibLevel)} aria-label="Fib level"
+                onChange={(e) => setFibLevel(Number(e.target.value))} className={box}>
+                {AUTO_FIB_LEVELS.map((l) => (
+                  <option key={l.value} value={String(l.value)}>{l.value}</option>
+                ))}
+              </select>
+            </Row>
+            <Row label="Deviation">
+              <input type="number" min="0" max="100" step="0.1" value={fibDeviation}
+                aria-label="Fib deviation"
+                onChange={(e) => setFibDeviation(parseFloat(e.target.value || "0"))} className={box} />
+            </Row>
+            <Row label="Depth">
+              <input type="number" min="2" max="500" step="1" value={fibDepth}
+                aria-label="Fib depth"
+                onChange={(e) => setFibDepth(parseInt(e.target.value || "0", 10))} className={box} />
+            </Row>
+            <label className="flex items-center gap-2 text-sm text-ink-muted">
+              <input type="checkbox" className="accent-accent" checked={fibReverse}
+                onChange={(e) => setFibReverse(e.target.checked)} />
+              Reverse (swap which end of the swing is 0)
+            </label>
+            <p className="text-xs text-ink-faint">
+              The level of the latest zig-zag swing on each alert timeframe — the same
+              swing the Auto fib retracement indicator draws with these settings. It
+              moves when a new swing confirms, as the indicator does.
+            </p>
+          </>
+        ) : kind === "sr_zone" ? (
           <Row label="Side">
             <select value={srSide} onChange={(e) => setSrSide(e.target.value as SrSide)} className={box}>
               <option value="support">Nearest support below price</option>
@@ -388,5 +442,20 @@ export function LevelAlertModal({
         {err && <p className="text-sm text-down" title={err.detail || undefined}>{err.headline}</p>}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * A labelled row. Declared at MODULE level, never inside the dialog: a
+ * component created during render is a new type on every render, so React
+ * remounted this row — and the focused <input> inside it — on each keystroke.
+ * Typing "30" landed "3" and dropped the caret. `alertInputsKeepFocus.test.tsx`.
+ */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[120px_1fr] items-center gap-3">
+      <span className="text-sm text-ink-muted">{label}</span>
+      {children}
+    </div>
   );
 }

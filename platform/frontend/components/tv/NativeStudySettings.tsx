@@ -53,7 +53,7 @@ import type { Resolution } from "@/lib/resolution";
 import {
   Button, CaretGlyph, Checkbox, Dropdown, LineStyleButton, NumberField, Swatch, TextInput,
 } from "@/components/ui";
-import type { AppliedIndicator, PineParams } from "@/lib/indicators";
+import { plotKey, type AppliedIndicator, type PineParams, type PlotLook } from "@/lib/indicators";
 import type { PineInputDef } from "@/lib/api";
 import {
   resolutionsForRanges, visibilityRanges, type VisibilityRanges,
@@ -440,6 +440,10 @@ export interface PineStudySettingsProps {
   onParam: (key: string, param: string, value: PineParams[string]) => void;
   /** Drop every override, so each input reads its `defval` again. */
   onReset: (key: string) => void;
+  /** One plot's look (`null`: the script's own). Applied over the output, not a re-run. */
+  onStyle: (key: string, plot: string, look: PlotLook | null) => void;
+  /** Every plot back to the script's own look. */
+  onResetStyles: (key: string) => void;
 }
 
 /**
@@ -454,15 +458,14 @@ export interface PineStudySettingsProps {
  * which engine computed the line is the inconsistency a user notices first.
  * The card's inline form stays, as the panel's own secondary path.
  *
- * ── Which tabs, and why only one ───────────────────────────────────────────
+ * ── Which tabs ─────────────────────────────────────────────────────────────
  *
  * `Inputs` is the script's own `input()` declarations, grouped by their
  * `group=` as the reference groups them, with the same row primitives the
- * built-in dialog uses. `Style` and `Visibility` are ABSENT, not greyed: a
- * Pine study's plots are drawn from what the script returns and
- * `useIndicators` has no per-plot override and no timeframe allow-list to
- * write to. A colour well that the next run silently repaints would be a
- * control that moves nothing (contract §6).
+ * built-in dialog uses. `Style` is one row per plot — shown, colour, width,
+ * dash — stored beside the run output as `plotStyles` and applied after every
+ * run (`applyPlotStyles`), so the next run cannot repaint it. `Visibility` is
+ * ABSENT, not greyed: `useIndicators` has no timeframe allow-list to write to.
  *
  * ── Live, and revertible ───────────────────────────────────────────────────
  *
@@ -481,9 +484,11 @@ export function PineStudySettings(props: PineStudySettingsProps) {
    * that did not stick cannot leave the study at a value the user replaced.
    */
   const [draft, setDraft] = useState<{ key: string; params: PineParams } | null>(null);
+  const [tab, setTab] = useState<"inputs" | "style">("inputs");
   useEffect(() => {
     entry.current = study;
     setDraft(study ? { key: study.key, params: { ...study.params } } : null);
+    setTab("inputs");
     // Captured once per study, deliberately: this must be the state on ENTRY.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [study?.key]);
@@ -499,9 +504,16 @@ export function PineStudySettings(props: PineStudySettingsProps) {
 
   const cancel = useCallback((): void => {
     const was = entry.current;
-    if (was) submit(was.key, was.params);
+    if (was) {
+      submit(was.key, was.params);
+      // The looks too: every plot back to what it was on entry.
+      props.onResetStyles(was.key);
+      for (const [plot, look] of Object.entries(was.plotStyles ?? {})) {
+        props.onStyle(was.key, plot, look);
+      }
+    }
     onClose();
-  }, [onClose, submit]);
+  }, [onClose, submit, props]);
 
   const ok = useCallback((): void => {
     if (study) submit(study.key, params);
@@ -516,10 +528,12 @@ export function PineStudySettings(props: PineStudySettingsProps) {
   };
   const reset = (): void => {
     props.onReset(study.key);
+    props.onResetStyles(study.key);
     setDraft((d) => (d ? { ...d, params: {} } : d));
   };
+  const styles = study.plotStyles ?? {};
 
-  const isDefault = Object.keys(params).length === 0;
+  const isDefault = Object.keys(params).length === 0 && Object.keys(styles).length === 0;
   /*
    * Grouped in declaration order, the ungrouped first — the order the script
    * declares them is the order its author meant them read in.
@@ -553,21 +567,52 @@ export function PineStudySettings(props: PineStudySettingsProps) {
     >
       <div role="tablist" aria-label="Settings sections"
         className="mb-2 flex h-8 items-stretch gap-4 border-b border-border">
-        <button
-          role="tab"
-          aria-selected
-          className="relative -mb-px border-b-2 border-[var(--ts-menu-selected-bg)] px-0.5 text-sm font-medium text-[var(--ts-menu-selected-bg)]"
-        >
-          Inputs
-        </button>
+        {(["inputs", "style"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`relative -mb-px border-b-2 px-0.5 text-sm ${
+              tab === id
+                ? "border-[var(--ts-menu-selected-bg)] font-medium text-[var(--ts-menu-selected-bg)]"
+                : "border-transparent text-ink hover:text-[var(--ts-menu-selected-bg)]"
+            }`}
+          >
+            {id === "inputs" ? "Inputs" : "Style"}
+          </button>
+        ))}
       </div>
       <section
         role="tabpanel"
-        aria-label="Inputs"
+        aria-label={tab === "inputs" ? "Inputs" : "Style"}
         className="grid min-h-0 min-w-0 flex-1 auto-rows-min content-start gap-x-5 overflow-y-auto"
         style={{ gridTemplateColumns: "minmax(150px, max-content) 1fr" }}
       >
-        {groups.map((group) => (
+        {tab === "style" && (
+          <>
+            {study.overlays.map((o, i) => {
+              const plot = plotKey(o, i);
+              return (
+                <PinePlotStyleRow
+                  key={plot}
+                  id={`${study.key}:${plot}`}
+                  title={plot}
+                  base={{ color: o.color, width: o.width ?? 1, lineStyle: o.lineStyle ?? (o.dashed ? "dashed" : "solid") }}
+                  look={styles[plot] ?? {}}
+                  onChange={(look) => props.onStyle(study.key, plot, look)}
+                />
+              );
+            })}
+            {study.overlays.length === 0 && (
+              <Note>
+                {study.loading ? "Running the script…" : "This script draws no plots to style."}
+              </Note>
+            )}
+          </>
+        )}
+        {tab === "inputs" && groups.map((group) => (
           <PineGroup key={group.name || "\u0000"} name={group.name}>
             {group.inputs.map((input) => (
               <PineInputRow
@@ -579,7 +624,7 @@ export function PineStudySettings(props: PineStudySettingsProps) {
             ))}
           </PineGroup>
         ))}
-        {study.inputs.length === 0 && (
+        {tab === "inputs" && study.inputs.length === 0 && (
           <Note>
             {study.loading
               ? "Reading the script's inputs…"
@@ -588,6 +633,51 @@ export function PineStudySettings(props: PineStudySettingsProps) {
         )}
       </section>
     </Modal>
+  );
+}
+
+/**
+ * One Pine plot's row: shown, colour, and width + dash behind one button.
+ * Writes only the parts that differ from the script's own, so a row put back
+ * to the script's look stores nothing and follows the script again.
+ */
+function PinePlotStyleRow({ id, title, base, look, onChange }: {
+  id: string;
+  title: string;
+  base: { color: string; width: number; lineStyle: "solid" | "dashed" | "dotted" };
+  look: PlotLook;
+  onChange: (look: PlotLook | null) => void;
+}) {
+  const color = look.color ?? (/^#[0-9a-fA-F]{6}$/.test(base.color) ? base.color : "#2962ff");
+  const width = look.width ?? Math.max(1, Math.min(4, Math.round(base.width)));
+  const lineStyle = look.lineStyle ?? base.lineStyle;
+  const write = (next: PlotLook): void => {
+    const merged: PlotLook = { ...look, ...next };
+    const out: PlotLook = {};
+    if (merged.color && merged.color.toLowerCase() !== base.color.toLowerCase()) out.color = merged.color;
+    if (merged.width && merged.width !== base.width) out.width = merged.width;
+    if (merged.lineStyle && merged.lineStyle !== base.lineStyle) out.lineStyle = merged.lineStyle;
+    if (merged.hidden) out.hidden = true;
+    onChange(Object.keys(out).length > 0 ? out : null);
+  };
+  return (
+    <CheckRow label={title} checked={!look.hidden} onChange={(on) => write({ hidden: !on })}>
+      <Swatch
+        label={`${title} colour`}
+        id={`pine-plot-color:${id}`}
+        value={color}
+        allowTheme={false}
+        onChange={(next) => write({ color: next })}
+      />
+      <LineStyleButton
+        label={`${title} line`}
+        id={`pine-plot-line:${id}`}
+        color={color}
+        width={width}
+        style={lineStyle}
+        onChange={(next) => write({ color: next.color, width: next.width, lineStyle: next.style })}
+      />
+    </CheckRow>
   );
 }
 

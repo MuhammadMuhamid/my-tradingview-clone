@@ -592,6 +592,8 @@ test("a path-dependent study is computed over the whole series, not a window", (
     // Structure: a level is defined by where it FORMED, and a window that does
     // not contain the pivot cannot know the level exists.
     "pivots", "prevperiod", "srzones", "swings",
+    // A zig-zag: each leg starts where the last one ended, back to the first.
+    "auto_fib",
   ].sort());
   for (const def of unbounded) {
     assert.equal(computeWindow(series, def.warmup(defaultParams(def)),

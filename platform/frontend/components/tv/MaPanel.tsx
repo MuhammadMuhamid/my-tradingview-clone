@@ -1,9 +1,9 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { type Resolution } from "@/lib/resolution";
 import type { MaAlert } from "@/lib/api";
 import {
-  MA_LENGTHS, maColor, maId, maLabel, type MaLine, type MaType,
+  MA_LENGTHS, maId, maLabel, type MaLine, type MaType, maLineColor, maLineWidth, maLineStyle, MA_LINE_WIDTHS, type MaLineStyle,
 } from "@/lib/movingAverages";
 import {
   alertColor, alertInactiveReason, alertLineLabel, describeAlert,
@@ -15,7 +15,7 @@ import { Notice } from "@/components/ui";
 import { ALERT_EVALUATOR_OFF_NOTICE, ARMED_NOT_EVALUATED } from "@/lib/evaluationState";
 import { useAlertEvaluatorOff } from "@/lib/useEvaluationState";
 
-type LevelKind = "sr_zone" | "pivot_level";
+import type { LevelKind } from "@/components/tv/LevelAlertModal";
 /** The families the indicator dialog arms. Mirrors `IndicatorKind`. */
 type IndicatorRowKind =
   | "rsi" | "macd" | "supertrend" | "bollinger" | "stochastic" | "adx";
@@ -93,6 +93,12 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
     hint: "Alert when price nears a pivot level",
     color: "#f59e0b",
   },
+  {
+    kind: "fib_level",
+    label: "Auto fib retracement",
+    hint: "Alert when price reaches a level of the latest swing, e.g. 0.618",
+    color: "#26a69a",
+  },
 ];
 
 /**
@@ -165,8 +171,145 @@ function FamilyRow({
  * one thing you can arm, which is the whole reason these are not bundled into
  * a single "MA ribbon" indicator.
  */
+
+type MaLook = Pick<MaLine, "color" | "width" | "style">;
+
+/**
+ * One moving average: show/hide, its value, its bell, and its look.
+ *
+ * At MODULE level, not declared inside the panel: the panel re-renders on
+ * every price tick, and a component created during render is a new type each
+ * time, so React would remount this row — closing the colour picker and
+ * dropping focus from the width box mid-edit. The same defect, and the same
+ * fix, as the alert dialogs (`alertInputsKeepFocus.test.tsx`).
+ */
+function MaRow({
+  line, value, armed, onToggle, onArm, onStyle, liveActionsDisabled,
+}: {
+  line: MaLine;
+  value: number | null | undefined;
+  armed: readonly MaAlert[];
+  onToggle: (type: MaType, length: number) => void;
+  onArm: (type: MaType, length: number) => void;
+  onStyle?: (type: MaType, length: number, look: MaLook | null) => void;
+  liveActionsDisabled: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const label = maLabel(line.type, line.length);
+  const color = maLineColor(line);
+  const customised = line.color !== undefined || line.width !== undefined || line.style !== undefined;
+  const look = (patch: MaLook): void => onStyle?.(line.type, line.length, {
+    ...(line.color !== undefined ? { color: line.color } : {}),
+    ...(line.width !== undefined ? { width: line.width } : {}),
+    ...(line.style !== undefined ? { style: line.style } : {}),
+    ...patch,
+  });
+  return (
+    <div>
+      <div className="group grid grid-cols-[16px_1fr_auto_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-state-hover/60">
+        <button
+          onClick={() => onToggle(line.type, line.length)}
+          title={line.visible ? "Hide line" : "Show line"}
+          aria-label={`${line.visible ? "Hide" : "Show"} ${label}`}
+          aria-pressed={line.visible}
+          className="flex h-5 w-5 items-center justify-center rounded hover:bg-state-hover"
+        >
+          <span
+            className="inline-block w-4 rounded-full"
+            style={{
+              height: `${Math.max(2, maLineWidth(line) + 1)}px`,
+              background: line.visible
+                ? maLineStyle(line) === "solid" ? color
+                  : `repeating-linear-gradient(90deg, ${color} 0 ${maLineStyle(line) === "dotted" ? 2 : 4}px, transparent ${maLineStyle(line) === "dotted" ? 2 : 4}px ${maLineStyle(line) === "dotted" ? 4 : 7}px)`
+                : "transparent",
+              border: line.visible ? "none" : `1px dashed ${color}`,
+              opacity: line.visible ? 1 : 0.5,
+            }}
+          />
+        </button>
+        <span className={line.visible ? "text-ink" : "text-ink-faint"}>{label}</span>
+        <span className="tabular text-right text-ink-muted">
+          {value != null ? fmtPrice(value) : "—"}
+        </span>
+        {onStyle ? (
+          <button
+            onClick={() => setEditing((e) => !e)}
+            title="Colour and line style"
+            aria-label={`Style ${label}`}
+            aria-expanded={editing}
+            className={`flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:text-ink ${
+              editing || customised ? "" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"}`}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.1" />
+              <path d="M7 1.5v11M1.5 7h11" stroke="currentColor" strokeWidth="0.9" opacity="0.5" />
+            </svg>
+          </button>
+        ) : <span />}
+        <button
+          onClick={() => onArm(line.type, line.length)}
+          disabled={liveActionsDisabled}
+          title={liveActionsDisabled ? "Exit Replay to create live alerts" : armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
+          aria-label={
+            armed.length
+              ? `Add another alert on ${label} (${armed.length} armed)`
+              : `Add alert on ${label}`
+          }
+          // accent-is-meaning: there are ARMED alerts on this line.
+          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
+            armed.length
+              ? "text-accent"
+              : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
+        >
+          <BellIcon />
+          {armed.length > 1 && (
+            <span className="text-[10px] tabular leading-none">{armed.length}</span>
+          )}
+        </button>
+      </div>
+      {editing && onStyle && (
+        <div role="group" aria-label={`${label} style`}
+          className="flex flex-wrap items-center gap-2 border-y border-border bg-surface-2/40 px-3 py-2 text-xs text-ink-muted">
+          <label className="flex items-center gap-1.5">
+            Colour
+            <input type="color" value={color} aria-label={`${label} colour`}
+              onChange={(e) => look({ color: e.target.value })}
+              className="h-6 w-8 cursor-pointer rounded border border-control-border bg-transparent p-0" />
+          </label>
+          <label className="flex items-center gap-1.5">
+            Width
+            <select value={maLineWidth(line)} aria-label={`${label} width`}
+              onChange={(e) => look({ width: Number(e.target.value) })}
+              className="h-6 rounded border border-control-border bg-transparent px-1 text-ink">
+              {MA_LINE_WIDTHS.map((w) => <option key={w} value={w}>{w}px</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5">
+            Style
+            <select value={maLineStyle(line)} aria-label={`${label} line style`}
+              onChange={(e) => look({ style: e.target.value as MaLineStyle })}
+              className="h-6 rounded border border-control-border bg-transparent px-1 text-ink">
+              <option value="solid">Solid</option>
+              <option value="dashed">Dashed</option>
+              <option value="dotted">Dotted</option>
+            </select>
+          </label>
+          <span className="flex-1" />
+          {customised && (
+            <button onClick={() => onStyle(line.type, line.length, null)}
+              className="rounded px-1.5 py-0.5 text-ink-muted hover:text-ink">Reset</button>
+          )}
+          <button onClick={() => setEditing(false)}
+            className="rounded px-1.5 py-0.5 text-ink-muted hover:text-ink">Done</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MaPanel({
-  lines, values, alerts, timeframe, onToggle, onToggleAll, onArm, onArmPrice,
+  lines, values, alerts, timeframe, onToggle, onStyle, onToggleAll, onArm, onArmPrice,
   onArmLevel, onArmOscillator, onOpenAlert, push, liveActionsDisabled = false,
 }: {
   lines: MaLine[];
@@ -175,6 +318,8 @@ export function MaPanel({
   alerts: MaAlert[];
   timeframe: Resolution;
   onToggle: (type: MaType, length: number) => void;
+  /** One line's colour, width and dash; `null` resets it to the default. */
+  onStyle?: (type: MaType, length: number, look: MaLook | null) => void;
   onToggleAll: (visible: boolean) => void;
   onArm: (type: MaType, length: number) => void;
   /** Open the price-alert dialog with no level pre-filled. */
@@ -220,58 +365,6 @@ export function MaPanel({
 
   const allVisible = lines.every((l) => l.visible);
 
-  const Row = ({ line }: { line: MaLine }) => {
-    const id = maId(line.type, line.length);
-    const value = values[id];
-    const armed = byLine.get(id) ?? [];
-    return (
-      <div className="group grid grid-cols-[16px_1fr_auto_auto] items-center gap-x-2 px-3 py-[6px] text-[13px] hover:bg-state-hover/60">
-        <button
-          onClick={() => onToggle(line.type, line.length)}
-          title={line.visible ? "Hide line" : "Show line"}
-          aria-label={`${line.visible ? "Hide" : "Show"} ${maLabel(line.type, line.length)}`}
-          aria-pressed={line.visible}
-          className="flex h-5 w-5 items-center justify-center rounded hover:bg-state-hover"
-        >
-          <span
-            className="inline-block h-[3px] w-4 rounded-full"
-            style={{
-              background: line.visible ? maColor(line.length) : "transparent",
-              border: line.visible ? "none" : `1px dashed ${maColor(line.length)}`,
-              opacity: line.visible ? 1 : 0.5,
-            }}
-          />
-        </button>
-        <span className={line.visible ? "text-ink" : "text-ink-faint"}>
-          {maLabel(line.type, line.length)}
-        </span>
-        <span className="tabular text-right text-ink-muted">
-          {value != null ? fmtPrice(value) : "—"}
-        </span>
-        <button
-          onClick={() => onArm(line.type, line.length)}
-          disabled={liveActionsDisabled}
-          title={liveActionsDisabled ? "Exit Replay to create live alerts" : armed.length ? `${armed.length} alert(s) — click to add another` : "Add alert on this line"}
-          aria-label={
-            armed.length
-              ? `Add another alert on ${maLabel(line.type, line.length)} (${armed.length} armed)`
-              : `Add alert on ${maLabel(line.type, line.length)}`
-          }
-          // accent-is-meaning: there are ARMED alerts on this line.
-          className={`flex h-6 w-7 items-center justify-center gap-0.5 rounded disabled:cursor-not-allowed disabled:opacity-30 ${
-            armed.length
-              ? "text-accent"
-              : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-          }`}
-        >
-          <BellIcon />
-          {armed.length > 1 && (
-            <span className="text-[10px] tabular leading-none">{armed.length}</span>
-          )}
-        </button>
-      </div>
-    );
-  };
 
   // Price alerts first — they are the ones a user arms in the middle of
   // watching a move, and burying them under ten moving averages hides the ones
@@ -310,7 +403,13 @@ export function MaPanel({
             </div>
             {MA_LENGTHS.map((length) => {
               const line = lines.find((l) => l.type === type && l.length === length);
-              return line ? <Row key={`${type}${length}`} line={line} /> : null;
+              return line ? (
+                <MaRow key={`${type}${length}`} line={line}
+                  value={values[maId(type, length)]}
+                  armed={byLine.get(maId(type, length)) ?? []}
+                  onToggle={onToggle} onArm={onArm} onStyle={onStyle}
+                  liveActionsDisabled={liveActionsDisabled} />
+              ) : null;
             })}
           </div>
         ))}

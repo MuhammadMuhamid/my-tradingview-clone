@@ -37,6 +37,7 @@ export const ALERT_TYPE_FILTERS: ReadonlyArray<{
   { value: "ma_vs_ma", label: "MA vs MA", scopeLabel: "MA-vs-MA alerts" },
   { value: "sr_zone", label: "Support / resistance", scopeLabel: "S/R alerts" },
   { value: "pivot_level", label: "Pivot levels", scopeLabel: "Pivot alerts" },
+  { value: "fib_level", label: "Auto fib levels", scopeLabel: "Fib alerts" },
   { value: "rsi", label: "RSI", scopeLabel: "RSI alerts" },
   { value: "macd", label: "MACD", scopeLabel: "MACD alerts" },
   { value: "supertrend", label: "Supertrend", scopeLabel: "Supertrend alerts" },

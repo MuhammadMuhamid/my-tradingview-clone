@@ -269,15 +269,21 @@ test("migration 027 widens its kind check and refuses an unfireable row", () => 
 
   // Every kind the application knows must be admitted, or the UI saves a row
   // the database refuses.
-  for (const kind of CONDITION_KINDS.filter((kind) => kind !== "candlestick_pattern")) {
+  // Families added by LATER migrations are owned by those migrations.
+  const addedLater = new Set<string>(["candlestick_pattern", "fib_level"]);
+  for (const kind of CONDITION_KINDS.filter((kind) => !addedLater.has(kind))) {
     assert.ok(sql.includes(`'${kind}'`), `${kind} is not admitted by the widened CHECK`);
   }
 
-  // A later additive migration owns later families; the effective last CHECK
-  // must still admit the complete application vocabulary.
-  const latest = fs.readFileSync(path.join(
-    __dirname, "..", "src", "db", "migrations",
-    "032_candlestick_pattern_alerts.sql"), "utf8");
+  // The effective CHECK is the one in the NEWEST migration that redefines it,
+  // found rather than named — naming one froze this test at the family count
+  // of the day it was written, and the next family would have failed it for
+  // being correct.
+  const dir = path.join(__dirname, "..", "src", "db", "migrations");
+  const newest = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()
+    .filter((f) => fs.readFileSync(path.join(dir, f), "utf8")
+      .includes("ADD CONSTRAINT ma_alerts_kind_ck")).at(-1)!;
+  const latest = fs.readFileSync(path.join(dir, newest), "utf8");
   for (const kind of CONDITION_KINDS) {
     assert.ok(latest.includes(`'${kind}'`), `${kind} is not admitted by the effective CHECK`);
   }

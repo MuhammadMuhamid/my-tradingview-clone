@@ -24,6 +24,7 @@ import { parseStoredFilters } from "./alertConditions";
 import type { AlertCondition, AlertFilter, AlertFilters } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
+import { AUTO_FIB_DEFAULTS } from "../ta/core";
 
 /**
  * An indicator length that can actually be computed.
@@ -310,6 +311,30 @@ export function readCondition(
     };
   }
 
+  if (kind === "fib_level") {
+    const deviation = Number(b.fibDeviation ?? AUTO_FIB_DEFAULTS.deviation);
+    const depth = Number(b.fibDepth ?? AUTO_FIB_DEFAULTS.depth);
+    const reverse = b.fibReverse === true || b.fibReverse === "true";
+    const level = Number(b.fibLevel ?? 0.618);
+    const fMode = String(b.mode ?? "touch");
+    if (!(Number.isFinite(deviation) && deviation >= 0 && deviation <= 100)) {
+      return bad("fibDeviation must be a number between 0 and 100");
+    }
+    if (!(Number.isInteger(depth) && depth >= 2 && depth <= 500)) {
+      return bad("fibDepth must be an integer between 2 and 500");
+    }
+    if (!(Number.isFinite(level) && level >= -5 && level <= 10)) {
+      return bad("fibLevel must be a number between -5 and 10");
+    }
+    if (!isMaAlertMode(fMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    return {
+      condition: {
+        kind: "fib_level", deviation, depth, reverse, level,
+        mode: fMode, nearMinPct, nearMaxPct, ...gates,
+      },
+    };
+  }
+
   if (kind === "pivot_level") {
     const pivotType = String(b.pivotType ?? "Fibonacci");
     const levelName = String(b.levelName ?? PIVOT_LEVEL_ANY);
@@ -425,6 +450,8 @@ export type AlertColumns = {
   ma2Type: MaType | null; ma2Length: number | null;
   targetPrice: number | null; priceDirection: PriceDirection | null;
   patternId: string | null;
+  fibDeviation: number | null; fibDepth: number | null;
+  fibReverse: boolean | null; fibLevel: number | null;
   nearMinPct: number; nearMaxPct: number;
   srSide: SrSide | null; srPivotLength: number | null; srInvalidation: string | null;
   pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
@@ -452,6 +479,7 @@ export function toColumns(condition: AlertCondition): AlertColumns {
   // kind's settings for an operator to misread.
   const empty = {
     patternId: null,
+    fibDeviation: null, fibDepth: null, fibReverse: null, fibLevel: null,
     srSide: null, srPivotLength: null, srInvalidation: null,
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
@@ -553,6 +581,19 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         srSide: condition.srSide,
         srPivotLength: condition.pivotLength,
         srInvalidation: condition.invalidation,
+        ...gates(condition.filters),
+      };
+    case "fib_level":
+      return {
+        conditionKind: "fib_level",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        ...empty,
+        fibDeviation: condition.deviation,
+        fibDepth: condition.depth,
+        fibReverse: condition.reverse,
+        fibLevel: condition.level,
         ...gates(condition.filters),
       };
     case "pivot_level":

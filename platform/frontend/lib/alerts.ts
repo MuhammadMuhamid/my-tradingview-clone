@@ -59,6 +59,8 @@ export function alertLineLabel(a: MaAlert): string {
         : a.srSide === "support" ? "Support" : "S/R";
     case "pivot_level":
       return a.pivotLevelName === "any" ? "Pivot" : `Pivot ${a.pivotLevelName}`;
+    case "fib_level":
+      return `Fib ${a.fibLevel ?? ""}`.trim();
     case "rsi":
       return `RSI ${a.rsiLength ?? ""}`.trim();
     case "macd":
@@ -89,6 +91,7 @@ export function alertColor(a: MaAlert): string {
     return a.srSide === "resistance" ? "#f23645" : "#089981";
   }
   if (a.conditionKind === "pivot_level") return "#fb8c00";
+  if (a.conditionKind === "fib_level") return "#26a69a";
   // The two oscillators get the hues their own indicator panes use, so a row
   // in this list matches what the chart draws.
   if (a.conditionKind === "rsi") return "#7e57c2";
@@ -128,6 +131,13 @@ export function describeAlert(a: MaAlert): string {
       const what = a.srSide === "resistance" ? "resistance"
         : a.srSide === "support" ? "support" : "nearest S/R";
       return `${nearPhrase(a)} the ${a.timeframe} ${what}${describeFilters(a)}`;
+    }
+    case "fib_level": {
+      // Must match the server's `fibLabel`, which writes the push.
+      const tuned = (a.fibDeviation ?? 3) !== 3 || (a.fibDepth ?? 30) !== 30
+        ? ` (dev ${a.fibDeviation}, depth ${a.fibDepth})` : "";
+      return `${nearPhrase(a)} the ${a.fibLevel} auto fib level${tuned}`
+        + `${a.fibReverse ? " (reversed)" : ""}${describeFilters(a)}`;
     }
     case "pivot_level": {
       const level = a.pivotLevelName === "any" ? "nearest level" : a.pivotLevelName;

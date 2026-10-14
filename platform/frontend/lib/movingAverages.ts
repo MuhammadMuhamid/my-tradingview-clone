@@ -21,11 +21,29 @@ export type MaType = "sma" | "ema";
 export const MA_LENGTHS = [200, 100, 50, 21, 15] as const;
 export type MaLength = (typeof MA_LENGTHS)[number];
 
+export type MaLineStyle = "solid" | "dashed" | "dotted";
+
 export interface MaLine {
   type: MaType;
   length: number;
   visible: boolean;
+  /**
+   * The user's own look for this line, each part optional. Absent means the
+   * default — the length's hue, 2px from 100 up, EMAs dashed — so every chart
+   * saved before these existed draws exactly as it did.
+   */
+  color?: string;
+  width?: number;
+  style?: MaLineStyle;
 }
+
+/** Widths the style editor offers; the chart draws 1–4 px lines. */
+export const MA_LINE_WIDTHS = [1, 2, 3, 4] as const;
+export const isMaLineStyle = (v: unknown): v is MaLineStyle =>
+  v === "solid" || v === "dashed" || v === "dotted";
+/** `#rrggbb` only: what <input type="color"> produces and the chart accepts. */
+export const isHexColor = (v: unknown): v is string =>
+  typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
 
 export const maId = (type: MaType, length: number): string => `ma-${type}-${length}`;
 export const maLabel = (type: MaType, length: number): string =>
@@ -44,6 +62,14 @@ const COLOR_BY_LENGTH: Record<number, string> = {
 };
 
 export const maColor = (length: number): string => COLOR_BY_LENGTH[length] ?? "#9c9c9c";
+
+/** The colour, width and dash a line is drawn with: the user's, else the default. */
+export const maLineColor = (l: Pick<MaLine, "length" | "color">): string =>
+  l.color ?? maColor(l.length);
+export const maLineWidth = (l: Pick<MaLine, "length" | "width">): number =>
+  l.width ?? (l.length >= 100 ? 2 : 1);
+export const maLineStyle = (l: Pick<MaLine, "type" | "style">): MaLineStyle =>
+  l.style ?? (l.type === "ema" ? "dashed" : "solid");
 
 /**
  * The one line a new chart draws, and the nine it keeps ready.
@@ -172,9 +198,10 @@ export function buildMaOverlays(candles: Candle[], lines: MaLine[]): ChartOverla
         paneId: "price",
         instanceId: MA_INSTANCE_ID,
         instanceTitle: MA_INSTANCE_TITLE,
-        color: maColor(l.length),
-        width: l.length >= 100 ? 2 : 1,
-        dashed: l.type === "ema",
+        color: maLineColor(l),
+        width: maLineWidth(l),
+        dashed: maLineStyle(l) === "dashed",
+        lineStyle: maLineStyle(l),
         precision,
         data: times.map((time, i) => ({ time, value: series[i] })),
       };

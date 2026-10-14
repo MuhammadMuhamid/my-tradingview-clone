@@ -835,7 +835,7 @@ export type MaType = "sma" | "ema";
 /** What an alert watches. `ma` is the original family. */
 export type ConditionKind =
   | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd"
-  | "supertrend" | "bollinger" | "stochastic" | "adx";
+  | "supertrend" | "bollinger" | "stochastic" | "adx" | "fib_level";
 
 /** What an RSI alert crosses: a fixed level, or its own moving average. */
 /** Mirrors the backend's RSI_TARGETS. `ema` arrived with migration 048. */
@@ -990,6 +990,12 @@ export interface MaAlert {
   timeframe: Interval;
   conditionKind: ConditionKind;
   patternId?: string | null;
+  /** Auto Fib Retracement inputs, for `fib_level` (migration 049). */
+  fibDeviation?: number | null;
+  fibDepth?: number | null;
+  fibReverse?: boolean | null;
+  /** The ratio watched: 0.618 is the 61.8% retracement. */
+  fibLevel?: number | null;
   srSide: SrSide | null;
   srPivotLength: number | null;
   srInvalidation: string | null;
@@ -1131,6 +1137,8 @@ export interface MaAlertOptions {
  * rather than ignoring them.
  */
 export interface MaAlertUpdate {
+  // ── fib_level ──
+  fibDeviation?: number; fibDepth?: number; fibReverse?: boolean; fibLevel?: number;
   // ── common to every family ──
   symbol?: string;
   canonicalInstrumentId?: string;
@@ -1668,6 +1676,7 @@ export const api = {
   createMaAlert: (body: {
     symbol: string; timeframe: Interval;
     conditionKind?: ConditionKind;
+    fibDeviation?: number; fibDepth?: number; fibReverse?: boolean; fibLevel?: number;
     srSide?: SrSide;
     pivotType?: PivotType;
     levelName?: string;

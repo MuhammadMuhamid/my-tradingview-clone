@@ -203,6 +203,29 @@ export interface SrZoneCondition {
 }
 
 /** A named pivot level computed from a completed anchor period. */
+/**
+ * Price against one level of an Auto Fib Retracement — "price reached the 0.618".
+ *
+ * The level is resolved by the runner with `autoFib` from `ta/core`, the same
+ * function the chart's Auto Fib study draws with, over this alert's own
+ * timeframe. It moves when the zig-zag confirms a new swing, as the indicator
+ * does; the comparison is the shared one every level family uses.
+ */
+export interface FibLevelCondition {
+  kind: "fib_level";
+  /** Zig-zag deviation multiplier (the indicator's "Deviation"). */
+  deviation: number;
+  /** Zig-zag depth (the indicator's "Depth"). */
+  depth: number;
+  /** Swap which end of the swing is 0 and which is 1. */
+  reverse: boolean;
+  /** The ratio: 0.618 is the 61.8% retracement. */
+  level: number;
+  mode: MaMode;
+  nearMinPct: number;
+  nearMaxPct: number;
+}
+
 export interface PivotLevelCondition {
   kind: "pivot_level";
   pivotType: PivotType;
@@ -343,7 +366,7 @@ export interface WithFilters {
 
 export type AlertCondition = (
   | PriceCondition | MaCondition | MaVsMaCondition
-  | SrZoneCondition | PivotLevelCondition
+  | SrZoneCondition | PivotLevelCondition | FibLevelCondition
   | RsiCondition | MacdCondition | SupertrendCondition
   | BollingerCondition | StochasticCondition | AdxCondition
   | CandlestickPatternCondition
@@ -495,6 +518,18 @@ function evaluateTrigger(
       return evaluateSrZone(condition, sample, prevSide);
     case "pivot_level":
       return evaluatePivotLevel(condition, sample, prevSide);
+    case "fib_level": {
+      // Fewer than two zig-zag legs has no fib at all. Keep the stored side
+      // rather than compare against NaN: a side invented now would report a
+      // cross on the first bar the fib becomes computable.
+      const reference = sample.refValue ?? NaN;
+      if (!Number.isFinite(reference)) {
+        return { side: prevSide, distancePct: 0, triggered: false, reference };
+      }
+      return evaluateAgainstReference(
+        condition.mode, condition.nearMinPct, condition.nearMaxPct,
+        reference, sample, prevSide);
+    }
     case "rsi":
       return evaluateRsi(condition, sample, prevSide);
     case "macd":
@@ -873,8 +908,30 @@ export function describeCondition(condition: AlertCondition): string {
       return condition.mode === "cross_up"
         ? `${adxLabel(condition)} rises through ${condition.level}`
         : `${adxLabel(condition)} falls through ${condition.level}`;
+    case "fib_level": {
+      const line = fibLabel(condition);
+      switch (condition.mode) {
+        case "touch": return `touches the ${line}`;
+        case "cross_up": return `crosses above the ${line}`;
+        case "cross_down": return `crosses below the ${line}`;
+        case "near_above":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% above the ${line}`;
+        case "near_below":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% below the ${line}`;
+      }
+      break;
+    }
   }
   return "condition met";
+}
+
+/**
+ * "0.618 auto fib level", with the zig-zag inputs named only when they are not
+ * the indicator's defaults (Deviation 3, Depth 30), and "reversed" when it is.
+ */
+export function fibLabel(c: Pick<FibLevelCondition, "level" | "deviation" | "depth" | "reverse">): string {
+  const tuned = c.deviation !== 3 || c.depth !== 30 ? ` (dev ${c.deviation}, depth ${c.depth})` : "";
+  return `${c.level} auto fib level${tuned}${c.reverse ? " (reversed)" : ""}`;
 }
 
 /**
@@ -973,6 +1030,7 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
     // oscillator the runner computes directly — never from a chart MA.
     case "sr_zone": return [];
     case "pivot_level": return [];
+    case "fib_level": return [];
     case "rsi": return [];
     case "macd": return [];
     case "supertrend": return [];
@@ -1035,6 +1093,19 @@ export function validateCondition(condition: AlertCondition): string | null {
     case "sr_zone":
       if (!Number.isInteger(condition.pivotLength) || condition.pivotLength < 2 || condition.pivotLength > 100) {
         return "pivotLength must be an integer between 2 and 100";
+      }
+      return filterError(condition.filters)
+        ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+
+    case "fib_level":
+      if (!Number.isFinite(condition.deviation) || condition.deviation < 0 || condition.deviation > 100) {
+        return "fibDeviation must be a number between 0 and 100";
+      }
+      if (!Number.isInteger(condition.depth) || condition.depth < 2 || condition.depth > 500) {
+        return "fibDepth must be an integer between 2 and 500";
+      }
+      if (!Number.isFinite(condition.level) || condition.level < -5 || condition.level > 10) {
+        return "fibLevel must be a number between -5 and 10";
       }
       return filterError(condition.filters)
         ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
@@ -1477,6 +1548,10 @@ function nearBandError(mode: MaMode, minPct: number, maxPct: number): string | n
 export function conditionFromRow(row: {
   conditionKind: ConditionKind;
   filters?: unknown;
+  fibDeviation?: number | null;
+  fibDepth?: number | null;
+  fibReverse?: boolean | null;
+  fibLevel?: number | null;
   maType: MaType | null;
   maLength: number | null;
   mode: MaAlertMode | null;
@@ -1583,6 +1658,22 @@ export function conditionFromRow(row: {
         nearMaxPct: row.nearMaxPct,
         pivotLength: row.srPivotLength ?? DEFAULT_SR_OPTIONS.pivotLength,
         invalidation,
+      };
+    }
+
+    case "fib_level": {
+      if (row.fibDeviation == null || row.fibDepth == null || row.fibLevel == null
+          || row.fibReverse == null || row.mode === null) return null;
+      return {
+        ...filtersFromRow(row),
+        kind: "fib_level",
+        deviation: row.fibDeviation,
+        depth: row.fibDepth,
+        reverse: row.fibReverse,
+        level: row.fibLevel,
+        mode: row.mode,
+        nearMinPct: row.nearMinPct,
+        nearMaxPct: row.nearMaxPct,
       };
     }
 

@@ -23,6 +23,10 @@ interface DbAlert {
   target_price: string | number | null;
   price_direction: PriceDirection | null;
   pattern_id: string | null;
+  fib_deviation: string | number | null;
+  fib_depth: number | null;
+  fib_reverse: boolean | null;
+  fib_level: string | number | null;
   pattern_detector_id: string | null;
   pattern_detector_version: string | null;
   pattern_settings_hash: string | null;
@@ -102,6 +106,10 @@ function toRow(r: DbAlert): MaAlertRow {
     targetPrice: r.target_price === null ? null : num(r.target_price),
     priceDirection: r.price_direction,
     patternId: r.pattern_id,
+    fibDeviation: r.fib_deviation == null ? null : num(r.fib_deviation),
+    fibDepth: r.fib_depth ?? null,
+    fibReverse: r.fib_reverse ?? null,
+    fibLevel: r.fib_level == null ? null : num(r.fib_level),
     patternDetectorId: r.pattern_detector_id,
     patternDetectorVersion: r.pattern_detector_version,
     patternSettingsHash: r.pattern_settings_hash,
@@ -180,6 +188,10 @@ export interface MaAlertInput {
   patternDetectorVersion?: string | null;
   patternSettingsHash?: string | null;
   patternSettings?: Record<string, unknown> | null;
+  fibDeviation?: number | null;
+  fibDepth?: number | null;
+  fibReverse?: boolean | null;
+  fibLevel?: number | null;
   nearMinPct?: number;
   nearMaxPct?: number;
   enabled?: boolean;
@@ -252,6 +264,11 @@ export interface MaAlertInput {
 const CONFLICT_TARGET: Record<ConditionKind, string> = {
   candlestick_pattern:
     "(symbol, timeframe, pattern_id, filters) WHERE condition_kind = 'candlestick_pattern'",
+  // Every input moves the level, so every input is part of what "the same
+  // alert" means — a 0.5 and a 0.618 alert on one coin are two alerts.
+  fib_level:
+    "(symbol, timeframe, fib_deviation, fib_depth, fib_reverse, fib_level, mode, filters)" +
+    " WHERE condition_kind = 'fib_level'",
   ma: "(symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
   price: "(symbol, timeframe, target_price, price_direction, filters) WHERE condition_kind = 'price'",
   ma_vs_ma:
@@ -350,11 +367,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         pattern_id, pattern_detector_id, pattern_detector_version,
         pattern_settings_hash, pattern_settings,
         canonical_instrument_id, provider_id, price_basis,
-        filters)
+        filters,
+        fib_deviation, fib_depth, fib_reverse, fib_level)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
-             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62)
+             $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,
+             $63,$64,$65,$66)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -447,6 +466,8 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       // JSONB: pg needs the array handed over as JSON text, not as a
       // JS array, which it would otherwise encode as a Postgres array.
       input.filters == null ? null : JSON.stringify(input.filters),
+      input.fibDeviation ?? null, input.fibDepth ?? null,
+      input.fibReverse ?? null, input.fibLevel ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -523,6 +544,10 @@ const PATCH_COLUMNS: Record<string, string> = {
   targetPrice: "target_price",
   priceDirection: "price_direction",
   patternId: "pattern_id",
+  fibDeviation: "fib_deviation",
+  fibDepth: "fib_depth",
+  fibReverse: "fib_reverse",
+  fibLevel: "fib_level",
   srSide: "sr_side",
   srPivotLength: "sr_pivot_length",
   srInvalidation: "sr_invalidation",

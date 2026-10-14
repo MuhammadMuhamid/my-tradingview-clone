@@ -74,6 +74,10 @@ export const EDITABLE_CONDITION_FIELDS: Record<ConditionKind, readonly string[]>
     "pivotType", "levelName", "anchor", "mode", "nearMinPct", "nearMaxPct",
     ...GATE_FIELDS,
   ],
+  fib_level: [
+    "fibDeviation", "fibDepth", "fibReverse", "fibLevel", "mode", "nearMinPct", "nearMaxPct",
+    ...GATE_FIELDS,
+  ],
   rsi: ["rsiLength", "target", "rsiLevel", "rsiMaLength", "mode", ...GATE_FIELDS],
   macd: ["macdFast", "macdSlow", "macdSignal", "target", "mode", ...GATE_FIELDS],
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode", ...GATE_FIELDS],
@@ -123,6 +127,9 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
   ma_vs_ma: ["maType", "maLength", "ma2Type", "ma2Length"],
   sr_zone: ["srSide", "srPivotLength", "srInvalidation"],
   pivot_level: ["pivotType", "pivotLevelName", "pivotAnchor"],
+  // Every input re-anchors the fib or moves the level along it, so a stored
+  // side from the old inputs describes a line that no longer exists.
+  fib_level: ["fibDeviation", "fibDepth", "fibReverse", "fibLevel"],
   rsi: ["rsiLength", "rsiLevel", "rsiMaLength", "indicatorTarget"],
   macd: ["macdFast", "macdSlow", "macdSignal", "indicatorTarget"],
   // Both inputs reshape the bands, and therefore which side of them price is
@@ -210,6 +217,13 @@ function withGates(
         nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct,
         pivotLength: row.srPivotLength ?? DEFAULT_SR_OPTIONS.pivotLength,
         invalidation: row.srInvalidation ?? "close",
+        ...gates,
+      };
+    case "fib_level":
+      return {
+        fibDeviation: row.fibDeviation, fibDepth: row.fibDepth,
+        fibReverse: row.fibReverse, fibLevel: row.fibLevel, mode: row.mode,
+        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct,
         ...gates,
       };
     case "pivot_level":

@@ -1,4 +1,5 @@
 "use client";
+import { AUTO_FIB_LEVELS } from "@/lib/ta/core";
 import { useEffect, useMemo, useState } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { Modal } from "@/components/Modal";
@@ -264,6 +265,38 @@ export function AlertEditor({
                   { value: "wick", label: "Any wick through the zone" },
                 ]}
               />
+            </Row>
+          </>
+        )}
+
+        {kind === "fib_level" && (
+          <>
+            <Row label="Fib level">
+              <Dropdown
+                value={String(form.fibLevel)}
+                label="Fib level"
+                width={WIDE}
+                onChange={(v) => update("fibLevel", Number(v))}
+                options={AUTO_FIB_LEVELS.map((l) => ({ value: String(l.value), label: String(l.value) }))}
+              />
+            </Row>
+            <Row label="Deviation">
+              <input
+                type="number" min={0} max={100} step={0.1} value={form.fibDeviation}
+                onChange={(e) => update("fibDeviation", numOf(e.target.value))}
+                aria-label="Fib deviation"
+                className={BOX}
+              />
+            </Row>
+            <Row label="Depth">
+              <IntInput value={form.fibDepth} onChange={(n) => update("fibDepth", n)} label="Fib depth" min={2} max={500} />
+            </Row>
+            <Row label="Reverse">
+              <label className="flex items-center gap-2 text-sm text-ink-muted">
+                <input type="checkbox" className="accent-accent" checked={form.fibReverse}
+                  onChange={(e) => update("fibReverse", e.target.checked)} />
+                Swap which end of the swing is 0
+              </label>
             </Row>
           </>
         )}

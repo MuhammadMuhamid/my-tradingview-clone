@@ -36,7 +36,9 @@ import {
   type LayoutPreset,
 } from "./layoutPresets";
 import { isChartType, type ChartType } from "./chartType";
-import { defaultMaLines, maId, type MaLine, type MaType } from "./movingAverages";
+import {
+  defaultMaLines, isHexColor, isMaLineStyle, MA_LINE_WIDTHS, maId, type MaLine, type MaType,
+} from "./movingAverages";
 import type { SyncOptions } from "./paneSync";
 import { displayTicker } from "./instrument";
 import { isResolution, type Resolution } from "./resolution";
@@ -257,6 +259,29 @@ export function workspacePreset(ws: ChartWorkspace): LayoutPreset {
 }
 
 /** The panes actually rendered right now — one when a pane is maximised. */
+/**
+ * Set — or with `null`, reset to default — one moving average's look.
+ *
+ * Only colour, width and dash: whether the line is shown is `toggleMaLine`'s,
+ * so a style change can never hide a line or bring one back.
+ */
+export function setMaLineStyle(
+  ws: ChartWorkspace, id: PaneId, type: MaType, length: number,
+  look: Pick<MaLine, "color" | "width" | "style"> | null,
+): ChartWorkspace {
+  return {
+    ...ws,
+    panes: ws.panes.map((pane) => pane.id !== id ? pane : {
+      ...pane,
+      maLines: pane.maLines.map((l) => {
+        if (l.type !== type || l.length !== length) return l;
+        const { color: _c, width: _w, style: _s, ...bare } = l;
+        return look === null ? bare : { ...bare, ...look };
+      }),
+    }),
+  };
+}
+
 export function visiblePanes(ws: ChartWorkspace): PaneState[] {
   if (ws.maximizedPaneId === null) return ws.panes;
   const one = paneById(ws, ws.maximizedPaneId);
@@ -647,7 +672,16 @@ function validPane(value: unknown): PaneState | null {
     if (l.type !== "sma" && l.type !== "ema") return null;
     if (typeof l.length !== "number" || !Number.isFinite(l.length)) return null;
     if (typeof l.visible !== "boolean") return null;
-    maLines.push({ type: l.type, length: l.length, visible: l.visible });
+    // The look is optional and forgiving: a malformed colour, width or style
+    // drops only that override, never the line — a line is the user's chart,
+    // a colour is a preference about it.
+    maLines.push({
+      type: l.type, length: l.length, visible: l.visible,
+      ...(isHexColor(l.color) ? { color: l.color } : {}),
+      ...(typeof l.width === "number" && (MA_LINE_WIDTHS as readonly number[]).includes(l.width)
+        ? { width: l.width } : {}),
+      ...(isMaLineStyle(l.style) ? { style: l.style } : {}),
+    });
   }
   /*
    * An unreadable `compare` is dropped rather than failing the whole pane.

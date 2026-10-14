@@ -45,6 +45,7 @@ longer conflates them.
 | `bollinger` | price against one Bollinger band — the only new family that watches a PRICE, so it keeps the touch and approach modes | `bb_length`, `bb_mult`, `bb_band`, `bb_ma_type`, `mode`, `near_min_pct`, `near_max_pct` |
 | `stochastic` | Stochastic %K against its %D, or against a fixed level | `stoch_k_length`, `stoch_k_smooth`, `stoch_d_smooth`, `stoch_level`, `indicator_target`, `mode` |
 | `adx` | ADX rising or falling through a strength threshold | `adx_di_length`, `adx_smoothing`, `adx_level`, `mode` |
+| `fib_level` | price against one level of the Auto Fib Retracement (migration 049) | `fib_deviation`, `fib_depth`, `fib_reverse`, `fib_level`, `mode` |
 
 A row that does not carry the columns its own kind needs is refused by the
 database (`ma_alerts_shape_ck`). An alert stored half-specified would be
@@ -63,6 +64,28 @@ is only knowable at `i + length` — the detector never sees a level before the
 chart could have. Pivot levels are computed from the last **completed** anchor
 period, never the forming one, and share `platform/backend/src/engine/pivotLevels.ts` with the Pine
 indicator so the alert and the drawn line cannot disagree.
+
+### Auto fib levels are re-resolved every bar
+
+`fib_level` stores a RATIO (0.618), not a price. Each bar the runner rebuilds
+the zig-zag from the alert's own timeframe — a port of TradingView's
+ZigZag/7 library: pivot window `max(2, depth / 2)`, a new leg only when the
+move from the last pivot is at least `ATR(10) / close × 100 × deviation`
+percent — and takes the level on the LAST leg:
+`start + (end − start) × ratio`, measured from the leg's end, or from its
+start when `fib_reverse` is set. That is the price the chart's Auto fib
+retracement draws for the same ratio, because both call `autoFib` in
+`platform/backend/src/ta/core.ts` (the backend and frontend copies are byte-identical and
+parity-tested; `platform/backend/tests/autoFib.test.ts` pins the legs against a Python
+reference on real NEARUSDT 1h bars). Until the history has two legs there is
+no level and the alert waits, rather than firing on a guess. When a new leg
+forms the level moves with it, as the drawn one does.
+
+Migration 049 adds the four columns, adds `fib_level` to `ma_alerts_kind_ck`,
+a branch to `ma_alerts_shape_ck` and a `WHEN` to `ma_alerts_kind_complete`
+(each recreated mechanically from its latest text, `NOT VALID`, then
+validated), and the unique index `ma_alerts_fib_uniq` that the repository's
+`ON CONFLICT` target names.
 
 ### Oscillators cross a reading, not a price
 

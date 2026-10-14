@@ -1,4 +1,6 @@
 "use client";
+import type { LevelKind } from "@/components/tv/LevelAlertModal";
+import type { MaLine } from "@/lib/movingAverages";
 import { applyTemplateTo } from "@/lib/indicatorTemplates";
 /**
  * The chart workspace page.
@@ -127,7 +129,7 @@ import {
   activePane as focusedPane, applyPaneInterval, applyPaneSymbol, createWorkspace, loadWorkspace,
   paneById, removePane, saveWorkspace, setActivePane, setPaneCompare, setPaneCount, setPaneMaVisibility,
   setPanePriceScale, paneChartSettings, setPaneChartSettings, setPaneStudyLayout, setPaneViewport,
-  setPreset, setWorkspaceBars, togglePaneMa, togglePaneMaSet, removePaneMaSet, toggleMaximize, updatePane,
+  setPreset, setWorkspaceBars, togglePaneMa, setMaLineStyle, togglePaneMaSet, removePaneMaSet, toggleMaximize, updatePane,
   type ChartWorkspace as Workspace, type PaneCompare, type PaneState, type PaneViewport,
 } from "@/lib/workspace";
 import type { SavedPaneLayout } from "@/lib/indicatorPaneLayout";
@@ -974,7 +976,7 @@ export default function TvWorkspace() {
   const [priceAlertOpen, setPriceAlertOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /** Which level family the dialog is open on, or null when it is closed. */
-  const [levelKind, setLevelKind] = useState<"sr_zone" | "pivot_level" | null>(null);
+  const [levelKind, setLevelKind] = useState<LevelKind | null>(null);
   /** Which oscillator family the dialog is open on, or null when closed. */
   const [oscillatorKind, setOscillatorKind] = useState<IndicatorKind | null>(null);
   /**
@@ -1048,6 +1050,13 @@ export default function TvWorkspace() {
 
   const toggleAllMa = useCallback((visible: boolean) => {
     setWorkspace((ws) => setPaneMaVisibility(ws, ws.activePaneId, visible));
+  }, []);
+
+  /** One line's colour, width and dash; `null` puts it back to the default. */
+  const styleMa = useCallback((
+    type: MaType, length: number, look: Pick<MaLine, "color" | "width" | "style"> | null,
+  ) => {
+    setWorkspace((ws) => setMaLineStyle(ws, ws.activePaneId, type, length, look));
   }, []);
 
   /**
@@ -3176,6 +3185,7 @@ export default function TvWorkspace() {
         maAlerts={maAlerts}
         onToggleMa={toggleMa}
         onToggleAllMa={toggleAllMa}
+        onStyleMa={styleMa}
         onArmMa={(type, length) => !alertCapability(symbol).supported
           ? setToast(alertCapability(symbol).reason)
           : setArmLine({ type, length })}
@@ -3250,6 +3260,10 @@ export default function TvWorkspace() {
           && indicatorApis.current.get(editingPine.paneId)?.().setParam(key, param, value)}
         onReset={(key) => editingPine
           && indicatorApis.current.get(editingPine.paneId)?.().resetParams(key)}
+        onStyle={(key, plot, look) => editingPine
+          && indicatorApis.current.get(editingPine.paneId)?.().setPlotStyle(key, plot, look)}
+        onResetStyles={(key) => editingPine
+          && indicatorApis.current.get(editingPine.paneId)?.().resetPlotStyles(key)}
       />
 
       {/*

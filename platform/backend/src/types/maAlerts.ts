@@ -27,7 +27,7 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
  */
 export const CONDITION_KINDS = [
   "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd", "supertrend",
-  "bollinger", "stochastic", "adx", "candlestick_pattern",
+  "bollinger", "stochastic", "adx", "candlestick_pattern", "fib_level",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
@@ -297,6 +297,15 @@ export interface MaAlertRow {
   priceDirection: PriceDirection | null;
   /** Stable canonical detector id, populated only for candlestick_pattern. */
   patternId?: string | null;
+  /**
+   * Auto Fib Retracement, populated only for `fib_level` (migration 049): the
+   * zig-zag's deviation and depth, whether 0 and 1 are swapped, and the ratio
+   * watched — 0.618 is the 61.8% retracement of the latest swing.
+   */
+  fibDeviation?: number | null;
+  fibDepth?: number | null;
+  fibReverse?: boolean | null;
+  fibLevel?: number | null;
   /** Immutable detector profile captured when a candlestick alert is armed. */
   patternDetectorId?: string | null;
   patternDetectorVersion?: string | null;

@@ -1,4 +1,5 @@
 "use client";
+import type { LevelKind } from "@/components/tv/LevelAlertModal";
 /**
  * Every dialog the chart workspace can open, and the toast it answers with.
  *
@@ -76,7 +77,7 @@ export interface ChartDialogsProps {
   lastPriceNotice?: string | null;
   onPickFromChart: () => void;
 
-  levelKind: "sr_zone" | "pivot_level" | null;
+  levelKind: LevelKind | null;
   onCloseLevel: () => void;
   oscillatorKind: IndicatorKind | null;
   /** C-04: the clicked study's inputs, or null for the family's defaults. */

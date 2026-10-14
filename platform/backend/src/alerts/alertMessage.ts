@@ -9,7 +9,7 @@
  * Pure, so the wording — and its size against the 4 KB Web Push payload limit —
  * is testable without a push service.
  */
-import {
+import { fibLabel,
   describeCondition, macdLabel, rsiLabel, stLabel, type AlertCondition,
 } from "./alertConditions";
 import { formatAlertPrice, formatMaAlertPush } from "./maEvaluator";
@@ -131,6 +131,17 @@ function buildBase(
       const side = condition.srSide === "resistance" ? "resistance" : "support";
       return {
         title: `${alert.symbol} ${alert.timeframe} — ${side}`,
+        body:
+          `Price is ${formatDistance(distancePct)} the ${what} ` +
+          `at ${formatAlertPrice(reference)} (last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
+
+    case "fib_level": {
+      const what = fibLabel(condition);
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — fib ${condition.level}`,
         body:
           `Price is ${formatDistance(distancePct)} the ${what} ` +
           `at ${formatAlertPrice(reference)} (last ${formatAlertPrice(bar.close)})`,
