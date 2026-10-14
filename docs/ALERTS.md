@@ -81,6 +81,29 @@ or above `macd_slow` inverts the oscillator so every "crosses above" reports
 what the reader sees as a downturn. Both are refused by the request parser, by
 `validateCondition`, and by a database CHECK.
 
+An RSI alert crosses a fixed level, **its own SMA**, or (from migration 048)
+**its own EMA**. The EMA target is the EMA *of the RSI series*, and the runner
+does not compute it separately: `rsiFor` delegates both average targets to
+`rsiMaFor`, the resolver the RSI-vs-its-own-EMA/SMA *filter* already used, so
+an alert and a filter on "RSI 50 vs its EMA 14" are one computation and cannot
+disagree about where the line is. `maAlertRunnerIntegration.test.ts` drives the
+real runner on candles where the RSI sits *between* its EMA 14 and SMA 14, so
+an EMA alert and an SMA alert must report opposite sides — wiring one to the
+other cannot pass.
+
+> 048 recreates `ma_alerts_kind_complete` from 032's text, mechanically, and
+> checks the copy differs in exactly the rsi lines. It also requires
+> `rsi_ma_length IS NOT NULL` for `'ema'`: a CHECK *passes* on NULL, so the
+> length rule alone admits an EMA row with no length at all. The `'sma'` rule
+> has the same gap and is deliberately left as it was — tightening it could
+> reject an existing row on boot — while no `'ema'` row can predate 048.
+>
+> The editor once read the target as `=== "sma" ? "sma" : "level"`. With an EMA
+> target that opens an EMA alert as a *level* alert, and because an edit sends
+> the target whenever it differs from the stored one, an untouched Save would
+> have rewritten it. Both the read and an "untouched Save writes nothing" test
+> now cover every average.
+
 ### Supertrend flips, it does not cross
 
 `supertrend` is a direct port of the v4 study (`platform/backend/src/engine/ta.ts`), and the port is
@@ -156,6 +179,46 @@ than guessed at.
 > when it evaluates to NULL, so `filter_rsi_length > 0 AND filter_rsi_level > 0`
 > with a NULL level is `TRUE AND NULL` = NULL — the constraint accepted exactly
 > the row it was written to reject until those tests were added.
+
+### Arming one alert across a watchlist, or every tracked coin
+
+The indicator and level dialogs offer **Apply to**: this coin only, any
+watchlist, or *All tracked coins*. "RSI 50 crossing above its EMA 14, on 15m and
+1h, on every coin in my watchlist" is one decision, so it is one Save — one
+request per coin × timeframe, run sequentially, carrying on past a failure and
+naming every coin that did not take. `platform/frontend/lib/alertScope.ts` holds the logic and is
+pure apart from the loop that issues the requests.
+
+What Save will do is stated before it is pressed: how many alerts, how many of
+them **already exist on their coin and will be updated rather than duplicated**
+(each dialog's own "same alert" rule, applied per coin), and the live-feed
+budget.
+
+**The budget is a hard stop.** The alert runner streams every alert's candles
+over ONE combined Binance connection capped at `MAX_STREAMS_PER_CONN` (200)
+feeds — one per distinct coin × timeframe among armed, unretired alerts. Past
+the cap `subscribe()` throws and the runner only *logs* it: the alert shows as
+armed and never fires. "All coins on four timeframes" can need several times
+the cap, so a save that would exceed it is refused outright, and the dialog says
+so before Save. Alerts saved *paused* take no feed. The frontend mirrors the cap
+as `ALERT_FEED_CAP`, and `alertScope.test.ts` reads the backend file to pin the
+two together.
+
+Which coins a scope means:
+
+* **All tracked coins** — active catalogue symbols that are Binance **spot**.
+  The alert engine streams nothing else, so a stock, an FX pair or a perpetual
+  would arm and never be evaluated.
+* **A watchlist** — the user's list as written, except entries the alert engine
+  cannot watch, which are left out and *named*, not silently dropped.
+
+> Watchlists store **canonical instrument ids**
+> (`instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot`); alerts are stored under the
+> bare ticker (`BTCUSDT`); and `sameInstrument` reports those two as different
+> instruments. Every coin is therefore keyed through `legacyBinanceSpotTicker`
+> before matching, counting or arming. Found by arming a real watchlist against
+> a local release: keyed as strings, the existing alert was not matched (a twin
+> would have been armed) and no perpetual could be told from spot.
 
 ### Every alert can carry a note, and the notification shows it
 
@@ -318,7 +381,7 @@ than notifying again.
 
 ---
 
-## 8. Migrations 010–031
+## 8. Migrations 010–031 (048 is described under the oscillator rules)
 
 Every column an existing row gains carries a default describing what that row
 already did — `condition_kind = 'ma'`, `frequency = 'once_per_bar_close'` — so

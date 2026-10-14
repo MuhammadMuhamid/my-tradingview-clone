@@ -35,7 +35,7 @@ export const emptyFilters = (): AlertFilterState => [];
 /** How each kind names itself in the picker. */
 const KIND_LABEL: Record<FilterKind, string> = {
   rsi: "RSI vs level",
-  rsi_ma: "RSI vs its own MA",
+  rsi_ma: "RSI vs its own EMA / SMA",
   ma: "Price vs moving average",
   supertrend: "Price vs Supertrend",
   macd: "MACD",

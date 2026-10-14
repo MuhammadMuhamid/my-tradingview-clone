@@ -38,9 +38,13 @@ export const isBulkAlertAction = (value: string): value is BulkAlertAction =>
 
 /**
  * What an RSI alert compares the oscillator against: a fixed level (the 50
- * midline by default) or its own moving average.
+ * midline by default) or its own moving average — simple or exponential.
+ *
+ * `ema` was added in migration 048. The RSI-vs-its-own-MA FILTER always
+ * offered both averages; the alert family offered only the SMA, so "RSI 50
+ * crosses its EMA 14" could gate an alert but could not BE one.
  */
-export const RSI_TARGETS = ["level", "sma"] as const;
+export const RSI_TARGETS = ["level", "sma", "ema"] as const;
 export type RsiTarget = (typeof RSI_TARGETS)[number];
 export const isRsiTarget = (v: string): v is RsiTarget =>
   (RSI_TARGETS as readonly string[]).includes(v);

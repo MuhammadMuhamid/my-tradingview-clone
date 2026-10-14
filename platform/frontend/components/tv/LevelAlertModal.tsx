@@ -1,11 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
+import { AlertScopeField, type AlertScopeStatus } from "@/components/tv/AlertScopeField";
+import { armAcross, armingSummary, feedBudget, planArming } from "@/lib/alertScope";
 import {
   AlertFiltersField, emptyFilters, filterRequest, filterRequestForEdit,
   type AlertFilterState,
@@ -105,6 +107,22 @@ export function LevelAlertModal({
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<FailureCopy | null>(null);
+  /*
+   * Which coins Save arms. "This coin only" keeps the save path this dialog
+   * always had; a watchlist or every tracked coin fans the same alert out —
+   * see `AlertScopeField` and `lib/alertScope.ts`.
+   */
+  const thisCoinOnly = useCallback(
+    (): AlertScopeStatus => ({ scope: { kind: "symbol" }, symbols: [symbol], ready: true }),
+    [symbol]);
+  const [scope, setScope] = useState<AlertScopeStatus>(thisCoinOnly);
+  const [progress, setProgress] = useState<string | null>(null);
+  /** The per-coin twin of `matches`: same family, mode, timeframe and side or level. */
+  const sameAlert = useCallback(
+    (a: MaAlert, timeframe: Interval) =>
+      a.conditionKind === kind && a.mode === mode && a.timeframe === timeframe
+      && (kind === "sr_zone" ? a.srSide === srSide : a.pivotLevelName === levelName),
+    [kind, mode, srSide, levelName]);
 
   // Follow the matched rows, so an untouched Save cannot change what they hold.
   useEffect(() => {
@@ -119,12 +137,60 @@ export function LevelAlertModal({
       setKind(initialKind);
       setNote("");
       setErr(null);
+      setScope(thisCoinOnly());
+      setProgress(null);
     }
-  }, [open, defaultTimeframe, initialKind]);
+  }, [open, defaultTimeframe, initialKind, thisCoinOnly]);
 
   const isNear = mode === "near_above" || mode === "near_below";
   const toggleTf = (tf: Interval): void =>
     setTimeframes((cur) => cur.includes(tf) ? cur.filter((t) => t !== tf) : [...cur, tf]);
+
+  /** The request for one coin on one timeframe — the same fields whichever coin. */
+  const bodyFor = (sym: string, timeframe: Interval) => ({
+    symbol: sym, timeframe, conditionKind: kind, mode,
+    nearMinPct, nearMaxPct, frequency, cooldownMin,
+    ...(kind === "sr_zone"
+      ? { srSide }
+      : { pivotType, levelName, anchor }),
+    note: note.trim() || null,
+    enabled: armed,
+  });
+
+  /**
+   * Save across several coins. Re-reads every alert at the moment of saving —
+   * the counts the field showed may be a minute old — and refuses outright if
+   * the alert engine could not watch the result.
+   */
+  const saveAcross = async (): Promise<void> => {
+    const existingAll = await api.listMaAlerts();
+    const plan = planArming(scope.symbols, timeframes, existingAll, sameAlert);
+    const budget = feedBudget(existingAll, plan, armed);
+    if (!budget.fits) {
+      setErr(said(
+        `That needs ${budget.after} live feeds and the alert engine watches at most ${budget.cap}. `
+        + "Choose fewer coins or timeframes, or save them paused."));
+      return;
+    }
+    const result = await armAcross(plan, async (item) => {
+      const body = bodyFor(item.symbol, item.timeframe);
+      if (item.existingId) {
+        await api.updateMaAlert(item.existingId, { ...body, ...filterRequestForEdit(filters) });
+      } else {
+        await api.createMaAlert({ ...body, ...filterRequest(filters) });
+      }
+    }, (done, total) => setProgress(`Arming ${done} of ${total}…`));
+    setProgress(null);
+    const summary = armingSummary(result, timeframes, armed ? "armed" : "saved");
+    if (result.failed.length > 0) {
+      // Kept on screen, not flashed in a toast: the user needs to see which
+      // coins did not take. Everything that succeeded stays saved.
+      setErr(said(summary));
+      return;
+    }
+    onSaved(summary);
+    onClose();
+  };
 
   const save = async () => {
     if (timeframes.length === 0) { setErr(said("Pick at least one timeframe.")); return; }
@@ -135,18 +201,11 @@ export function LevelAlertModal({
     setBusy(true);
     setErr(null);
     try {
+      if (scope.scope.kind !== "symbol") { await saveAcross(); return; }
       // One alert per timeframe. The notification names the timeframe it fired
       // on, which is only meaningful if each timeframe is its own alert.
       for (const timeframe of timeframes) {
-        const body = {
-          symbol, timeframe, conditionKind: kind, mode,
-          nearMinPct, nearMaxPct, frequency, cooldownMin,
-          ...(kind === "sr_zone"
-            ? { srSide }
-            : { pivotType, levelName, anchor }),
-          note: note.trim() || null,
-          enabled: armed,
-        };
+        const body = bodyFor(symbol, timeframe);
         /*
          * An existing alert on this timeframe is EDITED, not upserted.
          *
@@ -194,8 +253,10 @@ export function LevelAlertModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="contrast" onClick={() => void save()} disabled={busy}>
-            {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
+          <Button variant="contrast" onClick={() => void save()}
+            disabled={busy || !scope.ready || timeframes.length === 0}>
+            {busy ? (progress ?? "Saving…")
+              : `Create ${timeframes.length * scope.symbols.length || ""}`}
           </Button>
         </>
       }
@@ -267,6 +328,15 @@ export function LevelAlertModal({
         <p className="text-xs text-ink-faint">
           One alert is created per timeframe, and each notification names the timeframe it fired on.
         </p>
+
+        <AlertScopeField
+          symbol={symbol}
+          timeframes={timeframes}
+          armed={armed}
+          value={scope.scope}
+          onChange={setScope}
+          sameAlert={sameAlert}
+        />
 
         <div className="my-1 border-t border-border" />
 

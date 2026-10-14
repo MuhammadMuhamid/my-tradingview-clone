@@ -1,11 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ResolutionNotice } from "@/components/tv/ResolutionNotice";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD } from "@/components/ui";
 import { FrequencyField } from "@/components/tv/FrequencyField";
 import { AlertNoteField } from "@/components/tv/AlertNoteField";
 import { AlertArmedField } from "@/components/tv/AlertArmedField";
+import { AlertScopeField, type AlertScopeStatus } from "@/components/tv/AlertScopeField";
+import { armAcross, armingSummary, feedBudget, planArming } from "@/lib/alertScope";
 import {
   AlertFiltersField, emptyFilters, filterRequest, filterRequestForEdit,
   type AlertFilterState,
@@ -147,10 +149,27 @@ export function IndicatorAlertModal({
   const [cooldownMin, setCooldownMin] = useState(60);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<FailureCopy | null>(null);
+  /*
+   * Which coins Save arms. "This coin only" is the default and takes exactly
+   * the save path this dialog always had; a watchlist or every tracked coin
+   * fans the same alert out — see `AlertScopeField` and `lib/alertScope.ts`.
+   */
+  const thisCoinOnly = useCallback(
+    (): AlertScopeStatus => ({ scope: { kind: "symbol" }, symbols: [symbol], ready: true }),
+    [symbol]);
+  const [scope, setScope] = useState<AlertScopeStatus>(thisCoinOnly);
+  const [progress, setProgress] = useState<string | null>(null);
+  /** The per-coin twin of `matches`: same family, same timeframe. */
+  const sameAlert = useCallback(
+    (a: MaAlert, timeframe: Interval) => a.conditionKind === kind && a.timeframe === timeframe,
+    [kind]);
 
   useEffect(() => {
-    if (open) { setTimeframes([defaultTimeframe]); setNote(""); setErr(null); }
-  }, [open, defaultTimeframe, kind]);
+    if (open) {
+      setTimeframes([defaultTimeframe]); setNote(""); setErr(null);
+      setScope(thisCoinOnly()); setProgress(null);
+    }
+  }, [open, defaultTimeframe, kind, thisCoinOnly]);
 
   /*
    * C-04: the indicator's own parameters, on every open — the clicked study's
@@ -201,6 +220,70 @@ export function IndicatorAlertModal({
    */
   const armedMode: MaAlertMode = PRICE_LINE_KINDS.includes(kind) ? bbMode : direction;
 
+  /** The request for one coin on one timeframe — the same fields whichever coin. */
+  const bodyFor = (sym: string, timeframe: Interval) => ({
+    symbol: sym, timeframe, conditionKind: kind,
+    mode: armedMode,
+    frequency, cooldownMin,
+    ...(kind === "rsi"
+      ? { rsiLength, target: rsiTarget, rsiLevel, rsiMaLength }
+      : kind === "macd"
+        ? { macdFast, macdSlow, macdSignal, target: macdTarget }
+        : kind === "bollinger"
+          ? {
+              bbLength, bbMult, bbBand, bbMaType,
+              // Only the two approach modes read the band; sending it
+              // otherwise would store a width nothing consults.
+              ...(bbMode === "near_above" || bbMode === "near_below"
+                ? { nearMinPct, nearMaxPct } : {}),
+            }
+          : kind === "stochastic"
+            ? {
+                stochKLength, stochKSmooth, stochDSmooth,
+                target: stochTarget, stochLevel,
+              }
+            : kind === "adx"
+              ? { adxDiLength, adxSmoothing, adxLevel }
+              : { stPeriod, stMultiplier, stAtrMethod }),
+    note: note.trim() || null,
+    enabled: armed,
+  });
+
+  /**
+   * Save across several coins. Validation above has already run; this re-reads
+   * every alert at the moment of saving — the counts the field showed may be a
+   * minute old — and refuses outright if the engine could not watch the result.
+   */
+  const saveAcross = async (): Promise<void> => {
+    const existingAll = await api.listMaAlerts();
+    const plan = planArming(scope.symbols, timeframes, existingAll, sameAlert);
+    const budget = feedBudget(existingAll, plan, armed);
+    if (!budget.fits) {
+      setErr(said(
+        `That needs ${budget.after} live feeds and the alert engine watches at most ${budget.cap}. `
+        + "Choose fewer coins or timeframes, or save them paused."));
+      return;
+    }
+    const result = await armAcross(plan, async (item) => {
+      const body = bodyFor(item.symbol, item.timeframe);
+      if (item.existingId) {
+        await api.updateMaAlert(item.existingId, { ...body, ...filterRequestForEdit(filters) });
+      } else {
+        await api.createMaAlert({ ...body, ...filterRequest(filters) });
+      }
+    }, (done, total) => setProgress(`Arming ${done} of ${total}…`));
+    setProgress(null);
+    const summary = armingSummary(result, timeframes, armed ? "armed" : "saved");
+    if (result.failed.length > 0) {
+      // Kept on screen, not flashed in a toast: the user needs to see which
+      // coins did not take. Everything that succeeded stays saved.
+      setErr(said(summary));
+      return;
+    }
+    onSaved(summary);
+    onClose();
+  };
+
   const save = async (): Promise<void> => {
     if (timeframes.length === 0) { setErr(said("Pick at least one timeframe")); return; }
     // Refused here as well as by the server, so the user is told before the
@@ -246,34 +329,9 @@ export function IndicatorAlertModal({
     setBusy(true);
     setErr(null);
     try {
+      if (scope.scope.kind !== "symbol") { await saveAcross(); return; }
       for (const timeframe of timeframes) {
-        const body = {
-          symbol, timeframe, conditionKind: kind,
-          mode: armedMode,
-          frequency, cooldownMin,
-          ...(kind === "rsi"
-            ? { rsiLength, target: rsiTarget, rsiLevel, rsiMaLength }
-            : kind === "macd"
-              ? { macdFast, macdSlow, macdSignal, target: macdTarget }
-              : kind === "bollinger"
-                ? {
-                    bbLength, bbMult, bbBand, bbMaType,
-                    // Only the two approach modes read the band; sending it
-                    // otherwise would store a width nothing consults.
-                    ...(bbMode === "near_above" || bbMode === "near_below"
-                      ? { nearMinPct, nearMaxPct } : {}),
-                  }
-                : kind === "stochastic"
-                  ? {
-                      stochKLength, stochKSmooth, stochDSmooth,
-                      target: stochTarget, stochLevel,
-                    }
-                  : kind === "adx"
-                    ? { adxDiLength, adxSmoothing, adxLevel }
-                    : { stPeriod, stMultiplier, stAtrMethod }),
-          note: note.trim() || null,
-          enabled: armed,
-        };
+        const body = bodyFor(symbol, timeframe);
         /*
          * An existing alert on this timeframe is EDITED, not upserted. Gates
          * are part of what identifies an alert, so an upsert whose gates just
@@ -325,7 +383,7 @@ export function IndicatorAlertModal({
     ? `ADX ${direction === "cross_up" ? "rises through" : "falls through"} ${adxLevel}`
     : kind === "rsi"
     ? `RSI ${rsiLength} crosses ${direction === "cross_up" ? "above" : "below"} ` +
-      (rsiTarget === "level" ? `${rsiLevel}` : `its SMA ${rsiMaLength}`)
+      (rsiTarget === "level" ? `${rsiLevel}` : `its ${rsiTarget.toUpperCase()} ${rsiMaLength}`)
     : kind === "macd"
       ? `MACD crosses ${direction === "cross_up" ? "above" : "below"} ` +
         (macdTarget === "zero" ? "zero" : "the signal line")
@@ -344,8 +402,10 @@ export function IndicatorAlertModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="contrast" onClick={() => void save()} disabled={busy}>
-            {busy ? "Saving…" : `Create ${timeframes.length || ""}`}
+          <Button variant="contrast" onClick={() => void save()}
+            disabled={busy || !scope.ready || timeframes.length === 0}>
+            {busy ? (progress ?? "Saving…")
+              : `Create ${timeframes.length * scope.symbols.length || ""}`}
           </Button>
         </>
       }
@@ -365,6 +425,7 @@ export function IndicatorAlertModal({
               >
                 <option value="level">A fixed level</option>
                 <option value="sma">Its own SMA</option>
+                <option value="ema">Its own EMA</option>
               </select>
             </Row>
             {rsiTarget === "level" ? (
@@ -373,7 +434,7 @@ export function IndicatorAlertModal({
                   onChange={(e) => setRsiLevel(parseFloat(e.target.value || "0"))} className={box} />
               </Row>
             ) : (
-              <Row label="SMA length">
+              <Row label={`${rsiTarget.toUpperCase()} length`}>
                 <input type="number" min="1" max="1000" value={rsiMaLength}
                   onChange={(e) => setRsiMaLength(parseInt(e.target.value || "0", 10))} className={box} />
               </Row>
@@ -568,6 +629,15 @@ export function IndicatorAlertModal({
         <p className="text-xs text-ink-faint">
           One alert is created per timeframe, and each notification names the timeframe it fired on.
         </p>
+
+        <AlertScopeField
+          symbol={symbol}
+          timeframes={timeframes}
+          armed={armed}
+          value={scope.scope}
+          onChange={setScope}
+          sameAlert={sameAlert}
+        />
 
         <div className="my-1 border-t border-border" />
 

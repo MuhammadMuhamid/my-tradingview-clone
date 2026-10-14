@@ -324,6 +324,7 @@ export function AlertEditor({
                 options={[
                   { value: "level", label: "A fixed level" },
                   { value: "sma", label: "Its own SMA" },
+                  { value: "ema", label: "Its own EMA" },
                 ]}
               />
             </Row>
@@ -337,7 +338,7 @@ export function AlertEditor({
                 />
               </Row>
             ) : (
-              <Row label="SMA length">
+              <Row label={`${form.rsiTarget.toUpperCase()} length`}>
                 <IntInput value={form.rsiMaLength} onChange={(n) => update("rsiMaLength", n)} label="RSI moving-average length" />
               </Row>
             )}

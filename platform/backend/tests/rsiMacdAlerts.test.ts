@@ -293,3 +293,37 @@ test("the RSI-based MA is an SMA of the RSI series, matching the indicator", () 
   // RSI is bounded, so its MA must be too — a smoothing bug shows up here.
   assert.ok(m[last]! >= 0 && m[last]! <= 100, `RSI MA out of range: ${m[last]}`);
 });
+
+// ── its own EMA (migration 048) ────────────────────────────────────────────
+
+test("an RSI alert accepts its own EMA as the line it crosses", () => {
+  const read = readCondition("rsi", {
+    rsiLength: 50, target: "ema", rsiMaLength: 14, mode: "cross_up",
+  });
+  assert.ok("condition" in read, JSON.stringify(read));
+  const c = read.condition as Extract<AlertCondition, { kind: "rsi" }>;
+  assert.equal(c.target, "ema");
+  assert.equal(c.maLength, 14);
+});
+
+test("an EMA target needs a usable length, exactly as the SMA target does", () => {
+  for (const rsiMaLength of [0, -3, 1.5, 5000]) {
+    assert.ok("error" in readCondition("rsi", { target: "ema", rsiMaLength, mode: "cross_up" }),
+      `length ${rsiMaLength} must be refused`);
+  }
+});
+
+test("an EMA alert survives the trip to the columns and back", () => {
+  const read = readCondition("rsi", { rsiLength: 21, target: "ema", rsiMaLength: 9, mode: "cross_down" });
+  assert.ok("condition" in read);
+  const cols = toColumns(read.condition);
+  assert.equal(cols.indicatorTarget, "ema", "stored as 'ema' — the value 048 admits");
+  assert.equal(cols.rsiMaLength, 9);
+});
+
+test("the notification names the average it actually crosses", () => {
+  assert.equal(describeCondition(rsiCond({ target: "ema", mode: "cross_up" })),
+    "RSI 50 crosses above its EMA 14");
+  assert.equal(describeCondition(rsiCond({ target: "sma", mode: "cross_down" })),
+    "RSI 50 crosses below its SMA 14", "the SMA wording is unchanged");
+});

@@ -516,21 +516,20 @@ export class MaAlertRunner {
       const value = series[series.length - 1];
       if (value === undefined || !Number.isFinite(value)) return undefined;
       if (target === "level") return { value, reference: level };
-      // The RSI-based MA is smoothed from the RSI series including its leading
-      // NaNs, so it appears at the bar the indicator would show it, not earlier.
-      const ma = sma(series, maLength);
-      const reference = ma[ma.length - 1];
-      if (reference === undefined || !Number.isFinite(reference)) return undefined;
-      return { value, reference };
+      // The RSI-based MA, in whichever average the alert named. Delegated to
+      // the filter's own resolver so an alert and a filter on "RSI 50 vs its
+      // EMA 14" are one computation and cannot disagree about the line.
+      return rsiMaFor(length, target, maLength);
     };
 
     /**
      * RSI against a moving average OF THE RSI, in the type the gate named.
      *
-     * Separate from `rsiFor` because that one's "sma" target is fixed to a
-     * simple average — it mirrors the RSI alert family, whose only MA target
-     * is an SMA. A gate may name an EMA, and measuring it as an SMA would make
-     * the rule a different rule while still looking right.
+     * Also the RSI alert family's MA target (`rsiFor` delegates here for
+     * "sma" and "ema"), so the alert and the filter share one line. It began
+     * life separate because the family once offered only an SMA; measuring a
+     * filter's EMA as an SMA would have made the rule a different rule while
+     * still looking right.
      */
     const rsiMaFor = (
       length: number, maType: MaType, maLength: number

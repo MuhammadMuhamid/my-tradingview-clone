@@ -13,6 +13,7 @@ import type { Candle } from "../src/types/market";
 import type { AlertFrequency } from "../src/alerts/alertFrequency";
 import type { MaAlertRow } from "../src/types/maAlerts";
 import type { PushMessage, PushResult } from "../src/alerts/webPush";
+import { ema, rsi, sma } from "../src/engine/ta";
 
 type EvaluationWrite = Parameters<
   (typeof import("../src/repositories/maAlerts"))["recordEvaluation"]
@@ -311,4 +312,46 @@ test("a transport exception persists a secret-free failed outcome and keeps once
   assert.equal(fake.events[0]!.pushFailed, 1);
   assert.doesNotMatch(JSON.stringify(fake.events[0]), /secret-token-value/);
   assert.equal(fake.rows[0]!.completedAt, null, "failed once-only notification stays armed");
+});
+
+/**
+ * An RSI alert's EMA target is the EMA OF THE RSI — measured through the real
+ * runner, not a stand-in.
+ *
+ * The candles are chosen so that on the last bar the RSI sits BETWEEN its
+ * EMA 14 and its SMA 14: above one, below the other. An EMA alert and an SMA
+ * alert must therefore disagree about which side they are on, so wiring the
+ * EMA target to the SMA (or the reverse) cannot pass. The expected sides are
+ * recomputed here from the same candles rather than written in.
+ */
+test("an RSI alert can cross its own EMA, and it is not its SMA", async () => {
+  const bars: Candle[] = Array.from({ length: 300 }, (_, index) => {
+    const close = 100 + Math.sin((index + 15) / 6) * 10;
+    return {
+      symbol: "BTCUSDT", interval: "1m" as const,
+      openTime: T0 + index * STEP, closeTime: T0 + (index + 1) * STEP - 1,
+      open: close, high: close + 0.5, low: close - 0.5, close, volume: 10,
+    };
+  });
+  const closes = bars.map((b) => b.close);
+  const series = rsi(closes, 14);
+  const value = series.at(-1)!;
+  const viaEma = value > ema(series, 14).at(-1)! ? "above" : "below";
+  const viaSma = value > sma(series, 14).at(-1)! ? "above" : "below";
+  assert.notEqual(viaEma, viaSma, "fixture must separate the two averages, or this proves nothing");
+
+  const rsiRow = (id: string, target: "sma" | "ema") => row(id, {
+    conditionKind: "rsi", rsiLength: 14, rsiLevel: null, rsiMaLength: 14,
+    indicatorTarget: target, mode: "cross_up", targetPrice: null, priceDirection: null,
+    lastSide: null,
+  });
+  const fake = localRunner([rsiRow("vs-ema", "ema"), rsiRow("vs-sma", "sma")]);
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars,
+    sampleBar: bars.at(-1)!, isClosedBar: true, now: T0,
+  });
+
+  const sideOf = (id: string) => fake.evaluations.find((e) => e.id === id)?.side;
+  assert.equal(sideOf("vs-ema"), viaEma, "the EMA alert is measured against the EMA of the RSI");
+  assert.equal(sideOf("vs-sma"), viaSma, "and the SMA alert, unchanged, against its SMA");
 });

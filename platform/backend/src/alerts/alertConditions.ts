@@ -229,7 +229,7 @@ export interface RsiCondition {
   target: RsiTarget;
   /** Read when `target` is "level". */
   level: number;
-  /** Read when `target` is "sma": the length of the RSI-based SMA. */
+  /** Read when `target` is "sma" or "ema": the length of the RSI-based average. */
   maLength: number;
   mode: MaCrossMode;
 }
@@ -831,7 +831,7 @@ export function describeCondition(condition: AlertCondition): string {
       const what = rsiLabel(condition);
       const against = condition.target === "level"
         ? `${condition.level}`
-        : `its SMA ${condition.maLength}`;
+        : `its ${condition.target.toUpperCase()} ${condition.maLength}`;
       return condition.mode === "cross_up"
         ? `${what} crosses above ${against}`
         : `${what} crosses below ${against}`;

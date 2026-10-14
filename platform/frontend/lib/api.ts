@@ -838,7 +838,8 @@ export type ConditionKind =
   | "supertrend" | "bollinger" | "stochastic" | "adx";
 
 /** What an RSI alert crosses: a fixed level, or its own moving average. */
-export type RsiTarget = "level" | "sma";
+/** Mirrors the backend's RSI_TARGETS. `ema` arrived with migration 048. */
+export type RsiTarget = "level" | "sma" | "ema";
 /** What a MACD alert crosses: its signal line, or zero. */
 export type MacdTarget = "signal" | "zero";
 

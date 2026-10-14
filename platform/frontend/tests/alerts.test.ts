@@ -383,3 +383,12 @@ test("an Alerts group header is a ticker and words, with the identity in the too
   assert.equal(legacy.ticker, "SOLUSDT");
   assert.doesNotMatch(legacy.sub, /legacy provider unknown|legacy basis unknown/);
 });
+
+test("an RSI alert on its own EMA says EMA, matching the server's sentence", () => {
+  const ema = describeAlert({ ...base, conditionKind: "rsi", maType: null, maLength: null,
+    rsiLength: 50, rsiMaLength: 14, rsiLevel: null, indicatorTarget: "ema", mode: "cross_up" });
+  assert.match(ema, /^RSI 50 crosses above its EMA 14/);
+  const sma = describeAlert({ ...base, conditionKind: "rsi", maType: null, maLength: null,
+    rsiLength: 50, rsiMaLength: 14, rsiLevel: null, indicatorTarget: "sma", mode: "cross_down" });
+  assert.match(sma, /^RSI 50 crosses below its SMA 14/, "the SMA wording is unchanged");
+});

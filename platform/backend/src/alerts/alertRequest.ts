@@ -336,7 +336,7 @@ export function readCondition(
     const rMode = String(b.mode ?? "cross_up");
     if (!isRsiTarget(target)) return bad(`target must be one of ${RSI_TARGETS.join(", ")}`);
     if (!isLength(rsiLength)) return bad("rsiLength must be an integer 1..1000");
-    if (target === "sma" && !isLength(rsiMaLength)) {
+    if ((target === "sma" || target === "ema") && !isLength(rsiMaLength)) {
       return bad("rsiMaLength must be an integer 1..1000");
     }
     // RSI is bounded 0..100 by construction, so a level outside it can never be

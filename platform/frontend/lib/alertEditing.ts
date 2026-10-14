@@ -274,7 +274,11 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     levelName: alert.pivotLevelName ?? "any",
     anchor: alert.pivotAnchor ?? "1d",
     rsiLength: alert.rsiLength ?? RSI_DEFAULTS.length,
-    rsiTarget: alert.indicatorTarget === "sma" ? "sma" : "level",
+    // Every MA target is carried through. Reading only "sma" here once meant
+    // an EMA alert opened in the editor came back as "level" and a plain Save
+    // would have rewritten it into a different alert.
+    rsiTarget: alert.indicatorTarget === "sma" || alert.indicatorTarget === "ema"
+      ? alert.indicatorTarget : "level",
     rsiLevel: alert.rsiLevel ?? RSI_DEFAULTS.level,
     rsiMaLength: alert.rsiMaLength ?? RSI_DEFAULTS.maLength,
     macdFast: alert.macdFast ?? MACD_DEFAULTS.fast,
@@ -346,7 +350,7 @@ export function validateAlertForm(
     if (form.rsiTarget === "level" && !(form.rsiLevel > 0 && form.rsiLevel < 100)) {
       return "RSI level must be between 0 and 100 — the oscillator cannot leave that range.";
     }
-    if (form.rsiTarget === "sma" && !isLength(form.rsiMaLength)) {
+    if (form.rsiTarget !== "level" && !isLength(form.rsiMaLength)) {
       return "The RSI moving-average length must be from 1 to 1000.";
     }
   }

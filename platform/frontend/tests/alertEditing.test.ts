@@ -729,3 +729,33 @@ test("ALERTS — NO CREATE DIALOG CAN SILENTLY RE-ARM A PAUSED ALERT", () => {
   assert.match(repo, /enabled\s*=\s*EXCLUDED\.enabled/,
     "if the upsert stopped writing `enabled`, this whole rule would be moot");
 });
+
+/*
+ * An RSI alert on its own EMA must come back out of the editor as an EMA
+ * alert. The form once read `indicatorTarget === "sma" ? "sma" : "level"`,
+ * so an EMA alert opened as "level", and because `alertEditRequest` sends the
+ * target whenever it differs from the stored one, an UNTOUCHED Save would
+ * have rewritten it into a level alert the user never asked for.
+ */
+test("an EMA RSI alert opens as EMA, and an untouched Save changes nothing", () => {
+  // Stored as the server stores every RSI alert: level and length both kept,
+  // whichever the target (`toColumns` writes both unconditionally).
+  const emaAlert: MaAlert = { ...ALERTS.rsi, indicatorTarget: "ema" };
+  const form = alertEditForm(emaAlert);
+  assert.equal(form.rsiTarget, "ema");
+  const body = alertEditRequest(emaAlert, form);
+  assert.equal("target" in body, false, "nothing touched, so the target is not re-sent");
+  assert.equal(hasAlertChanges(body), false, `an untouched Save must write nothing; it would send ${JSON.stringify(body)}`);
+});
+
+test("switching an RSI alert between SMA and EMA is an edit the request carries", () => {
+  const smaAlert: MaAlert = { ...ALERTS.rsi, indicatorTarget: "sma" };
+  const form = { ...alertEditForm(smaAlert), rsiTarget: "ema" as const };
+  assert.equal(validateAlertForm("rsi", form), null);
+  assert.equal(alertEditRequest(smaAlert, form).target, "ema");
+});
+
+test("an EMA target is held to the same length rule as the SMA one", () => {
+  const form = { ...alertEditForm({ ...ALERTS.rsi, indicatorTarget: "ema" }), rsiMaLength: 0 };
+  assert.notEqual(validateAlertForm("rsi", form), null, "a zero-length average is refused");
+});

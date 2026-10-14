@@ -136,8 +136,9 @@ export function describeAlert(a: MaAlert): string {
     case "rsi": {
       // The subject is the OSCILLATOR, so these read "RSI 50 crosses above",
       // never "price crosses above" — the distinction is the whole point.
-      const against = a.indicatorTarget === "sma"
-        ? `its SMA ${a.rsiMaLength ?? ""}`.trim()
+      // Must match the server's describeCondition, which writes the push.
+      const against = a.indicatorTarget === "sma" || a.indicatorTarget === "ema"
+        ? `its ${a.indicatorTarget.toUpperCase()} ${a.rsiMaLength ?? ""}`.trim()
         : `${a.rsiLevel ?? ""}`.trim();
       return `RSI ${a.rsiLength ?? ""} crosses ` +
         `${a.mode === "cross_down" ? "below" : "above"} ${against}${describeFilters(a)}`;
