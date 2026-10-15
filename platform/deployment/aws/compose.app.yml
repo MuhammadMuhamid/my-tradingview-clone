@@ -26,6 +26,12 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
       SESSION_SECRET: ${SESSION_SECRET}
       COOKIE_SECURE: "true"
+      # Accounts. Google sign-in appears only when all three are set; the
+      # redirect URI registered in Google Cloud is <PUBLIC_BASE_URL>/api/auth/google/callback.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      ALLOW_SIGNUPS: ${ALLOW_SIGNUPS:-true}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:alerts@example.com}
     expose:
       - "4000"
