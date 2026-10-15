@@ -317,8 +317,10 @@ test("the not-found page and the chart's product menu offer every destination th
   // than by grepping for a call.
   assert.match(read("app/not-found.tsx"), /allNavLinks\(\)\.map/);
   const menu = read("components/tv/ProductMenu.tsx");
+  // Both lists pass through `linksFor`, which hides the administrator's pages
+  // from an ordinary account and changes nothing for the admin.
   assert.match(menu, /productMenuLinks\(\)\.map/);
-  assert.match(menu, /SYSTEM_LINKS\.map/);
+  assert.match(menu, /linksFor\(SYSTEM_LINKS, admin\)\.map/);
   assert.deepEqual(
     [...productMenuLinks().map((e) => e.link.href), ...SYSTEM_LINKS.map((l) => l.href)].sort(),
     allNavLinks().map((l) => l.href).sort(),
@@ -387,7 +389,9 @@ test("EVERY PAGE NAMES ITSELF THROUGH THE SHARED HEADER", () => {
    * They are named here rather than pattern-matched, because an exemption
    * nobody wrote down is just a gap.
    */
-  const CENTRED_CARDS = ["app/error.tsx", "app/not-found.tsx", "app/login/page.tsx"];
+  // The account screens (sign-in, onboarding) are centred cards in `AuthShell`.
+  const CENTRED_CARDS = ["app/error.tsx", "app/not-found.tsx", "app/login/page.tsx",
+    "app/onboarding/page.tsx"];
   const TOOLBAR_HEADING = ["app/screener/page.tsx"];
   const exempt = new Set([...CENTRED_CARDS, ...TOOLBAR_HEADING, "app/global-error.tsx"]);
 

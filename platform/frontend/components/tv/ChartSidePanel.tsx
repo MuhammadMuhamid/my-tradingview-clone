@@ -37,6 +37,7 @@ import { ShortcutsSheet } from "@/components/tv/ShortcutsSheet";
 import {
   ObjectsDataPanel, type ObjectsDataPanelProps,
 } from "@/components/tv/ObjectsDataPanel";
+import { useIsAdmin } from "@/lib/session";
 
 export type ChartPanel =
   | "watchlist" | "alerts" | "objects" | "indicators" | "ma" | "manual" | "correlation" | null;
@@ -113,6 +114,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const isMobile = useIsMobile();
+  const admin = useIsAdmin();
 
   /*
    * B-23: the phone's More sheet is the TOP layer while it is open — it sits
@@ -341,6 +343,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <path d="M9.2 9.2h9.6M9.2 13.2h6" />
         </svg>
       </button>
+      {admin && (
       <button
         onClick={() => props.onPanel((p) => (p === "alerts" ? null : "alerts"))}
         disabled={props.replayBlocksLiveActions}
@@ -363,6 +366,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <path d="M14 11.5V16l3 2" />
         </svg>
       </button>
+      )}
       <button
         onClick={() => props.onPanel((p) => (p === "objects" ? null : "objects"))}
         className={railBtn(props.panel === "objects")}
@@ -417,6 +421,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <path d="M11 4v20M18 4v20M4 11h20M4 18h20" />
         </svg>
       </button>
+      {admin && (
       <button
         onClick={() => props.onPanel((p) => (p === "manual" ? null : "manual"))}
         disabled={props.replayBlocksLiveActions}
@@ -429,6 +434,7 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <path d="M5 8h18M8 14h12M10 20h8" /><path d="m20 5 3 3-3 3M8 17l-3 3 3 3" />
         </svg>
       </button>
+      )}
 
       {/*
         The reference's bottom-anchored group. Six cells there, one here: the
@@ -492,8 +498,9 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
           <path d="M3 15c3-7 6 3 9-4s6 2 9-3" />],
         ["indicators", "Studies", props.panel === "indicators", () => togglePanel("indicators"),
           <><path d="M3 17l5-6 4 4 3-4 6 6" /><path d="M3 20h18" /></>],
-        ["alerts", "Automate", props.panel === "alerts", () => togglePanel("alerts"),
-          <path d="M13 2L4 14h7l-1 8 9-12h-7z" />],
+        // Automations drive the platform owner's bots: the administrator's only.
+        ...(admin ? [["alerts", "Automate", props.panel === "alerts", () => togglePanel("alerts"),
+          <path key="i" d="M13 2L4 14h7l-1 8 9-12h-7z" />]] as const : []),
         ["more", "More", moreOpen, () => setMoreOpen((open) => !open),
           <><path d="M5 12h.01M12 12h.01M19 12h.01" /><path d="M4 5h16v14H4z" /></>],
       ] as const).map(([id, label, isActive, onClick, icon]) => (

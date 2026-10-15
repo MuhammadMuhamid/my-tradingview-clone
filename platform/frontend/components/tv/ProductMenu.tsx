@@ -64,7 +64,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { useOpsHealth, useStreamSummary } from "@/lib/navStatus";
-import { productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
+import { linksFor, productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
+import { signOut as signOutSession, useIsAdmin, useSession } from "@/lib/session";
+import { Avatar } from "@/components/AuthShell";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import { THEME_KEY, type ThemeName } from "@/components/ThemeToggle";
 import { BINDINGS, isMacPlatform } from "@/lib/shortcuts";
@@ -107,18 +109,8 @@ function markManualSeen(): void {
  * reads as an account rather than as a logo.
  */
 function useUsername(): string | null {
-  const [username, setUsername] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    fetch("/api/auth/me", { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { authEnabled?: boolean; username?: string | null } | null) => {
-        if (live && d?.authEnabled && d.username) setUsername(d.username);
-      })
-      .catch(() => { /* offline — hide the control */ });
-    return () => { live = false; };
-  }, []);
-  return username;
+  const session = useSession();
+  return session?.authEnabled && session.user ? session.user.displayName : null;
 }
 
 /**
@@ -217,6 +209,9 @@ export function ProductMenu(
 ) {
   const path = usePathname() ?? "";
   const username = useUsername();
+  const session = useSession();
+  const account = session?.authEnabled ? session.user : null;
+  const admin = useIsAdmin();
   const [open, setOpen] = useExclusivePopover("product-menu");
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -263,10 +258,7 @@ export function ProductMenu(
     }
   };
 
-  const signOut = async (): Promise<void> => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
-    window.location.href = "/login";
-  };
+  const signOut = (): Promise<void> => signOutSession();
 
   /*
    * ── R1b-04: the account cell carries a COUNT, never a health dot ─────────
@@ -338,12 +330,16 @@ export function ProductMenu(
             manual is already looking.
           */}
           <span className="relative inline-flex">
-            <span
-              aria-hidden="true"
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-state-active text-[13px] font-semibold text-ink"
-            >
-              {initial}
-            </span>
+            {account?.avatarUrl ? (
+              <Avatar name={account.displayName} url={account.avatarUrl} size={28} />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-state-active text-[13px] font-semibold text-ink"
+              >
+                {initial}
+              </span>
+            )}
           </span>
         </button>
       ) : (
@@ -451,7 +447,23 @@ export function ProductMenu(
 
           <Spacer />
 
-          {productMenuLinks().map(({ link }) => (
+          {account && (
+            <>
+              <Link href="/profile" role="menuitem" onClick={() => setOpen(false)}
+                className="tvc-menu-row h-auto gap-2.5 py-2 pl-2.5 pr-2.5 text-left">
+                <Avatar name={account.displayName} url={account.avatarUrl} size={32} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium text-ink">{account.displayName}</span>
+                  <span className="block truncate text-[12px] text-ink-faint">
+                    {account.email ?? "Administrator"} · Profile settings
+                  </span>
+                </span>
+              </Link>
+              <Spacer />
+            </>
+          )}
+
+          {linksFor(productMenuLinks().map((x) => ({ ...x, href: x.link.href })), admin).map(({ link }) => (
             <MenuLink key={link.href} href={link.href} path={path} onDone={() => setOpen(false)}>
               {link.label}
             </MenuLink>
@@ -459,7 +471,7 @@ export function ProductMenu(
 
           <Spacer />
 
-          {SYSTEM_LINKS.map((l) => (
+          {linksFor(SYSTEM_LINKS, admin).map((l) => (
             <MenuLink
               key={l.href}
               href={l.href}

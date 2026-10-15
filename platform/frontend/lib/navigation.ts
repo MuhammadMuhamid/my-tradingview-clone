@@ -129,3 +129,21 @@ export function isSystemPath(path: string): boolean {
 
 /** The product's one name. Strategy names belong beside strategies. */
 export const PRODUCT_NAME = "Trading Scene";
+
+/**
+ * Destinations that act on the platform owner's exchange account, bots or
+ * research jobs. The backend refuses them to ordinary accounts
+ * (`backend/src/security/requestUser`); the navigation does not offer them,
+ * so a user is never shown a page made only of "administrator only" errors.
+ */
+export const ADMIN_ONLY_HREFS: ReadonlySet<string> = new Set([
+  "/trading", "/journal", "/research", "/stress", "/optimizers", "/operations",
+]);
+
+export const isAdminOnlyPath = (path: string): boolean =>
+  [...ADMIN_ONLY_HREFS].some((h) => path === h || path.startsWith(`${h}/`));
+
+/** A link list as this account may use it. */
+export function linksFor<T extends { href: string }>(links: readonly T[], isAdmin: boolean): T[] {
+  return isAdmin ? [...links] : links.filter((l) => !ADMIN_ONLY_HREFS.has(l.href));
+}

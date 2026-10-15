@@ -64,7 +64,8 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Google account pictures, on the profile and in the account menu.
+  "img-src 'self' data: blob: https://*.googleusercontent.com",
   "font-src 'self' data:",
   `connect-src 'self' ${[...MARKET_STREAM_ORIGINS, ...PROVIDER_STREAM_ORIGINS].join(" ")}`,
   "worker-src 'self'",

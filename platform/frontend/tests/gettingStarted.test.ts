@@ -86,7 +86,8 @@ test("it is reachable from permanent navigation, and forces itself on nobody", (
   // The chart workspace has no header bar at all after FC2-H3, so its product
   // menu IS the site navigation there, at every width. It renders the shared
   // system list, which is where the manual lives.
-  assert.match(read("components/tv/ProductMenu.tsx"), /SYSTEM_LINKS\.map/,
+  // (Filtered by account role with `linksFor`; the manual is not admin-only.)
+  assert.match(read("components/tv/ProductMenu.tsx"), /linksFor\(SYSTEM_LINKS, admin\)\.map/,
     "the chart's product menu must render the shared system list");
   assert.ok(SYSTEM_LINKS.some((l) => l.href === "/getting-started"),
     "the chart's product menu must offer Getting started");

@@ -94,7 +94,7 @@ test("the sign-in form sends what was typed and shows what the server said", asy
   render(<AppRoute path="/login" query="next=%2Fchart%3Fsymbol%3DSOLUSDT"><LoginPage /></AppRoute>);
   await settle();
 
-  const username = screen.getByLabelText("Username") as HTMLInputElement;
+  const username = screen.getByLabelText("Email or username") as HTMLInputElement;
   const password = screen.getByLabelText("Password") as HTMLInputElement;
   const submit = screen.getByRole("button", { name: /Sign in/ }) as HTMLButtonElement;
 
@@ -108,7 +108,8 @@ test("the sign-in form sends what was typed and shows what the server said", asy
   fireEvent.click(submit);
   await settle();
 
-  assert.deepEqual(seen, { username: "operator", password: "hunter2" });
+  // The admin's original username travels in the email field, as before.
+  assert.deepEqual(seen, { email: "operator", password: "hunter2" });
   assert.equal(password.type, "password", "the password field must not be a text field");
   assert.equal(password.autocomplete, "current-password");
 });
@@ -118,7 +119,7 @@ test("a refused sign-in says why, and lets the user try again", async () => {
   render(<AppRoute path="/login"><LoginPage /></AppRoute>);
   await settle();
 
-  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
+  fireEvent.change(screen.getByLabelText("Email or username"), { target: { value: "operator" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
   fireEvent.click(screen.getByRole("button", { name: /Sign in/ }));
   await settle();

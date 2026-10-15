@@ -19,6 +19,7 @@ export interface StressDiscoveryRequest {
 import type { Resolution } from "./resolution";
 import type { TradingOverlayResponse } from "./tradingOverlays";
 import { canonicalCandleSemantics } from "./instrument";
+import { loadSession } from "@/lib/session";
 
 export interface OptimizerBest {
   symbol: string;
@@ -757,7 +758,27 @@ function redirectToSignIn(path: string): void {
   window.location.href = `/login?next=${next}`;
 }
 
+/**
+ * Endpoints that act on the platform owner's bots, exchange account or
+ * research jobs. The backend refuses them to ordinary accounts; asking anyway
+ * only fills the network log with refusals, so for a signed-in ordinary
+ * account the answer is given here, without a request.
+ */
+const ADMIN_ONLY_API = [
+  /^\/api\/(ops|manual-trading|strategies|configs|trading-overlays|deployments|alerts|backtests|optimizer|stress|journal|trading-timeline|spot-execution|derivative-execution|equity-execution|traditional-execution)(\/|\?|$)/,
+  /^\/api\/layouts\/sync-deployments/,
+];
+
+async function refusedForThisAccount(path: string): Promise<boolean> {
+  if (typeof window === "undefined" || !ADMIN_ONLY_API.some((re) => re.test(path))) return false;
+  const session = await loadSession();
+  return session.authEnabled && session.user?.role === "user";
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  if (await refusedForThisAccount(path)) {
+    throw new ApiError(403, "This part of the platform is available to the administrator only.");
+  }
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
     ...init,

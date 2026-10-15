@@ -5,10 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { HEALTH_DOT, useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import {
-  isSystemPath, PRIMARY_LINKS, primaryFor, PRODUCT_NAME, sectionTabsFor, SYSTEM_LINKS,
+  isSystemPath, linksFor, PRIMARY_LINKS, primaryFor, PRODUCT_NAME, sectionTabsFor, SYSTEM_LINKS,
 } from "@/lib/navigation";
 import { shariahApi, type ShariahMode } from "@/lib/shariah";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Avatar } from "@/components/AuthShell";
+import { signOut, useIsAdmin, useSession } from "@/lib/session";
 
 /*
  * FE-01: "Alerts" and "Live & Alerts" were two entries for two unrelated
@@ -29,25 +31,14 @@ const HELP_HREF = "/getting-started";
 
 export function Nav() {
   const path = usePathname();
-  const [username, setUsername] = useState<string | null>(null);
-
-  // Only render a sign-out control when a session actually exists, so the
+  // Only render the account control when a session actually exists, so the
   // no-auth local setup does not show a button that does nothing.
-  useEffect(() => {
-    fetch("/api/auth/me", { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { authEnabled?: boolean; username?: string | null } | null) => {
-        if (d?.authEnabled && d.username) setUsername(d.username);
-      })
-      .catch(() => { /* offline — hide the control */ });
-  }, [path]);
+  const session = useSession();
+  const account = session?.authEnabled ? session.user : null;
+  const admin = useIsAdmin();
 
-  const signOut = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
-    window.location.href = "/login";
-  };
-
-  if (path === "/login") return null;
+  // The account pages draw their own frame.
+  if (path === "/login" || path === "/signup" || path === "/onboarding" || path === "/profile") return null;
 
   /*
    * FC2-H3: the chart workspace has no bar above it, at any width.
@@ -93,7 +84,7 @@ export function Nav() {
           <span>{PRODUCT_NAME}</span>
         </Link>
         <nav className="no-scrollbar -mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1">
-          {PRIMARY_LINKS.map((l) => {
+          {linksFor(PRIMARY_LINKS, admin).map((l) => {
             const active = primary?.href === l.href;
             return (
               <Link
@@ -139,11 +130,18 @@ export function Nav() {
             </svg>
             <span className="hidden sm:inline">Manual</span>
           </Link>
-          {username && (
-            <button onClick={signOut} title={`Signed in as ${username}`}
-              className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-state-hover hover:text-ink">
-              Sign out
-            </button>
+          {account && (
+            <>
+              <Link href="/profile" title={`${account.displayName} — profile settings`}
+                aria-label="Profile settings"
+                className="flex h-7 items-center rounded-full hover:opacity-90">
+                <Avatar name={account.displayName} url={account.avatarUrl} size={26} />
+              </Link>
+              <button onClick={() => void signOut()} title={`Signed in as ${account.email ?? account.displayName}`}
+                className="flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-state-hover hover:text-ink">
+                Sign out
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -241,6 +239,7 @@ function LiveDataChip() {
  * trader needs from any page. The full runbook stays on Operations.
  */
 function SystemMenu({ path }: { path: string }) {
+  const admin = useIsAdmin();
   const [open, setOpen] = useExclusivePopover("nav-system");
   const health = useOpsHealth();
   const [shariahMode, setShariahMode] = useState<ShariahMode | null>(null);
@@ -327,7 +326,7 @@ function SystemMenu({ path }: { path: string }) {
               {health.summary}
             </p>
           </div>
-          {SYSTEM_LINKS.map((l) => {
+          {linksFor(SYSTEM_LINKS, admin).map((l) => {
             const current = path === l.href || path.startsWith(`${l.href}/`);
             const note = l.href === "/shariah"
               ? `Platform mode ${shariahMode === null ? "unknown" : shariahMode === "enforce" ? "ON" : "OFF"}`

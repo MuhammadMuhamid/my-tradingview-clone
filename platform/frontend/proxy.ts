@@ -33,6 +33,6 @@ export const config = {
      * needed by the login form itself), Next's own assets, and the PWA files —
      * the service worker and manifest must load for push to work at all.
      */
-    "/((?!login|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest).*)",
+    "/((?!login|signup|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest).*)",
   ],
 };

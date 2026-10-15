@@ -1092,7 +1092,9 @@ test("CONTRACT — every page renders inside the shared grammar", () => {
     if (/redirect\(/.test(src) && !/return \(/.test(src)) continue;
     const inside = /\bts-app\b/.test(src)
       || /\btv-workstation\b/.test(src)
-      || /<PageShell\b/.test(src);
+      || /<PageShell\b/.test(src)
+      // The account screens' frame carries `ts-app` itself.
+      || /<AuthShell\b/.test(src);
     if (!inside) offenders.push(route);
   }
   assert.deepEqual(offenders, [],
