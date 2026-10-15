@@ -86,7 +86,7 @@ export async function seedIndicatorLibrary(options: {
   log?: (message: string) => void;
 } = {}): Promise<SeedSummary> {
   const log = options.log ?? (() => {});
-  const existing = await scripts.listScripts();
+  const existing = await scripts.listBuiltinScripts();
   const byName = new Map(existing.map((s) => [s.name.trim().toLowerCase(), s]));
 
   const summary: SeedSummary = {

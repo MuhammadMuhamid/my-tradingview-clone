@@ -100,11 +100,11 @@ function drawingIdentity(rawSymbol: string): { venue: string; ticker: string } {
  * row yet" and "an empty list" are the same thing to a chart, and making the
  * caller distinguish them would put that decision in three places.
  */
-export async function getDrawings(rawSymbol: string): Promise<DrawingState> {
+export async function getDrawings(userId: string, rawSymbol: string): Promise<DrawingState> {
   const id = drawingIdentity(rawSymbol);
   const { rows } = await query<DrawingRow>(
-    "SELECT * FROM chart_drawings WHERE venue = $1 AND symbol = $2",
-    [id.venue, id.ticker]
+    "SELECT * FROM chart_drawings WHERE user_id = $3 AND venue = $1 AND symbol = $2",
+    [id.venue, id.ticker, userId]
   );
   const row = rows[0];
   if (!row) {
@@ -125,7 +125,7 @@ export async function getDrawings(rawSymbol: string): Promise<DrawingState> {
  * has never synced cannot flatten a chart another device already populated.
  */
 export async function putDrawings(
-  rawSymbol: string, drawings: unknown[], baseVersion: number
+  userId: string, rawSymbol: string, drawings: unknown[], baseVersion: number
 ): Promise<DrawingState | VersionConflict<DrawingState>> {
   const id = drawingIdentity(rawSymbol);
   if (!Array.isArray(drawings)) throw new Error("drawings must be a list");
@@ -139,25 +139,25 @@ export async function putDrawings(
     // already exists means somebody else got there first, and this write was
     // made in ignorance of them.
     const { rows } = await query<DrawingRow>(
-      `INSERT INTO chart_drawings (venue, symbol, drawings, version)
-       VALUES ($1, $2, $3::jsonb, 1)
-       ON CONFLICT (venue, symbol) DO NOTHING
+      `INSERT INTO chart_drawings (user_id, venue, symbol, drawings, version)
+       VALUES ($4, $1, $2, $3::jsonb, 1)
+       ON CONFLICT (user_id, venue, symbol) DO NOTHING
        RETURNING *`,
-      [id.venue, id.ticker, payload]
+      [id.venue, id.ticker, payload, userId]
     );
     if (rows[0]) return toDrawingState(rows[0]);
-    return { conflict: true, current: await getDrawings(rawSymbol) };
+    return { conflict: true, current: await getDrawings(userId, rawSymbol) };
   }
 
   const { rows } = await query<DrawingRow>(
     `UPDATE chart_drawings
         SET drawings = $3::jsonb, version = version + 1, updated_at = now()
-      WHERE venue = $1 AND symbol = $2 AND version = $4
+      WHERE user_id = $5 AND venue = $1 AND symbol = $2 AND version = $4
       RETURNING *`,
-    [id.venue, id.ticker, payload, baseVersion]
+    [id.venue, id.ticker, payload, baseVersion, userId]
   );
   if (rows[0]) return toDrawingState(rows[0]);
-  return { conflict: true, current: await getDrawings(rawSymbol) };
+  return { conflict: true, current: await getDrawings(userId, rawSymbol) };
 }
 
 interface StudyRow {
@@ -190,10 +190,10 @@ function assertScope(scope: string): string {
   return scope;
 }
 
-export async function getPaneStudies(scope: string): Promise<PaneStudyState> {
+export async function getPaneStudies(userId: string, scope: string): Promise<PaneStudyState> {
   const id = assertScope(scope);
   const { rows } = await query<StudyRow>(
-    "SELECT * FROM chart_pane_studies WHERE scope = $1", [id]);
+    "SELECT * FROM chart_pane_studies WHERE user_id = $2 AND scope = $1", [id, userId]);
   const row = rows[0];
   if (!row) {
     return {
@@ -206,9 +206,9 @@ export async function getPaneStudies(scope: string): Promise<PaneStudyState> {
 }
 
 /** Every pane that has anything stored — what a client restores on load. */
-export async function listPaneStudies(): Promise<PaneStudyState[]> {
+export async function listPaneStudies(userId: string): Promise<PaneStudyState[]> {
   const { rows } = await query<StudyRow>(
-    "SELECT * FROM chart_pane_studies ORDER BY scope");
+    "SELECT * FROM chart_pane_studies WHERE user_id = $1 ORDER BY scope", [userId]);
   return rows.map(toStudyState);
 }
 
@@ -233,6 +233,7 @@ export async function listPaneStudies(): Promise<PaneStudyState[]> {
  * devices do: the second one conflicts, re-reads, and writes again.
  */
 export async function putPaneStudies(
+  userId: string,
   scope: string,
   pine: unknown[] | undefined,
   native: unknown[] | undefined,
@@ -255,15 +256,15 @@ export async function putPaneStudies(
     // value to leave alone.
     const { rows } = await query<StudyRow>(
       `INSERT INTO chart_pane_studies
-         (scope, pine, native, version, pine_written, native_written)
-       VALUES ($1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '[]'::jsonb), 1,
+         (user_id, scope, pine, native, version, pine_written, native_written)
+       VALUES ($4, $1, COALESCE($2::jsonb, '[]'::jsonb), COALESCE($3::jsonb, '[]'::jsonb), 1,
                $2::jsonb IS NOT NULL, $3::jsonb IS NOT NULL)
-       ON CONFLICT (scope) DO NOTHING
+       ON CONFLICT (user_id, scope) DO NOTHING
        RETURNING *`,
-      [id, pinePayload, nativePayload]
+      [id, pinePayload, nativePayload, userId]
     );
     if (rows[0]) return toStudyState(rows[0]);
-    return { conflict: true, current: await getPaneStudies(id) };
+    return { conflict: true, current: await getPaneStudies(userId, id) };
   }
 
   const { rows } = await query<StudyRow>(
@@ -276,16 +277,16 @@ export async function putPaneStudies(
             pine_written = pine_written OR $2::jsonb IS NOT NULL,
             native_written = native_written OR $3::jsonb IS NOT NULL,
             version = version + 1, updated_at = now()
-      WHERE scope = $1 AND version = $4
+      WHERE user_id = $5 AND scope = $1 AND version = $4
       RETURNING *`,
-    [id, pinePayload, nativePayload, baseVersion]
+    [id, pinePayload, nativePayload, baseVersion, userId]
   );
   if (rows[0]) return toStudyState(rows[0]);
-  return { conflict: true, current: await getPaneStudies(id) };
+  return { conflict: true, current: await getPaneStudies(userId, id) };
 }
 
 /** Instruments that have any drawings stored, newest first. */
-export async function listDrawnInstruments(limit = 200): Promise<
+export async function listDrawnInstruments(userId: string, limit = 200): Promise<
   { venue: string; symbol: string; count: number; updatedAt: string }[]
 > {
   const { rows } = await query<{
@@ -293,10 +294,10 @@ export async function listDrawnInstruments(limit = 200): Promise<
   }>(
     `SELECT venue, symbol, jsonb_array_length(drawings) AS count, updated_at
        FROM chart_drawings
-      WHERE jsonb_array_length(drawings) > 0
+      WHERE user_id = $2 AND jsonb_array_length(drawings) > 0
       ORDER BY updated_at DESC
       LIMIT $1`,
-    [Math.max(1, Math.min(limit, 1000))]
+    [Math.max(1, Math.min(limit, 1000)), userId]
   );
   return rows.map((r) => ({
     venue: r.venue, symbol: r.symbol, count: Number(r.count),

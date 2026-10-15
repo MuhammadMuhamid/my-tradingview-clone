@@ -60,34 +60,50 @@ function toRow(r: DbPineScript): PineScriptRow {
   };
 }
 
-export async function listScripts(): Promise<PineScriptRow[]> {
+/**
+ * A user's scripts, and the shared library.
+ *
+ * Library rows have no owner (`user_id IS NULL`) and every user reads them;
+ * a user's own scripts are theirs alone. Only the admin may change a library
+ * row in place — anyone else saving under a library name gets their own copy.
+ */
+export async function listScripts(userId: string): Promise<PineScriptRow[]> {
   const { rows } = await query<DbPineScript>(
-    "SELECT * FROM pine_scripts ORDER BY updated_at DESC"
+    "SELECT * FROM pine_scripts WHERE user_id = $1 OR user_id IS NULL ORDER BY updated_at DESC",
+    [userId]
   );
   return rows.map(toRow);
 }
 
-export async function getScript(id: string): Promise<PineScriptRow | null> {
+/** The shared library only, for the seed. */
+export async function listBuiltinScripts(): Promise<PineScriptRow[]> {
   const { rows } = await query<DbPineScript>(
-    "SELECT * FROM pine_scripts WHERE id = $1",
-    [id]
+    "SELECT * FROM pine_scripts WHERE user_id IS NULL ORDER BY updated_at DESC"
+  );
+  return rows.map(toRow);
+}
+
+export async function getScript(userId: string, id: string): Promise<PineScriptRow | null> {
+  const { rows } = await query<DbPineScript>(
+    "SELECT * FROM pine_scripts WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)",
+    [id, userId]
   );
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-/** Create, or overwrite the script that already owns this name. */
-export async function upsertScript(input: {
+/** Create, or overwrite the user's own script that already owns this name. */
+export async function upsertScript(userId: string, input: {
   name: string;
   source: string;
   kind: "indicator" | "strategy";
 }): Promise<PineScriptRow> {
   const { rows } = await query<DbPineScript>(
-    `INSERT INTO pine_scripts (name, source, kind)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (lower(name)) DO UPDATE
+    `INSERT INTO pine_scripts (user_id, name, source, kind)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, lower(name)) WHERE user_id IS NOT NULL DO UPDATE
        SET source = EXCLUDED.source, kind = EXCLUDED.kind, updated_at = now()
      RETURNING *`,
-    [input.name, input.source, input.kind]
+    [userId, input.name, input.source, input.kind]
   );
   return toRow(rows[0]!);
 }
@@ -114,7 +130,7 @@ export async function upsertBuiltinScript(input: {
   const { rows } = await query<DbPineScript>(
     `INSERT INTO pine_scripts (name, source, kind, origin, builtin_version, builtin_hash)
      VALUES ($1, $2, $3, 'builtin', $4, $5)
-     ON CONFLICT (lower(name)) DO UPDATE
+     ON CONFLICT (lower(name)) WHERE user_id IS NULL DO UPDATE
        SET source = EXCLUDED.source, kind = EXCLUDED.kind,
            origin = 'builtin',
            builtin_version = EXCLUDED.builtin_version,
@@ -127,11 +143,14 @@ export async function upsertBuiltinScript(input: {
 }
 
 export async function updateScript(
+  userId: string,
   id: string,
-  patch: { name?: string; source?: string; kind?: "indicator" | "strategy" }
+  patch: { name?: string; source?: string; kind?: "indicator" | "strategy" },
+  /** The admin curates the shared library; nobody else may edit it in place. */
+  mayEditLibrary = false,
 ): Promise<PineScriptRow | null> {
   const sets: string[] = [];
-  const params: unknown[] = [id];
+  const params: unknown[] = [id, userId, mayEditLibrary];
   const push = (col: string, v: unknown): void => {
     params.push(v);
     sets.push(`${col} = $${params.length}`);
@@ -139,17 +158,19 @@ export async function updateScript(
   if (patch.name !== undefined) push("name", patch.name);
   if (patch.source !== undefined) push("source", patch.source);
   if (patch.kind !== undefined) push("kind", patch.kind);
-  if (sets.length === 0) return getScript(id);
+  if (sets.length === 0) return getScript(userId, id);
 
   const { rows } = await query<DbPineScript>(
     `UPDATE pine_scripts SET ${sets.join(", ")}, updated_at = now()
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 AND (user_id = $2 OR ($3::boolean AND user_id IS NULL)) RETURNING *`,
     params
   );
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-export async function deleteScript(id: string): Promise<boolean> {
-  const res = await query("DELETE FROM pine_scripts WHERE id = $1", [id]);
+export async function deleteScript(userId: string, id: string, mayEditLibrary = false): Promise<boolean> {
+  const res = await query(
+    "DELETE FROM pine_scripts WHERE id = $1 AND (user_id = $2 OR ($3::boolean AND user_id IS NULL))",
+    [id, userId, mayEditLibrary]);
   return (res.rowCount ?? 0) > 0;
 }

@@ -278,6 +278,8 @@ export const isPriceDirection = (v: string): v is PriceDirection =>
  */
 export interface MaAlertRow {
   id: string;
+  /** The owning account. */
+  userId: string;
   symbol: string;
   /** Immutable identity of the provider feed and price role this alert reads. */
   canonicalInstrumentId?: string | null;

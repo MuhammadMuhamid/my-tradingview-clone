@@ -27,6 +27,7 @@ import { parseResolution } from "../../data/resolution";
 import { ensureResolvedCoverage, readResolvedCandles } from "../../data/resolvedCandles";
 import { completedAtOrBefore } from "../../pine/horizon";
 import { paramsProblem, runSettingsProblem } from "../backtestRequest";
+import { isAdmin, userIdOf } from "../../security/requestUser";
 
 /** Bars of history loaded before the requested start so indicators settle. */
 const WARMUP_BARS = 1500;
@@ -49,12 +50,12 @@ const EDITOR_TIME_BUDGET_MS = Number(process.env.PINE_EDITOR_TIME_BUDGET_MS ?? 4
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function pineRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/pine", async () => scripts.listScripts());
+  app.get("/api/pine", async (req) => scripts.listScripts(userIdOf(req)));
 
   app.get("/api/pine/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!UUID_RE.test(id)) return reply.code(404).send({ error: "script not found" });
-    const row = await scripts.getScript(id);
+    const row = await scripts.getScript(userIdOf(req), id);
     if (!row) return reply.code(404).send({ error: "script not found" });
     return row;
   });
@@ -69,7 +70,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     }
     const { meta } = PineInterpreter.compile(body.source);
     return reply.code(201).send(
-      await scripts.upsertScript({
+      await scripts.upsertScript(userIdOf(req), {
         name: body.name.trim(),
         source: body.source,
         kind: meta.kind,
@@ -87,11 +88,11 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     const kind = body.source !== undefined
       ? PineInterpreter.compile(body.source).meta.kind
       : undefined;
-    const row = await scripts.updateScript(id, {
+    const row = await scripts.updateScript(userIdOf(req), id, {
       name: body.name?.trim(),
       source: body.source,
       kind,
-    });
+    }, isAdmin(req));
     if (!row) return reply.code(404).send({ error: "script not found" });
     return row;
   });
@@ -99,7 +100,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/api/pine/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!UUID_RE.test(id)) return reply.code(404).send({ error: "script not found" });
-    const ok = await scripts.deleteScript(id);
+    const ok = await scripts.deleteScript(userIdOf(req), id, isAdmin(req));
     if (!ok) return reply.code(404).send({ error: "script not found" });
     return reply.code(204).send();
   });
@@ -144,7 +145,7 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
     let source = body.source;
     if (source === undefined && body.scriptId) {
       if (!UUID_RE.test(body.scriptId)) return reply.code(404).send({ error: "script not found" });
-      const row = await scripts.getScript(body.scriptId);
+      const row = await scripts.getScript(userIdOf(req), body.scriptId);
       if (!row) return reply.code(404).send({ error: "script not found" });
       source = row.source;
     }

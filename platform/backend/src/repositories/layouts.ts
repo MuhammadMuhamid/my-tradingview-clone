@@ -81,25 +81,26 @@ function toRow(r: DbLayout): LayoutRow {
   };
 }
 
-export async function listLayouts(): Promise<LayoutRow[]> {
+/** Every function takes the owner first: no layout is reachable without one. */
+export async function listLayouts(userId: string): Promise<LayoutRow[]> {
   const { rows } = await query<DbLayout>(
-    "SELECT * FROM chart_layouts ORDER BY updated_at DESC"
+    "SELECT * FROM chart_layouts WHERE user_id = $1 ORDER BY updated_at DESC", [userId]
   );
   return rows.map(toRow);
 }
 
-export async function getLayout(id: string): Promise<LayoutRow | null> {
+export async function getLayout(userId: string, id: string): Promise<LayoutRow | null> {
   const { rows } = await query<DbLayout>(
-    "SELECT * FROM chart_layouts WHERE id = $1",
-    [id]
+    "SELECT * FROM chart_layouts WHERE id = $1 AND user_id = $2",
+    [id, userId]
   );
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-export async function getLayoutByName(name: string): Promise<LayoutRow | null> {
+export async function getLayoutByName(userId: string, name: string): Promise<LayoutRow | null> {
   const { rows } = await query<DbLayout>(
-    "SELECT * FROM chart_layouts WHERE upper(btrim(name)) = upper(btrim($1))",
-    [name]
+    "SELECT * FROM chart_layouts WHERE user_id = $2 AND upper(btrim(name)) = upper(btrim($1))",
+    [name, userId]
   );
   return rows[0] ? toRow(rows[0]) : null;
 }
@@ -118,6 +119,7 @@ export interface LayoutState {
 
 /** Create or update by case-insensitive name (frontend upsert semantics). */
 export async function upsertLayoutByName(
+  userId: string,
   name: string,
   state: LayoutState
 ): Promise<LayoutRow> {
@@ -125,9 +127,9 @@ export async function upsertLayoutByName(
   const { rows } = await query<DbLayout>(
     `INSERT INTO chart_layouts
        (name, symbol, timeframe, bars, strategy_key, params, properties, moving_averages,
-        workspace)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '[]'::jsonb), $9::jsonb)
-     ON CONFLICT (upper(btrim(name)))
+        workspace, user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '[]'::jsonb), $9::jsonb, $10)
+     ON CONFLICT (user_id, upper(btrim(name)))
      DO UPDATE SET
        symbol = EXCLUDED.symbol,
        timeframe = EXCLUDED.timeframe,
@@ -148,17 +150,19 @@ export async function upsertLayoutByName(
       JSON.stringify(state.params), JSON.stringify(state.properties),
       state.movingAverages ? JSON.stringify(state.movingAverages) : null,
       state.workspace === undefined ? null : JSON.stringify(state.workspace),
+      userId,
     ]
   );
   return toRow(rows[0]!);
 }
 
 export async function updateLayout(
+  userId: string,
   id: string,
   patch: Partial<LayoutState> & { name?: string }
 ): Promise<LayoutRow | null> {
   const sets: string[] = [];
-  const params: unknown[] = [id];
+  const params: unknown[] = [id, userId];
   const push = (col: string, v: unknown) => {
     params.push(v);
     sets.push(`${col} = $${params.length}`);
@@ -172,18 +176,18 @@ export async function updateLayout(
   if (patch.properties !== undefined) push("properties", JSON.stringify(patch.properties));
   if (patch.movingAverages !== undefined) push("moving_averages", JSON.stringify(patch.movingAverages));
   if (patch.workspace !== undefined) push("workspace", JSON.stringify(patch.workspace));
-  if (sets.length === 0) return getLayout(id);
+  if (sets.length === 0) return getLayout(userId, id);
 
   const { rows } = await query<DbLayout>(
     `UPDATE chart_layouts SET ${sets.join(", ")}, updated_at = now()
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 AND user_id = $2 RETURNING *`,
     params
   );
   return rows[0] ? toRow(rows[0]) : null;
 }
 
-export async function deleteLayout(id: string): Promise<boolean> {
-  const res = await query("DELETE FROM chart_layouts WHERE id = $1", [id]);
+export async function deleteLayout(userId: string, id: string): Promise<boolean> {
+  const res = await query("DELETE FROM chart_layouts WHERE id = $1 AND user_id = $2", [id, userId]);
   return (res.rowCount ?? 0) > 0;
 }
 

@@ -203,7 +203,8 @@ export class MaAlertRunner {
   async syncFeeds(): Promise<void> {
     let alerts: MaAlertRow[];
     try {
-      alerts = await this.dependencies.listAlerts({ activeOnly: true });
+      // Every account's alerts: the runner is the one reader with no owner.
+      alerts = await this.dependencies.listAlerts({ userId: null, activeOnly: true });
     } catch (err) {
       this.log.error({ err: (err as Error).message }, "alert feed sync failed");
       return;
@@ -364,7 +365,7 @@ export class MaAlertRunner {
     isClosedBar: boolean, replayNow?: number
   ): Promise<void> {
     const alerts = await this.dependencies.listAlerts({
-      symbol, timeframe: interval, activeOnly: true,
+      userId: null, symbol, timeframe: interval, activeOnly: true,
     });
     const relevant = isClosedBar
       ? alerts
@@ -954,7 +955,8 @@ export class MaAlertRunner {
 
     let delivery: PushResult = { sent: 0, pruned: 0, failed: 0 };
     try {
-      delivery = await this.dependencies.sendPush({ title, body, tag, url }, this.log);
+      // To the alert's owner's devices, and nobody else's.
+      delivery = await this.dependencies.sendPush({ title, body, tag, url }, this.log, { userId: alert.userId });
     } catch (err) {
       // A failure before fan-out (VAPID setup or subscription lookup) has no
       // per-device count. Persist one failure without storing the raw error,

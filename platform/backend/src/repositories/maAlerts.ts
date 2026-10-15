@@ -9,6 +9,7 @@ import { canonicalizeLegacySpotSymbol } from "../market/model";
 
 interface DbAlert {
   id: string;
+  user_id: string;
   symbol: string;
   canonical_instrument_id?: string | null;
   provider_id?: string | null;
@@ -92,6 +93,7 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 function toRow(r: DbAlert): MaAlertRow {
   return {
     id: r.id,
+    userId: r.user_id,
     symbol: r.symbol,
     canonicalInstrumentId: r.canonical_instrument_id ?? null,
     providerId: r.provider_id ?? null,
@@ -170,6 +172,8 @@ function toRow(r: DbAlert): MaAlertRow {
 }
 
 export interface MaAlertInput {
+  /** The account that owns the alert; its notifications go to their devices only. */
+  userId: string;
   symbol: string;
   canonicalInstrumentId?: string | null;
   providerId?: string | null;
@@ -263,43 +267,43 @@ export interface MaAlertInput {
  */
 const CONFLICT_TARGET: Record<ConditionKind, string> = {
   candlestick_pattern:
-    "(symbol, timeframe, pattern_id, filters) WHERE condition_kind = 'candlestick_pattern'",
+    "(user_id, symbol, timeframe, pattern_id, filters) WHERE condition_kind = 'candlestick_pattern'",
   // Every input moves the level, so every input is part of what "the same
   // alert" means — a 0.5 and a 0.618 alert on one coin are two alerts.
   fib_level:
-    "(symbol, timeframe, fib_deviation, fib_depth, fib_reverse, fib_level, mode, filters)" +
+    "(user_id, symbol, timeframe, fib_deviation, fib_depth, fib_reverse, fib_level, mode, filters)" +
     " WHERE condition_kind = 'fib_level'",
-  ma: "(symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
-  price: "(symbol, timeframe, target_price, price_direction, filters) WHERE condition_kind = 'price'",
+  ma: "(user_id, symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
+  price: "(user_id, symbol, timeframe, target_price, price_direction, filters) WHERE condition_kind = 'price'",
   ma_vs_ma:
-    "(symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode, filters)" +
+    "(user_id, symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode, filters)" +
     " WHERE condition_kind = 'ma_vs_ma'",
-  sr_zone: "(symbol, timeframe, sr_side, mode, filters) WHERE condition_kind = 'sr_zone'",
+  sr_zone: "(user_id, symbol, timeframe, sr_side, mode, filters) WHERE condition_kind = 'sr_zone'",
   pivot_level:
-    "(symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode, filters)" +
+    "(user_id, symbol, timeframe, pivot_type, pivot_level_name, pivot_anchor, mode, filters)" +
     " WHERE condition_kind = 'pivot_level'",
   rsi:
-    "(symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode, filters)" +
+    "(user_id, symbol, timeframe, rsi_length, indicator_target, rsi_level, rsi_ma_length, mode, filters)" +
     " WHERE condition_kind = 'rsi'",
   macd:
-    "(symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode, filters)" +
+    "(user_id, symbol, timeframe, macd_fast, macd_slow, macd_signal, indicator_target, mode, filters)" +
     " WHERE condition_kind = 'macd'",
   // The two inputs are part of the key: Supertrend 10/3 and 14/2 flip on
   // different bars, so they are different alerts rather than one being an edit
   // of the other.
   supertrend:
-    "(symbol, timeframe, st_period, st_multiplier, st_atr_method, mode, filters)" +
+    "(user_id, symbol, timeframe, st_period, st_multiplier, st_atr_method, mode, filters)" +
     " WHERE condition_kind = 'supertrend'",
   // Every band input is part of the key: an upper-band touch and a lower-band
   // touch are two alerts, and a 20/2 band and a 20/3 band are two lines.
   bollinger:
-    "(symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode, filters)" +
+    "(user_id, symbol, timeframe, bb_length, bb_mult, bb_band, bb_ma_type, mode, filters)" +
     " WHERE condition_kind = 'bollinger'",
   stochastic:
-    "(symbol, timeframe, stoch_k_length, stoch_k_smooth, stoch_d_smooth," +
+    "(user_id, symbol, timeframe, stoch_k_length, stoch_k_smooth, stoch_d_smooth," +
     " indicator_target, stoch_level, mode, filters) WHERE condition_kind = 'stochastic'",
   adx:
-    "(symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode, filters)" +
+    "(user_id, symbol, timeframe, adx_di_length, adx_smoothing, adx_level, mode, filters)" +
     " WHERE condition_kind = 'adx'",
 };
 
@@ -368,12 +372,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         pattern_settings_hash, pattern_settings,
         canonical_instrument_id, provider_id, price_basis,
         filters,
-        fib_deviation, fib_depth, fib_reverse, fib_level)
+        fib_deviation, fib_depth, fib_reverse, fib_level,
+        user_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
              $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,
-             $63,$64,$65,$66)
+             $63,$64,$65,$66,$67)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -468,19 +473,26 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.filters == null ? null : JSON.stringify(input.filters),
       input.fibDeviation ?? null, input.fibDepth ?? null,
       input.fibReverse ?? null, input.fibLevel ?? null,
+      input.userId,
     ]
   );
   return toRow(rows[0]!);
 }
 
 export async function listAlerts(opts: {
+  /**
+   * Whose alerts. Required, so no caller lists everyone's by forgetting it:
+   * `null` is the alert runner, which watches every account's alerts.
+   */
+  userId: string | null;
   symbol?: string;
   timeframe?: Interval;
   /** Only alerts the runner should be watching: enabled and not yet retired. */
   activeOnly?: boolean;
-} = {}): Promise<MaAlertRow[]> {
+}): Promise<MaAlertRow[]> {
   const params: unknown[] = [];
   const where: string[] = [];
+  if (opts.userId !== null) { params.push(opts.userId); where.push(`user_id = $${params.length}`); }
   if (opts.symbol) { params.push(opts.symbol.toUpperCase()); where.push(`symbol = $${params.length}`); }
   if (opts.timeframe) { params.push(opts.timeframe); where.push(`timeframe = $${params.length}`); }
   // A spent once_only alert is not something the runner should still subscribe
@@ -494,8 +506,10 @@ export async function listAlerts(opts: {
   return rows.map(toRow);
 }
 
-export async function getAlert(id: string): Promise<MaAlertRow | null> {
-  const { rows } = await query<DbAlert>("SELECT * FROM ma_alerts WHERE id = $1", [id]);
+/** One alert, if `userId` owns it (`null`: the runner, any owner). */
+export async function getAlert(id: string, userId: string | null): Promise<MaAlertRow | null> {
+  const { rows } = await query<DbAlert>(
+    "SELECT * FROM ma_alerts WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid)", [id, userId]);
   return rows[0] ? toRow(rows[0]) : null;
 }
 
@@ -626,20 +640,22 @@ export class AlertConflictError extends Error {
  * `last_fired_bar_time` de-duplication and the observability of "has this
  * alert ever reached a phone?" are all recorded against.
  */
-export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAlertRow | null> {
+export async function updateAlert(
+  id: string, patch: MaAlertPatch, userId: string | null,
+): Promise<MaAlertRow | null> {
   const cols = patchColumns(patch);
   // Re-enabling a retired once_only alert must actually re-arm it. Otherwise the
   // UI shows an enabled alert that can never fire.
   if (patch.enabled === true) cols.completed_at = null;
   if (patch.resetLastSide) cols.last_side = null;
   const keys = Object.keys(cols);
-  if (keys.length === 0) return getAlert(id);
-  const sets = keys.map((k, i) => `${k} = $${i + 2}`);
+  if (keys.length === 0) return getAlert(id, userId);
+  const sets = keys.map((k, i) => `${k} = $${i + 3}`);
   try {
     const { rows } = await query<DbAlert>(
       `UPDATE ma_alerts SET ${sets.join(", ")}, updated_at = now()
-       WHERE id = $1 RETURNING *`,
-      [id, ...keys.map((k) => cols[k])]
+       WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid) RETURNING *`,
+      [id, userId, ...keys.map((k) => cols[k])]
     );
     return rows[0] ? toRow(rows[0]) : null;
   } catch (error) {
@@ -650,8 +666,9 @@ export async function updateAlert(id: string, patch: MaAlertPatch): Promise<MaAl
   }
 }
 
-export async function deleteAlert(id: string): Promise<boolean> {
-  const { rowCount } = await query("DELETE FROM ma_alerts WHERE id = $1", [id]);
+export async function deleteAlert(id: string, userId: string): Promise<boolean> {
+  const { rowCount } = await query(
+    "DELETE FROM ma_alerts WHERE id = $1 AND user_id = $2", [id, userId]);
   return (rowCount ?? 0) > 0;
 }
 
@@ -665,20 +682,20 @@ export interface BulkAlertResult {
 /**
  * Apply one action to an explicit, already-deduplicated set of alert IDs.
  *
- * The authenticated API is a single-admin scope; there is deliberately no
- * invented user/tenant column. Locking and validating every row before the
- * write makes the operation atomic: a stale or foreign-to-scope ID changes
- * nothing, so the UI can never report a partly-applied bulk action as success.
+ * Scoped to the caller's own alerts: another account's id is "missing", not
+ * acted on. Locking and validating every row before the write makes the
+ * operation atomic: a stale or foreign ID changes nothing, so the UI can never
+ * report a partly-applied bulk action as success.
  */
 export async function bulkActAlerts(
-  ids: string[], action: BulkAlertAction
+  ids: string[], action: BulkAlertAction, userId: string,
 ): Promise<BulkAlertResult> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const found = await client.query<{ id: string }>(
-      "SELECT id::text AS id FROM ma_alerts WHERE id = ANY($1::uuid[]) FOR UPDATE",
-      [ids]
+      "SELECT id::text AS id FROM ma_alerts WHERE id = ANY($1::uuid[]) AND user_id = $2 FOR UPDATE",
+      [ids, userId]
     );
     const foundIds = new Set(found.rows.map((row) => row.id));
     const missingIds = ids.filter((id) => !foundIds.has(id));
@@ -688,14 +705,14 @@ export async function bulkActAlerts(
     }
 
     const result = action === "delete"
-      ? await client.query("DELETE FROM ma_alerts WHERE id = ANY($1::uuid[])", [ids])
+      ? await client.query("DELETE FROM ma_alerts WHERE id = ANY($1::uuid[]) AND user_id = $2", [ids, userId])
       : await client.query(
           `UPDATE ma_alerts
              SET enabled = $2,
                  completed_at = CASE WHEN $2 THEN NULL ELSE completed_at END,
                  updated_at = now()
-           WHERE id = ANY($1::uuid[])`,
-          [ids, action === "resume"]
+           WHERE id = ANY($1::uuid[]) AND user_id = $3`,
+          [ids, action === "resume", userId]
         );
     await client.query("COMMIT");
     return {
@@ -894,22 +911,25 @@ interface DbEvent {
  * event records what fired, not what it was armed on; the alert owns that.
  */
 export async function listEvents(
-  limit = 100, scope?: { symbol: string; timeframe: string }
+  userId: string, limit = 100, scope?: { symbol: string; timeframe: string }
 ): Promise<MaAlertEventRow[]> {
   if (scope) {
     const { rows } = await query<DbEvent>(
       `SELECT e.* FROM ma_alert_events e
          JOIN ma_alerts a ON a.id = e.alert_id
-        WHERE upper(a.symbol) = upper($2) AND a.timeframe = $3
+        WHERE a.user_id = $4 AND upper(a.symbol) = upper($2) AND a.timeframe = $3
         ORDER BY e.fired_at DESC
         LIMIT $1`,
-      [Math.min(Math.max(limit, 1), 500), scope.symbol, scope.timeframe]
+      [Math.min(Math.max(limit, 1), 500), scope.symbol, scope.timeframe, userId]
     );
     return rows.map(toEventRow);
   }
   const { rows } = await query<DbEvent>(
-    "SELECT * FROM ma_alert_events ORDER BY fired_at DESC LIMIT $1",
-    [Math.min(Math.max(limit, 1), 500)]
+    `SELECT e.* FROM ma_alert_events e
+       JOIN ma_alerts a ON a.id = e.alert_id
+      WHERE a.user_id = $2
+      ORDER BY e.fired_at DESC LIMIT $1`,
+    [Math.min(Math.max(limit, 1), 500), userId]
   );
   return rows.map(toEventRow);
 }

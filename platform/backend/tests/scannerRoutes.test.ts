@@ -9,6 +9,8 @@ import {
 import { scannerRequest, ScannerServiceError } from "../src/scanner/client";
 import { SESSION_COOKIE, signSession } from "../src/security/session";
 import type { LiveRunner } from "../src/engine/liveRunner";
+import { useUserLoaderForTests } from "../src/security/requestUser";
+import { ADMIN_USER_ID } from "../src/repositories/users";
 
 const MARKET = {
   exchange: "binance", market_type: "spot", contract_type: null,
@@ -144,6 +146,10 @@ test("Platform session gate protects Scanner reads and permits a signed owner se
   config.adminUsername = "owner";
   config.sessionSecret = "scanner-route-test-session-secret-000000000000";
   t.after(() => Object.assign(config, previous));
+  // The legacy owner cookie is the admin account; no database in this test.
+  useUserLoaderForTests(async (id) => (id === ADMIN_USER_ID
+    ? { id, role: "admin", sessionVersion: 1 } : null));
+  t.after(() => useUserLoaderForTests(null));
 
   const originalFetch = globalThis.fetch;
   let fetches = 0;

@@ -35,6 +35,7 @@ import { parseStoredFilters, validateCondition } from "../../alerts/alertConditi
 import { alertEvaluation } from "../../alerts/evaluationGate";
 import { scannerRequest } from "../../scanner/client";
 import { canonicalizeLegacySpotSymbol, normalizeCanonicalInstrumentId } from "../../market/model";
+import { userIdOf } from "../../security/requestUser";
 
 export const MAX_BULK_ALERTS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -140,10 +141,10 @@ export function bulkAlertHandler(execute: BulkExecutor = maAlertRepo.bulkActAler
     }
 
     const ids = [...new Set(rawIds as string[])];
-    const result = await execute(ids, action);
+    const result = await execute(ids, action, userIdOf(req));
     if (result.missingIds.length > 0) {
       return reply.code(409).send({
-        error: "one or more alerts no longer exist in the current admin scope",
+        error: "one or more alerts no longer exist, or are not yours",
         ...result,
       });
     }
@@ -152,9 +153,10 @@ export function bulkAlertHandler(execute: BulkExecutor = maAlertRepo.bulkActAler
 }
 
 export interface AlertPatchDeps {
-  getAlert: (id: string) => Promise<MaAlertRow | null>;
+  /** Scoped to the caller: another account's alert is "not found". */
+  getAlert: (id: string, userId: string) => Promise<MaAlertRow | null>;
   updateAlert: (
-    id: string, patch: maAlertRepo.MaAlertPatch
+    id: string, patch: maAlertRepo.MaAlertPatch, userId: string
   ) => Promise<MaAlertRow | null>;
   resolvePatternProfile?: (
     patternId: string, timeframe: Interval
@@ -322,7 +324,7 @@ export async function planAlertPatch(
 
 export interface BulkEditDeps extends AlertPatchDeps {
   updateAlert: (
-    id: string, patch: maAlertRepo.MaAlertPatch
+    id: string, patch: maAlertRepo.MaAlertPatch, userId: string
   ) => Promise<MaAlertRow | null>;
 }
 
@@ -391,7 +393,7 @@ export function bulkEditHandler(deps: BulkEditDeps = {
     const rows: MaAlertRow[] = [];
     const missingIds: string[] = [];
     for (const id of ids) {
-      const row = await deps.getAlert(id);
+      const row = await deps.getAlert(id, userIdOf(req));
       if (row) rows.push(row); else missingIds.push(id);
     }
     if (missingIds.length > 0) {
@@ -432,7 +434,7 @@ export function bulkEditHandler(deps: BulkEditDeps = {
     const updated: MaAlertRow[] = [];
     for (const { row, patch } of planned) {
       try {
-        const next = await deps.updateAlert(row.id, patch);
+        const next = await deps.updateAlert(row.id, patch, userIdOf(req));
         if (next) updated.push(next);
       } catch (error) {
         if (error instanceof AlertConflictError) {
@@ -478,7 +480,7 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
     if (!UUID.test(id)) return reply.code(400).send(bad("id must be a UUID"));
     const b = (req.body ?? {}) as Record<string, unknown>;
 
-    const row = await deps.getAlert(id);
+    const row = await deps.getAlert(id, userIdOf(req));
     if (!row) return reply.code(404).send(bad("alert not found"));
 
     const plan = await planAlertPatch(row, b, deps);
@@ -487,7 +489,7 @@ export function alertPatchHandler(deps: AlertPatchDeps = {
 
     let updated: MaAlertRow | null;
     try {
-      updated = await deps.updateAlert(id, patch);
+      updated = await deps.updateAlert(id, patch, userIdOf(req));
     } catch (error) {
       if (error instanceof AlertConflictError) {
         return reply.code(409).send(bad(error.message));
@@ -565,6 +567,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     const requested = q.symbol ? alertInstrumentIdentity(q.symbol) : null;
     if (requested && "error" in requested) return [];
     return maAlertRepo.listAlerts({
+      userId: userIdOf(req),
       symbol: requested && !("error" in requested) ? requested.symbol : undefined,
       timeframe: q.timeframe && isInterval(q.timeframe) ? q.timeframe : undefined,
       activeOnly: q.enabled === "true",
@@ -590,7 +593,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
       ? { symbol: requested.symbol, timeframe: String(timeframe) }
       : undefined;
     if (symbol && timeframe && (!requested || "error" in requested)) return [];
-    return maAlertRepo.listEvents(Number(limit ?? 100) || 100, scope);
+    return maAlertRepo.listEvents(userIdOf(req), Number(limit ?? 100) || 100, scope);
   });
 
   app.post("/api/ma-alerts", async (req, reply) => {
@@ -652,6 +655,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
     if ("error" in note) return reply.code(400).send(note);
 
     const row = await maAlertRepo.upsertAlert({
+      userId: userIdOf(req),
       symbol, timeframe, frequency, cooldownMin,
       canonicalInstrumentId: identity.canonicalInstrumentId,
       providerId: identity.providerId,
@@ -679,7 +683,7 @@ export async function maAlertRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete("/api/ma-alerts/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const ok = await maAlertRepo.deleteAlert(id);
+    const ok = await maAlertRepo.deleteAlert(id, userIdOf(req));
     if (!ok) return reply.code(404).send(bad("alert not found"));
     return reply.code(204).send();
   });

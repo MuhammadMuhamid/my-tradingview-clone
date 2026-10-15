@@ -30,15 +30,19 @@ import { derivativeExecutionRoutes } from "./routes/derivativeExecution";
 import { equityExecutionRoutes } from "./routes/equityExecution";
 import { traditionalExecutionRoutes } from "./routes/traditionalExecution";
 import type { LiveRunner } from "../engine/liveRunner";
-import {
-  SESSION_COOKIE, readCookie, sessionCookie, signSession, verifySession,
-} from "../security/session";
+import { SESSION_COOKIE, readCookie, sessionCookie } from "../security/session";
+import { DEV_ADMIN, userMayReach } from "../security/requestUser";
+import { authenticate } from "./routes/auth";
 
-/** Reachable without a session: health probes and the sign-in flow itself. */
+/** Reachable without a session: health probes and the sign-in flows themselves. */
 const PUBLIC_PATHS = new Set([
   "/health", "/healthz", "/readyz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+  "/api/auth/signup", "/api/auth/google/start", "/api/auth/google/callback",
   "/api/internal/realization-events/v1",
 ]);
+
+/** Throttled like sign-in: each is a guess at, or a creation of, a credential. */
+const LIMITED_AUTH_PATHS = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/password"]);
 
 /**
  * Response headers applied to every reply.
@@ -90,7 +94,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
    */
   app.addHook("onRequest", async (req, reply) => {
     const path = req.url.split("?")[0] ?? "";
-    if (path !== "/api/auth/login" || req.method !== "POST") return;
+    if (!LIMITED_AUTH_PATHS.has(path) || req.method !== "POST") return;
     const key = clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy);
     const decision = loginLimiter.hit(key);
     if (!decision.allowed) {
@@ -104,23 +108,29 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
    * Session gate. Runs before every route so a new endpoint is protected by
    * default rather than by remembering to add a guard.
    */
+  app.decorateRequest("user", null);
   app.addHook("onRequest", async (req, reply) => {
-    if (!config.authEnabled) return;
     const path = req.url.split("?")[0] ?? "";
-    if (PUBLIC_PATHS.has(path)) return;
-
-    const token = readCookie(req.headers.cookie, SESSION_COOKIE);
-    const claims = token
-      ? verifySession(token, config.sessionSecret, { expectedUsername: config.adminUsername })
-      : null;
-    if (!claims) {
-      return reply.code(401).send({ error: "not authenticated" });
+    if (!config.authEnabled) {
+      // Unauthenticated instance (development, tests): the single admin.
+      req.user = DEV_ADMIN;
+      return;
     }
-    // Slide the expiry so an actively used browser never has to sign in again.
-    reply.header(
-      "set-cookie",
-      sessionCookie(signSession(claims.username, config.sessionSecret), config.cookieSecure)
-    );
+
+    const session = await authenticate(readCookie(req.headers.cookie, SESSION_COOKIE));
+    if (session) {
+      req.user = session.user;
+      // Slide the expiry so an actively used browser never has to sign in again
+      // (and move an old-format admin cookie onto the per-account format).
+      reply.header("set-cookie", sessionCookie(session.renewed, config.cookieSecure));
+    }
+    if (PUBLIC_PATHS.has(path)) return;
+    if (!session) return reply.code(401).send({ error: "not authenticated" });
+
+    // Default-deny for ordinary accounts: see security/requestUser.
+    if (session.user.role !== "admin" && !userMayReach(req.method, path)) {
+      return reply.code(403).send({ error: "This part of the platform is available to the administrator only." });
+    }
   });
 
   /**

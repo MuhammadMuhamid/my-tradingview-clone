@@ -122,6 +122,53 @@ export function verifySession(
   return { username, expiresAt };
 }
 
+/**
+ * A session for one ACCOUNT: `u2.<userId>.<sessionVersion>.<expiryMs>.<hmac>`.
+ *
+ * The user id, not a name, is what the session is for — an email can change,
+ * an id cannot. The session version is the revocation handle the stateless
+ * token otherwise lacks: "sign out everywhere" bumps the user's version, and
+ * every token issued under the old one stops verifying at the next request.
+ *
+ * Tokens in the old `<username>.<expiry>.<hmac>` shape are still read by
+ * `verifySession`, for the admin's existing browsers; the gate re-issues them
+ * in this shape on their next request.
+ */
+export function signUserSession(
+  userId: string, version: number, secret: string, now = Date.now(),
+): string {
+  const expiry = now + SESSION_TTL_MS;
+  const body = `u2.${userId}.${version}.${expiry}`;
+  const mac = createHmac("sha256", secret).update(body).digest("base64url");
+  return `${body}.${mac}`;
+}
+
+export interface UserSessionClaims {
+  userId: string;
+  version: number;
+  expiresAt: number;
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function verifyUserSession(
+  token: string, secret: string, now = Date.now(),
+): UserSessionClaims | null {
+  const parts = token.split(".");
+  if (parts.length !== 5 || parts[0] !== "u2") return null;
+  const [, userId, versionPart, expiryPart, mac] = parts as [string, string, string, string, string];
+  const expected = createHmac("sha256", secret)
+    .update(`u2.${userId}.${versionPart}.${expiryPart}`)
+    .digest("base64url");
+  if (!safeEqual(mac, expected)) return null;
+  if (!UUID_SHAPE.test(userId)) return null;
+  const version = Number(versionPart);
+  const expiresAt = Number(expiryPart);
+  if (!Number.isInteger(version) || version < 1) return null;
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
+  return { userId, version, expiresAt };
+}
+
 /** Minimal Cookie-header parser — avoids pulling in a cookie plugin. */
 export function readCookie(header: string | undefined, name: string): string | null {
   if (!header) return null;

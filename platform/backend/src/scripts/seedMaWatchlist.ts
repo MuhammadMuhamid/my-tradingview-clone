@@ -22,6 +22,7 @@ import * as watchlistRepo from "../repositories/watchlists";
 import * as layoutRepo from "../repositories/layouts";
 import * as maAlertRepo from "../repositories/maAlerts";
 import { closePool } from "../db/pool";
+import { ADMIN_USER_ID } from "../repositories/users";
 import type { LayoutMaLine } from "../repositories/layouts";
 
 const WATCHLIST_NAME = "Main Watchlist";
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
     const base = symbol.replace(/USDT$/, "");
     if (!dry) {
       await symbolRepo.addSymbol(symbol, base, "USDT");
-      await layoutRepo.upsertLayoutByName(layoutName(symbol), {
+      await layoutRepo.upsertLayoutByName(ADMIN_USER_ID, layoutName(symbol), {
         symbol,
         timeframe: TIMEFRAME,
         bars: 10000,
@@ -89,6 +90,7 @@ async function main(): Promise<void> {
       });
       for (const line of APPROACH_ALERTS) {
         await maAlertRepo.upsertAlert({
+          userId: ADMIN_USER_ID,
           symbol,
           timeframe: TIMEFRAME,
           maType: line.maType,
@@ -109,13 +111,13 @@ async function main(): Promise<void> {
   }
 
   if (!dry) {
-    await watchlistRepo.upsertByName(WATCHLIST_NAME, COINS, 0);
+    await watchlistRepo.upsertByName(ADMIN_USER_ID, WATCHLIST_NAME, COINS, 0);
   }
   console.log(`\n  watchlist "${WATCHLIST_NAME}" → ${COINS.length} symbols`);
 
   if (!dry) {
-    const alerts = await maAlertRepo.listAlerts({ activeOnly: true });
-    const layouts = await layoutRepo.listLayouts();
+    const alerts = await maAlertRepo.listAlerts({ userId: ADMIN_USER_ID, activeOnly: true });
+    const layouts = await layoutRepo.listLayouts(ADMIN_USER_ID);
     console.log(
       `\ndone — ${layouts.length} layouts, ${alerts.length} enabled MA alerts in the database`
     );

@@ -118,13 +118,20 @@ export interface PushResult {
   failed: number;
 }
 
-/** Fan a notification out to every registered device. */
+/**
+ * Fan a notification out to one user's registered devices.
+ *
+ * The owner is required: before accounts this sent every alert to every
+ * device, and with more than one user that would be everyone's alerts on
+ * everyone's phone.
+ */
 export async function sendPush(
   message: PushMessage,
-  log?: { warn: (o: unknown, m: string) => void }
+  log: { warn: (o: unknown, m: string) => void } | undefined,
+  to: { userId: string },
 ): Promise<PushResult> {
   await getVapidKeys();
-  const subs = await pushRepo.listSubscriptions();
+  const subs = await pushRepo.listSubscriptions(to.userId);
   const payload = JSON.stringify(message);
   const result: PushResult = { sent: 0, pruned: 0, failed: 0 };
 

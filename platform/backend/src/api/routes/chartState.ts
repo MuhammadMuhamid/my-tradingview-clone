@@ -15,6 +15,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import * as chartState from "../../repositories/chartState";
+import { userIdOf } from "../../security/requestUser";
 
 /** Reject a payload before it reaches the database, with the reason. */
 const listOr400 = (v: unknown): unknown[] | null => (Array.isArray(v) ? v : null);
@@ -40,7 +41,7 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/chart-state/drawings/:symbol", async (req, reply) => {
     const { symbol } = req.params as { symbol: string };
     try {
-      return await chartState.getDrawings(symbol);
+      return await chartState.getDrawings(userIdOf(req), symbol);
     } catch (cause) {
       return reply.code(400).send({ error: messageOf(cause) });
     }
@@ -58,6 +59,7 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       const result = await chartState.putDrawings(
+        userIdOf(req),
         symbol, drawings, baseVersionOf(b?.baseVersion));
       if (chartState.isConflict(result)) return reply.code(409).send(result.current);
       return result;
@@ -66,12 +68,12 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/api/chart-state/panes", async () => chartState.listPaneStudies());
+  app.get("/api/chart-state/panes", async (req) => chartState.listPaneStudies(userIdOf(req)));
 
   app.get("/api/chart-state/panes/:scope", async (req, reply) => {
     const { scope } = req.params as { scope: string };
     try {
-      return await chartState.getPaneStudies(scope);
+      return await chartState.getPaneStudies(userIdOf(req), scope);
     } catch {
       return reply.code(400).send({ error: "invalid pane scope" });
     }
@@ -103,6 +105,7 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       const result = await chartState.putPaneStudies(
+        userIdOf(req),
         scope, pine, native, baseVersionOf(b?.baseVersion));
       if (chartState.isConflict(result)) return reply.code(409).send(result.current);
       return result;
@@ -112,5 +115,5 @@ export async function chartStateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** Instruments with drawings stored — what the one-time import reads first. */
-  app.get("/api/chart-state/instruments", async () => chartState.listDrawnInstruments());
+  app.get("/api/chart-state/instruments", async (req) => chartState.listDrawnInstruments(userIdOf(req)));
 }

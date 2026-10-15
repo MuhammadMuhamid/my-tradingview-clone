@@ -30,7 +30,8 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const BASE: MaAlertRow = {
   // As `toRow` returns them for every non-fib row: null, never absent.
   fibDeviation: null, fibDepth: null, fibReverse: null, fibLevel: null,
-  id: ID, symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
+  id: ID, userId: "00000000-0000-4000-8000-000000000001",
+  symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
   // A real row always HAS the column; NULL is what "ungated" looks like.
   filters: null,
   maType: null, maLength: null, mode: null, ma2Type: null, ma2Length: null,

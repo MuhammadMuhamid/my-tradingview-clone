@@ -132,7 +132,7 @@ test("an omitted half is COALESCEd to what is stored, not to empty", () => {
   assert.match(repo, /native = COALESCE\(\$3::jsonb, native\)/);
   // On a FIRST write there is nothing to preserve, so an omitted half starts
   // empty rather than null — the column is NOT NULL and a list by constraint.
-  assert.match(repo, /VALUES \(\$1, COALESCE\(\$2::jsonb, '\[\]'::jsonb\), COALESCE\(\$3::jsonb, '\[\]'::jsonb\), 1,/);
+  assert.match(repo, /VALUES \(\$4, \$1, COALESCE\(\$2::jsonb, '\[\]'::jsonb\), COALESCE\(\$3::jsonb, '\[\]'::jsonb\), 1,/);
 });
 
 test("a write that carries neither half is refused rather than clearing the row", () => {
@@ -153,7 +153,7 @@ test("both halves still share one version, so two writers conflict like two devi
     "one version per ROW, and there are two tables");
   const repo = fs.readFileSync(
     path.join(__dirname, "..", "src", "repositories", "chartState.ts"), "utf8");
-  assert.match(repo, /WHERE scope = \$1 AND version = \$4/,
+  assert.match(repo, /WHERE user_id = \$5 AND scope = \$1 AND version = \$4/,
     "a half-write is still guarded by the whole row's version");
 });
 

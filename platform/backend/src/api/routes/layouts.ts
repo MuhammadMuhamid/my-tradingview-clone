@@ -6,6 +6,7 @@ import { isInterval } from "../../types/market";
 import type { StrategyParams } from "../../types/strategy";
 import type { LayoutMaLine, LayoutProperties } from "../../repositories/layouts";
 import { canonicalizeLegacySpotSymbol } from "../../market/model";
+import { userIdOf } from "../../security/requestUser";
 
 interface LayoutBody {
   name?: string;
@@ -32,11 +33,11 @@ export const storedLayoutSymbol = (value: string): string =>
   canonicalizeLegacySpotSymbol(value) ?? value.toUpperCase();
 
 export async function layoutRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/layouts", async () => layouts.listLayouts());
+  app.get("/api/layouts", async (req) => layouts.listLayouts(userIdOf(req)));
 
   app.get("/api/layouts/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const layout = await layouts.getLayout(id);
+    const layout = await layouts.getLayout(userIdOf(req), id);
     if (!layout) return reply.code(404).send({ error: "layout not found" });
     return layout;
   });
@@ -50,7 +51,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `invalid timeframe: ${body.timeframe}` });
     }
     if (!body.strategyKey) return reply.code(400).send({ error: "strategyKey is required" });
-    const saved = await layouts.upsertLayoutByName(body.name, {
+    const saved = await layouts.upsertLayoutByName(userIdOf(req), body.name, {
       symbol: storedLayoutSymbol(body.symbol),
       timeframe: body.timeframe,
       bars: body.bars ?? 10000,
@@ -69,7 +70,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
     if (body.timeframe !== undefined && !isInterval(body.timeframe)) {
       return reply.code(400).send({ error: `invalid timeframe: ${body.timeframe}` });
     }
-    const updated = await layouts.updateLayout(id, {
+    const updated = await layouts.updateLayout(userIdOf(req), id, {
       name: body.name,
       symbol: body.symbol === undefined ? undefined : storedLayoutSymbol(body.symbol),
       timeframe: body.timeframe,
@@ -86,7 +87,7 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete("/api/layouts/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const deleted = await layouts.deleteLayout(id);
+    const deleted = await layouts.deleteLayout(userIdOf(req), id);
     if (!deleted) return reply.code(404).send({ error: "layout not found" });
     return reply.code(204).send();
   });
@@ -96,7 +97,9 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
    * after the coin, carrying the deployment's exact strategy settings.
    * Existing layout properties/history depth are preserved.
    */
-  app.post("/api/layouts/sync-deployments", async () => {
+  // Deployments are the admin's, so the layouts this writes are the admin's.
+  app.post("/api/layouts/sync-deployments", async (req) => {
+    const owner = userIdOf(req);
     const [allDeployments, allStrategies] = await Promise.all([
       deployments.listDeployments(),
       strategies.listStrategies(),
@@ -109,9 +112,9 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
     for (const [symbol, dep] of chosen) {
       const strategyKey = keyById.get(dep.strategyId);
       if (!strategyKey) continue;
-      const existing = await layouts.getLayoutByName(symbol);
+      const existing = await layouts.getLayoutByName(owner, symbol);
       const state = layouts.layoutStateFromDeployment(dep, strategyKey, existing);
-      await layouts.upsertLayoutByName(symbol, { ...state, symbol: storedLayoutSymbol(state.symbol) });
+      await layouts.upsertLayoutByName(owner, symbol, { ...state, symbol: storedLayoutSymbol(state.symbol) });
       synced.push(symbol);
     }
     return { synced, count: synced.length };

@@ -54,6 +54,16 @@ export interface AppConfig {
   alpacaPaperApiSecret: string;
   /** Required alongside credentials because Alpaca Assets does not classify ETFs. */
   alpacaEquityClassificationFile: string;
+  /**
+   * Accounts. Google sign-in is offered only when both halves of the OAuth
+   * client are configured; `publicBaseUrl` is where Google sends the user back
+   * (`<publicBaseUrl>/api/auth/google/callback`, registered in Google Cloud).
+   */
+  googleClientId: string;
+  googleClientSecret: string;
+  publicBaseUrl: string;
+  /** New accounts may be created. Off: only existing accounts sign in. */
+  allowSignups: boolean;
 }
 
 /**
@@ -208,6 +218,10 @@ export const config: AppConfig = {
   alpacaPaperApiKey: process.env.ALPACA_PAPER_API_KEY ?? "",
   alpacaPaperApiSecret: process.env.ALPACA_PAPER_API_SECRET ?? "",
   alpacaEquityClassificationFile: process.env.ALPACA_EQUITY_CLASSIFICATION_FILE ?? "",
+  googleClientId: (process.env.GOOGLE_CLIENT_ID ?? "").trim(),
+  googleClientSecret: (process.env.GOOGLE_CLIENT_SECRET ?? "").trim(),
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").trim().replace(/\/$/, ""),
+  allowSignups: process.env.ALLOW_SIGNUPS !== "false",
 };
 
 // ── Fail closed ───────────────────────────────────────────────────────────────

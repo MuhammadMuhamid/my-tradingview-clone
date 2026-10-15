@@ -367,7 +367,7 @@ export function operationsRoutes(
       const database = await readReadiness();
       const alertRunner = formatAlertRunnerStatus(
         alertEvaluation().enabled,
-        await maAlertRepo.listAlerts({ activeOnly: true }),
+        await maAlertRepo.listAlerts({ userId: null, activeOnly: true }),
         Date.now()
       );
 

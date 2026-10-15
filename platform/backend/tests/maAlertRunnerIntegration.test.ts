@@ -53,7 +53,8 @@ function history(): Candle[] {
 
 function row(id: string, over: Partial<MaAlertRow>): MaAlertRow {
   return {
-    id, symbol: "BTCUSDT", timeframe: "1m", conditionKind: "price",
+    id, userId: "00000000-0000-4000-8000-000000000001",
+    symbol: "BTCUSDT", timeframe: "1m", conditionKind: "price",
     maType: null, maLength: null, mode: null,
     ma2Type: null, ma2Length: null, targetPrice: 150, priceDirection: "cross_up",
     srSide: null, srPivotLength: null, srInvalidation: null,
@@ -97,7 +98,7 @@ function localRunner(
   let failCompletion = outbox?.failCompletionOnce === true;
 
   const runner = new MaAlertRunner(log, {
-    listAlerts: async (opts = {}) => rows.filter((item) =>
+    listAlerts: async (opts) => rows.filter((item) =>
       (!opts.symbol || item.symbol === opts.symbol) &&
       (!opts.timeframe || item.timeframe === opts.timeframe) &&
       (!opts.activeOnly || (item.enabled && item.completedAt === null))

@@ -60,5 +60,5 @@ test("a missing current-scope ID is surfaced as an atomic conflict", async () =>
   assert.equal(response.statusCode, 409);
   assert.equal(response.json().affected, 0);
   assert.deepEqual(response.json().missingIds, [B]);
-  assert.match(response.json().error, /current admin scope/);
+  assert.match(response.json().error, /no longer exist, or are not yours/);
 });

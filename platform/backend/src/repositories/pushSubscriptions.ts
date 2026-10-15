@@ -28,16 +28,16 @@ const toRow = (r: DbRow): PushSubscriptionRow => ({
  * back the same endpoint, and must not accumulate duplicate rows that would
  * deliver the same notification several times.
  */
-export async function saveSubscription(input: {
+export async function saveSubscription(userId: string, input: {
   endpoint: string;
   p256dh: string;
   auth: string;
   userAgent?: string | null;
 }): Promise<PushSubscriptionRow> {
   const { rows } = await query<DbRow>(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, last_seen_at)
-     VALUES ($1,$2,$3,$4, now())
-     ON CONFLICT (endpoint) DO UPDATE
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, last_seen_at, user_id)
+     VALUES ($1,$2,$3,$4, now(), $5)
+     ON CONFLICT (user_id, endpoint) DO UPDATE
        SET p256dh = EXCLUDED.p256dh,
            auth = EXCLUDED.auth,
            user_agent = EXCLUDED.user_agent,
@@ -45,25 +45,35 @@ export async function saveSubscription(input: {
            -- holds this subscription can send it back.
            last_seen_at = now()
      RETURNING *`,
-    [input.endpoint, input.p256dh, input.auth, input.userAgent ?? null]
+    [input.endpoint, input.p256dh, input.auth, input.userAgent ?? null, userId]
   );
   return toRow(rows[0]!);
 }
 
-export async function listSubscriptions(): Promise<PushSubscriptionRow[]> {
+/** One user's devices: an alert notifies its owner and nobody else. */
+export async function listSubscriptions(userId: string): Promise<PushSubscriptionRow[]> {
   const { rows } = await query<DbRow>(
-    "SELECT * FROM push_subscriptions ORDER BY created_at"
+    "SELECT * FROM push_subscriptions WHERE user_id = $1 ORDER BY created_at", [userId]
   );
   return rows.map(toRow);
 }
 
-export async function countSubscriptions(): Promise<number> {
+export async function countSubscriptions(userId: string): Promise<number> {
   const { rows } = await query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM push_subscriptions"
+    "SELECT count(*)::int AS n FROM push_subscriptions WHERE user_id = $1", [userId]
   );
   return rows[0]?.n ?? 0;
 }
 
+/** A user withdrawing one of their devices. */
+export async function deleteUserEndpoint(userId: string, endpoint: string): Promise<void> {
+  await query("DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2", [userId, endpoint]);
+}
+
+/**
+ * The push service says this endpoint is gone. It is gone for every account
+ * that registered it, because it is the BROWSER's subscription that died.
+ */
 export async function deleteByEndpoint(endpoint: string): Promise<void> {
   await query("DELETE FROM push_subscriptions WHERE endpoint = $1", [endpoint]);
 }

@@ -6,11 +6,12 @@
 import type { FastifyInstance } from "fastify";
 import * as pushRepo from "../../repositories/pushSubscriptions";
 import { getVapidKeys, sendPush, validatePushEndpoint } from "../../alerts/webPush";
+import { userIdOf } from "../../security/requestUser";
 
 export async function pushRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/push/vapid", async () => {
+  app.get("/api/push/vapid", async (req) => {
     const { publicKey } = await getVapidKeys();
-    return { publicKey, devices: await pushRepo.countSubscriptions() };
+    return { publicKey, devices: req.user ? await pushRepo.countSubscriptions(req.user.id) : 0 };
   });
 
   app.post("/api/push/subscribe", async (req, reply) => {
@@ -34,20 +35,22 @@ export async function pushRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
     }
-    const row = await pushRepo.saveSubscription({
+    const owner = userIdOf(req);
+    const row = await pushRepo.saveSubscription(owner, {
       endpoint,
       p256dh,
       auth,
       userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
     });
-    return reply.code(201).send({ id: row.id, devices: await pushRepo.countSubscriptions() });
+    return reply.code(201).send({ id: row.id, devices: await pushRepo.countSubscriptions(owner) });
   });
 
   app.post("/api/push/unsubscribe", async (req, reply) => {
     const { endpoint } = (req.body ?? {}) as { endpoint?: string };
     if (!endpoint) return reply.code(400).send({ error: "endpoint is required" });
-    await pushRepo.deleteByEndpoint(endpoint);
-    return { ok: true, devices: await pushRepo.countSubscriptions() };
+    const owner = userIdOf(req);
+    await pushRepo.deleteUserEndpoint(owner, endpoint);
+    return { ok: true, devices: await pushRepo.countSubscriptions(owner) };
   });
 
   /** Round-trip check so the user can confirm the phone actually buzzes. */
@@ -59,7 +62,8 @@ export async function pushRoutes(app: FastifyInstance): Promise<void> {
         tag: "push-test",
         url: "/chart",
       },
-      req.log
+      req.log,
+      { userId: userIdOf(req) },
     );
   });
 }
