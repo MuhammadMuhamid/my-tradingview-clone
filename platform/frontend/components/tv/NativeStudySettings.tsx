@@ -40,7 +40,7 @@
  * reason the drawing dialog has none: `lib/resolution` publishes `1s … 1d` and
  * refuses the calendar objects, so there is no such resolution to be visible on.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Modal } from "@/components/Modal";
 import { studyById } from "@/lib/native/catalog";
 import {
@@ -330,14 +330,18 @@ export function NativeStudySettings(props: NativeStudySettingsProps) {
       >
         {tab === "inputs" && (
           <>
-            {def.inputs.map((input) => (
-              <InputRow
-                key={input.key}
-                input={input}
-                value={params[input.key]!}
-                sources={input.kind === "source" ? sources : undefined}
-                onChange={(value) => editParam(input.key, value)}
-              />
+            {def.inputs.map((input, index) => (
+              <Fragment key={input.key}>
+                {input.group && input.group !== def.inputs[index - 1]?.group && (
+                  <Section>{input.group}</Section>
+                )}
+                <InputRow
+                  input={input}
+                  value={params[input.key]!}
+                  sources={input.kind === "source" ? sources : undefined}
+                  onChange={(value) => editParam(input.key, value)}
+                />
+              </Fragment>
             ))}
             {def.inputs.length === 0 && (
               <Note>This study has no inputs.</Note>
@@ -917,6 +921,13 @@ function InputRow({ input, value, sources, onChange }: {
           checked={value === true}
           onChange={(next) => onChange(next)}
         />
+      );
+    case "color":
+      return (
+        <Row label={input.title} hint={input.tooltip}>
+          <Swatch label={input.title} id={`native-input-color:${input.key}`} value={String(value)}
+            allowTheme={false} allowOpacity onChange={onChange} />
+        </Row>
       );
   }
 }

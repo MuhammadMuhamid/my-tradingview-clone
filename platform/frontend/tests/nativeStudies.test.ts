@@ -92,6 +92,26 @@ const run = (def: NativeStudyDef, candles: Candle[], params?: NativeParams) =>
 
 // ── the registry's own promises ─────────────────────────────────────────────
 
+/**
+ * Studies that DRAW (lines, boxes, labels) rather than plot series. Their
+ * `drawingOnly` plots are Style-tab rows, never series, and what they produce
+ * is `drawings`.
+ */
+const DRAWING_STUDIES = new Set(["pivots", "flux_sr_mtf"]);
+const producesSomething = (out: ReturnType<NativeStudyDef["compute"]>): boolean =>
+  Object.keys(out.plots).length > 0 || (out.drawings !== undefined);
+
+test("a drawing study draws, and its plots are only Style rows", () => {
+  for (const def of NATIVE_STUDIES) {
+    const drawing = def.plots.length === 0 || def.plots.every((p) => p.drawingOnly);
+    assert.equal(drawing, DRAWING_STUDIES.has(def.id), `${def.id}: drawing-study list out of date`);
+    if (!drawing) continue;
+    const out = def.compute({ candles: bars(2_000), params: defaultParams(def), interval: "1h" });
+    assert.ok(out.drawings, `${def.id} draws nothing`);
+    assert.deepEqual(Object.keys(out.plots), [], `${def.id} plots a series as well as drawing`);
+  }
+});
+
 test("every study has a unique, stable id and a resolvable definition", () => {
   const ids = new Set<string>();
   for (const def of NATIVE_STUDIES) {
@@ -101,7 +121,7 @@ test("every study has a unique, stable id and a resolvable definition", () => {
     assert.equal(studyById(def.id), def);
     assert.ok(def.name.trim().length > 0);
     assert.ok(def.description.trim().length > 0, `${def.id} has no description to show`);
-    assert.ok(def.plots.length > 0, `${def.id} draws nothing`);
+    assert.ok(def.plots.length > 0 || DRAWING_STUDIES.has(def.id), `${def.id} draws nothing`);
     assert.ok(CATEGORY_LABELS[def.category], `${def.id} is in an unlabelled category`);
   }
   assert.equal(studyById("no-such-study"), null, "an unknown id degrades rather than throws");
@@ -127,6 +147,7 @@ test("every declared plot is produced, and nothing undeclared is", () => {
   for (const def of NATIVE_STUDIES) {
     const out = def.compute({ candles: series, params: defaultParams(def), interval: "1m" });
     for (const plot of def.plots) {
+      if (plot.drawingOnly) continue;
       const values = out.plots[plot.id];
       assert.ok(values, `${def.id} declares plot ${plot.id} and does not produce it`);
       assert.equal(values!.length, series.length,
@@ -202,7 +223,7 @@ test("a corrupt or hostile parameter degrades to the default rather than reachin
 
     // And the study still computes with the clamped values.
     const out = def.compute({ candles: bars(300), params: clamped, interval: "1m" });
-    assert.ok(Object.keys(out.plots).length > 0);
+    assert.ok(producesSomething(out));
   }
 });
 
@@ -243,6 +264,8 @@ test("overlays land on the price pane or on the instance's own pane, never elsew
       assert.equal(overlay.paneId, expected, `${def.id} drew into ${overlay.paneId}`);
       assert.equal(overlay.instanceId, `k_${def.id}`);
       assert.equal(overlay.instanceTitle, def.name);
+      // A drawing study's one overlay is its legend row, and carries no points.
+      if (DRAWING_STUDIES.has(def.id) && overlay.id === `k_${def.id}:legend`) continue;
       assert.ok(overlay.data.length > 0, `${def.id}:${overlay.id} produced no points`);
       for (const point of overlay.data) {
         assert.ok(Number.isFinite(point.time), `${def.id} produced a point with no time`);
@@ -594,6 +617,8 @@ test("a path-dependent study is computed over the whole series, not a window", (
     "pivots", "prevperiod", "srzones", "swings",
     // A zig-zag: each leg starts where the last one ended, back to the first.
     "auto_fib",
+    // Zones from pivots, reconciled bar by bar against their breaks.
+    "flux_sr_mtf",
   ].sort());
   for (const def of unbounded) {
     assert.equal(computeWindow(series, def.warmup(defaultParams(def)),
@@ -601,6 +626,7 @@ test("a path-dependent study is computed over the whole series, not a window", (
       series.length, `${def.id} must be handed every bar`);
 
     // Demonstrate why: a window of the same depth genuinely disagrees.
+    if (DRAWING_STUDIES.has(def.id)) continue;
     const params = defaultParams(def);
     const full = def.compute({ candles: series, params, interval: "1m" });
     const window = series.slice(-600);

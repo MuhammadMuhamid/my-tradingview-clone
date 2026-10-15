@@ -13,7 +13,7 @@
  * see `emit`. A script may move a drawing many times before the run ends, and
  * only the final position is ever drawn.
  */
-import { PineDrawing, type DrawingKind, type PineValue, type TableCell } from "./values";
+import { PineDrawing, PineObject, type DrawingKind, type PineValue, type TableCell } from "./values";
 
 function bad(msg: string): never { throw new Error(msg); }
 
@@ -26,10 +26,12 @@ export interface DrawnBox {
   left: number; top: number; right: number; bottom: number;
   borderColor: string; borderWidth: number; borderStyle: string; bgColor: string;
   text: string; textColor: string;
+  textHalign: string; textValign: string; textSize: string; extend: string;
 }
 export interface DrawnLabel {
   x: number; y: number; text: string;
   color: string; textColor: string; style: string; size: string;
+  yloc: string; textAlign: string;
 }
 export interface DrawnTable {
   position: string;
@@ -46,6 +48,8 @@ export interface DrawnOutput {
 export interface BarContext {
   /** bar open time in ms for a bar index, extrapolated past the last bar */
   timeAt(barIndex: number): number;
+  /** The bar at an x coordinate (an index, or a time in ms), for `yloc.abovebar`/`belowbar`. */
+  barAt?(x: number, byTime: boolean): { high: number; low: number } | null;
 }
 
 const DEFAULT_MAX = 50;
@@ -101,6 +105,18 @@ export class DrawingRegistry {
       return Math.round(ms / 1000);
     };
 
+    // `yloc.abovebar`/`belowbar` ignore the label's y and sit on the bar's
+    // high or low, as TradingView places them.
+    const yOfLabel = (d: PineDrawing): number => {
+      const yloc = String(d.props.get("yloc") ?? "price");
+      if (!yloc.includes("abovebar") && !yloc.includes("belowbar")) return numOf(d.props.get("y"));
+      const raw = numOf(d.props.get("x"));
+      const byTime = String(d.props.get("xloc") ?? "bar_index").includes("time");
+      const bar = Number.isFinite(raw) ? ctx.barAt?.(raw, byTime) ?? null : null;
+      if (!bar) return numOf(d.props.get("y"));
+      return yloc.includes("abovebar") ? bar.high : bar.low;
+    };
+
     return {
       lines: this.live("line").map((d) => ({
         x1: xOf(d, "x1"), y1: numOf(d.props.get("y1")),
@@ -120,15 +136,22 @@ export class DrawingRegistry {
         bgColor: strOf(d.props.get("bgcolor"), ""),
         text: strOf(d.props.get("text"), ""),
         textColor: strOf(d.props.get("text_color"), "#d1d4dc"),
+        // Pine's defaults: box text is centred both ways, at size auto.
+        textHalign: strOf(d.props.get("text_halign"), "center"),
+        textValign: strOf(d.props.get("text_valign"), "center"),
+        textSize: strOf(d.props.get("text_size"), "auto"),
+        extend: strOf(d.props.get("extend"), "none"),
       })).filter((b) => Number.isFinite(b.top) && Number.isFinite(b.bottom)),
 
       labels: this.live("label").map((d) => ({
-        x: xOf(d, "x"), y: numOf(d.props.get("y")),
+        x: xOf(d, "x"), y: yOfLabel(d),
         text: strOf(d.props.get("text"), ""),
         color: strOf(d.props.get("color"), "#2962ff"),
         textColor: strOf(d.props.get("textcolor"), "#d1d4dc"),
         style: strOf(d.props.get("style"), "label_down"),
         size: strOf(d.props.get("size"), "normal"),
+        yloc: strOf(d.props.get("yloc"), "price"),
+        textAlign: strOf(d.props.get("textalign"), "center"),
       })).filter((l) => Number.isFinite(l.y)),
 
       tables: this.live("table").map((d) => ({
@@ -178,6 +201,8 @@ const SETTER_ALIASES: Record<string, string> = {
   set_text_color: "text_color",
   set_textcolor: "textcolor",
   set_text_size: "text_size",
+  set_text_halign: "text_halign",
+  set_text_valign: "text_valign",
 };
 
 /**
@@ -262,6 +287,24 @@ export function callDrawing(
     if (suffix === "xy") {
       target.props.set("x", args[1] ?? NaN);
       target.props.set("y", args[2] ?? NaN);
+      return NaN;
+    }
+    // The chart.point setters: the point's index, or its time when the
+    // drawing is positioned by time (or the point has no index).
+    const POINT_SETTERS: Record<string, [string, string]> = {
+      top_left_point: ["left", "top"], bottom_right_point: ["right", "bottom"],
+      first_point: ["x1", "y1"], second_point: ["x2", "y2"], point: ["x", "y"],
+    };
+    const pointProps = POINT_SETTERS[suffix];
+    if (pointProps) {
+      const p = args[1];
+      if (!(p instanceof PineObject)) return NaN;
+      const index = p.fields.get("index");
+      const byTime = String(target.props.get("xloc") ?? "bar_index").includes("time")
+        || typeof index !== "number" || Number.isNaN(index);
+      if (byTime) target.props.set("xloc", "bar_time");
+      target.props.set(pointProps[0], (byTime ? p.fields.get("time") : index) ?? NaN);
+      target.props.set(pointProps[1], p.fields.get("price") ?? NaN);
       return NaN;
     }
     if (suffix === "lefttop" || suffix === "rightbottom") {

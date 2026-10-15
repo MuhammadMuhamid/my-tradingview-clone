@@ -26,9 +26,11 @@ import {
   zonesAsOfSeries, type PivotType,
 } from "@/lib/ta/core";
 import type { NativeStudyDef } from "@/lib/native/registry";
+import type { PineDrawings } from "@/lib/api";
+import { fluxSrStudy } from "@/lib/native/fluxSr";
 import { INTERVAL_MS, type Candle } from "@/lib/types";
 import {
-  ACCENT, AMBER, DOWN, MUTED, UP, VIOLET, bool, num, ohlcv, str,
+  ACCENT, DOWN, MUTED, UP, VIOLET, bool, num, ohlcv, quotedDecimals, str,
 } from "@/lib/native/shared";
 
 /** The anchor periods a pivot study can be computed from. */
@@ -84,73 +86,154 @@ export function completedPeriods(
   return out.slice(0, -1);
 }
 
+/** TradingView's single default colour for every pivot level. */
+const PIVOT_ORANGE = "#fb8c00";
+
+/** Pivots Timeframe, as TradingView offers it. Values are period keys below. */
+const PIVOT_TIMEFRAMES = [
+  { value: "auto", label: "Auto" },
+  { value: "1d", label: "Daily" },
+  { value: "1w", label: "Weekly" },
+  { value: "1M", label: "Monthly" },
+  { value: "3M", label: "Quarterly" },
+  { value: "12M", label: "Yearly" },
+] as const;
+
 /**
- * Pivot Points.
+ * "Auto", resolved as TradingView resolves it: intraday charts of 15 minutes
+ * or less take daily pivots, other intraday charts weekly, a daily chart
+ * monthly, and anything coarser yearly.
+ */
+export function pivotPeriodFor(choice: string, intervalMs: number): string {
+  if (choice !== "auto") return choice;
+  if (intervalMs <= 15 * 60_000) return "1d";
+  if (intervalMs < DAY_MS) return "1w";
+  if (intervalMs < 7 * DAY_MS) return "1M";
+  return "12M";
+}
+
+/** The UTC start of the period containing `t`, and of the one after it. */
+export function periodBounds(t: number, period: string): { start: number; end: number } {
+  const d = new Date(t);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  if (period === "1M") return { start: Date.UTC(y, m, 1), end: Date.UTC(y, m + 1, 1) };
+  if (period === "3M") {
+    const q = Math.floor(m / 3) * 3;
+    return { start: Date.UTC(y, q, 1), end: Date.UTC(y, q + 3, 1) };
+  }
+  if (period === "12M") return { start: Date.UTC(y, 0, 1), end: Date.UTC(y + 1, 0, 1) };
+  if (period === "1w") {
+    // ISO weeks start on Monday.
+    const day = (d.getUTCDay() + 6) % 7;
+    const start = Math.floor((t - day * DAY_MS) / DAY_MS) * DAY_MS;
+    return { start, end: start + 7 * DAY_MS };
+  }
+  const start = Math.floor(t / DAY_MS) * DAY_MS;
+  return { start, end: start + DAY_MS };
+}
+
+const PIVOT_LEVEL_NAMES = ["P", "R1", "S1", "R2", "S2", "R3", "S3", "R4", "S4", "R5", "S5"] as const;
+
+/**
+ * Pivot Points Standard, drawn as TradingView draws it.
  *
- * The levels change only when a new anchor period completes, so each level is
- * drawn as a step that holds for the whole of the following period rather than
- * a line recomputed per bar. That is what makes a pivot a level: a value that
- * was decided before the period it governs began.
+ * Each period gets its own horizontal SEGMENT per level, from the start of the
+ * period it governs to that period's end, with "R1 (5.282)" written beside it.
+ * It used to be a continuous step line per level, which joined consecutive
+ * periods with vertical risers and coloured resistance red and support green —
+ * a picture TradingView never draws. The levels govern the period AFTER the
+ * one they were computed from; the forming period's own levels would be
+ * lookahead and are never drawn.
+ *
+ * The arithmetic is `pivotLevels` in `lib/ta/core`, the one the pivot alerts
+ * fire on, so an alert names the line the chart shows.
  */
 export const pivotPointsStudy: NativeStudyDef = {
   id: "pivots",
-  name: "Pivot Points",
-  aliases: ["pivot", "pivots", "S1", "R1", "camarilla", "woodie", "fibonacci pivots"],
+  name: "Pivot Points Standard",
+  aliases: ["pivot", "pivots", "pivot points", "S1", "R1", "camarilla", "woodie", "fibonacci pivots"],
   category: "levels",
   overlay: true,
-  description: "Standard, Fibonacci, Woodie, Classic or Camarilla levels from the last period.",
+  description: "Traditional, Fibonacci, Woodie, Classic or Camarilla levels for each period.",
   inputs: [
     {
       kind: "select", key: "type", title: "Type", defval: "Fibonacci",
       options: [
-        { value: "Traditional", label: "Traditional (Standard)" },
+        { value: "Traditional", label: "Traditional" },
         { value: "Fibonacci", label: "Fibonacci" },
         { value: "Woodie", label: "Woodie" },
         { value: "Classic", label: "Classic" },
         { value: "Camarilla", label: "Camarilla" },
       ],
     },
-    { kind: "select", key: "anchor", title: "Anchor", defval: "1d", options: ANCHORS },
+    { kind: "select", key: "anchor", title: "Pivots Timeframe", defval: "1d", options: PIVOT_TIMEFRAMES },
+    { kind: "number", key: "lookBack", title: "Number of Pivots Back", defval: 15, min: 1, max: 5000, integer: true },
+    { kind: "boolean", key: "showLabels", title: "Show Labels", defval: true },
+    { kind: "boolean", key: "showPrices", title: "Show Prices", defval: true },
+    {
+      kind: "select", key: "labelsPosition", title: "Labels Position", defval: "Left",
+      options: [{ value: "Left", label: "Left" }, { value: "Right", label: "Right" }],
+    },
   ],
-  plots: [
-    { id: "P", title: "P", style: "stepline", color: AMBER, width: 2 },
-    { id: "R1", title: "R1", style: "stepline", color: DOWN },
-    { id: "R2", title: "R2", style: "stepline", color: DOWN },
-    { id: "R3", title: "R3", style: "stepline", color: DOWN },
-    { id: "R4", title: "R4", style: "stepline", color: DOWN, hiddenByDefault: true },
-    { id: "R5", title: "R5", style: "stepline", color: DOWN, hiddenByDefault: true },
-    { id: "S1", title: "S1", style: "stepline", color: UP },
-    { id: "S2", title: "S2", style: "stepline", color: UP },
-    { id: "S3", title: "S3", style: "stepline", color: UP },
-    { id: "S4", title: "S4", style: "stepline", color: UP, hiddenByDefault: true },
-    { id: "S5", title: "S5", style: "stepline", color: UP, hiddenByDefault: true },
-  ],
+  // The Style tab's rows — one per level, TradingView's orange — for lines the
+  // study DRAWS rather than plots.
+  plots: PIVOT_LEVEL_NAMES.map((name) => ({
+    id: name, title: name, style: "line" as const, color: PIVOT_ORANGE, width: 1, drawingOnly: true,
+  })),
   precision: null,
-  // Levels come from completed periods, so a window that holds fewer than two
-  // of them has nothing to draw. Bounded, because only the last few matter.
   warmup: () => 0,
   unbounded: true,
-  compute: ({ candles, params }) => {
+  compute: ({ candles, params, interval, styles }) => {
     const typeName = str(params, "type", "Fibonacci");
     const type: PivotType = isPivotType(typeName) ? typeName : "Fibonacci";
-    const anchor = str(params, "anchor", "1d");
-    const periods = completedPeriods(candles, anchor);
-    const names = ["P", "R1", "R2", "R3", "R4", "R5", "S1", "S2", "S3", "S4", "S5"];
-    const plots: Record<string, number[]> = {};
-    for (const name of names) plots[name] = new Array<number>(candles.length).fill(NaN);
-    for (let p = 0; p < periods.length; p++) {
-      const levels = pivotLevels(periods[p]!, type);
-      // A period's levels govern the bars AFTER it closed, up to the next
-      // period's close. Drawing them over their own period would be lookahead.
-      const from = periods[p]!.endIndex + 1;
-      const to = p + 1 < periods.length ? periods[p + 1]!.endIndex : candles.length - 1;
-      for (const level of levels) {
-        const series = plots[level.name];
-        if (!series || !Number.isFinite(level.price)) continue;
-        for (let i = from; i <= to && i < candles.length; i++) series[i] = level.price;
+    const intervalMs = (INTERVAL_MS as Record<string, number>)[interval] ?? 60_000;
+    const period = pivotPeriodFor(str(params, "anchor", "1d"), intervalMs);
+    const lookBack = Math.max(1, Math.round(num(params, "lookBack", 15)));
+    const showLabels = bool(params, "showLabels", true);
+    const showPrices = bool(params, "showPrices", true);
+    const onLeft = str(params, "labelsPosition", "Left") !== "Right";
+    const decimals = quotedDecimals(candles);
+
+    // Every period's OHLC, the forming one included (it is drawn over, not from).
+    const periods: { start: number; end: number; open: number; high: number; low: number; close: number }[] = [];
+    for (const c of candles) {
+      const last = periods[periods.length - 1];
+      if (last && c.openTime < last.end) {
+        last.high = Math.max(last.high, c.high);
+        last.low = Math.min(last.low, c.low);
+        last.close = c.close;
+        continue;
+      }
+      const b = periodBounds(c.openTime, period);
+      periods.push({ ...b, open: c.open, high: c.high, low: c.low, close: c.close });
+    }
+
+    const drawings: PineDrawings = { lines: [], boxes: [], labels: [], tables: [] };
+    const first = Math.max(1, periods.length - lookBack);
+    for (let k = first; k < periods.length; k++) {
+      const from = periods[k - 1]!;
+      const span = periods[k]!;
+      const x1 = Math.floor(span.start / 1000);
+      const x2 = Math.floor(span.end / 1000);
+      for (const level of pivotLevels(from, type)) {
+        const look = styles?.[level.name];
+        if (!look || !look.visible || !Number.isFinite(level.price)) continue;
+        drawings.lines.push({
+          x1, y1: level.price, x2, y2: level.price,
+          color: look.color, width: look.width, style: "solid", extend: "none",
+        });
+        if (!showLabels && !showPrices) continue;
+        const price = `(${level.price.toFixed(decimals)})`;
+        const text = showLabels && showPrices ? `${level.name} ${price}` : showLabels ? level.name : price;
+        drawings.labels.push({
+          x: onLeft ? x1 : x2, y: level.price, text,
+          color: "", textColor: look.color,
+          style: onLeft ? "style_label_right" : "style_label_left", size: "normal",
+        });
       }
     }
-    return { plots };
+    return { plots: {}, drawings };
   },
 };
 
@@ -395,7 +478,7 @@ export const autoFibStudy: NativeStudyDef = {
 };
 
 export const LEVEL_STUDIES: readonly NativeStudyDef[] = [
-  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy, autoFibStudy,
+  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy, autoFibStudy, fluxSrStudy,
 ];
 
 export { ACCENT, VIOLET, INTERVAL_MS };

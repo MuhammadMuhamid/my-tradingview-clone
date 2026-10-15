@@ -130,3 +130,21 @@ export const MA_TYPE_OPTIONS = [
   { value: "DEMA", label: "DEMA" },
   { value: "TEMA", label: "TEMA" },
 ] as const;
+
+/**
+ * Decimals a price is quoted to, read off the bars themselves — what Pine's
+ * `format.mintick` prints, for a study that writes prices into labels.
+ */
+export function quotedDecimals(candles: readonly Candle[]): number {
+  let best = 0;
+  const from = Math.max(0, candles.length - 200);
+  for (let i = from; i < candles.length; i++) {
+    for (const v of [candles[i]!.open, candles[i]!.high, candles[i]!.low, candles[i]!.close]) {
+      const text = String(v);
+      if (text.includes("e")) continue;
+      const dot = text.indexOf(".");
+      if (dot >= 0) best = Math.max(best, Math.min(8, text.length - dot - 1));
+    }
+  }
+  return best;
+}

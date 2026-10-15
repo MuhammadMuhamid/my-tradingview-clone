@@ -9,7 +9,7 @@
  * An instance owns its `source` rather than only a script id, so a script
  * applied straight from the editor (never saved) behaves like any other.
  */
-import { api, type PineDrawings, type PineInputDef, type PineRunResult } from "@/lib/api";
+import { api, type PineDrawings, type PineInputDef, type PineRunResult, type PineShapeMark } from "@/lib/api";
 import type { ChartMarker } from "@/components/CandleChart";
 import {
   PRICE_PANE_ID, shiftedPlotTime, type ChartBarColor, type ChartDecoration,
@@ -440,7 +440,7 @@ export function toChartOutput(
     overlays: [...plotOverlays, ...ohlcOverlays, ...hlineOverlays],
     decorations,
     barColors,
-    markers: (r.shapes ?? []).map((s) => ({
+    markers: (r.shapes ?? []).filter((s) => !s.char || !Number.isFinite(s.price)).map((s) => ({
       time: s.time,
       position: s.position === "above" ? "aboveBar" : "belowBar",
       color: s.color,
@@ -451,8 +451,31 @@ export function toChartOutput(
           ? "arrowDown"
           : "circle",
     })),
-    drawings: r.drawings ?? NO_DRAWINGS,
+    drawings: withGlyphs(r.drawings ?? NO_DRAWINGS, r.shapes ?? []),
     trades: r.trades ?? [],
+  };
+}
+
+/**
+ * `plotchar` marks, drawn as their own character just off the bar.
+ *
+ * The chart's markers know four shapes; a "◆" sent there came out a circle,
+ * which is the visible difference from TradingView on every S/R script that
+ * marks holds with a diamond. They ride on the drawing layer as glyph labels.
+ */
+function withGlyphs(drawings: PineDrawings, shapes: readonly PineShapeMark[]): PineDrawings {
+  const glyphs = shapes.filter((s) => s.char && Number.isFinite(s.price));
+  if (glyphs.length === 0) return drawings;
+  return {
+    ...drawings,
+    labels: [
+      ...drawings.labels,
+      ...glyphs.map((s) => ({
+        x: s.time, y: s.price!, text: s.char!, color: s.color, textColor: s.color,
+        style: s.position === "above" ? "glyph_above" : "glyph_below",
+        size: s.size && s.size !== "auto" ? s.size : "small",
+      })),
+    ],
   };
 }
 

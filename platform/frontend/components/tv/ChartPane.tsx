@@ -32,6 +32,7 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
 import { CandleChart, type ChartMarker, type ChartPriceLine } from "@/components/CandleChart";
 import type { PaneAction } from "@/components/tv/IndicatorPane";
 import { useIndicators, type IndicatorsApi } from "@/lib/useIndicators";
+import { mergeDrawings } from "@/lib/pineDrawings";
 import { useNativeStudies, type NativeStudiesApi } from "@/lib/useNativeStudies";
 import { viewportForWindow, type MeasuredViewport } from "@/lib/native/compute";
 import type { PriceScaleState } from "@/lib/priceScale";
@@ -738,6 +739,11 @@ function ChartPaneImpl(props: ChartPaneProps) {
     ],
     [fixedProfileDecorations, sessionProfileDecorations, tpoDecorations, hlcDecorations,
       nativeStudies.decorations, indicators.decorations]);
+  // Pine drawings and what drawing native studies (Pivot Points, S&R MTF) drew.
+  const paneDrawings = useMemo(
+    () => (nativeStudies.drawings ? mergeDrawings([indicators.drawings, nativeStudies.drawings])
+      : indicators.drawings),
+    [indicators.drawings, nativeStudies.drawings]);
 
   const markers = useMemo(
     () => [...indicators.markers, ...props.markers], [indicators.markers, props.markers]);
@@ -1320,7 +1326,7 @@ function ChartPaneImpl(props: ChartPaneProps) {
             decorations={decorations}
             barColors={indicators.barColors}
             markers={paneMarkers}
-            pineDrawings={indicators.drawings}
+            pineDrawings={paneDrawings}
             priceLines={props.priceLines}
             live={!replayActive && !isCanonicalInstrumentId(pane.symbol)}
             /* R6 C-2: the `Replay mode` watermark needs the fact itself, not

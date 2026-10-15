@@ -37,6 +37,7 @@ import { resolutionMs, type Resolution } from "@/lib/resolution";
  * that must happen, memoisation removes the work that must not.
  */
 import type { ChartDecoration, ChartOverlay, ChartPoint } from "@/lib/chartSeries";
+import type { PineDrawings } from "@/lib/api";
 import { PRICE_PANE_ID } from "@/lib/chartSeries";
 import { type Candle } from "@/lib/types";
 import { profileBasisNotice } from "@/lib/volumeProfile";
@@ -103,6 +104,8 @@ export interface NativeStudyOutput {
    * `series` over the viewport.
    */
   tailSeries?: Record<string, readonly number[]>;
+  /** What the study draws (lines, boxes, labels), painted by the Pine drawing layer. */
+  drawings?: PineDrawings;
 }
 
 const EMPTY: NativeStudyOutput = {
@@ -362,10 +365,19 @@ export function runNativeStudy(
 ): NativeStudyOutput {
   if (candles.length === 0) return EMPTY;
   const params = normalizeParams(def, applied.params);
+  const styles: Record<string, { color: string; width: number; visible: boolean }> = {};
+  for (const plot of def.plots) {
+    const o = applied.styles[plot.id] ?? {};
+    styles[plot.id] = {
+      color: o.color ?? plot.color,
+      width: o.width ?? plot.width ?? 1,
+      visible: o.visible ?? !plot.hiddenByDefault,
+    };
+  }
   let result;
   try {
     result = def.compute({
-      candles, params, interval,
+      candles, params, interval, styles,
       visibleRange: extra.visibleRange,
       sources: extra.sources,
       profileCandles: extra.profileCandles,
@@ -387,6 +399,7 @@ export function runNativeStudy(
   const values: Record<string, number | null> = {};
 
   for (const plot of def.plots) {
+    if (plot.drawingOnly) continue;
     const series = result.plots[plot.id];
     if (!series) continue;
     const override = applied.styles[plot.id] ?? {};
@@ -411,6 +424,19 @@ export function runNativeStudy(
       statusValueVisible: applied.valuesInStatusLine !== false,
       statusInputVisible: applied.inputsInStatusLine !== false,
       data: toPoints(times, series, colors, offsetOf(plot, result), stepSeconds),
+    });
+  }
+
+  /*
+   * A study that only DRAWS has no series to carry its legend row — and the
+   * legend row is where it is hidden, opened and removed from. An empty
+   * overlay keeps the row, as a loading study's does.
+   */
+  if (def.plots.every((p) => p.drawingOnly)) {
+    overlays.push({
+      id: `${applied.key}:legend`, title: "", color: def.plots[0]?.color ?? "#9c9c9c", data: [],
+      paneId, instanceId: applied.key, instanceTitle: def.name, instanceParams,
+      statusValueVisible: false, priceScaleLabelVisible: false,
     });
   }
 
@@ -519,9 +545,17 @@ export function runNativeStudy(
      * `warmup` — twenty lengths — made an RSI(14) on a 200-bar instrument
      * report that it could not speak while drawing a correct line from bar 14.
      */
-    insufficient: Object.values(values).every((v) => v === null),
+    // A study that only DRAWS has no series values; it has spoken if it drew.
+    insufficient: result.drawings
+      ? drawingCount(result.drawings) === 0 && Object.values(values).every((v) => v === null)
+      : Object.values(values).every((v) => v === null),
     ...(extra.captureSeries ? { series: result.plots } : {}),
+    ...(result.drawings ? { drawings: result.drawings } : {}),
   };
+}
+
+function drawingCount(d: PineDrawings): number {
+  return d.lines.length + d.boxes.length + d.labels.length + d.tables.length;
 }
 
 /**

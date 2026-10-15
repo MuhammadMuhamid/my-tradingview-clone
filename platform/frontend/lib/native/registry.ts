@@ -53,12 +53,23 @@ import type { ChartOverlay, ChartProfileDecoration } from "@/lib/chartSeries";
 import type { Candle } from "@/lib/types";
 import type { Resolution } from "@/lib/resolution";
 import type { VolumeProfile } from "@/lib/volumeProfile";
+import type { PineDrawings } from "@/lib/api";
 
 // ── Inputs ──────────────────────────────────────────────────────────────────
 
 export type NativeInputValue = number | string | boolean;
 
-export interface NumberInput {
+/**
+ * Shared by every input: the settings dialog prints `group` as a section
+ * heading where it changes, as TradingView prints a script's `group=`, and
+ * `tooltip` as the row's hint.
+ */
+interface InputCommon {
+  group?: string;
+  tooltip?: string;
+}
+
+export interface NumberInput extends InputCommon {
   kind: "number";
   key: string;
   title: string;
@@ -70,7 +81,7 @@ export interface NumberInput {
   integer?: boolean;
 }
 
-export interface SelectInput {
+export interface SelectInput extends InputCommon {
   kind: "select";
   key: string;
   title: string;
@@ -78,7 +89,7 @@ export interface SelectInput {
   options: readonly { value: string; label: string }[];
 }
 
-export interface BooleanInput {
+export interface BooleanInput extends InputCommon {
   kind: "boolean";
   key: string;
   title: string;
@@ -92,14 +103,22 @@ export interface BooleanInput {
  * offers exactly the same options, and the resolution from name to array lives
  * in one place (`resolveSource`) rather than in each study's compute.
  */
-export interface SourceInput {
+export interface SourceInput extends InputCommon {
   kind: "source";
   key: string;
   title: string;
   defval: PriceSource;
 }
 
-export type NativeInput = NumberInput | SelectInput | BooleanInput | SourceInput;
+/** A colour, `#rrggbb` or `#rrggbbaa` — a script's `input.color`. */
+export interface ColorInput extends InputCommon {
+  kind: "color";
+  key: string;
+  title: string;
+  defval: string;
+}
+
+export type NativeInput = NumberInput | SelectInput | BooleanInput | SourceInput | ColorInput;
 
 export const PRICE_SOURCES = [
   "open", "high", "low", "close", "hl2", "hlc3", "ohlc4",
@@ -166,6 +185,11 @@ export interface PlotDef {
    * `plotIsSourceable` in `lib/native/graph`.
    */
   notASource?: boolean;
+  /**
+   * The plot is a Style-tab row for something the study DRAWS, not a series:
+   * it is never put on the chart as a line and has no value in the legend.
+   */
+  drawingOnly?: boolean;
 }
 
 /** A horizontal reference line the study draws in its own pane. */
@@ -227,6 +251,15 @@ export interface NativeComputeInput {
    * with `candles`.
    */
   sources?: Readonly<Record<string, readonly number[]>>;
+  /**
+   * Each plot's look as the user set it in Style, defaults filled in.
+   *
+   * Only a study that DRAWS (lines, boxes, labels) rather than plotting series
+   * reads this: its `drawingOnly` plots are the Style tab's rows for those
+   * drawings — Pivot Points' P, R1, S1… — and the colour, width and on/off a
+   * user picks there must reach the drawings, which nothing but `compute` makes.
+   */
+  styles?: Readonly<Record<string, { color: string; width: number; visible: boolean }>>;
 }
 
 /**
@@ -270,6 +303,11 @@ export interface NativeComputeOutput {
    * Applied at plot time, never inside the maths.
    */
   plotOffsets?: Record<string, number>;
+  /**
+   * Lines, boxes and labels, in the shape a Pine script's drawings take, so
+   * they are painted by the same layer. Times in epoch SECONDS.
+   */
+  drawings?: PineDrawings;
 }
 
 export interface NativeStudyDef {
@@ -414,6 +452,9 @@ function coerceInput(input: NativeInput, value: NativeInputValue | undefined): N
       return input.options.some((o) => o.value === value) ? (value as string) : input.defval;
     case "boolean":
       return typeof value === "boolean" ? value : input.defval;
+    case "color":
+      return typeof value === "string" && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value)
+        ? value : input.defval;
     case "source":
       /*
        * A source is a price name, or another study's output.

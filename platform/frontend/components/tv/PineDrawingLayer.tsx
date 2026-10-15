@@ -117,12 +117,17 @@ export function PineDrawingLayer({
 
     // ── boxes (drawn first, so lines and labels sit above the fills) ──
     for (const b of d.boxes) {
-      const x1 = xOf(b.left);
-      const x2 = xOf(b.right);
+      let x1 = xOf(b.left);
+      let x2 = xOf(b.right);
       const y1 = yOf(b.top);
       const y2 = yOf(b.bottom);
       if (![x1, x2, y1, y2].every(Number.isFinite)) continue;
-      const left = Math.min(x1, x2);
+      if (x2 < x1) [x1, x2] = [x2, x1];
+      // `extend` runs the box out to the edge of the plot, as Pine draws it.
+      const ext = b.extend ?? "none";
+      if (ext === "right" || ext === "both") x2 = plotW;
+      if (ext === "left" || ext === "both") x1 = 0;
+      const left = x1;
       const top = Math.min(y1, y2);
       const bw = Math.abs(x2 - x1);
       const bh = Math.abs(y2 - y1);
@@ -138,11 +143,25 @@ export function PineDrawingLayer({
         ctx.setLineDash([]);
       }
       if (b.text) {
+        /*
+         * Pine centres box text both ways unless the script says otherwise;
+         * drawing it from the top-left corner put "Vol: …" in a different
+         * place from TradingView on every box.
+         */
+        const h = b.textHalign ?? "center";
+        const v = b.textValign ?? "center";
+        const px = TEXT_PX[b.textSize ?? "auto"] ?? 12;
+        ctx.font = `${px}px -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif`;
         ctx.fillStyle = b.textColor;
-        ctx.font = "11px ui-monospace, monospace";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "top";
-        ctx.fillText(b.text, left + 4, top + 3);
+        const pad = 4;
+        // Text in an extended box stays on screen: it aligns to what is visible.
+        const visL = Math.max(left, 0);
+        const visR = Math.min(left + bw, plotW);
+        ctx.textAlign = h.includes("left") ? "left" : h.includes("right") ? "right" : "center";
+        const tx = h.includes("left") ? visL + pad : h.includes("right") ? visR - pad : (visL + visR) / 2;
+        ctx.textBaseline = v.includes("top") ? "top" : v.includes("bottom") ? "bottom" : "middle";
+        const ty = v.includes("top") ? top + pad : v.includes("bottom") ? top + bh - pad : top + bh / 2;
+        ctx.fillText(b.text, tx, ty);
       }
     }
 
@@ -167,40 +186,11 @@ export function PineDrawingLayer({
     }
 
     // ── labels ──
-    ctx.font = "11px ui-monospace, monospace";
-    ctx.textBaseline = "middle";
     for (const lb of d.labels) {
       const x = xOf(lb.x);
       const y = yOf(lb.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      const text = lb.text ?? "";
-      const tw = text ? ctx.measureText(text).width : 0;
-      // `label_up` points at the price from below, so the box sits under it.
-      const below = lb.style.includes("up");
-      const padX = 5;
-      const padY = 3;
-      const boxH = 16;
-      const boxW = tw + padX * 2;
-      const bx = x - boxW / 2;
-      const by = below ? y + 8 : y - 8 - boxH;
-
-      if (text) {
-        ctx.fillStyle = lb.color || "#2962ff";
-        ctx.beginPath();
-        ctx.roundRect(bx, by, boxW, boxH, 3);
-        ctx.fill();
-        ctx.fillStyle = lb.textColor || "#ffffff";
-        ctx.textAlign = "center";
-        ctx.fillText(text, x, by + boxH / 2);
-      }
-      // The pointer stub tying the label to its price.
-      ctx.strokeStyle = lb.color || "#2962ff";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x, below ? by : by + boxH);
-      ctx.stroke();
-      void padY;
+      drawLabel(ctx, lb, x, y);
     }
 
     ctx.restore();
@@ -228,6 +218,120 @@ export function PineDrawingLayer({
       aria-hidden
     />
   );
+}
+
+/** Pine's `size.*` as pixel font sizes, as TradingView renders them. */
+const TEXT_PX: Record<string, number> = {
+  auto: 12, tiny: 9, small: 11, normal: 13, large: 18, huge: 24,
+};
+
+const FONT = `-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif`;
+
+/**
+ * One Pine label, in TradingView's shapes.
+ *
+ * `label_down` is a rounded box ABOVE its point with a small triangle pointing
+ * down at it; `label_up` is the mirror image. `style_none` is the text alone,
+ * centred on the point. A glyph (`plotchar`'s "◆") is the character alone,
+ * just off the bar. Everything else falls back to the box with a pointer.
+ */
+function drawLabel(
+  ctx: CanvasRenderingContext2D,
+  lb: PineDrawings["labels"][number],
+  x: number,
+  y: number,
+): void {
+  const text = lb.text ?? "";
+  const px = TEXT_PX[lb.size] ?? 12;
+  ctx.font = `${px}px ${FONT}`;
+  const style = lb.style ?? "";
+
+  if (style.startsWith("glyph")) {
+    ctx.fillStyle = lb.textColor || lb.color;
+    ctx.textAlign = "center";
+    const above = style.includes("above");
+    ctx.textBaseline = above ? "bottom" : "top";
+    ctx.fillText(text, x, above ? y - 4 : y + 4);
+    return;
+  }
+  if (style.includes("none")) {
+    if (!text) return;
+    ctx.fillStyle = lb.textColor || "#d1d4dc";
+    const align = lb.textAlign ?? "center";
+    ctx.textAlign = align.includes("left") ? "left" : align.includes("right") ? "right" : "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x, y);
+    return;
+  }
+
+  const up = style.includes("up");
+  // `label_right` points RIGHT at its price, so it sits to the LEFT of it;
+  // `label_left` is the mirror image.
+  const sideways = style.includes("label_left") || style.includes("label_right");
+  const down = style.includes("down") || (!up && !sideways && !style.includes("center"));
+  const lines = text.split("\n");
+  const tw = Math.max(0, ...lines.map((t) => ctx.measureText(t).width));
+  const padX = 6;
+  const lineH = Math.round(px * 1.3);
+  const boxW = Math.max(tw + padX * 2, text ? 0 : 12);
+  const boxH = Math.max(lineH * lines.length + 4, text ? 0 : 12);
+  const tip = 5;
+  // On a bar label TradingView keeps a small gap between the bar and the tip.
+  const gap = lb.yloc && lb.yloc !== "price" ? 3 : 0;
+  if (sideways) {
+    const pointsRight = style.includes("label_right");
+    const sx = pointsRight ? x - tip - boxW : x + tip;
+    const sy = y - boxH / 2;
+    // A label with no colour is its text alone — Pivot Points' "R1 (5.282)".
+    if (lb.color) {
+      ctx.fillStyle = lb.color;
+      ctx.beginPath();
+      ctx.roundRect(sx, sy, boxW, boxH, 3);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(pointsRight ? x - tip : x + tip, y - tip);
+      ctx.lineTo(pointsRight ? x - tip : x + tip, y + tip);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (text) {
+      ctx.fillStyle = lb.textColor || "#ffffff";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = pointsRight ? "right" : "left";
+      const tx = pointsRight ? sx + boxW - padX : sx + padX;
+      lines.forEach((t, k) => ctx.fillText(t, tx, sy + 2 + lineH * k + lineH / 2));
+    }
+    return;
+  }
+
+  const bx = x - boxW / 2;
+  const by = up ? y + gap + tip : y - gap - tip - boxH;
+
+  ctx.fillStyle = lb.color || "#2962ff";
+  ctx.beginPath();
+  ctx.roundRect(bx, by, boxW, boxH, 3);
+  ctx.fill();
+  // The pointer triangle tying the label to its price.
+  ctx.beginPath();
+  if (up) {
+    ctx.moveTo(x, y + gap);
+    ctx.lineTo(x - tip, by + 0.5);
+    ctx.lineTo(x + tip, by + 0.5);
+  } else if (down) {
+    ctx.moveTo(x, y - gap);
+    ctx.lineTo(x - tip, by + boxH - 0.5);
+    ctx.lineTo(x + tip, by + boxH - 0.5);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  if (text) {
+    ctx.fillStyle = lb.textColor || "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    lines.forEach((t, k) => ctx.fillText(t, x, by + 2 + lineH * k + lineH / 2));
+  }
 }
 
 /** Script tables, rendered as DOM in the chart's corners. */

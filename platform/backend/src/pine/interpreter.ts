@@ -137,6 +137,15 @@ export interface PineShapeMark {
   color: string;
   text: string;
   shape: string;
+  /**
+   * The character to draw, for `plotchar` (and a `plotshape` style that is a
+   * glyph — diamond, cross, flag). The chart's own markers only know circles,
+   * squares and arrows, so a "◆" drawn as a circle was the wrong shape.
+   */
+  char?: string;
+  /** The bar's high (above) or low (below), which the glyph sits against. */
+  price?: number;
+  size?: string;
 }
 
 export interface PineMeta {
@@ -578,7 +587,22 @@ export class PineInterpreter {
       barColors: this.barColorOrder.map((id) => this.barColors.get(id)!),
       ohlcPlots: this.ohlcPlotOrder.map((id) => this.ohlcPlots.get(id)!),
       shapes: this.shapes,
-      drawings: this.drawings.emit({ timeAt: (b) => this.timeAtBar(b) }),
+      drawings: this.drawings.emit({
+        timeAt: (b) => this.timeAtBar(b),
+        barAt: (x, byTime) => {
+          // The bar a label sits on, for `yloc.abovebar` / `belowbar`.
+          let i = Math.round(x);
+          if (byTime) {
+            const t = this.bars.time;
+            let lo = 0, hi = t.length - 1;
+            if (hi < 0 || x < t[0]! || x > t[hi]!) return null;
+            while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (t[mid]! <= x) lo = mid; else hi = mid - 1; }
+            i = lo;
+          }
+          if (i < 0 || i >= this.bars.length) return null;
+          return { high: this.bars.high[i]!, low: this.bars.low[i]! };
+        },
+      }),
       times: this.times,
       equityCurve,
     };
@@ -1088,7 +1112,7 @@ export class PineInterpreter {
       const slot = this.lookup(obj.name);
       return slot ? slot.series.get(0) : undefined;
     }
-    if (obj.k === "member" || obj.k === "hist") {
+    if (obj.k === "member" || obj.k === "hist" || obj.k === "call") {
       try {
         // Returned as-is, na included: a field holding `na` still identifies
         // the base as a value rather than a namespace, and callers rely on
@@ -1516,7 +1540,7 @@ export class PineInterpreter {
 
       // ── plotting ──
       case "plot": return this.doPlot(e);
-      case "plotshape": case "plotchar": return this.doPlotShape(e);
+      case "plotshape": case "plotchar": return this.doPlotShape(e, path === "plotchar");
       case "hline": {
         const [price, title, color, linestyle, linewidth, , display] = this.args(
           e, ["price", "title", "color", "linestyle", "linewidth", "editable", "display"]
@@ -1558,8 +1582,10 @@ export class PineInterpreter {
           e, ["value", "bottom_value", "top_value", "bottom_color", "top_color"]
         );
         const v = L(val), a = L(lo), b = L(hi);
+        if (Number.isNaN(v)) return null;
         const t = b === a ? 0 : Math.max(0, Math.min(1, (v - a) / (b - a)));
-        return mixHex(S(cLo, "#787b86"), S(cHi, "#787b86"), t);
+        return mixColors(pineColor(cLo === undefined ? undefined : this.argVal(cLo)),
+          pineColor(cHi === undefined ? undefined : this.argVal(cHi)), t);
       }
       case "color.rgb": {
         const [r, g, b, transp] = this.args(e, ["red", "green", "blue", "transp"]);
@@ -1901,7 +1927,16 @@ export class PineInterpreter {
         );
         const want = S(tf, "").trim();
         const own = this.bars.interval;
-        const sameTf = want === "" || want === own || want.toLowerCase() === "chart";
+        /*
+         * Pine spells the chart's own timeframe its own way — "60" on a "1h"
+         * chart. The route does not load a feed for it (it IS the chart), so a
+         * raw string compare sent `request.security(…, "60", …)` on a 1h chart
+         * looking for a feed nobody would ever supply, and the run failed.
+         */
+        let wantItv: string | null = null;
+        try { wantItv = pineTfToInterval(want, own); } catch { wantItv = null; }
+        const sameTf = want === "" || want === own || want.toLowerCase() === "chart"
+          || wantItv === own;
 
         // This engine deliberately implements completed bars with gaps_off and
         // lookahead_off semantics. Optional values outside that subset must be
@@ -2026,7 +2061,76 @@ export class PineInterpreter {
     const dot = path.indexOf(".");
     const ns = path.slice(0, dot);
     const fn = path.slice(dot + 1);
+    if (fn === "new" && this.isPointForm(ns, e)) {
+      return this.dispatchDrawing(ns, "new", this.pointFormArgs(ns, e), e.line);
+    }
     return this.dispatchDrawing(ns, fn, this.drawingArgs(ns, fn, e, undefined), e.line);
+  }
+
+  /**
+   * `box.new(top_left, bottom_right, …)`, `line.new(first_point, second_point,
+   * …)` and `label.new(point, …)` — the v5/v6 `chart.point` overloads.
+   *
+   * Decided from the SYNTAX where it can be (a named point argument, or a
+   * `chart.point.*` call in first place) so no argument is evaluated twice: an
+   * argument holding a `ta.*` call keeps per-call state, and evaluating it once
+   * to sniff its type and again to use it would advance that state twice.
+   * Only a bare identifier or a field is looked at by value, and reading those
+   * has no side effects.
+   */
+  private isPointForm(ns: string, e: Extract<Expr, { k: "call" }>): boolean {
+    const names = POINT_NEW_PARAMS[ns];
+    if (!names) return false;
+    const pointNames = ns === "label" ? ["point"] : names.slice(0, 2);
+    if (e.args.some((a) => a.name !== undefined && pointNames.includes(a.name))) return true;
+    const first = e.args.find((a) => !a.name)?.value;
+    if (!first) return false;
+    if (first.k === "call") {
+      const p = first.callee.k === "member" ? memberPath(first.callee) : null;
+      return p !== null && p.startsWith("chart.point.");
+    }
+    if (first.k === "ident" || first.k === "member") {
+      const v = this.tryEvalObject(first);
+      return v instanceof PineObject && v.type === "chart.point";
+    }
+    return false;
+  }
+
+  /** The point overload's arguments, rewritten into the coordinate form. */
+  private pointFormArgs(ns: string, e: Extract<Expr, { k: "call" }>): PineValue[] {
+    const names = POINT_NEW_PARAMS[ns]!;
+    const positional = e.args.filter((a) => !a.name);
+    const got = new Map<string, PineValue>();
+    names.forEach((n, k) => {
+      const supplied = e.args.find((a) => a.name === n) ?? positional[k];
+      if (supplied) got.set(n, this.evalExpr(supplied.value));
+    });
+    const xloc = toStr(got.get("xloc") ?? "bar_index");
+    // One point taken by time (no index) puts the whole drawing on time, so
+    // both ends are read in the same unit.
+    const noIndex = (v: PineValue | undefined): boolean => v instanceof PineObject
+      && (typeof v.fields.get("index") !== "number" || Number.isNaN(v.fields.get("index") as number));
+    const byTime = xloc.includes("time") || [...got.values()].some(noIndex);
+    const pt = (v: PineValue | undefined): { x: PineValue; y: PineValue } => {
+      if (!(v instanceof PineObject)) return { x: NaN, y: NaN };
+      return { x: (byTime ? v.fields.get("time") : v.fields.get("index")) ?? NaN, y: v.fields.get("price") ?? NaN };
+    };
+    const out = new Map<string, PineValue>();
+    for (const [k, v] of got) out.set(k, v);
+    if (ns === "box") {
+      const a = pt(got.get("top_left"));
+      const b = pt(got.get("bottom_right"));
+      out.set("left", a.x); out.set("top", a.y); out.set("right", b.x); out.set("bottom", b.y);
+    } else if (ns === "line") {
+      const a = pt(got.get("first_point"));
+      const b = pt(got.get("second_point"));
+      out.set("x1", a.x); out.set("y1", a.y); out.set("x2", b.x); out.set("y2", b.y);
+    } else {
+      const a = pt(got.get("point"));
+      out.set("x", a.x); out.set("y", a.y);
+    }
+    out.set("xloc", byTime ? "bar_time" : "bar_index");
+    return drawingParamNames(ns, "new").map((n) => out.get(n) as PineValue);
   }
 
   /** Positional + named arguments for one drawing call, receiver first. */
@@ -2041,7 +2145,10 @@ export class PineInterpreter {
     // A method call supplies the receiver; the plain form takes it as arg 0.
     if (self !== undefined) out.push(self);
     const offset = self !== undefined ? 1 : 0;
-    for (let k = 0; k < names.length; k++) {
+    // The receiver fills slot 0 of a method call. Starting the loop at 0
+    // overwrote it with `positional[-1]` — undefined — so `b.set_right(x)`,
+    // `b.delete()` and every other method-form drawing call was a silent no-op.
+    for (let k = offset; k < names.length; k++) {
       const pname = names[k]!;
       const named = e.args.find((a) => a.name === pname);
       const supplied = named ?? positional[k - offset];
@@ -2536,20 +2643,35 @@ export class PineInterpreter {
     return NaN;
   }
 
-  private doPlotShape(e: Extract<Expr, { k: "call" }>): PineValue {
-    const [seriesE, titleE, styleE, locationE, colorE, , textE] = this.args(
-      e, ["series", "title", "style", "location", "color", "textcolor", "text"]
+  private doPlotShape(e: Extract<Expr, { k: "call" }>, isChar: boolean): PineValue {
+    // plotchar(series, title, char, location, color, offset, text, textcolor, editable, size)
+    // plotshape(series, title, style, location, color, offset, text, textcolor, editable, size)
+    const [seriesE, titleE, glyphE, locationE, colorE, offsetE, textE, , , sizeE] = this.args(
+      e, ["series", "title", isChar ? "char" : "style", "location", "color", "offset",
+        "text", "textcolor", "editable", "size"]
     );
     void titleE;
     if (!this.inRange) return NaN;
     if (!this.truthy(this.argVal(seriesE))) return NaN;
     const loc = toStr(this.argVal(locationE, "abovebar"));
+    const below = loc.includes("below") || loc.includes("bottom");
+    // `offset` moves the mark by whole bars, as it moves a plot.
+    const rawOffset = this.num(this.argVal(offsetE, 0), e.line);
+    const offset = Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0;
+    const at = Math.max(0, Math.min(this.bars.length - 1, this.i + offset));
+    const style = isChar ? "" : toStr(this.argVal(glyphE, "xcross"));
+    const glyph = isChar ? (toStr(this.argVal(glyphE, "★")) || "★") : SHAPE_GLYPHS[style.replace(/^shape\./, "")];
     this.shapes.push({
-      time: this.bars.time[this.i]! / 1000,
-      position: loc.includes("below") ? "below" : "above",
-      color: toStr(this.argVal(colorE, "")) || "#787b86",
+      time: this.bars.time[at]! / 1000,
+      position: below ? "below" : "above",
+      color: toStr(this.argVal(colorE, "")) || "#2962ff",
       text: toStr(this.argVal(textE, "")),
-      shape: toStr(this.argVal(styleE, "circle")),
+      shape: isChar ? "char" : style,
+      ...(glyph ? {
+        char: glyph,
+        price: below ? this.bars.low[at]! : this.bars.high[at]!,
+        size: toStr(this.argVal(sizeE, "auto")),
+      } : {}),
     });
     return NaN;
   }
@@ -2578,6 +2700,20 @@ export class PineInterpreter {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+/** `plotshape` styles the chart's own markers cannot draw, as the glyph TradingView shows. */
+const SHAPE_GLYPHS: Record<string, string> = {
+  diamond: "◆", xcross: "✕", cross: "✚", flag: "⚑",
+};
+
+/** Argument order of the `chart.point` overloads of `X.new`. */
+const POINT_NEW_PARAMS: Record<string, string[]> = {
+  box: ["top_left", "bottom_right", "border_color", "border_width", "border_style",
+    "extend", "xloc", "bgcolor", "text", "text_size", "text_color", "text_halign", "text_valign"],
+  line: ["first_point", "second_point", "xloc", "extend", "color", "style", "width"],
+  label: ["point", "text", "xloc", "yloc", "color", "style", "textcolor", "size",
+    "textalign", "tooltip"],
+};
 
 function memberPath(e: Expr): string | null {
   if (e.k === "ident") return e.name;
@@ -2695,22 +2831,30 @@ function withAlpha(color: string, transp: number): string {
   return `#${rgb}${alpha.toString(16).padStart(2, "0")}`;
 }
 
-/** Blend two #rrggbb colours; `t` of 0 is all `a`, 1 is all `b`. */
-function mixHex(a: string, b: string, t: number): string {
-  const parse = (h: string): [number, number, number] => {
+/**
+ * `color.from_gradient`'s blend, alpha included.
+ *
+ * An `na` end is the other end fully transparent — so a gradient from
+ * `color(na)` fades IN, as TradingView draws it — and a blend that comes out
+ * fully transparent is `na`. Dropping alpha, as `mixHex` does, turned every
+ * translucent zone opaque and every `na` end opaque black.
+ */
+function mixColors(a: string | null, b: string | null, t: number): string | null {
+  const parse = (h: string): [number, number, number, number] => {
     const s = h.replace("#", "");
     const full = s.length === 3 ? s.split("").map((c) => c + c).join("") : s;
-    return [
-      parseInt(full.slice(0, 2), 16) || 0,
-      parseInt(full.slice(2, 4), 16) || 0,
-      parseInt(full.slice(4, 6), 16) || 0,
-    ];
+    const n = (i: number): number => parseInt(full.slice(i, i + 2), 16);
+    return [n(0) || 0, n(2) || 0, n(4) || 0, full.length >= 8 ? (n(6) || 0) : 255];
   };
-  const [r1, g1, b1] = parse(a);
-  const [r2, g2, b2] = parse(b);
-  const ch = (x: number, y: number): string =>
-    Math.round(x + (y - x) * t).toString(16).padStart(2, "0");
-  return `#${ch(r1, r2)}${ch(g1, g2)}${ch(b1, b2)}`;
+  if (a === null && b === null) return null;
+  const pa = a !== null ? parse(a) : null;
+  const pb = b !== null ? parse(b) : null;
+  const ca = pa ?? [pb![0], pb![1], pb![2], 0];
+  const cb = pb ?? [pa![0], pa![1], pa![2], 0];
+  const mix = ca.map((x, i) => Math.round(x + (cb[i]! - x) * t));
+  if (mix[3] === 0) return null;
+  const hex = (x: number): string => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0");
+  return `#${hex(mix[0]!)}${hex(mix[1]!)}${hex(mix[2]!)}${mix[3] === 255 ? "" : hex(mix[3]!)}`;
 }
 
 function last(arr: number[]): number {

@@ -56,6 +56,8 @@ import {
   type SourceIssue, type SourceOption,
 } from "./native/graph";
 import { pushPaneStudies, syncPaneStudies } from "./chartStateSync";
+import { mergeDrawings } from "./pineDrawings";
+import type { PineDrawings } from "./api";
 import { PRICE_PANE_ID, type ChartDecoration, type ChartOverlay } from "./chartSeries";
 import type { Candle } from "./types";
 import type { Resolution } from "./resolution";
@@ -94,6 +96,8 @@ export interface NativeStudiesApi {
   rows: NativeStudyRow[];
   overlays: ChartOverlay[];
   decorations: ChartDecoration[];
+  /** What drawing studies (Pivot Points, S&R MTF) drew; null when none did. */
+  drawings: PineDrawings | null;
   add: (defId: string, params?: NativeParams) => string | null;
   /**
    * A second copy of one study, with its tuning and its styling.
@@ -487,6 +491,13 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
   const decorations = useMemo<ChartDecoration[]>(
     () => list.filter(drawn).flatMap((s) => outputs.get(s.key)?.decorations ?? []),
     [list, outputs, drawn]);
+  /** Lines, boxes and labels the drawn studies made, merged for the drawing layer. */
+  const drawings = useMemo<PineDrawings | null>(() => {
+    const parts = list.filter(drawn).map((s) => outputs.get(s.key)?.drawings).filter(
+      (d): d is PineDrawings => !!d);
+    if (parts.length === 0) return null;
+    return mergeDrawings(parts);
+  }, [list, outputs, drawn]);
 
   const add = useCallback((defId: string, params?: NativeParams): string | null => {
     const def = studyById(defId);
@@ -616,11 +627,11 @@ export function useNativeStudies(ctx: NativeStudiesContext): NativeStudiesApi {
     (key: string) => sourceOptionsFor(listRef.current, studyById, key), []);
 
   return useMemo(() => ({
-    list, rows, overlays, decorations,
+    list, rows, overlays, decorations, drawings,
     add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setDisplay, setVisibleOn,
     resetParams, move,
     sourceOptions, issues: graph.issues,
-  }), [list, rows, overlays, decorations,
+  }), [list, rows, overlays, decorations, drawings,
     add, duplicate, remove, clear, toggleVisible, setParam, setStyle, setDisplay, setVisibleOn,
     resetParams, move,
     sourceOptions, graph.issues]);

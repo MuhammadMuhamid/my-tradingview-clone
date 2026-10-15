@@ -232,6 +232,11 @@ export interface PineShapeMark {
   color: string;
   text: string;
   shape: string;
+  /** A glyph to draw instead of a marker (`plotchar`, a diamond/cross/flag shape). */
+  char?: string;
+  /** The bar's high or low the glyph sits against. */
+  price?: number;
+  size?: string;
 }
 
 /** Drawing objects a script left on the chart at the end of a run. */
@@ -240,9 +245,12 @@ export interface PineDrawings {
     color: string; width: number; style: string; extend: string }[];
   boxes: { left: number; top: number; right: number; bottom: number;
     borderColor: string; borderWidth: number; borderStyle: string;
-    bgColor: string; text: string; textColor: string }[];
+    bgColor: string; text: string; textColor: string;
+    /** Absent on older payloads: TradingView's box text is centred both ways. */
+    textHalign?: string; textValign?: string; textSize?: string; extend?: string }[];
   labels: { x: number; y: number; text: string;
-    color: string; textColor: string; style: string; size: string }[];
+    color: string; textColor: string; style: string; size: string;
+    yloc?: string; textAlign?: string }[];
   tables: { position: string;
     cells: { col: number; row: number; text: string; textColor: string; bgColor: string }[] }[];
 }
