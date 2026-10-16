@@ -234,7 +234,7 @@ test("EVERY PAGE ROOT IS THE SHELL, AND THE SHELL IS BOUNDED", () => {
   const ui = read("components/ui.tsx");
   assert.match(ui, /width === "narrow" \? "max-w-\[1100px\]" : "max-w-\[1400px\]"/,
     "the shell's own width, which is what the constraint actually is");
-  assert.match(ui, /ts-app mx-auto w-full \$\{max\} space-y-4 px-3 py-4 sm:px-4/);
+  assert.match(ui, /ts-app mx-auto w-full \$\{max\} space-y-5 px-4 py-5 sm:px-6/);
 
   const optimizers = read("app/optimizers/page.tsx");
   assert.equal((optimizers.match(/<PageShell/g) ?? []).length, 2,

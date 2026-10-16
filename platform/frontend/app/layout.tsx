@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
+import { PageFrame } from "@/components/PageFrame";
 import { AskProvider } from "@/components/AskDialog";
 
 export const metadata: Metadata = {
@@ -67,10 +68,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             viewport. Wide tables and toolbars scroll in their own containers;
             the page never does.
           */}
-          <main id="main" tabIndex={-1}
-            className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden outline-none">
-            {children}
-          </main>
+          <PageFrame>{children}</PageFrame>
         </div>
         </AskProvider>
       </body>

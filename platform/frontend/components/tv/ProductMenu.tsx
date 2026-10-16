@@ -677,7 +677,7 @@ function MenuLink(
  * added to `lib/navigation` without an entry here still renders — with the
  * neutral fallback — rather than a hole in the column.
  */
-const GLYPHS: Record<string, React.ReactNode> = {
+export const GLYPHS: Record<string, React.ReactNode> = {
   // Chart: axes with a price line.
   "/chart": <><path d="M4 5v14h16" /><path d="M8 15l3.5-4 2.8 2.4L20 8" /></>,
   // Screener: a filter funnel.

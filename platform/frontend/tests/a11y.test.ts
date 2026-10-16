@@ -69,7 +69,10 @@ test("a skip link exists and points at a real target", () => {
   assert.match(layout, /className="skip-link"/);
   const target = layout.match(/href="#([\w-]+)"/)?.[1];
   assert.ok(target, "the skip link has no fragment target");
-  assert.match(layout, new RegExp(`id="${target}"`), `nothing on the page has id="${target}"`);
+  // The target is the page's <main>, which `PageFrame` renders for every route.
+  const frame = fs.readFileSync(path.join(ROOT, "components", "PageFrame.tsx"), "utf8");
+  assert.match(layout, /<PageFrame>/);
+  assert.match(frame, new RegExp(`id="${target}"`), `nothing on the page has id="${target}"`);
 });
 
 test("the dialog component keeps its keyboard and screen-reader contract", () => {

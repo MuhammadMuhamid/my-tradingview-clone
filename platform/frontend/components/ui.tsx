@@ -98,7 +98,7 @@ export function PageShell({
     <div
       role={role}
       aria-label={ariaLabel}
-      className={`ts-app mx-auto w-full ${max} space-y-4 px-3 py-4 sm:px-4 ${className}`}
+      className={`ts-app mx-auto w-full ${max} space-y-5 px-4 py-5 sm:px-6 ${className}`}
     >
       {children}
     </div>
@@ -132,9 +132,10 @@ export function PageHeader({ title, description, actions, leading }: {
       <div className="flex min-w-0 items-center gap-3">
         {leading}
         <div className="min-w-0">
-        <h1 className="text-lg font-semibold text-ink">{title}</h1>
+        {/* TradingView's page title: 24px semibold over a 14px muted line. */}
+        <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-ink">{title}</h1>
         {description && (
-          <p className="mt-0.5 max-w-3xl text-sm text-ink-muted">{description}</p>
+          <p className="mt-1 max-w-3xl text-[14px] leading-snug text-ink-muted">{description}</p>
         )}
         </div>
       </div>

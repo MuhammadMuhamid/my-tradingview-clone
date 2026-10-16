@@ -65,7 +65,7 @@ test("the route exists, has an h1, and is a static server component", () => {
   const ui = read("components/ui.tsx")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   assert.match(ui,
-    /export function PageHeader[\s\S]{0,600}?<h1 className="text-lg font-semibold text-ink">\{title\}<\/h1>/,
+    /export function PageHeader[\s\S]{0,700}?<h1 className="text-\[24px\] font-semibold leading-tight tracking-tight text-ink">\{title\}<\/h1>/,
     "…and PageHeader is what turns that title into the heading");
   assert.match(page, /title: "Manual · Trading Scene"/, "the document title must carry the same name");
 

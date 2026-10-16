@@ -926,7 +926,7 @@ test("every toolbar popover goes through the registry rather than its own state"
     // TVP8 R3-06: indicator TEMPLATES left the browser dialog and became the
     // toolbar control the reference has, beside Indicators.
     "indicator-templates",
-    "layout-preset", "nav-system", "pane-sync",
+    "layout-preset", "pane-sync",
     "product-menu", "saved-layouts", "study-settings-defaults", "timeframe",
     // TVP8: and widening the match immediately found a SECOND one that had
     // been escaping — the timeframe picker's scoped instance. Two popovers
