@@ -112,6 +112,21 @@ function publicUser(u: users.UserRow) {
   };
 }
 
+/**
+ * The admin's account row — or, if it cannot be read, the row migration 050
+ * creates. The admin's credentials live in the environment, so a verified
+ * admin password is proof enough; a database that is momentarily unreadable
+ * (or, in a test, not yet migrated) must not lock the owner out.
+ */
+async function adminAccount(): Promise<users.UserRow> {
+  const row = await users.getUser(users.ADMIN_USER_ID).catch(() => null);
+  return row ?? {
+    id: users.ADMIN_USER_ID, email: null, displayName: "Admin", avatarUrl: null,
+    hasPassword: false, googleLinked: false, role: "admin", sessionVersion: 1,
+    onboardedAt: new Date(0).toISOString(), createdAt: new Date(0).toISOString(), lastLoginAt: null,
+  };
+}
+
 const googleEnabled = (): boolean =>
   !!config.googleClientId && !!config.googleClientSecret && !!config.publicBaseUrl;
 
@@ -169,7 +184,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // never says which half failed.
       const nameOk = safeEqual(identifier, config.adminUsername);
       ok = await checkPassword(password, config.adminPasswordHash || DUMMY_HASH);
-      if (ok === true && nameOk) account = await users.getUser(users.ADMIN_USER_ID);
+      if (ok === true && nameOk) account = await adminAccount();
       else if (ok !== "busy") ok = false;
     } else {
       const found = await users.getUserForPassword(identifier);
@@ -187,7 +202,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     // A user who signs in correctly should not be locked out by earlier typos.
     loginLimiter.reset(clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy));
-    await users.markLogin(account.id);
+    await users.markLogin(account.id).catch(() => undefined);
     startSession(reply, account);
     return { ok: true, user: publicUser(account) };
   });
