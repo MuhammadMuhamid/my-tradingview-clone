@@ -532,3 +532,13 @@ rendered, filled and saved, and the stored rows checked. That found a defect no
 unit test did: the request parser read `b.level` while the client and the column
 both said `rsiLevel`, so a request for RSI level 70 was accepted and quietly
 armed at the 50 default.
+
+
+## 10. Alerts belong to accounts (migration 050, 2026-10-16)
+
+Every alert has a `user_id`. Listing, editing, bulk actions and the event log
+are scoped to the signed-in account; the runner (`listAlerts({ userId: null })`)
+alone reads every account's alerts. Each family's unique index — and so each
+`CONFLICT_TARGET` — now starts with `user_id`: the same configuration armed by
+two users is two alerts. A firing alert is pushed to its owner's devices only.
+See `docs/ACCOUNTS.md`.

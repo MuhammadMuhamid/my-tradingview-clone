@@ -475,3 +475,16 @@ interchangeable:
 [OPERATIONS.md §4](OPERATIONS.md) lists the third and fourth categories
 explicitly, because a control that has never been exercised is not a control you
 can count on.
+
+
+## Accounts and the page frame (2026-10-16)
+
+- **Accounts:** per-user data and default-deny reach — `docs/ACCOUNTS.md`.
+- **One frame:** every page except the chart and the account screens renders
+  inside the chart's frame — `Nav` (the 38px bar with the `ProductMenu`
+  account cell and the page's section tabs) and `PageFrame` (a rail of
+  destinations and the page in one panel on the grey ground).
+- **Study drawings:** native studies may return `drawings` (lines, boxes,
+  labels) painted by `PineDrawingLayer`; Pivot Points Standard and Support &
+  Resistance (MTF) | Flux Charts (`platform/frontend/lib/native/fluxSr.ts`, a port of the
+  published Pine v6 script) use it.

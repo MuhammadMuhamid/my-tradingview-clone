@@ -541,3 +541,26 @@ refreshes `price_tick`, `qty_step`, `min_notional`, base/quote asset and trading
 status from `exchangeInfo`, so a freshly backfilled symbol is immediately usable
 by production freezing. Filters Binance does not send stay zero rather than
 being guessed at.
+
+
+## 9. Deploying without an upload (added 2026-10-16)
+
+The release repository is public, so CloudShell can build the bundle from the
+exact commit CI tested:
+
+```bash
+TAG=$(date -u +%Y%m%d%H%M%S); SHA=<commit>
+mkdir -p /tmp/ghx && curl -sfL https://github.com/MuhammadMuhamid/my-tradingview-clone/archive/$SHA.tar.gz | tar -xz -C /tmp/ghx
+(cd /tmp/ghx/my-tradingview-clone-$SHA && tar -czf ~/src-$TAG.tar.gz platform/backend platform/frontend platform/deployment)
+bash ts-alert-ops.sh dryrun src-$TAG.tar.gz   # pending migrations, applied and rolled back
+bash cloud-deploy.sh $TAG
+```
+
+- The `platform/` prefix inside the bundle is required.
+- Tags are UTC timestamps: env-backup pruning sorts by name, and a reused tag
+  collides with its own pre-deploy RDS snapshot.
+- Done means `/readyz` reports `expected` equal to the commit's migration
+  count (50 as of migration 050).
+- Accounts need `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`
+  and optionally `ALLOW_SIGNUPS` in `/opt/srtrend/deployment/.env` — see
+  `docs/ACCOUNTS.md`.

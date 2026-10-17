@@ -17,3 +17,13 @@ Updated 2026-09-11. Live TradingView chart inspected at 1440×900 with authentic
 | Premium features | Account session authenticated; Premium-only entitlement not exposed in account snapshot | N/A | Mark entitlement-dependent features honestly | TRADINGVIEW_PREMIUM_UNVERIFIED | P1 | Account menu inspected |
 
 Totals: remaining avoidable P0 **0**; remaining avoidable P1 **0**; remaining P2 **0**; intentional Trading Scene differences **2**; unsupported TradingView features **0**; Premium-unverified items **1**.
+
+
+## Update 2026-10-16
+
+| Area | TradingView behavior | Trading Scene behavior | Status |
+|---|---|---|---|
+| Pine boxes from `chart.point` | ChartPrime "SR Breaks and Retests" draws "Vol: …" boxes | Supported; method-form setters/`delete`, gradient alpha, plotchar glyphs and `yloc` fixed in the engine | MATCH |
+| Pivot Points Standard | One orange segment per level per period, "R3 (5.577)" labels, 15 periods back | Same, built-in study with drawings | MATCH |
+| Support & Resistance (MTF) – Flux Charts | Zones/lines, "1 Hour \| 6.000" titles, B/R labels | Ported built-in study; zones matched a live TradingView NEARUSDT 1h screenshot | MATCH |
+| Non-chart pages | One workspace frame | Every page in the chart's frame (account cell, 38px bar, rail, panel) | MATCH |
