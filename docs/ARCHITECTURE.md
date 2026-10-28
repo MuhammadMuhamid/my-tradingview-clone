@@ -487,4 +487,7 @@ can count on.
 - **Study drawings:** native studies may return `drawings` (lines, boxes,
   labels) painted by `PineDrawingLayer`; Pivot Points Standard and Support &
   Resistance (MTF) | Flux Charts (`platform/frontend/lib/native/fluxSr.ts`, a port of the
-  published Pine v6 script) use it.
+  published Pine v6 script) use it, as do Market Structure Break & Order
+  Block and Liquidity Swings [LuxAlgo] (`platform/frontend/lib/native/structureStudies.ts`,
+  computed by `marketStructure` / `liquiditySwings` in the shared TA core so
+  the `msb`, `order_block` and `liquidity_swing` alerts match the drawing).

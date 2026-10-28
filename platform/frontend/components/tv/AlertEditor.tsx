@@ -301,6 +301,73 @@ export function AlertEditor({
           </>
         )}
 
+        {(kind === "msb" || kind === "order_block") && (
+          <>
+            {kind === "order_block" && (
+              <Row label="Zone">
+                <Dropdown
+                  value={form.obZone}
+                  label="Order block zone"
+                  width={WIDE}
+                  onChange={(v) => update("obZone", v as typeof form.obZone)}
+                  options={[
+                  { value: "any", label: "Any zone" },
+                  { value: "bullish", label: "Any bullish zone" },
+                  { value: "bearish", label: "Any bearish zone" },
+                  { value: "bu_ob", label: "Bullish order block (Bu-OB)" },
+                  { value: "be_ob", label: "Bearish order block (Be-OB)" },
+                  { value: "bu_bb", label: "Bullish breaker (Bu-BB / Bu-MB)" },
+                  { value: "be_bb", label: "Bearish breaker (Be-BB / Be-MB)" },
+                ]}
+                />
+              </Row>
+            )}
+            <Row label="ZigZag length">
+              <IntInput value={form.msbZigzagLength} onChange={(n) => update("msbZigzagLength", n)}
+                label="ZigZag length" min={1} max={500} />
+            </Row>
+            <Row label="Fib factor">
+              <input
+                type="number" min={0} max={1} step={0.01} value={form.msbFibFactor}
+                onChange={(e) => update("msbFibFactor", numOf(e.target.value))}
+                aria-label="Fib factor for breakout confirmation"
+                className={BOX}
+              />
+            </Row>
+          </>
+        )}
+
+        {kind === "liquidity_swing" && (
+          <>
+            <Row label="Level">
+              <Dropdown
+                value={form.lsSide}
+                label="Liquidity level"
+                width={WIDE}
+                onChange={(v) => update("lsSide", v as typeof form.lsSide)}
+                options={[
+                  { value: "either", label: "Whichever is nearest" },
+                  { value: "high", label: "Swing high" },
+                  { value: "low", label: "Swing low" },
+                ]}
+              />
+            </Row>
+            <Row label="Pivot lookback">
+              <IntInput value={form.lsLength} onChange={(n) => update("lsLength", n)}
+                label="Pivot lookback" min={1} max={500} />
+            </Row>
+            <Row label="Swing area">
+              <Dropdown
+                value={form.lsArea}
+                label="Swing area"
+                width={WIDE}
+                onChange={(v) => update("lsArea", v as typeof form.lsArea)}
+                options={[{ value: "full", label: "Full Range" }, { value: "wick", label: "Wick Extremity" }]}
+              />
+            </Row>
+          </>
+        )}
+
         {kind === "pivot_level" && (
           <>
             <Row label="Pivot type">

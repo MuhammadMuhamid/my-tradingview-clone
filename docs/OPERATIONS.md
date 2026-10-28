@@ -560,7 +560,7 @@ bash cloud-deploy.sh $TAG
 - Tags are UTC timestamps: env-backup pruning sorts by name, and a reused tag
   collides with its own pre-deploy RDS snapshot.
 - Done means `/readyz` reports `expected` equal to the commit's migration
-  count (50 as of migration 050).
+  count (51 as of migration 051).
 - Accounts need `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`
   and optionally `ALLOW_SIGNUPS` in `/opt/srtrend/deployment/.env` — see
   `docs/ACCOUNTS.md`.

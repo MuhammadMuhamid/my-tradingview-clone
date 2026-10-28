@@ -28,6 +28,12 @@ interface DbAlert {
   fib_depth: number | null;
   fib_reverse: boolean | null;
   fib_level: string | number | null;
+  msb_zigzag_length?: number | null;
+  msb_fib_factor?: string | number | null;
+  ob_zone?: string | null;
+  ls_length?: number | null;
+  ls_area?: string | null;
+  ls_side?: string | null;
   pattern_detector_id: string | null;
   pattern_detector_version: string | null;
   pattern_settings_hash: string | null;
@@ -112,6 +118,12 @@ function toRow(r: DbAlert): MaAlertRow {
     fibDepth: r.fib_depth ?? null,
     fibReverse: r.fib_reverse ?? null,
     fibLevel: r.fib_level == null ? null : num(r.fib_level),
+    msbZigzagLength: r.msb_zigzag_length ?? null,
+    msbFibFactor: r.msb_fib_factor == null ? null : num(r.msb_fib_factor),
+    obZone: r.ob_zone ?? null,
+    lsLength: r.ls_length ?? null,
+    lsArea: r.ls_area ?? null,
+    lsSide: r.ls_side ?? null,
     patternDetectorId: r.pattern_detector_id,
     patternDetectorVersion: r.pattern_detector_version,
     patternSettingsHash: r.pattern_settings_hash,
@@ -196,6 +208,12 @@ export interface MaAlertInput {
   fibDepth?: number | null;
   fibReverse?: boolean | null;
   fibLevel?: number | null;
+  msbZigzagLength?: number | null;
+  msbFibFactor?: number | null;
+  obZone?: string | null;
+  lsLength?: number | null;
+  lsArea?: string | null;
+  lsSide?: string | null;
   nearMinPct?: number;
   nearMaxPct?: number;
   enabled?: boolean;
@@ -274,6 +292,15 @@ const CONFLICT_TARGET: Record<ConditionKind, string> = {
     "(user_id, symbol, timeframe, fib_deviation, fib_depth, fib_reverse, fib_level, mode, filters)" +
     " WHERE condition_kind = 'fib_level'",
   ma: "(user_id, symbol, timeframe, ma_type, ma_length, mode, filters) WHERE condition_kind = 'ma'",
+  msb:
+    "(user_id, symbol, timeframe, msb_zigzag_length, msb_fib_factor, mode, filters)" +
+    " WHERE condition_kind = 'msb'",
+  order_block:
+    "(user_id, symbol, timeframe, msb_zigzag_length, msb_fib_factor, ob_zone, filters)" +
+    " WHERE condition_kind = 'order_block'",
+  liquidity_swing:
+    "(user_id, symbol, timeframe, ls_length, ls_area, ls_side, mode, filters)" +
+    " WHERE condition_kind = 'liquidity_swing'",
   price: "(user_id, symbol, timeframe, target_price, price_direction, filters) WHERE condition_kind = 'price'",
   ma_vs_ma:
     "(user_id, symbol, timeframe, ma_type, ma_length, ma2_type, ma2_length, mode, filters)" +
@@ -373,12 +400,13 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
         canonical_instrument_id, provider_id, price_basis,
         filters,
         fib_deviation, fib_depth, fib_reverse, fib_level,
-        user_id)
+        user_id,
+        msb_zigzag_length, msb_fib_factor, ob_zone, ls_length, ls_area, ls_side)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
              $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
              $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,
-             $63,$64,$65,$66,$67)
+             $63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73)
      ON CONFLICT ${CONFLICT_TARGET[kind]} DO UPDATE SET
        near_min_pct        = EXCLUDED.near_min_pct,
        near_max_pct        = EXCLUDED.near_max_pct,
@@ -474,6 +502,8 @@ export async function upsertAlert(input: MaAlertInput): Promise<MaAlertRow> {
       input.fibDeviation ?? null, input.fibDepth ?? null,
       input.fibReverse ?? null, input.fibLevel ?? null,
       input.userId,
+      input.msbZigzagLength ?? null, input.msbFibFactor ?? null, input.obZone ?? null,
+      input.lsLength ?? null, input.lsArea ?? null, input.lsSide ?? null,
     ]
   );
   return toRow(rows[0]!);
@@ -562,6 +592,12 @@ const PATCH_COLUMNS: Record<string, string> = {
   fibDepth: "fib_depth",
   fibReverse: "fib_reverse",
   fibLevel: "fib_level",
+  msbZigzagLength: "msb_zigzag_length",
+  msbFibFactor: "msb_fib_factor",
+  obZone: "ob_zone",
+  lsLength: "ls_length",
+  lsArea: "ls_area",
+  lsSide: "ls_side",
   srSide: "sr_side",
   srPivotLength: "sr_pivot_length",
   srInvalidation: "sr_invalidation",

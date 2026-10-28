@@ -30,6 +30,7 @@ import type {
   BollingerBand, StochasticTarget,
 } from "../types/maAlerts";
 import type { PivotType } from "../engine/pivotLevels";
+import type { ObZoneChoice, SwingArea } from "../ta/core";
 
 /** Everything the decision needs about one armed alert. */
 export interface AlertSpec {
@@ -84,6 +85,18 @@ export interface FeedSample {
   fibLevel?: (
     deviation: number, depth: number, reverse: boolean, level: number
   ) => { price: number; label: string } | undefined;
+  /**
+   * The MSB-OB study on this feed's bars at the evaluated bar: the market
+   * state, a break ON this bar (+1 / -1 / 0, with the level it broke), and
+   * the zone price ENTERED on this bar, if one of `zone` matches.
+   */
+  msb?: (zigzagLength: number, fibFactor: number) =>
+    { market: number; broke: number; price: number } | undefined;
+  orderBlock?: (zigzagLength: number, fibFactor: number, zone: ObZoneChoice) =>
+    { entered: boolean; price: number; label: string } | undefined;
+  /** The live Liquidity Swings level for this bar, as price meets it. */
+  liquiditySwing?: (length: number, area: SwingArea, side: "high" | "low" | "either") =>
+    { price: number; label: string } | undefined;
   /**
    * RSI at this bar, and the reference it is compared against — the fixed
    * level, or the RSI-based SMA. Both come from the runner because only it
@@ -256,6 +269,21 @@ function withSeries(condition: AlertCondition, sample: FeedSample): Sample {
         condition.srSide, condition.pivotLength, condition.invalidation
       );
       return { ...base, refValue: zone?.price, refLabel: zone?.label };
+    }
+    case "msb": {
+      const m = sample.msb?.(condition.zigzagLength, condition.fibFactor);
+      return {
+        ...base, indicatorValue: m?.market, indicatorReference: m?.broke,
+        refValue: m?.price, refLabel: m && m.broke > 0 ? "bullish" : m && m.broke < 0 ? "bearish" : undefined,
+      };
+    }
+    case "order_block": {
+      const z = sample.orderBlock?.(condition.zigzagLength, condition.fibFactor, condition.zone);
+      return { ...base, indicatorValue: z?.entered ? 1 : 0, refValue: z?.price, refLabel: z?.label };
+    }
+    case "liquidity_swing": {
+      const lvl = sample.liquiditySwing?.(condition.length, condition.area, condition.side);
+      return { ...base, refValue: lvl?.price, refLabel: lvl?.label };
     }
     case "fib_level": {
       const fib = sample.fibLevel?.(

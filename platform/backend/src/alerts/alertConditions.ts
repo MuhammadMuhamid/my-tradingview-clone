@@ -33,6 +33,7 @@ import {
   type PriceDirection, type SrSide, type RsiTarget, type MacdTarget, type StAtrMethod,
   type StochasticTarget, type FilterTimeframe,
 } from "../types/maAlerts";
+import { LIQUIDITY_SWING_DEFAULTS, MSB_DEFAULTS, type ObZoneChoice, type SwingArea } from "../ta/core";
 
 export type Side = "above" | "below";
 
@@ -226,6 +227,48 @@ export interface FibLevelCondition {
   nearMaxPct: number;
 }
 
+/**
+ * A market structure break from the "Market Structure Break & Order Block"
+ * study (`marketStructure` in `ta/core`, the function the chart draws with).
+ *
+ * The event is the break itself, read from the computation on the evaluated
+ * bar: `cross_up` a bullish MSB, `cross_down` a bearish one, `touch` either.
+ */
+export interface MsbCondition {
+  kind: "msb";
+  zigzagLength: number;
+  fibFactor: number;
+  mode: "cross_up" | "cross_down" | "touch";
+}
+
+/**
+ * Price ENTERING one of the zones a structure break leaves: an order block
+ * (Bu-OB / Be-OB) or a breaker/mitigation block (Bu-BB / Be-BB). Fires on the
+ * bar the study first reports "price in zone" for a zone, not on every bar
+ * spent inside it.
+ */
+export interface OrderBlockCondition {
+  kind: "order_block";
+  zigzagLength: number;
+  fibFactor: number;
+  zone: ObZoneChoice;
+}
+
+/**
+ * Price against the live Liquidity Swings [LuxAlgo] level — the latest swing
+ * high (or low) that no close has crossed yet. Same touch / cross / near
+ * grammar as every level family.
+ */
+export interface LiquiditySwingCondition {
+  kind: "liquidity_swing";
+  length: number;
+  area: SwingArea;
+  side: "high" | "low" | "either";
+  mode: MaMode;
+  nearMinPct: number;
+  nearMaxPct: number;
+}
+
 export interface PivotLevelCondition {
   kind: "pivot_level";
   pivotType: PivotType;
@@ -370,6 +413,7 @@ export type AlertCondition = (
   | RsiCondition | MacdCondition | SupertrendCondition
   | BollingerCondition | StochasticCondition | AdxCondition
   | CandlestickPatternCondition
+  | MsbCondition | OrderBlockCondition | LiquiditySwingCondition
 ) & WithFilters;
 
 // ── Evaluation ──────────────────────────────────────────────────────────────
@@ -518,6 +562,38 @@ function evaluateTrigger(
       return evaluateSrZone(condition, sample, prevSide);
     case "pivot_level":
       return evaluatePivotLevel(condition, sample, prevSide);
+    case "msb": {
+      // `indicatorValue` is the market state, `indicatorReference` the
+      // direction of a break ON this bar (0 when none).
+      const market = sample.indicatorValue;
+      const broke = sample.indicatorReference ?? 0;
+      const reference = sample.refValue ?? NaN;
+      if (market === undefined || !Number.isFinite(market)) {
+        return { side: prevSide, distancePct: 0, triggered: false, reference };
+      }
+      const side: Side = market > 0 ? "above" : "below";
+      const triggered = broke !== 0 && (condition.mode === "touch"
+        || (condition.mode === "cross_up" && broke > 0)
+        || (condition.mode === "cross_down" && broke < 0));
+      const distancePct = Number.isFinite(reference) ? distance(sample.close, reference) : 0;
+      return { side, distancePct, triggered, reference };
+    }
+    case "order_block": {
+      // `indicatorValue` is 1 on the bar price entered a matching zone.
+      const entered = sample.indicatorValue === 1;
+      const reference = sample.refValue ?? NaN;
+      const distancePct = Number.isFinite(reference) ? distance(sample.close, reference) : 0;
+      return { side: entered ? "above" : "below", distancePct, triggered: entered, reference };
+    }
+    case "liquidity_swing": {
+      const reference = sample.refValue ?? NaN;
+      if (!Number.isFinite(reference)) {
+        return { side: prevSide, distancePct: 0, triggered: false, reference };
+      }
+      return evaluateAgainstReference(
+        condition.mode, condition.nearMinPct, condition.nearMaxPct,
+        reference, sample, prevSide);
+    }
     case "fib_level": {
       // Fewer than two zig-zag legs has no fib at all. Keep the stored side
       // rather than compare against NaN: a side invented now would report a
@@ -908,6 +984,26 @@ export function describeCondition(condition: AlertCondition): string {
       return condition.mode === "cross_up"
         ? `${adxLabel(condition)} rises through ${condition.level}`
         : `${adxLabel(condition)} falls through ${condition.level}`;
+    case "msb": {
+      const what = msbLabel(condition);
+      return condition.mode === "cross_up" ? `bullish ${what}`
+        : condition.mode === "cross_down" ? `bearish ${what}` : `${what} (either direction)`;
+    }
+    case "order_block":
+      return `price enters ${obZoneLabel(condition.zone)}${msbTuning(condition)}`;
+    case "liquidity_swing": {
+      const line = liquidityLabel(condition);
+      switch (condition.mode) {
+        case "touch": return `touches the ${line}`;
+        case "cross_up": return `crosses above the ${line}`;
+        case "cross_down": return `crosses below the ${line}`;
+        case "near_above":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% above the ${line}`;
+        case "near_below":
+          return `is ${condition.nearMinPct}–${condition.nearMaxPct}% below the ${line}`;
+      }
+      break;
+    }
     case "fib_level": {
       const line = fibLabel(condition);
       switch (condition.mode) {
@@ -929,6 +1025,31 @@ export function describeCondition(condition: AlertCondition): string {
  * "0.618 auto fib level", with the zig-zag inputs named only when they are not
  * the indicator's defaults (Deviation 3, Depth 30), and "reversed" when it is.
  */
+const msbTuning = (c: Pick<MsbCondition, "zigzagLength" | "fibFactor">): string =>
+  c.zigzagLength !== MSB_DEFAULTS.zigzagLength || c.fibFactor !== MSB_DEFAULTS.fibFactor
+    ? ` (zigzag ${c.zigzagLength}, fib ${c.fibFactor})` : "";
+
+/** "market structure break", with the zig-zag inputs when they are not the study's. */
+export function msbLabel(c: Pick<MsbCondition, "zigzagLength" | "fibFactor">): string {
+  return `market structure break${msbTuning(c)}`;
+}
+
+const OB_ZONE_LABELS: Record<ObZoneChoice, string> = {
+  bu_ob: "a bullish order block (Bu-OB)", be_ob: "a bearish order block (Be-OB)",
+  bu_bb: "a bullish breaker block (Bu-BB/MB)", be_bb: "a bearish breaker block (Be-BB/MB)",
+  bullish: "a bullish order or breaker block", bearish: "a bearish order or breaker block",
+  any: "an order or breaker block",
+};
+export const obZoneLabel = (z: ObZoneChoice): string => OB_ZONE_LABELS[z];
+
+/** "swing high liquidity level", with the lookback when it is not 20. */
+export function liquidityLabel(c: Pick<LiquiditySwingCondition, "side" | "length" | "area">): string {
+  const which = c.side === "high" ? "swing high" : c.side === "low" ? "swing low" : "nearest swing";
+  const tuned = c.length !== LIQUIDITY_SWING_DEFAULTS.length ? ` (lookback ${c.length})` : "";
+  const area = c.area !== LIQUIDITY_SWING_DEFAULTS.area ? " (wick area)" : "";
+  return `${which} liquidity level${tuned}${area}`;
+}
+
 export function fibLabel(c: Pick<FibLevelCondition, "level" | "deviation" | "depth" | "reverse">): string {
   const tuned = c.deviation !== 3 || c.depth !== 30 ? ` (dev ${c.deviation}, depth ${c.depth})` : "";
   return `${c.level} auto fib level${tuned}${c.reverse ? " (reversed)" : ""}`;
@@ -1031,6 +1152,9 @@ export function requiredSeries(condition: AlertCondition): { type: MaType; lengt
     case "sr_zone": return [];
     case "pivot_level": return [];
     case "fib_level": return [];
+    case "msb": return [];
+    case "order_block": return [];
+    case "liquidity_swing": return [];
     case "rsi": return [];
     case "macd": return [];
     case "supertrend": return [];
@@ -1094,6 +1218,31 @@ export function validateCondition(condition: AlertCondition): string | null {
       if (!Number.isInteger(condition.pivotLength) || condition.pivotLength < 2 || condition.pivotLength > 100) {
         return "pivotLength must be an integer between 2 and 100";
       }
+      return filterError(condition.filters)
+        ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
+
+    case "msb":
+    case "order_block":
+      if (!Number.isInteger(condition.zigzagLength) || condition.zigzagLength < 1 || condition.zigzagLength > 500) {
+        return "msbZigzagLength must be an integer between 1 and 500";
+      }
+      if (!Number.isFinite(condition.fibFactor) || condition.fibFactor < 0 || condition.fibFactor > 1) {
+        return "msbFibFactor must be a number between 0 and 1";
+      }
+      if (condition.kind === "msb" && !["cross_up", "cross_down", "touch"].includes(condition.mode)) {
+        return "mode must be cross_up (bullish), cross_down (bearish) or touch (either)";
+      }
+      if (condition.kind === "order_block" && !(condition.zone in OB_ZONE_LABELS)) {
+        return `obZone must be one of ${Object.keys(OB_ZONE_LABELS).join(", ")}`;
+      }
+      return filterError(condition.filters);
+
+    case "liquidity_swing":
+      if (!Number.isInteger(condition.length) || condition.length < 1 || condition.length > 500) {
+        return "lsLength must be an integer between 1 and 500";
+      }
+      if (condition.area !== "wick" && condition.area !== "full") return "lsArea must be wick or full";
+      if (!["high", "low", "either"].includes(condition.side)) return "lsSide must be high, low or either";
       return filterError(condition.filters)
         ?? nearBandError(condition.mode, condition.nearMinPct, condition.nearMaxPct);
 
@@ -1552,6 +1701,12 @@ export function conditionFromRow(row: {
   fibDepth?: number | null;
   fibReverse?: boolean | null;
   fibLevel?: number | null;
+  msbZigzagLength?: number | null;
+  msbFibFactor?: number | null;
+  obZone?: string | null;
+  lsLength?: number | null;
+  lsArea?: string | null;
+  lsSide?: string | null;
   maType: MaType | null;
   maLength: number | null;
   mode: MaAlertMode | null;
@@ -1661,6 +1816,32 @@ export function conditionFromRow(row: {
       };
     }
 
+    case "msb": {
+      if (row.msbZigzagLength == null || row.msbFibFactor == null
+          || (row.mode !== "cross_up" && row.mode !== "cross_down" && row.mode !== "touch")) return null;
+      return {
+        ...filtersFromRow(row), kind: "msb",
+        zigzagLength: row.msbZigzagLength, fibFactor: row.msbFibFactor, mode: row.mode,
+      };
+    }
+    case "order_block": {
+      if (row.msbZigzagLength == null || row.msbFibFactor == null
+          || row.obZone == null || !(row.obZone in OB_ZONE_LABELS)) return null;
+      return {
+        ...filtersFromRow(row), kind: "order_block",
+        zigzagLength: row.msbZigzagLength, fibFactor: row.msbFibFactor, zone: row.obZone as ObZoneChoice,
+      };
+    }
+    case "liquidity_swing": {
+      if (row.lsLength == null || (row.lsArea !== "wick" && row.lsArea !== "full")
+          || (row.lsSide !== "high" && row.lsSide !== "low" && row.lsSide !== "either")
+          || row.mode === null) return null;
+      return {
+        ...filtersFromRow(row), kind: "liquidity_swing",
+        length: row.lsLength, area: row.lsArea, side: row.lsSide, mode: row.mode,
+        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct,
+      };
+    }
     case "fib_level": {
       if (row.fibDeviation == null || row.fibDepth == null || row.fibLevel == null
           || row.fibReverse == null || row.mode === null) return null;

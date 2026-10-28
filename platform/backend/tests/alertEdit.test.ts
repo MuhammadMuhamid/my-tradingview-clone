@@ -30,6 +30,8 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const BASE: MaAlertRow = {
   // As `toRow` returns them for every non-fib row: null, never absent.
   fibDeviation: null, fibDepth: null, fibReverse: null, fibLevel: null,
+  msbZigzagLength: null, msbFibFactor: null, obZone: null,
+  lsLength: null, lsArea: null, lsSide: null,
   id: ID, userId: "00000000-0000-4000-8000-000000000001",
   symbol: "BTCUSDT", timeframe: "1h", conditionKind: "price",
   // A real row always HAS the column; NULL is what "ungated" looks like.
@@ -69,6 +71,18 @@ const ROWS: Record<ConditionKind, MaAlertRow> = {
     ...BASE, conditionKind: "fib_level", targetPrice: null, priceDirection: null,
     fibDeviation: 2.5, fibDepth: 24, fibReverse: true, fibLevel: 0.786,
     mode: "near_below", nearMinPct: 0.1, nearMaxPct: 0.4,
+  },
+  msb: {
+    ...BASE, conditionKind: "msb", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 12, msbFibFactor: 0.5, mode: "cross_down", nearMinPct: 0, nearMaxPct: 0,
+  },
+  order_block: {
+    ...BASE, conditionKind: "order_block", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 7, msbFibFactor: 0.25, obZone: "be_bb", mode: "touch", nearMinPct: 0, nearMaxPct: 0,
+  },
+  liquidity_swing: {
+    ...BASE, conditionKind: "liquidity_swing", targetPrice: null, priceDirection: null,
+    lsLength: 14, lsArea: "wick", lsSide: "low", mode: "near_above", nearMinPct: 0.2, nearMaxPct: 0.8,
   },
   price: { ...BASE, conditionKind: "price", targetPrice: 64250.5, priceDirection: "cross_up" },
   ma: {

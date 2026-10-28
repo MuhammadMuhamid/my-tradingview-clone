@@ -78,6 +78,11 @@ export const EDITABLE_CONDITION_FIELDS: Record<ConditionKind, readonly string[]>
     "fibDeviation", "fibDepth", "fibReverse", "fibLevel", "mode", "nearMinPct", "nearMaxPct",
     ...GATE_FIELDS,
   ],
+  msb: ["msbZigzagLength", "msbFibFactor", "mode", ...GATE_FIELDS],
+  order_block: ["msbZigzagLength", "msbFibFactor", "obZone", ...GATE_FIELDS],
+  liquidity_swing: [
+    "lsLength", "lsArea", "lsSide", "mode", "nearMinPct", "nearMaxPct", ...GATE_FIELDS,
+  ],
   rsi: ["rsiLength", "target", "rsiLevel", "rsiMaLength", "mode", ...GATE_FIELDS],
   macd: ["macdFast", "macdSlow", "macdSignal", "target", "mode", ...GATE_FIELDS],
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode", ...GATE_FIELDS],
@@ -130,6 +135,11 @@ const REFERENCE_COLUMNS: Record<ConditionKind, readonly (keyof AlertColumns)[]> 
   // Every input re-anchors the fib or moves the level along it, so a stored
   // side from the old inputs describes a line that no longer exists.
   fib_level: ["fibDeviation", "fibDepth", "fibReverse", "fibLevel"],
+  // A different zig-zag is a different structure: the stored state describes
+  // breaks and zones that no longer exist.
+  msb: ["msbZigzagLength", "msbFibFactor"],
+  order_block: ["msbZigzagLength", "msbFibFactor", "obZone"],
+  liquidity_swing: ["lsLength", "lsArea", "lsSide"],
   rsi: ["rsiLength", "rsiLevel", "rsiMaLength", "indicatorTarget"],
   macd: ["macdFast", "macdSlow", "macdSignal", "indicatorTarget"],
   // Both inputs reshape the bands, and therefore which side of them price is
@@ -218,6 +228,19 @@ function withGates(
         pivotLength: row.srPivotLength ?? DEFAULT_SR_OPTIONS.pivotLength,
         invalidation: row.srInvalidation ?? "close",
         ...gates,
+      };
+    case "msb":
+      return {
+        msbZigzagLength: row.msbZigzagLength, msbFibFactor: row.msbFibFactor, mode: row.mode, ...gates,
+      };
+    case "order_block":
+      return {
+        msbZigzagLength: row.msbZigzagLength, msbFibFactor: row.msbFibFactor, obZone: row.obZone, ...gates,
+      };
+    case "liquidity_swing":
+      return {
+        lsLength: row.lsLength, lsArea: row.lsArea, lsSide: row.lsSide, mode: row.mode,
+        nearMinPct: row.nearMinPct, nearMaxPct: row.nearMaxPct, ...gates,
       };
     case "fib_level":
       return {

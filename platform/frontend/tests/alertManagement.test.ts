@@ -54,6 +54,9 @@ const fixtures = [
   alert("stochastic", { conditionKind: "stochastic", mode: "cross_up" }),
   alert("adx", { conditionKind: "adx", mode: "cross_up" }),
   alert("fib", { conditionKind: "fib_level", fibLevel: 0.618, fibDeviation: 3, fibDepth: 30, fibReverse: false, mode: "touch" }),
+  alert("msb", { conditionKind: "msb", msbZigzagLength: 9, msbFibFactor: 0.33, mode: "cross_up" }),
+  alert("ob", { conditionKind: "order_block", msbZigzagLength: 9, msbFibFactor: 0.33, obZone: "any", mode: "touch" }),
+  alert("liq", { conditionKind: "liquidity_swing", lsLength: 20, lsArea: "full", lsSide: "high", mode: "touch" }),
 ];
 
 test("symbol search is case-insensitive for exact and partial coin names", () => {
@@ -82,6 +85,7 @@ test("every family mapping and reliable EMA/SMA subtype mapping is covered", () 
     all: fixtures.map((item) => item.id),
     price: ["price"], ma: ["ema", "sma"], ma_ema: ["ema"], ma_sma: ["sma"],
     ma_vs_ma: ["cross"], sr_zone: ["sr"], pivot_level: ["pivot"], fib_level: ["fib"],
+    msb: ["msb"], order_block: ["ob"], liquidity_swing: ["liq"],
     rsi: ["rsi"], macd: ["macd"], supertrend: ["supertrend"],
     bollinger: ["bollinger"], stochastic: ["stochastic"], adx: ["adx"],
   };

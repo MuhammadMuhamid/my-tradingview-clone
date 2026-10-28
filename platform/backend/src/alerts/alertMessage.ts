@@ -9,7 +9,7 @@
  * Pure, so the wording — and its size against the 4 KB Web Push payload limit —
  * is testable without a push service.
  */
-import { fibLabel,
+import { fibLabel, liquidityLabel,
   describeCondition, macdLabel, rsiLabel, stLabel, type AlertCondition,
 } from "./alertConditions";
 import { formatAlertPrice, formatMaAlertPush } from "./maEvaluator";
@@ -138,6 +138,38 @@ function buildBase(
       };
     }
 
+    case "msb": {
+      const up = (label ?? "").startsWith("bull");
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — ${up ? "bullish" : "bearish"} MSB`,
+        body:
+          `${up ? "Bullish" : "Bearish"} market structure break` +
+          (Number.isFinite(reference) ? ` through ${formatAlertPrice(reference)}` : "") +
+          ` (last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
+    case "order_block": {
+      const zone = label ?? "zone";
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — price in ${zone}`,
+        body:
+          `Price entered the ${zone} zone` +
+          (Number.isFinite(reference) ? ` at ${formatAlertPrice(reference)}` : "") +
+          ` (last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
+    case "liquidity_swing": {
+      const what = label ? `swing ${label} liquidity level` : liquidityLabel(condition);
+      return {
+        title: `${alert.symbol} ${alert.timeframe} — liquidity ${label ?? condition.side}`,
+        body:
+          `Price is ${formatDistance(distancePct)} the ${what} ` +
+          `at ${formatAlertPrice(reference)} (last ${formatAlertPrice(bar.close)})`,
+        tag, url,
+      };
+    }
     case "fib_level": {
       const what = fibLabel(condition);
       return {

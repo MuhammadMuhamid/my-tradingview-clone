@@ -24,7 +24,11 @@ import { parseStoredFilters } from "./alertConditions";
 import type { AlertCondition, AlertFilter, AlertFilters } from "./alertConditions";
 import { PIVOT_TYPES, isPivotType } from "../engine/pivotLevels";
 import { DEFAULT_SR_OPTIONS } from "../engine/srZones";
-import { AUTO_FIB_DEFAULTS } from "../ta/core";
+import {
+  AUTO_FIB_DEFAULTS, LIQUIDITY_SWING_DEFAULTS, MSB_DEFAULTS, type ObZoneChoice,
+} from "../ta/core";
+
+const OB_ZONES: readonly ObZoneChoice[] = ["bu_ob", "be_ob", "bu_bb", "be_bb", "bullish", "bearish", "any"];
 
 /**
  * An indicator length that can actually be computed.
@@ -311,6 +315,45 @@ export function readCondition(
     };
   }
 
+  if (kind === "msb" || kind === "order_block") {
+    const zigzagLength = Number(b.msbZigzagLength ?? MSB_DEFAULTS.zigzagLength);
+    const fibFactor = Number(b.msbFibFactor ?? MSB_DEFAULTS.fibFactor);
+    if (!(Number.isInteger(zigzagLength) && zigzagLength >= 1 && zigzagLength <= 500)) {
+      return bad("msbZigzagLength must be an integer between 1 and 500");
+    }
+    if (!(Number.isFinite(fibFactor) && fibFactor >= 0 && fibFactor <= 1)) {
+      return bad("msbFibFactor must be a number between 0 and 1");
+    }
+    if (kind === "msb") {
+      const mode = String(b.mode ?? "touch");
+      if (mode !== "cross_up" && mode !== "cross_down" && mode !== "touch") {
+        return bad("mode must be cross_up (bullish), cross_down (bearish) or touch (either)");
+      }
+      return { condition: { kind: "msb", zigzagLength, fibFactor, mode, ...gates } };
+    }
+    const zone = String(b.obZone ?? "any");
+    if (!OB_ZONES.includes(zone as ObZoneChoice)) return bad(`obZone must be one of ${OB_ZONES.join(", ")}`);
+    return { condition: { kind: "order_block", zigzagLength, fibFactor, zone: zone as ObZoneChoice, ...gates } };
+  }
+
+  if (kind === "liquidity_swing") {
+    const length = Number(b.lsLength ?? LIQUIDITY_SWING_DEFAULTS.length);
+    const area = String(b.lsArea ?? LIQUIDITY_SWING_DEFAULTS.area);
+    const side = String(b.lsSide ?? "either");
+    const lMode = String(b.mode ?? "touch");
+    if (!(Number.isInteger(length) && length >= 1 && length <= 500)) {
+      return bad("lsLength must be an integer between 1 and 500");
+    }
+    if (area !== "wick" && area !== "full") return bad("lsArea must be wick or full");
+    if (side !== "high" && side !== "low" && side !== "either") return bad("lsSide must be high, low or either");
+    if (!isMaAlertMode(lMode)) return bad(`mode must be one of ${MA_ALERT_MODES.join(", ")}`);
+    return {
+      condition: {
+        kind: "liquidity_swing", length, area, side, mode: lMode, nearMinPct, nearMaxPct, ...gates,
+      },
+    };
+  }
+
   if (kind === "fib_level") {
     const deviation = Number(b.fibDeviation ?? AUTO_FIB_DEFAULTS.deviation);
     const depth = Number(b.fibDepth ?? AUTO_FIB_DEFAULTS.depth);
@@ -452,6 +495,8 @@ export type AlertColumns = {
   patternId: string | null;
   fibDeviation: number | null; fibDepth: number | null;
   fibReverse: boolean | null; fibLevel: number | null;
+  msbZigzagLength: number | null; msbFibFactor: number | null; obZone: string | null;
+  lsLength: number | null; lsArea: string | null; lsSide: string | null;
   nearMinPct: number; nearMaxPct: number;
   srSide: SrSide | null; srPivotLength: number | null; srInvalidation: string | null;
   pivotType: string | null; pivotLevelName: string | null; pivotAnchor: string | null;
@@ -480,6 +525,8 @@ export function toColumns(condition: AlertCondition): AlertColumns {
   const empty = {
     patternId: null,
     fibDeviation: null, fibDepth: null, fibReverse: null, fibLevel: null,
+    msbZigzagLength: null, msbFibFactor: null, obZone: null,
+    lsLength: null, lsArea: null, lsSide: null,
     srSide: null, srPivotLength: null, srInvalidation: null,
     pivotType: null, pivotLevelName: null, pivotAnchor: null,
     rsiLength: null, rsiLevel: null, rsiMaLength: null,
@@ -581,6 +628,43 @@ export function toColumns(condition: AlertCondition): AlertColumns {
         srSide: condition.srSide,
         srPivotLength: condition.pivotLength,
         srInvalidation: condition.invalidation,
+        ...gates(condition.filters),
+      };
+    case "msb":
+      return {
+        conditionKind: "msb",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0, nearMaxPct: 0,
+        ...empty,
+        msbZigzagLength: condition.zigzagLength,
+        msbFibFactor: condition.fibFactor,
+        ...gates(condition.filters),
+      };
+    case "order_block":
+      return {
+        conditionKind: "order_block",
+        // The family has one event — entering a zone — stored as `touch` so
+        // the uniqueness rule and the shape check have a mode to read.
+        maType: null, maLength: null, mode: "touch",
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: 0, nearMaxPct: 0,
+        ...empty,
+        msbZigzagLength: condition.zigzagLength,
+        msbFibFactor: condition.fibFactor,
+        obZone: condition.zone,
+        ...gates(condition.filters),
+      };
+    case "liquidity_swing":
+      return {
+        conditionKind: "liquidity_swing",
+        maType: null, maLength: null, mode: condition.mode,
+        ma2Type: null, ma2Length: null, targetPrice: null, priceDirection: null,
+        nearMinPct: condition.nearMinPct, nearMaxPct: condition.nearMaxPct,
+        ...empty,
+        lsLength: condition.length,
+        lsArea: condition.area,
+        lsSide: condition.side,
         ...gates(condition.filters),
       };
     case "fib_level":

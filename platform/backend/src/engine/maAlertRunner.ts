@@ -38,7 +38,8 @@ import * as candleRepo from "../repositories/candles";
 import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
 import {
-  adx, autoFib, autoFibLevelPrice, bollinger, ema, macd, rsi, sma, stochastic, supertrend,
+  adx, autoFib, autoFibLevelPrice, enteredZone, liquiditySwings, marketStructure,
+  type ObZoneChoice, type SwingArea, bollinger, ema, macd, rsi, sma, stochastic, supertrend,
 } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
@@ -433,6 +434,7 @@ export class MaAlertRunner {
     // Only a VWMA-based Bollinger basis reads volume, but building the array
     // once is cheaper than deciding whether to.
     const volumes = bars.map((b) => b.volume);
+    const opens = bars.map((b) => b.open);
 
     // One series per distinct (type, length) across this feed's alerts — the
     // 15 SMA shared by a touch alert and a near alert is computed once.
@@ -508,6 +510,52 @@ export class MaAlertRunner {
       if (!fib) return undefined;
       const price = autoFibLevelPrice(fib, level);
       return Number.isFinite(price) ? { price, label: String(level) } : undefined;
+    };
+
+    /**
+     * The MSB-OB study and the Liquidity Swings study on this feed's bars —
+     * `marketStructure` / `liquiditySwings` from `ta/core`, the functions the
+     * chart's studies draw with. The evaluated bar is the last one in `bars`.
+     * Cached per input set: an MSB alert and an order-block alert with the
+     * same zig-zag share one computation.
+     */
+    const at = bars.length - 1;
+    const msCache = new Map<string, ReturnType<typeof marketStructure>>();
+    const msOf = (zigzagLength: number, fibFactor: number) => {
+      const key = `${zigzagLength}|${fibFactor}`;
+      let ms = msCache.get(key);
+      if (!ms) { ms = marketStructure(opens, highs, lows, closes, zigzagLength, fibFactor); msCache.set(key, ms); }
+      return ms;
+    };
+    const msbFor = (zigzagLength: number, fibFactor: number) => {
+      if (at < 1) return undefined;
+      const ms = msOf(zigzagLength, fibFactor);
+      const brk = ms.breaks.find((b) => b.index === at);
+      return { market: ms.market[at]!, broke: brk ? brk.direction : 0, price: brk ? brk.price : NaN };
+    };
+    const ZONE_NAMES: Record<string, string> = { bu_ob: "Bu-OB", be_ob: "Be-OB", bu_bb: "Bu-BB", be_bb: "Be-BB" };
+    const orderBlockFor = (zigzagLength: number, fibFactor: number, zone: ObZoneChoice) => {
+      if (at < 1) return undefined;
+      const hit = enteredZone(msOf(zigzagLength, fibFactor), at, zone);
+      if (!hit) return { entered: false, price: NaN, label: "" };
+      const bullish = hit.kind.startsWith("bu");
+      return { entered: true, price: bullish ? hit.top : hit.bottom, label: ZONE_NAMES[hit.kind] ?? hit.kind };
+    };
+    const lsCache = new Map<string, ReturnType<typeof liquiditySwings>>();
+    const liquidityFor = (length: number, area: SwingArea, side: "high" | "low" | "either") => {
+      const key = `${length}|${area}`;
+      let ls = lsCache.get(key);
+      if (!ls) { ls = liquiditySwings(opens, highs, lows, closes, volumes, length, area); lsCache.set(key, ls); }
+      const hi = ls.liveHigh[at] ?? NaN;
+      const lo = ls.liveLow[at] ?? NaN;
+      if (side === "high") return Number.isFinite(hi) ? { price: hi, label: "high" } : undefined;
+      if (side === "low") return Number.isFinite(lo) ? { price: lo, label: "low" } : undefined;
+      const c = closes[at]!;
+      const cands = [
+        ...(Number.isFinite(hi) ? [{ price: hi, label: "high" }] : []),
+        ...(Number.isFinite(lo) ? [{ price: lo, label: "low" }] : []),
+      ];
+      return cands.sort((a, b) => Math.abs(a.price - c) - Math.abs(b.price - c))[0];
     };
 
     const pivotFor = (
@@ -685,6 +733,9 @@ export class MaAlertRunner {
       srZone: srFor,
       pivotLevel: pivotFor,
       fibLevel: fibFor,
+      msb: msbFor,
+      orderBlock: orderBlockFor,
+      liquiditySwing: liquidityFor,
       rsi: rsiFor,
       rsiMa: rsiMaFor,
       macd: macdFor,

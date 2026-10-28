@@ -270,7 +270,9 @@ test("migration 027 widens its kind check and refuses an unfireable row", () => 
   // Every kind the application knows must be admitted, or the UI saves a row
   // the database refuses.
   // Families added by LATER migrations are owned by those migrations.
-  const addedLater = new Set<string>(["candlestick_pattern", "fib_level"]);
+  const addedLater = new Set<string>([
+    "candlestick_pattern", "fib_level", "msb", "order_block", "liquidity_swing",
+  ]);
   for (const kind of CONDITION_KINDS.filter((kind) => !addedLater.has(kind))) {
     assert.ok(sql.includes(`'${kind}'`), `${kind} is not admitted by the widened CHECK`);
   }

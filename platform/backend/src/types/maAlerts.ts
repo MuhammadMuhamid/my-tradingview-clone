@@ -28,6 +28,7 @@ export const isMaAlertMode = (v: string): v is MaAlertMode =>
 export const CONDITION_KINDS = [
   "price", "ma", "ma_vs_ma", "sr_zone", "pivot_level", "rsi", "macd", "supertrend",
   "bollinger", "stochastic", "adx", "candlestick_pattern", "fib_level",
+  "msb", "order_block", "liquidity_swing",
 ] as const;
 export type ConditionKind = (typeof CONDITION_KINDS)[number];
 
@@ -308,6 +309,18 @@ export interface MaAlertRow {
   fibDepth?: number | null;
   fibReverse?: boolean | null;
   fibLevel?: number | null;
+  /**
+   * Market Structure Break & Order Block (migration 051): the zig-zag length
+   * and fib factor, shared by `msb` and `order_block`; the zone an
+   * `order_block` alert watches.
+   */
+  msbZigzagLength?: number | null;
+  msbFibFactor?: number | null;
+  obZone?: string | null;
+  /** Liquidity Swings (migration 051): pivot lookback, area and which side. */
+  lsLength?: number | null;
+  lsArea?: string | null;
+  lsSide?: string | null;
   /** Immutable detector profile captured when a candlestick alert is armed. */
   patternDetectorId?: string | null;
   patternDetectorVersion?: string | null;

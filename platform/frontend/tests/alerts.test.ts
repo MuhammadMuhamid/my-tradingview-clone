@@ -289,6 +289,13 @@ const FAMILY_ROWS: Record<ConditionKind, Partial<MaAlert>> = {
     conditionKind: "fib_level", fibLevel: 0.618, fibDeviation: 3, fibDepth: 30,
     fibReverse: false, mode: "touch",
   },
+  msb: { conditionKind: "msb", msbZigzagLength: 9, msbFibFactor: 0.33, mode: "cross_up" },
+  order_block: {
+    conditionKind: "order_block", msbZigzagLength: 9, msbFibFactor: 0.33, obZone: "bu_ob", mode: "touch",
+  },
+  liquidity_swing: {
+    conditionKind: "liquidity_swing", lsLength: 20, lsArea: "full", lsSide: "high", mode: "touch",
+  },
   rsi: { conditionKind: "rsi", rsiLength: 14, rsiLevel: 70, indicatorTarget: "level", mode: "cross_up" },
   macd: { conditionKind: "macd", macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
   supertrend: { conditionKind: "supertrend", stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },

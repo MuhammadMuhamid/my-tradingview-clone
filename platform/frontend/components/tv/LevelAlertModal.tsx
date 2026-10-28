@@ -18,9 +18,11 @@ import {
 } from "@/lib/api";
 import type { Interval } from "@/lib/types";
 import { AUTO_FIB_DEFAULTS, AUTO_FIB_LEVELS } from "@/lib/ta/core";
+import type { ObZone } from "@/lib/api";
 
 /** The level families this dialog arms. */
-export type LevelKind = "sr_zone" | "pivot_level" | "fib_level";
+export type LevelKind =
+  | "sr_zone" | "pivot_level" | "fib_level" | "msb" | "order_block" | "liquidity_swing";
 import { displayTicker } from "@/lib/instrument";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
 
@@ -85,6 +87,13 @@ export function LevelAlertModal({
   const [fibDeviation, setFibDeviation] = useState<number>(AUTO_FIB_DEFAULTS.deviation);
   const [fibDepth, setFibDepth] = useState<number>(AUTO_FIB_DEFAULTS.depth);
   const [fibReverse, setFibReverse] = useState(false);
+  // MSB-OB and Liquidity Swings — the owner's indicator settings.
+  const [msbZigzagLength, setMsbZigzagLength] = useState(9);
+  const [msbFibFactor, setMsbFibFactor] = useState(0.33);
+  const [obZone, setObZone] = useState<ObZone>("any");
+  const [lsLength, setLsLength] = useState(20);
+  const [lsArea, setLsArea] = useState<"wick" | "full">("full");
+  const [lsSide, setLsSide] = useState<"high" | "low" | "either">("either");
   const [filters, setFilters] = useState<AlertFilterState>(emptyFilters);
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState(true);
@@ -112,8 +121,12 @@ export function LevelAlertModal({
   const sameLevel = (a: MaAlert): boolean =>
     kind === "sr_zone" ? a.srSide === srSide
       : kind === "pivot_level" ? a.pivotLevelName === levelName
-        : a.fibLevel === fibLevel && a.fibDeviation === fibDeviation
-          && a.fibDepth === fibDepth && a.fibReverse === fibReverse;
+        : kind === "msb" ? a.msbZigzagLength === msbZigzagLength && a.msbFibFactor === msbFibFactor
+          : kind === "order_block" ? a.msbZigzagLength === msbZigzagLength
+            && a.msbFibFactor === msbFibFactor && a.obZone === obZone
+            : kind === "liquidity_swing" ? a.lsLength === lsLength && a.lsArea === lsArea && a.lsSide === lsSide
+              : a.fibLevel === fibLevel && a.fibDeviation === fibDeviation
+                && a.fibDepth === fibDepth && a.fibReverse === fibReverse;
   const matches = existing.filter((a) =>
     a.conditionKind === kind
     && a.mode === mode
@@ -142,7 +155,8 @@ export function LevelAlertModal({
       a.conditionKind === kind && a.mode === mode && a.timeframe === timeframe
       && sameLevel(a),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, mode, srSide, levelName, fibLevel, fibDeviation, fibDepth, fibReverse]);
+    [kind, mode, srSide, levelName, fibLevel, fibDeviation, fibDepth, fibReverse,
+      msbZigzagLength, msbFibFactor, obZone, lsLength, lsArea, lsSide]);
 
   // Follow the matched rows, so an untouched Save cannot change what they hold.
   useEffect(() => {
@@ -165,8 +179,16 @@ export function LevelAlertModal({
   // "Alert me when price reaches the 0.618" is a touch. Chosen when the fib
   // family is, so the user starts from what they asked for.
   useEffect(() => {
-    if (kind === "fib_level") setMode("touch");
+    // A structure break and a zone entry are events: they start on the
+    // either-direction break and on the one entry event respectively.
+    if (kind === "fib_level" || kind === "msb" || kind === "order_block") setMode("touch");
+    if (kind === "liquidity_swing") setMode("touch");
   }, [kind]);
+  const modes = kind === "msb"
+    ? [{ id: "cross_up" as const, label: "Bullish break" }, { id: "cross_down" as const, label: "Bearish break" },
+      { id: "touch" as const, label: "Either direction" }]
+    : kind === "order_block" ? [{ id: "touch" as const, label: "Price enters the zone" }]
+      : MODES;
 
   const isNear = mode === "near_above" || mode === "near_below";
   const toggleTf = (tf: Interval): void =>
@@ -180,7 +202,10 @@ export function LevelAlertModal({
       ? { srSide }
       : kind === "pivot_level"
         ? { pivotType, levelName, anchor }
-        : { fibLevel, fibDeviation, fibDepth, fibReverse }),
+        : kind === "msb" ? { msbZigzagLength, msbFibFactor }
+          : kind === "order_block" ? { msbZigzagLength, msbFibFactor, obZone }
+            : kind === "liquidity_swing" ? { lsLength, lsArea, lsSide }
+              : { fibLevel, fibDeviation, fibDepth, fibReverse }),
     note: note.trim() || null,
     enabled: armed,
   });
@@ -289,8 +314,74 @@ export function LevelAlertModal({
             <option value="sr_zone">Support / resistance zones</option>
             <option value="pivot_level">Pivot points</option>
             <option value="fib_level">Auto fib retracement</option>
+            <option value="msb">Market structure break (MSB-OB)</option>
+            <option value="order_block">Order block zone (MSB-OB)</option>
+            <option value="liquidity_swing">Liquidity swing level (LuxAlgo)</option>
           </select>
         </Row>
+
+        {(kind === "msb" || kind === "order_block") && (
+          <>
+            {kind === "order_block" && (
+              <Row label="Zone">
+                <select value={obZone} aria-label="Order block zone"
+                  onChange={(e) => setObZone(e.target.value as ObZone)} className={box}>
+                  <option value="any">Any zone</option>
+                  <option value="bullish">Any bullish zone (Bu-OB, Bu-BB)</option>
+                  <option value="bearish">Any bearish zone (Be-OB, Be-BB)</option>
+                  <option value="bu_ob">Bullish order block (Bu-OB)</option>
+                  <option value="be_ob">Bearish order block (Be-OB)</option>
+                  <option value="bu_bb">Bullish breaker (Bu-BB / Bu-MB)</option>
+                  <option value="be_bb">Bearish breaker (Be-BB / Be-MB)</option>
+                </select>
+              </Row>
+            )}
+            <Row label="ZigZag length">
+              <input type="number" min="1" max="500" step="1" value={msbZigzagLength}
+                aria-label="ZigZag length"
+                onChange={(e) => setMsbZigzagLength(parseInt(e.target.value || "0", 10))} className={box} />
+            </Row>
+            <Row label="Fib factor">
+              <input type="number" min="0" max="1" step="0.01" value={msbFibFactor}
+                aria-label="Fib factor for breakout confirmation"
+                onChange={(e) => setMsbFibFactor(parseFloat(e.target.value || "0"))} className={box} />
+            </Row>
+            <p className="text-xs text-ink-faint">
+              {kind === "msb"
+                ? "Fires on the bar the MSB-OB indicator marks a market structure break, on each alert timeframe."
+                : "Fires on the bar price first enters a zone the MSB-OB indicator draws — once per entry, not on every bar inside it."}
+            </p>
+          </>
+        )}
+
+        {kind === "liquidity_swing" && (
+          <>
+            <Row label="Level">
+              <select value={lsSide} aria-label="Liquidity level"
+                onChange={(e) => setLsSide(e.target.value as typeof lsSide)} className={box}>
+                <option value="either">Whichever is nearest</option>
+                <option value="high">Swing high</option>
+                <option value="low">Swing low</option>
+              </select>
+            </Row>
+            <Row label="Pivot lookback">
+              <input type="number" min="1" max="500" step="1" value={lsLength}
+                aria-label="Pivot lookback"
+                onChange={(e) => setLsLength(parseInt(e.target.value || "0", 10))} className={box} />
+            </Row>
+            <Row label="Swing area">
+              <select value={lsArea} aria-label="Swing area"
+                onChange={(e) => setLsArea(e.target.value as typeof lsArea)} className={box}>
+                <option value="full">Full Range</option>
+                <option value="wick">Wick Extremity</option>
+              </select>
+            </Row>
+            <p className="text-xs text-ink-faint">
+              The latest swing level no candle has closed beyond — the solid line the
+              Liquidity Swings indicator draws.
+            </p>
+          </>
+        )}
 
         {kind === "fib_level" ? (
           <>
@@ -331,7 +422,7 @@ export function LevelAlertModal({
               <option value="either">Whichever is nearer</option>
             </select>
           </Row>
-        ) : (
+        ) : kind !== "pivot_level" ? null : (
           <>
             <Row label="Type">
               <select value={pivotType} onChange={(e) => setPivotType(e.target.value as PivotType)} className={box}>
@@ -396,7 +487,7 @@ export function LevelAlertModal({
 
         <Row label="Condition">
           <select value={mode} onChange={(e) => setMode(e.target.value as MaAlertMode)} className={box}>
-            {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            {modes.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </Row>
 

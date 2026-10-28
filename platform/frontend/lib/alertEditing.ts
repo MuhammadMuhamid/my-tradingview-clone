@@ -19,7 +19,7 @@ import {
   ADX_DEFAULTS, ALERT_HISTORY_BARS, BOLLINGER_DEFAULTS, DEFAULT_ALERT_FREQUENCY, FILTER_DEFAULTS,
   MACD_DEFAULTS, RSI_DEFAULTS, STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
   type AlertFrequency, type AlertGate, type BollingerBand, type ConditionKind, type FilterSide,
-  type MaAlert, type StAtrMethod, type StochasticTarget,
+  type MaAlert, type ObZone, type StAtrMethod, type StochasticTarget,
   type MaAlertMode, type MaAlertUpdate, type MacdTarget, type MaType,
   type PivotType, type PriceDirection, type RsiTarget, type SrSide,
 } from "@/lib/api";
@@ -105,6 +105,9 @@ export const ALERT_FAMILY_LABELS: Record<ConditionKind, string> = {
   sr_zone: "Support / resistance",
   pivot_level: "Pivot level",
   fib_level: "Auto fib level",
+  msb: "Market structure break",
+  order_block: "Order block zone",
+  liquidity_swing: "Liquidity swing level",
   rsi: "RSI",
   macd: "MACD",
   supertrend: "Supertrend",
@@ -130,6 +133,10 @@ export const MODE_LABELS: Record<MaAlertMode, string> = {
  * does not watch. Everything else keeps the shared labels.
  */
 export function modeLabel(kind: ConditionKind, mode: MaAlertMode): string {
+  if (kind === "msb") {
+    return mode === "cross_up" ? "Bullish break" : mode === "cross_down" ? "Bearish break" : "Either direction";
+  }
+  if (kind === "order_block") return "Price enters the zone";
   if (kind !== "supertrend") return MODE_LABELS[mode];
   return mode === "cross_down" ? "Flips down (Sell)" : "Flips up (Buy)";
 }
@@ -150,14 +157,17 @@ const CROSS_ONLY: readonly ConditionKind[] = [
 ];
 
 export const modesFor = (kind: ConditionKind): MaAlertMode[] =>
-  CROSS_ONLY.includes(kind)
+  // A structure break is an event in a direction; entering a zone is one event.
+  kind === "msb" ? ["cross_up", "cross_down", "touch"]
+  : kind === "order_block" ? ["touch"]
+  : CROSS_ONLY.includes(kind)
     ? ["cross_up", "cross_down"]
     : ["near_above", "near_below", "touch", "cross_up", "cross_down"];
 
 /** Whether the percentage approach band is meaningful for this state. */
 export const usesBand = (kind: ConditionKind, mode: MaAlertMode): boolean =>
   (kind === "ma" || kind === "sr_zone" || kind === "pivot_level" || kind === "fib_level"
-    || kind === "bollinger") &&
+    || kind === "bollinger" || kind === "liquidity_swing") &&
   (mode === "near_above" || mode === "near_below");
 
 /**
@@ -209,6 +219,12 @@ export interface AlertEditForm {
   fibDeviation: number;
   fibDepth: number;
   fibReverse: boolean;
+  msbZigzagLength: number;
+  msbFibFactor: number;
+  obZone: ObZone;
+  lsLength: number;
+  lsArea: "wick" | "full";
+  lsSide: "high" | "low" | "either";
   rsiLength: number;
   rsiTarget: RsiTarget;
   rsiLevel: number;
@@ -283,6 +299,12 @@ export function alertEditForm(alert: MaAlert): AlertEditForm {
     fibDeviation: alert.fibDeviation ?? 3,
     fibDepth: alert.fibDepth ?? 30,
     fibReverse: alert.fibReverse ?? false,
+    msbZigzagLength: alert.msbZigzagLength ?? 9,
+    msbFibFactor: alert.msbFibFactor ?? 0.33,
+    obZone: alert.obZone ?? "any",
+    lsLength: alert.lsLength ?? 20,
+    lsArea: alert.lsArea === "wick" ? "wick" : "full",
+    lsSide: alert.lsSide ?? "either",
     rsiLength: alert.rsiLength ?? RSI_DEFAULTS.length,
     // Every MA target is carried through. Reading only "sma" here once meant
     // an EMA alert opened in the editor came back as "level" and a plain Save
@@ -359,6 +381,18 @@ export function validateAlertForm(
     if (!Number.isInteger(form.fibDepth) || form.fibDepth < 2 || form.fibDepth > 500) {
       return "Depth must be a whole number from 2 to 500.";
     }
+  }
+  if (kind === "msb" || kind === "order_block") {
+    if (!Number.isInteger(form.msbZigzagLength) || form.msbZigzagLength < 1 || form.msbZigzagLength > 500) {
+      return "ZigZag length must be a whole number from 1 to 500.";
+    }
+    if (!(Number.isFinite(form.msbFibFactor) && form.msbFibFactor >= 0 && form.msbFibFactor <= 1)) {
+      return "Fib factor must be a number from 0 to 1.";
+    }
+  }
+  if (kind === "liquidity_swing"
+    && (!Number.isInteger(form.lsLength) || form.lsLength < 1 || form.lsLength > 500)) {
+    return "Pivot lookback must be a whole number from 1 to 500.";
   }
   if (kind === "pivot_level" && !pivotLevelNames(form.pivotType).includes(form.levelName)) {
     return `${form.pivotType} pivots do not define ${form.levelName}.`;
@@ -530,6 +564,23 @@ export function alertEditRequest(
       set("srSide", form.srSide, alert.srSide);
       set("pivotLength", form.pivotLength, alert.srPivotLength);
       set("invalidation", form.invalidation, alert.srInvalidation);
+      set("mode", form.mode, alert.mode);
+      setBand(body, form, alert);
+      break;
+    case "msb":
+      set("msbZigzagLength", form.msbZigzagLength, alert.msbZigzagLength);
+      set("msbFibFactor", form.msbFibFactor, alert.msbFibFactor);
+      set("mode", form.mode, alert.mode);
+      break;
+    case "order_block":
+      set("msbZigzagLength", form.msbZigzagLength, alert.msbZigzagLength);
+      set("msbFibFactor", form.msbFibFactor, alert.msbFibFactor);
+      set("obZone", form.obZone, alert.obZone);
+      break;
+    case "liquidity_swing":
+      set("lsLength", form.lsLength, alert.lsLength);
+      set("lsArea", form.lsArea, alert.lsArea);
+      set("lsSide", form.lsSide, alert.lsSide);
       set("mode", form.mode, alert.mode);
       setBand(body, form, alert);
       break;

@@ -308,23 +308,27 @@ function drawLabel(
   const bx = x - boxW / 2;
   const by = up ? y + gap + tip : y - gap - tip - boxH;
 
-  ctx.fillStyle = lb.color || "#2962ff";
-  ctx.beginPath();
-  ctx.roundRect(bx, by, boxW, boxH, 3);
-  ctx.fill();
-  // The pointer triangle tying the label to its price.
-  ctx.beginPath();
-  if (up) {
-    ctx.moveTo(x, y + gap);
-    ctx.lineTo(x - tip, by + 0.5);
-    ctx.lineTo(x + tip, by + 0.5);
-  } else if (down) {
-    ctx.moveTo(x, y - gap);
-    ctx.lineTo(x - tip, by + boxH - 0.5);
-    ctx.lineTo(x + tip, by + boxH - 0.5);
+  // A label with no colour is its text alone (the engine always supplies one
+  // for a Pine label; a built-in study passes "" for a transparent label).
+  if (lb.color) {
+    ctx.fillStyle = lb.color;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, 3);
+    ctx.fill();
+    // The pointer triangle tying the label to its price.
+    ctx.beginPath();
+    if (up) {
+      ctx.moveTo(x, y + gap);
+      ctx.lineTo(x - tip, by + 0.5);
+      ctx.lineTo(x + tip, by + 0.5);
+    } else if (down) {
+      ctx.moveTo(x, y - gap);
+      ctx.lineTo(x - tip, by + boxH - 0.5);
+      ctx.lineTo(x + tip, by + boxH - 0.5);
+    }
+    ctx.closePath();
+    ctx.fill();
   }
-  ctx.closePath();
-  ctx.fill();
 
   if (text) {
     ctx.fillStyle = lb.textColor || "#ffffff";

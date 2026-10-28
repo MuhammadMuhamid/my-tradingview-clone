@@ -2557,3 +2557,364 @@ export const AUTO_FIB_LEVELS: readonly { value: number; on: boolean }[] = [
 
 /** The owner's chart settings: Deviation 3, Depth 30. */
 export const AUTO_FIB_DEFAULTS = { deviation: 3, depth: 30, reverse: false } as const;
+
+// ── Market Structure Break & Order Block (EmreKb "MSB-OB") ─────────────────
+//
+// A port of the published Pine v5 script, statement for statement, because the
+// chart draws with it and the alert runner fires on it: the two must be one
+// computation. Its quirks are kept on purpose — they are what TradingView
+// shows:
+//   - the zig-zag point arrays start with five `na` entries;
+//   - a broken zone SHIFTS THE OLDEST entry out of its list, not the broken
+//     one (so the first five breaks pop the `na` placeholders);
+//   - a bullish zone is not extended on bars where price sits inside it;
+//   - the bearish order block tests "above the top" and "above the bottom"
+//     independently (no `else`), as the script does.
+
+export type MsbZoneKind = "bu_ob" | "be_ob" | "bu_bb" | "be_bb";
+
+export interface MsbZone {
+  id: number;
+  kind: MsbZoneKind;
+  /** "Bu-OB", "Be-OB", "Bu-BB"/"Bu-MB", "Be-BB"/"Be-MB". */
+  text: string;
+  left: number;
+  top: number;
+  bottom: number;
+  /** Bar index of the right edge as last set. */
+  right: number;
+  created: number;
+  /** Bar on which the zone was shifted out of its list (broken), or null. */
+  removed: number | null;
+}
+
+export interface MsbBreak {
+  /** Bar the structure broke on. */
+  index: number;
+  /** +1 bullish (MSB up), -1 bearish. */
+  direction: 1 | -1;
+  /** The broken level, drawn from `x1` to `x2`. */
+  price: number;
+  x1: number;
+  x2: number;
+  /** Where the "MSB" label sits. */
+  labelX: number;
+}
+
+export interface MsbZoneHit {
+  index: number;
+  zoneId: number;
+  kind: MsbZoneKind;
+  top: number;
+  bottom: number;
+}
+
+export interface MarketStructure {
+  /** +1 / -1 market state per bar. */
+  market: number[];
+  /** Zig-zag segments, in bar-index coordinates. */
+  zigzag: { x1: number; y1: number; x2: number; y2: number }[];
+  breaks: MsbBreak[];
+  zones: MsbZone[];
+  /** Every bar a zone reported "price in zone" — the script's `alert()` calls. */
+  hits: MsbZoneHit[];
+}
+
+export const MSB_DEFAULTS = { zigzagLength: 9, fibFactor: 0.33 } as const;
+
+export function marketStructure(
+  open: number[], high: number[], low: number[], close: number[],
+  zigzagLength: number, fibFactor: number,
+): MarketStructure {
+  const n = close.length;
+  const len = Math.max(1, Math.floor(zigzagLength));
+  const hh = highest(high, len);
+  const ll = lowest(low, len);
+  const toUp = high.map((h, i) => h >= hh[i]!);
+  const toDown = low.map((l, i) => l <= ll[i]!);
+
+  // ta.barssince(cond) with cond evaluated per bar.
+  const sinceLast = (cond: (i: number) => boolean): number[] => {
+    const out = new Array<number>(n).fill(NaN);
+    let last = -1;
+    for (let i = 0; i < n; i++) {
+      if (cond(i)) last = i;
+      out[i] = last < 0 ? NaN : i - last;
+    }
+    return out;
+  };
+  const upSince = sinceLast((i) => i > 0 && toUp[i - 1]!);
+  const downSince = sinceLast((i) => i > 0 && toDown[i - 1]!);
+  // ta.lowest / ta.highest with a per-bar length; na until the window fits.
+  const windowExtreme = (src: number[], lens: number[], max: boolean): number[] =>
+    src.map((_, i) => {
+      const L = lens[i]!;
+      if (i - L + 1 < 0) return NaN;
+      let v = src[i]!;
+      for (let k = i - L + 1; k <= i; k++) v = max ? Math.max(v, src[k]!) : Math.min(v, src[k]!);
+      return v;
+    });
+  const lenOf = (since: number[]) => since.map((s) => (s > 0 ? s : 1));
+  const lowVal = windowExtreme(low, lenOf(upSince), false);
+  const highVal = windowExtreme(high, lenOf(downSince), true);
+  const lastTrue = (cond: (i: number) => boolean): number[] => {
+    const out = new Array<number>(n).fill(NaN);
+    let last = NaN;
+    for (let i = 0; i < n; i++) { if (cond(i)) last = i; out[i] = last; }
+    return out;
+  };
+  const lowIndex = lastTrue((i) => low[i] === lowVal[i]);
+  const highIndex = lastTrue((i) => high[i] === highVal[i]);
+
+  const highPts: number[] = [NaN, NaN, NaN, NaN, NaN];
+  const highIdx: number[] = [NaN, NaN, NaN, NaN, NaN];
+  const lowPts: number[] = [NaN, NaN, NaN, NaN, NaN];
+  const lowIdx: number[] = [NaN, NaN, NaN, NaN, NaN];
+  const at = (a: number[], k: number): number => a[a.length - 1 - k] ?? NaN;
+
+  const out: MarketStructure = { market: new Array<number>(n).fill(1), zigzag: [], breaks: [], zones: [], hits: [] };
+  const l0iHist: number[] = new Array<number>(n).fill(NaN);
+  const h0iHist: number[] = new Array<number>(n).fill(NaN);
+  let trend = 1;
+  let market = 1;
+  let lastL0 = NaN, lastH0 = NaN;
+  let buOb = 0, beOb = 0, buBb = 0, beBb = 0;
+  let zoneId = 0;
+  type Slot = MsbZone | null;
+  const lists: Record<MsbZoneKind, Slot[]> = {
+    bu_ob: [null, null, null, null, null], be_ob: [null, null, null, null, null],
+    bu_bb: [null, null, null, null, null], be_bb: [null, null, null, null, null],
+  };
+  const bearish = (k: number) => k >= 0 && k < n && open[k]! > close[k]!;
+  const bullish = (k: number) => k >= 0 && k < n && open[k]! < close[k]!;
+  // `for i = a to b` (either direction); the LAST match in iteration order wins.
+  const lastMatch = (a: number, b: number, test: (k: number) => boolean, carry: number): number => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return carry;
+    let found = carry;
+    const step = a <= b ? 1 : -1;
+    for (let k = a; step > 0 ? k <= b : k >= b; k += step) if (test(k)) found = k;
+    return found;
+  };
+
+  for (let i = 0; i < n; i++) {
+    const prevTrend = trend;
+    if (trend === 1 && toDown[i]) trend = -1;
+    else if (trend === -1 && toUp[i]) trend = 1;
+    const trendChanged = i > 0 && trend !== prevTrend;
+    if (trendChanged) {
+      if (trend === 1) { lowPts.push(lowVal[i]!); lowIdx.push(lowIndex[i]!); }
+      else { highPts.push(highVal[i]!); highIdx.push(highIndex[i]!); }
+    }
+    const h0 = at(highPts, 0), h0i = at(highIdx, 0), h1 = at(highPts, 1), h1i = at(highIdx, 1);
+    const l0 = at(lowPts, 0), l0i = at(lowIdx, 0), l1 = at(lowPts, 1), l1i = at(lowIdx, 1);
+    l0iHist[i] = l0i;
+    h0iHist[i] = h0i;
+
+    if (trendChanged) {
+      const seg = trend === 1 ? { x1: h0i, y1: h0, x2: l0i, y2: l0 } : { x1: l0i, y1: l0, x2: h0i, y2: h0 };
+      if ([seg.x1, seg.y1, seg.x2, seg.y2].every(Number.isFinite)) out.zigzag.push(seg);
+    }
+
+    /*
+     * `last_l0 = ta.valuewhen(ta.change(market) != 0, l0, 0)` runs BEFORE this
+     * bar's market is decided, so `ta.change` sees the value passed to it —
+     * last bar's final market — against the one passed the bar before. It
+     * fires the bar AFTER a break, and the guard then holds the market until
+     * both a new low and a new high pivot exist: without it the market would
+     * flip back and forth on every bar over the same two pivots.
+     */
+    if (i >= 2 && out.market[i - 1] !== out.market[i - 2]) { lastL0 = l0; lastH0 = h0; }
+    const prevMarket = market;
+    if (!(lastL0 === l0 || lastH0 === h0)) {
+      if (market === 1 && l0 < l1 && l0 < l1 - Math.abs(h0 - l1) * fibFactor) market = -1;
+      else if (market === -1 && h0 > h1 && h0 > h1 + Math.abs(h1 - l0) * fibFactor) market = 1;
+    }
+    out.market[i] = market;
+
+    const lagged = (hist: number[]) => (i - len >= 0 ? hist[i - len]! : NaN);
+    buOb = lastMatch(h1i, lagged(l0iHist), bearish, i === 0 ? 0 : buOb);
+    beOb = lastMatch(l1i, lagged(h0iHist), bullish, i === 0 ? 0 : beOb);
+    beBb = lastMatch(h1i - len, l1i, bearish, i === 0 ? 0 : beBb);
+    buBb = lastMatch(l1i - len, h1i, bullish, i === 0 ? 0 : buBb);
+
+    if (market !== prevMarket) {
+      const zone = (kind: MsbZoneKind, k: number, text: string): MsbZone => ({
+        id: ++zoneId, kind, text, left: k, top: high[k] ?? NaN, bottom: low[k] ?? NaN,
+        right: i + 10, created: i, removed: null,
+      });
+      if (market === 1) {
+        out.breaks.push({ index: i, direction: 1, price: h1, x1: h1i, x2: h0i, labelX: Math.trunc((h1i + l0i) / 2) });
+        const a = zone("bu_ob", buOb, "Bu-OB");
+        const b = zone("bu_bb", buBb, l0 < l1 ? "Bu-BB" : "Bu-MB");
+        out.zones.push(a, b);
+        lists.bu_ob.push(a);
+        lists.bu_bb.push(b);
+      } else {
+        out.breaks.push({ index: i, direction: -1, price: l1, x1: l1i, x2: l0i, labelX: Math.trunc((l1i + h0i) / 2) });
+        const a = zone("be_ob", beOb, "Be-OB");
+        const b = zone("be_bb", beBb, h0 > h1 ? "Be-BB" : "Be-MB");
+        out.zones.push(a, b);
+        lists.be_ob.push(a);
+        lists.be_bb.push(b);
+      }
+    }
+
+    const c = close[i]!;
+    const shift = (kind: MsbZoneKind): void => {
+      const gone = lists[kind].shift();
+      if (gone && gone.removed === null) gone.removed = i;
+    };
+    const hit = (z: MsbZone): void => {
+      out.hits.push({ index: i, zoneId: z.id, kind: z.kind, top: z.top, bottom: z.bottom });
+    };
+    for (const z of [...lists.bu_ob]) {
+      if (!z) continue;
+      if (c < z.bottom) shift("bu_ob");
+      else if (c < z.top) hit(z);
+      else z.right = i + 10;
+    }
+    for (const z of [...lists.be_ob]) {
+      if (!z) continue;
+      if (c > z.top) shift("be_ob");
+      if (c > z.bottom) hit(z);
+      else z.right = i + 10;
+    }
+    for (const z of [...lists.be_bb]) {
+      if (!z) continue;
+      if (c > z.top) shift("be_bb");
+      else if (c > z.bottom) hit(z);
+      else z.right = i + 10;
+    }
+    for (const z of [...lists.bu_bb]) {
+      if (!z) continue;
+      if (c < z.bottom) shift("bu_bb");
+      else if (c < z.top) hit(z);
+      else z.right = i + 10;
+    }
+  }
+  return out;
+}
+
+/** Which zones an order-block alert watches. */
+export type ObZoneChoice = MsbZoneKind | "bullish" | "bearish" | "any";
+
+const zoneMatches = (choice: ObZoneChoice, kind: MsbZoneKind): boolean =>
+  choice === "any" || choice === kind
+  || (choice === "bullish" && (kind === "bu_ob" || kind === "bu_bb"))
+  || (choice === "bearish" && (kind === "be_ob" || kind === "be_bb"));
+
+/**
+ * The zone price ENTERED on bar `i`: one reporting "price in zone" on `i`
+ * that did not on `i - 1`. The script's own `alert()` repeats on every bar
+ * inside a zone; a notification that repeats every bar is noise, so the
+ * alert fires on entry.
+ */
+export function enteredZone(ms: MarketStructure, i: number, choice: ObZoneChoice): MsbZoneHit | null {
+  const before = new Set(ms.hits.filter((h) => h.index === i - 1).map((h) => h.zoneId));
+  return ms.hits.find((h) => h.index === i && !before.has(h.zoneId) && zoneMatches(choice, h.kind)) ?? null;
+}
+
+// ── Liquidity Swings [LuxAlgo] ──────────────────────────────────────────────
+//
+// The published Pine v5 script's state machine: each confirmed pivot high
+// (low) opens a swing level at the pivot bar's high (low) and an area down to
+// its body top (or its low, with "Full Range"); the level stays live until a
+// close beyond it, and each later bar overlapping the area adds to its count
+// and volume. Intrabar precision (lower-timeframe volume) is not part of this
+// port: counts use the chart's own bars.
+
+export type SwingArea = "wick" | "full";
+
+export interface LiquiditySwing {
+  side: "high" | "low";
+  /** Bar the pivot is at (n − length when it is confirmed). */
+  x: number;
+  confirmed: number;
+  /** The level: the pivot's high (swing high) or low (swing low). */
+  level: number;
+  /** The area's other edge. */
+  edge: number;
+  /** Bar a close crossed the level, or null while live. */
+  crossed: number | null;
+  /** Overlapping bars and their volume, as of the last bar the swing was current. */
+  count: number;
+  volume: number;
+  /** Count at each bar while current — for the area's width and the filter crossover. */
+  countAt: Map<number, number>;
+  volumeAt: Map<number, number>;
+}
+
+export interface LiquiditySwingsResult {
+  swings: LiquiditySwing[];
+  /** The live (uncrossed) level at the START of each bar: what price is approaching. */
+  liveHigh: number[];
+  liveLow: number[];
+}
+
+export const LIQUIDITY_SWING_DEFAULTS = { length: 20, area: "full" as SwingArea } as const;
+
+export function liquiditySwings(
+  open: number[], high: number[], low: number[], close: number[], volume: number[],
+  length: number, area: SwingArea,
+): LiquiditySwingsResult {
+  const n = close.length;
+  const L = Math.max(1, Math.floor(length));
+  const ph = pivothigh(high, L, L);
+  const pl = pivotlow(low, L, L);
+  const swings: LiquiditySwing[] = [];
+  const liveHigh = new Array<number>(n).fill(NaN);
+  const liveLow = new Array<number>(n).fill(NaN);
+  let top: LiquiditySwing | null = null;
+  let btm: LiquiditySwing | null = null;
+  let topCount = 0, topVol = 0, btmCount = 0, btmVol = 0;
+
+  for (let i = 0; i < n; i++) {
+    liveHigh[i] = top && top.crossed === null ? top.level : NaN;
+    liveLow[i] = btm && btm.crossed === null ? btm.level : NaN;
+    const k = i - L;
+
+    // get_counts(ph, ph_top, ph_btm) — before this bar's pivot is applied.
+    if (!Number.isNaN(ph[i]!)) { topCount = 0; topVol = 0; }
+    else if (top && k >= 0) {
+      const inside = low[k]! < top.level && high[k]! > top.edge;
+      topVol += inside ? volume[k]! : 0;
+      topCount += inside ? 1 : 0;
+    }
+    if (!Number.isNaN(ph[i]!) && k >= 0) {
+      top = {
+        side: "high", x: k, confirmed: i, level: high[k]!,
+        edge: area === "full" ? low[k]! : Math.max(close[k]!, open[k]!),
+        crossed: null, count: 0, volume: 0, countAt: new Map(), volumeAt: new Map(),
+      };
+      swings.push(top);
+    } else if (top && top.crossed === null && close[i]! > top.level) {
+      top.crossed = i;
+    }
+    if (top) {
+      top.count = topCount; top.volume = topVol;
+      top.countAt.set(i, topCount); top.volumeAt.set(i, topVol);
+    }
+
+    if (!Number.isNaN(pl[i]!)) { btmCount = 0; btmVol = 0; }
+    else if (btm && k >= 0) {
+      const inside = low[k]! < btm.edge && high[k]! > btm.level;
+      btmVol += inside ? volume[k]! : 0;
+      btmCount += inside ? 1 : 0;
+    }
+    if (!Number.isNaN(pl[i]!) && k >= 0) {
+      btm = {
+        side: "low", x: k, confirmed: i, level: low[k]!,
+        edge: area === "full" ? high[k]! : Math.min(close[k]!, open[k]!),
+        crossed: null, count: 0, volume: 0, countAt: new Map(), volumeAt: new Map(),
+      };
+      swings.push(btm);
+    } else if (btm && btm.crossed === null && close[i]! < btm.level) {
+      btm.crossed = i;
+    }
+    if (btm) {
+      btm.count = btmCount; btm.volume = btmVol;
+      btm.countAt.set(i, btmCount); btm.volumeAt.set(i, btmVol);
+    }
+  }
+  return { swings, liveHigh, liveLow };
+}

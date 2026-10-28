@@ -10,7 +10,7 @@ import {
   ADX_DEFAULTS, BOLLINGER_DEFAULTS, isIntrabarFrequency, MACD_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
   type AlertFrequency, type AlertGate, type FilterSide, type MaAlert,
-  type StAtrMethod,
+  type ObZone, type StAtrMethod,
 } from "@/lib/api";
 import { maColor, maLabel } from "@/lib/movingAverages";
 import { fmtPrice } from "@/lib/format";
@@ -61,6 +61,12 @@ export function alertLineLabel(a: MaAlert): string {
       return a.pivotLevelName === "any" ? "Pivot" : `Pivot ${a.pivotLevelName}`;
     case "fib_level":
       return `Fib ${a.fibLevel ?? ""}`.trim();
+    case "msb":
+      return a.mode === "cross_up" ? "MSB ↑" : a.mode === "cross_down" ? "MSB ↓" : "MSB";
+    case "order_block":
+      return OB_ZONE_SHORT[a.obZone ?? "any"];
+    case "liquidity_swing":
+      return a.lsSide === "high" ? "Liq high" : a.lsSide === "low" ? "Liq low" : "Liquidity";
     case "rsi":
       return `RSI ${a.rsiLength ?? ""}`.trim();
     case "macd":
@@ -92,6 +98,12 @@ export function alertColor(a: MaAlert): string {
   }
   if (a.conditionKind === "pivot_level") return "#fb8c00";
   if (a.conditionKind === "fib_level") return "#26a69a";
+  // The studies' own colours: green bullish, red bearish.
+  if (a.conditionKind === "msb") return a.mode === "cross_down" ? "#f23645" : "#4caf50";
+  if (a.conditionKind === "order_block") {
+    return a.obZone === "be_ob" || a.obZone === "be_bb" || a.obZone === "bearish" ? "#f23645" : "#4caf50";
+  }
+  if (a.conditionKind === "liquidity_swing") return a.lsSide === "low" ? "#089981" : "#f23645";
   // The two oscillators get the hues their own indicator panes use, so a row
   // in this list matches what the chart draws.
   if (a.conditionKind === "rsi") return "#7e57c2";
@@ -131,6 +143,21 @@ export function describeAlert(a: MaAlert): string {
       const what = a.srSide === "resistance" ? "resistance"
         : a.srSide === "support" ? "support" : "nearest S/R";
       return `${nearPhrase(a)} the ${a.timeframe} ${what}${describeFilters(a)}`;
+    }
+    // Each must match the server's `describeCondition`, which writes the push.
+    case "msb": {
+      const tuned = msbTuned(a);
+      const what = `market structure break${tuned}`;
+      return (a.mode === "cross_up" ? `bullish ${what}` : a.mode === "cross_down" ? `bearish ${what}`
+        : `${what} (either direction)`) + describeFilters(a);
+    }
+    case "order_block":
+      return `price enters ${OB_ZONE_LONG[a.obZone ?? "any"]}${msbTuned(a)}${describeFilters(a)}`;
+    case "liquidity_swing": {
+      const which = a.lsSide === "high" ? "swing high" : a.lsSide === "low" ? "swing low" : "nearest swing";
+      const tuned = (a.lsLength ?? 20) !== 20 ? ` (lookback ${a.lsLength})` : "";
+      const area = a.lsArea === "wick" ? " (wick area)" : "";
+      return `${nearPhrase(a)} the ${which} liquidity level${tuned}${area}${describeFilters(a)}`;
     }
     case "fib_level": {
       // Must match the server's `fibLabel`, which writes the push.
@@ -411,3 +438,17 @@ export function alertGroupHeader(identity: string, providerId: string | null | u
     title: `${displaySymbol(identity)} — ${providerId ?? "legacy provider unknown"} · ${priceBasis ?? "legacy basis unknown"}`,
   };
 }
+
+const OB_ZONE_SHORT: Record<ObZone, string> = {
+  bu_ob: "Bu-OB", be_ob: "Be-OB", bu_bb: "Bu-BB", be_bb: "Be-BB",
+  bullish: "Bull zones", bearish: "Bear zones", any: "OB zones",
+};
+const OB_ZONE_LONG: Record<ObZone, string> = {
+  bu_ob: "a bullish order block (Bu-OB)", be_ob: "a bearish order block (Be-OB)",
+  bu_bb: "a bullish breaker block (Bu-BB/MB)", be_bb: "a bearish breaker block (Be-BB/MB)",
+  bullish: "a bullish order or breaker block", bearish: "a bearish order or breaker block",
+  any: "an order or breaker block",
+};
+const msbTuned = (a: Pick<MaAlert, "msbZigzagLength" | "msbFibFactor">): string =>
+  (a.msbZigzagLength ?? 9) !== 9 || (a.msbFibFactor ?? 0.33) !== 0.33
+    ? ` (zigzag ${a.msbZigzagLength}, fib ${a.msbFibFactor})` : "";

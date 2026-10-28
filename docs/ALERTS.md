@@ -46,6 +46,9 @@ longer conflates them.
 | `stochastic` | Stochastic %K against its %D, or against a fixed level | `stoch_k_length`, `stoch_k_smooth`, `stoch_d_smooth`, `stoch_level`, `indicator_target`, `mode` |
 | `adx` | ADX rising or falling through a strength threshold | `adx_di_length`, `adx_smoothing`, `adx_level`, `mode` |
 | `fib_level` | price against one level of the Auto Fib Retracement (migration 049) | `fib_deviation`, `fib_depth`, `fib_reverse`, `fib_level`, `mode` |
+| `msb` | a Market Structure Break (EmreKb's MSB-OB) in the chosen direction (migration 051) | `msb_zigzag_length`, `msb_fib_factor`, `mode` |
+| `order_block` | price entering an order/breaker block of the MSB-OB study (migration 051) | `msb_zigzag_length`, `msb_fib_factor`, `ob_zone`, `mode` = `touch` |
+| `liquidity_swing` | price against the live swing high/low level of Liquidity Swings [LuxAlgo] (migration 051) | `ls_length`, `ls_area`, `ls_side`, `mode`, `near_min_pct`, `near_max_pct` |
 
 A row that does not carry the columns its own kind needs is refused by the
 database (`ma_alerts_shape_ck`). An alert stored half-specified would be
@@ -86,6 +89,30 @@ a branch to `ma_alerts_shape_ck` and a `WHEN` to `ma_alerts_kind_complete`
 (each recreated mechanically from its latest text, `NOT VALID`, then
 validated), and the unique index `ma_alerts_fib_uniq` that the repository's
 `ON CONFLICT` target names.
+
+### Market structure, order blocks and liquidity swings (migration 051)
+
+All three re-run the chart's own computation every bar —
+`marketStructure` and `liquiditySwings` in `platform/backend/src/ta/core.ts`,
+the same code the MSB-OB and Liquidity Swings studies draw from.
+
+- `msb` fires on the bar the market flips: `cross_up` = bullish break,
+  `cross_down` = bearish, `touch` = either. The port keeps a Pine subtlety:
+  `ta.change(market)` is evaluated before `market` is reassigned, so the
+  "last pivot at the break" guard updates one bar late; without it the state
+  flip-flops every bar.
+- `order_block` fires when a bar is inside a zone (`ob_zone`: `bu_ob`, `be_ob`,
+  `bu_bb`, `be_bb`, `bullish`, `bearish` or `any`) that it was not inside on
+  the previous bar — entering, not sitting in it.
+- `liquidity_swing` compares price against the level that is live (not yet
+  crossed) at the START of the bar, so a cross is reported once and the level
+  then retires, as the drawn line turns dashed. The study's count/volume
+  filter is visual only; the alert watches every swing. Intrabar Precision is
+  not ported (native studies have no lower-timeframe bars).
+
+Migration 051 adds the six columns, the three kinds to `ma_alerts_kind_ck`,
+`ma_alerts_shape_ck` and `ma_alerts_kind_complete` (recreated from 049's text,
+`NOT VALID`, then validated) and one unique index per kind, `user_id` first.
 
 ### Oscillators cross a reading, not a price
 

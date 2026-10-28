@@ -13,7 +13,9 @@ import type { Candle } from "../src/types/market";
 import type { AlertFrequency } from "../src/alerts/alertFrequency";
 import type { MaAlertRow } from "../src/types/maAlerts";
 import type { PushMessage, PushResult } from "../src/alerts/webPush";
-import { autoFib, autoFibLevelPrice, ema, rsi, sma } from "../src/engine/ta";
+import {
+  autoFib, autoFibLevelPrice, ema, enteredZone, liquiditySwings, marketStructure, rsi, sma,
+} from "../src/engine/ta";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -404,4 +406,113 @@ test("a fib-level alert fires when price touches the Auto Fib level, and not els
   assert.equal(fired("far"), false, "that level is nowhere near this bar");
   assert.equal(fake.pushes.length, 1);
   assert.match(fake.pushes[0]!.title, /fib /);
+});
+
+/**
+ * The MSB-OB and Liquidity Swings families fire through the real runner on
+ * the bar the chart's studies show the event — on real, unmodified NEARUSDT
+ * 1h candles, replayed up to that bar.
+ */
+function nearBars(): Candle[] {
+  const fx = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "fixtures", "nearusdt-1h.json"), "utf8")) as { bars: number[][] };
+  return fx.bars.map(([, o, h, l, c, v], i) => ({
+    symbol: "BTCUSDT", interval: "1m" as const,
+    openTime: T0 + i * STEP, closeTime: T0 + (i + 1) * STEP - 1,
+    open: o!, high: h!, low: l!, close: c!, volume: v!,
+  }));
+}
+const series = (bars: Candle[]) => ({
+  o: bars.map((b) => b.open), h: bars.map((b) => b.high), l: bars.map((b) => b.low),
+  c: bars.map((b) => b.close), v: bars.map((b) => b.volume),
+});
+
+test("an MSB alert fires on the bar the structure breaks, in its own direction only", async () => {
+  const all = nearBars();
+  const s = series(all);
+  const ms = marketStructure(s.o, s.h, s.l, s.c, 9, 0.33);
+  const brk = ms.breaks.at(-1)!;
+  const bars = all.slice(0, brk.index + 1);
+  const msbRow = (id: string, mode: "cross_up" | "cross_down" | "touch") => row(id, {
+    conditionKind: "msb", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 9, msbFibFactor: 0.33, mode, lastSide: null,
+  });
+  const fake = localRunner([
+    msbRow("same", brk.direction === 1 ? "cross_up" : "cross_down"),
+    msbRow("opposite", brk.direction === 1 ? "cross_down" : "cross_up"),
+    msbRow("either", "touch"),
+  ]);
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars, sampleBar: bars.at(-1)!, isClosedBar: true, now: T0,
+  });
+  const fired = (id: string) => fake.evaluations.find((e) => e.id === id)?.fired;
+  assert.equal(fired("same"), true);
+  assert.equal(fired("either"), true);
+  assert.equal(fired("opposite"), false);
+  assert.match(fake.pushes[0]!.title, /MSB/);
+
+  // The bar before the break is not a break.
+  const quiet = localRunner([msbRow("before", "touch")]);
+  const before = all.slice(0, brk.index);
+  await quiet.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars: before, sampleBar: before.at(-1)!, isClosedBar: true, now: T0,
+  });
+  assert.equal(quiet.evaluations.find((e) => e.id === "before")?.fired, false);
+});
+
+test("an order-block alert fires when price enters a zone, not while it stays inside", async () => {
+  const all = nearBars();
+  const s = series(all);
+  const ms = marketStructure(s.o, s.h, s.l, s.c, 9, 0.33);
+  const entries = all.map((_, i) => enteredZone(ms, i, "any")).map((h, i) => (h ? i : -1)).filter((i) => i > 0);
+  assert.ok(entries.length > 0, "the fixture has a zone entry");
+  const e = entries.at(-1)!;
+  const hit = enteredZone(ms, e, "any")!;
+  const inside = ms.hits.some((h) => h.index === e + 1 && h.zoneId === hit.zoneId)
+    && !enteredZone(ms, e + 1, hit.kind) ? e + 1 : -1;
+
+  const obRow = (id: string, zone: string) => row(id, {
+    conditionKind: "order_block", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 9, msbFibFactor: 0.33, obZone: zone, mode: "touch", lastSide: null,
+  });
+  const other = hit.kind.startsWith("bu") ? "bearish" : "bullish";
+  const fake = localRunner([obRow("kind", hit.kind), obRow("any", "any"), obRow("other", other)]);
+  const bars = all.slice(0, e + 1);
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars, sampleBar: bars.at(-1)!, isClosedBar: true, now: T0,
+  });
+  const fired = (id: string) => fake.evaluations.find((x) => x.id === id)?.fired;
+  assert.equal(fired("kind"), true);
+  assert.equal(fired("any"), true);
+  assert.equal(fired("other"), enteredZone(ms, e, other as "bullish" | "bearish") !== null);
+
+  if (inside > 0) {
+    const later = localRunner([obRow("still-inside", hit.kind)]);
+    const more = all.slice(0, inside + 1);
+    await later.runner.replay({
+      symbol: "BTCUSDT", interval: "1m", bars: more, sampleBar: more.at(-1)!, isClosedBar: true, now: T0,
+    });
+    assert.equal(later.evaluations.find((x) => x.id === "still-inside")?.fired, false,
+      "a second bar inside the same zone is not a new entry");
+  }
+});
+
+test("a liquidity-swing alert fires when price touches the live swing level", async () => {
+  const all = nearBars();
+  const s = series(all);
+  const ls = liquiditySwings(s.o, s.h, s.l, s.c, s.v, 20, "full");
+  const j = all.findIndex((b, i) => i > 50 && Number.isFinite(ls.liveHigh[i]!)
+    && b.low <= ls.liveHigh[i]! && b.high >= ls.liveHigh[i]!);
+  assert.ok(j > 0, "the fixture has a bar touching a live swing high");
+  const lsRow = (id: string, side: string) => row(id, {
+    conditionKind: "liquidity_swing", targetPrice: null, priceDirection: null,
+    lsLength: 20, lsArea: "full", lsSide: side, mode: "touch", lastSide: null,
+  });
+  const fake = localRunner([lsRow("high", "high")]);
+  const bars = all.slice(0, j + 1);
+  await fake.runner.replay({
+    symbol: "BTCUSDT", interval: "1m", bars, sampleBar: bars.at(-1)!, isClosedBar: true, now: T0,
+  });
+  assert.equal(fake.evaluations.find((x) => x.id === "high")?.fired, true);
+  assert.match(fake.pushes[0]!.title, /liquidity high/);
 });

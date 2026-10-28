@@ -72,6 +72,18 @@ const ALERTS: Record<ConditionKind, MaAlert> = {
     fibLevel: 0.786, fibDeviation: 2.5, fibDepth: 24, fibReverse: true,
     mode: "near_below", nearMinPct: 0.1, nearMaxPct: 0.4,
   },
+  msb: {
+    ...BASE, conditionKind: "msb", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 12, msbFibFactor: 0.5, mode: "cross_down",
+  },
+  order_block: {
+    ...BASE, conditionKind: "order_block", targetPrice: null, priceDirection: null,
+    msbZigzagLength: 7, msbFibFactor: 0.25, obZone: "be_bb", mode: "touch",
+  },
+  liquidity_swing: {
+    ...BASE, conditionKind: "liquidity_swing", targetPrice: null, priceDirection: null,
+    lsLength: 14, lsArea: "wick", lsSide: "low", mode: "near_above", nearMinPct: 0.2, nearMaxPct: 0.8,
+  },
   rsi: {
     ...BASE, conditionKind: "rsi", targetPrice: null, priceDirection: null,
     rsiLength: 14, rsiLevel: 70, rsiMaLength: 9, indicatorTarget: "level", mode: "cross_down",
@@ -505,6 +517,9 @@ const EDITABLE_FIELDS: Record<ConditionKind, (keyof AlertEditForm)[]> = {
   sr_zone: ["srSide", "pivotLength", "invalidation", "mode"],
   pivot_level: ["pivotType", "levelName", "anchor", "mode"],
   fib_level: ["fibLevel", "fibDeviation", "fibDepth", "fibReverse", "mode"],
+  msb: ["msbZigzagLength", "msbFibFactor", "mode"],
+  order_block: ["msbZigzagLength", "msbFibFactor", "obZone"],
+  liquidity_swing: ["lsLength", "lsArea", "lsSide", "mode"],
   rsi: ["rsiLength", "rsiTarget", "rsiLevel", "rsiMaLength", "mode"],
   macd: ["macdFast", "macdSlow", "macdSignal", "macdTarget", "mode"],
   supertrend: ["stPeriod", "stMultiplier", "stAtrMethod", "mode"],
@@ -526,6 +541,8 @@ const OTHER: Partial<Record<keyof AlertEditForm, unknown>> = {
   bbLength: 34, bbMult: 2.5, bbBand: "lower", bbMaType: "ema",
   stochKLength: 21, stochKSmooth: 3, stochDSmooth: 5, stochTarget: "level", stochLevel: 80,
   adxDiLength: 21, adxSmoothing: 21, adxLevel: 30,
+  msbZigzagLength: 15, msbFibFactor: 0.5, obZone: "bu_ob",
+  lsLength: 30, lsArea: "wick", lsSide: "high",
 };
 
 const FAMILY_ROW: Record<ConditionKind, Partial<MaAlert>> = {
@@ -537,6 +554,9 @@ const FAMILY_ROW: Record<ConditionKind, Partial<MaAlert>> = {
     pivotType: "Fibonacci", pivotLevelName: "S1", pivotAnchor: "1d", mode: "near_above",
   },
   fib_level: { fibLevel: 0.618, fibDeviation: 3, fibDepth: 30, fibReverse: false, mode: "touch" },
+  msb: { msbZigzagLength: 9, msbFibFactor: 0.33, mode: "cross_up" },
+  order_block: { msbZigzagLength: 9, msbFibFactor: 0.33, obZone: "any", mode: "touch" },
+  liquidity_swing: { lsLength: 20, lsArea: "full", lsSide: "either", mode: "touch" },
   rsi: { rsiLength: 50, rsiLevel: 50, rsiMaLength: 14, indicatorTarget: "level", mode: "cross_up" },
   macd: { macdFast: 12, macdSlow: 26, macdSignal: 9, indicatorTarget: "signal", mode: "cross_up" },
   supertrend: { stPeriod: 10, stMultiplier: 3, stAtrMethod: "rma", mode: "cross_up" },

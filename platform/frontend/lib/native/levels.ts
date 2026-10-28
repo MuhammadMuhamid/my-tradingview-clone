@@ -28,6 +28,7 @@ import {
 import type { NativeStudyDef } from "@/lib/native/registry";
 import type { PineDrawings } from "@/lib/api";
 import { fluxSrStudy } from "@/lib/native/fluxSr";
+import { liquiditySwingsStudy, msbObStudy } from "@/lib/native/structureStudies";
 import { INTERVAL_MS, type Candle } from "@/lib/types";
 import {
   ACCENT, DOWN, MUTED, UP, VIOLET, bool, num, ohlcv, quotedDecimals, str,
@@ -478,7 +479,7 @@ export const autoFibStudy: NativeStudyDef = {
 };
 
 export const LEVEL_STUDIES: readonly NativeStudyDef[] = [
-  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy, autoFibStudy, fluxSrStudy,
+  pivotPointsStudy, swingPointsStudy, srZonesStudy, previousPeriodStudy, autoFibStudy, fluxSrStudy, msbObStudy, liquiditySwingsStudy,
 ];
 
 export { ACCENT, VIOLET, INTERVAL_MS };

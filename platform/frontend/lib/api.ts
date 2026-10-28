@@ -864,7 +864,11 @@ export type MaType = "sma" | "ema";
 /** What an alert watches. `ma` is the original family. */
 export type ConditionKind =
   | "price" | "ma" | "ma_vs_ma" | "sr_zone" | "pivot_level" | "rsi" | "macd"
-  | "supertrend" | "bollinger" | "stochastic" | "adx" | "fib_level";
+  | "supertrend" | "bollinger" | "stochastic" | "adx" | "fib_level"
+  | "msb" | "order_block" | "liquidity_swing";
+
+/** Which zones an order-block alert watches. */
+export type ObZone = "bu_ob" | "be_ob" | "bu_bb" | "be_bb" | "bullish" | "bearish" | "any";
 
 /** What an RSI alert crosses: a fixed level, or its own moving average. */
 /** Mirrors the backend's RSI_TARGETS. `ema` arrived with migration 048. */
@@ -1025,6 +1029,14 @@ export interface MaAlert {
   fibReverse?: boolean | null;
   /** The ratio watched: 0.618 is the 61.8% retracement. */
   fibLevel?: number | null;
+  /** MSB-OB inputs, for `msb` and `order_block` (migration 051). */
+  msbZigzagLength?: number | null;
+  msbFibFactor?: number | null;
+  obZone?: ObZone | null;
+  /** Liquidity Swings inputs, for `liquidity_swing` (migration 051). */
+  lsLength?: number | null;
+  lsArea?: "wick" | "full" | null;
+  lsSide?: "high" | "low" | "either" | null;
   srSide: SrSide | null;
   srPivotLength: number | null;
   srInvalidation: string | null;
@@ -1168,6 +1180,9 @@ export interface MaAlertOptions {
 export interface MaAlertUpdate {
   // ── fib_level ──
   fibDeviation?: number; fibDepth?: number; fibReverse?: boolean; fibLevel?: number;
+  // ── msb / order_block / liquidity_swing ──
+    msbZigzagLength?: number; msbFibFactor?: number; obZone?: ObZone;
+    lsLength?: number; lsArea?: "wick" | "full"; lsSide?: "high" | "low" | "either";
   // ── common to every family ──
   symbol?: string;
   canonicalInstrumentId?: string;
@@ -1706,6 +1721,8 @@ export const api = {
     symbol: string; timeframe: Interval;
     conditionKind?: ConditionKind;
     fibDeviation?: number; fibDepth?: number; fibReverse?: boolean; fibLevel?: number;
+    msbZigzagLength?: number; msbFibFactor?: number; obZone?: ObZone;
+    lsLength?: number; lsArea?: "wick" | "full"; lsSide?: "high" | "low" | "either";
     srSide?: SrSide;
     pivotType?: PivotType;
     levelName?: string;

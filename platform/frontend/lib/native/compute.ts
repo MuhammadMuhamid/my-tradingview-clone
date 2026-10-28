@@ -617,6 +617,9 @@ export function describeParams(
     ? [def.inputs[0], def.inputs[1], def.inputs[3], def.inputs[2]].filter(Boolean) as NativeStudyDef["inputs"]
     : def.inputs;
   return inputs
+    // Colours are styling, not inputs a reader compares studies by; TradingView
+    // leaves them out of the status line too.
+    .filter((input) => input.kind !== "color")
     .map((input) => params[input.key])
     .filter((value) => value !== undefined && value !== "" && typeof value !== "boolean")
     /*

@@ -99,6 +99,24 @@ const LEVEL_ROWS: { kind: LevelKind; label: string; hint: string; color: string 
     hint: "Alert when price reaches a level of the latest swing, e.g. 0.618",
     color: "#26a69a",
   },
+  {
+    kind: "msb",
+    label: "Market structure break",
+    hint: "Alert on a bullish or bearish MSB (MSB-OB indicator)",
+    color: "#4caf50",
+  },
+  {
+    kind: "order_block",
+    label: "Order block zones",
+    hint: "Alert when price enters an order or breaker block",
+    color: "#f23645",
+  },
+  {
+    kind: "liquidity_swing",
+    label: "Liquidity swings",
+    hint: "Alert when price reaches a swing high or low liquidity level",
+    color: "#089981",
+  },
 ];
 
 /**

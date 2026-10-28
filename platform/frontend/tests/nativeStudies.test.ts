@@ -97,7 +97,7 @@ const run = (def: NativeStudyDef, candles: Candle[], params?: NativeParams) =>
  * `drawingOnly` plots are Style-tab rows, never series, and what they produce
  * is `drawings`.
  */
-const DRAWING_STUDIES = new Set(["pivots", "flux_sr_mtf"]);
+const DRAWING_STUDIES = new Set(["pivots", "flux_sr_mtf", "msb_ob", "liquidity_swings"]);
 const producesSomething = (out: ReturnType<NativeStudyDef["compute"]>): boolean =>
   Object.keys(out.plots).length > 0 || (out.drawings !== undefined);
 
@@ -619,6 +619,8 @@ test("a path-dependent study is computed over the whole series, not a window", (
     "auto_fib",
     // Zones from pivots, reconciled bar by bar against their breaks.
     "flux_sr_mtf",
+    // Market structure and swing liquidity: state machines over every bar.
+    "msb_ob", "liquidity_swings",
   ].sort());
   for (const def of unbounded) {
     assert.equal(computeWindow(series, def.warmup(defaultParams(def)),
