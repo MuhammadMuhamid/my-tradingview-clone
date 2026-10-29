@@ -236,7 +236,7 @@ than guessed at.
 bullish 1h MSB, but only after a bounce off 1h support". The levels are the
 **Flux Charts "Support & Resistance (MTF)"** indicator's — `FluxSrContext` in
 `platform/backend/src/ta/core.ts`, the same engine the chart study
-(`lib/native/fluxSr.ts`) draws with — on the gate's timeframe, with the
+(`platform/frontend/lib/native/fluxSr.ts`) draws with — on the gate's timeframe, with the
 indicator's General and Breaks settings carried on the gate (pivot 15,
 strength 1, break on close, avoid false breaks off / 0.3, inverse after broken
 off). Side `above`: within the last `lookback` bars a candle retested a live
