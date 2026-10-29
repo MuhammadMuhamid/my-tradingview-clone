@@ -174,8 +174,26 @@ export interface MacdGate extends GateBase {
   target: MacdTarget;
 }
 
+/**
+ * Price recently touched the nearest support and bounced off it ("above"), or
+ * touched the nearest resistance and was rejected ("below").
+ *
+ * A precondition rather than a signal: "a bullish break, but only after price
+ * came back to support and held". The levels are the `sr_zone` alert's —
+ * confirmed swing pivots of `pivotLength`, dead once a close goes through —
+ * and the test is `srTouchBounce` in `ta/core`.
+ */
+export interface SrTouchGate extends GateBase {
+  kind: "sr_touch";
+  pivotLength: number;
+  /** Bars back, counting the evaluated one, a touch may have happened in. */
+  lookback: number;
+  /** How close a wick must come to the level to count, in percent. */
+  tolerancePct: number;
+}
+
 export type AlertFilter =
-  | RsiGate | MaGate | SupertrendGate | RsiMaGate | MacdGate;
+  | RsiGate | MaGate | SupertrendGate | RsiMaGate | MacdGate | SrTouchGate;
 
 /**
  * The gates an alert carries, in the order the user arranged them.
@@ -1458,6 +1476,12 @@ function parseStoredGate(raw: unknown): AlertFilter | null {
       if (fastLength >= slowLength) return null;
       return { ...base, kind, fastLength, slowLength, signalLength, target };
     }
+    case "sr_touch": {
+      const pivotLength = num(g.pivotLength), lookback = num(g.lookback);
+      const tolerancePct = num(g.tolerancePct);
+      if (pivotLength == null || lookback == null || tolerancePct == null) return null;
+      return { ...base, kind, pivotLength, lookback, tolerancePct };
+    }
   }
 }
 
@@ -1587,7 +1611,21 @@ export function describeGate(gate: AlertFilter): string {
         : "bearish (below signal)";
       return `${lead}${tf}${macdLabel} is ${mood}`;
     }
+    case "sr_touch":
+      return srTouchSentence(gate);
   }
+}
+
+/**
+ * "price bounced off the 1h support (pivot 15) within the last 10 bars". The
+ * frontend's `gateSentence` says the same words.
+ */
+function srTouchSentence(gate: SrTouchGate): string {
+  const level = gate.side === "above" ? "support" : "resistance";
+  const verb = gate.side === "above" ? "bounced off" : "was rejected at";
+  const bars = gate.lookback === 1 ? "bar" : `${gate.lookback} bars`;
+  return `price ${verb} the ${tfPrefix(gate)}${level} (pivot ${gate.pivotLength}) ` +
+    `within the last ${bars}`;
 }
 
 /**
@@ -1673,6 +1711,19 @@ function gateError(gate: AlertFilter): string | null {
         return "filterMacdFast must be shorter than filterMacdSlow";
       }
       if (!isMacdTarget(target)) return "filterMacdTarget must be signal or zero";
+      return null;
+    }
+    case "sr_touch": {
+      const { pivotLength, lookback, tolerancePct } = gate;
+      if (!Number.isInteger(pivotLength) || pivotLength < 1 || pivotLength > 100) {
+        return "an S/R touch gate's pivot length must be an integer 1..100";
+      }
+      if (!Number.isInteger(lookback) || lookback < 1 || lookback > 500) {
+        return "an S/R touch gate's lookback must be an integer 1..500 bars";
+      }
+      if (!Number.isFinite(tolerancePct) || tolerancePct < 0 || tolerancePct > 10) {
+        return "an S/R touch gate's tolerance must be between 0 and 10 percent";
+      }
       return null;
     }
   }

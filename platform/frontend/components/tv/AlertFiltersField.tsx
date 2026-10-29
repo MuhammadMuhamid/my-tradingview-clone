@@ -39,6 +39,7 @@ const KIND_LABEL: Record<FilterKind, string> = {
   ma: "Price vs moving average",
   supertrend: "Price vs Supertrend",
   macd: "MACD",
+  sr_touch: "Recent S/R touch",
 };
 
 /**
@@ -115,19 +116,20 @@ function TimeframeSelect({
 }
 
 function SideSelect({
-  value, onChange, label, words,
+  value, onChange, label, words, width = 150,
 }: {
   value: FilterSide;
   onChange: (side: FilterSide) => void;
   label: string;
   words?: readonly [string, string];
+  width?: number;
 }) {
   const [above, below] = words ?? ["is above", "is below"];
   return (
     <Dropdown
       value={value}
       label={label}
-      width={150}
+      width={width}
       options={[
         { value: "above", label: above },
         { value: "below", label: below },
@@ -259,6 +261,27 @@ function GateFields({
           />
         </>
       );
+    case "sr_touch":
+      return (
+        <>
+          <SideSelect
+            value={gate.side} label={name("S/R touch side")}
+            words={["support bounce", "resistance rejection"]} width={176}
+            onChange={(side) => onChange({ ...gate, side })}
+          />
+          <span className="whitespace-nowrap text-sm text-ink-muted">in last</span>
+          <Num value={gate.lookback} label={name("S/R touch lookback bars")} width={58}
+            max="500" onChange={(lookback) => onChange({ ...gate, lookback })} />
+          <span className="whitespace-nowrap text-sm text-ink-muted">bars · pivot</span>
+          <Num value={gate.pivotLength} label={name("S/R touch pivot length")} width={58}
+            max="100" onChange={(pivotLength) => onChange({ ...gate, pivotLength })} />
+          <span className="whitespace-nowrap text-sm text-ink-muted">within</span>
+          <Num value={gate.tolerancePct} label={name("S/R touch tolerance percent")} width={62}
+            min="0" max="10" step="0.05"
+            onChange={(tolerancePct) => onChange({ ...gate, tolerancePct })} />
+          <span className="text-sm text-ink-muted">%</span>
+        </>
+      );
   }
 }
 
@@ -309,7 +332,7 @@ export function AlertFiltersField({
       >
         <PlusGlyph />
         Add a condition (optional) — only fire when RSI, a moving average,
-        Supertrend or MACD agrees
+        Supertrend, MACD or a recent S/R touch agrees
       </button>
     );
   }
@@ -378,7 +401,9 @@ export function AlertFiltersField({
           timeframe is measured there. While a condition is not met the alert
           stays silent — it does not queue up and fire later. A condition whose
           indicator has not warmed up, or whose timeframe cannot be read, counts
-          as not met.
+          as not met. A recent S/R touch means a wick came within the tolerance
+          of the nearest support (resistance) in the last N bars and price is
+          still on the near side of it, with no close through it since.
         </p>
       )}
     </>

@@ -2359,6 +2359,43 @@ export function nearestZones(
   return { support, resistance };
 }
 
+/**
+ * Whether price recently touched the nearest support (or resistance) and has
+ * bounced off it: the "came back to the level and held" a trader waits for
+ * before acting on a break.
+ *
+ * Walks the last `lookback` bars up to `index`. At each bar `j` the level is
+ * the nearest live zone AS OF `j` — knowable then, never later — and bar `j`
+ * touched it when its wick came within `tolerancePct` percent of the level
+ * (a support's low at or below `price × (1 + tol)`, a resistance's high at or
+ * above `price × (1 − tol)`). It has bounced when that same zone is still
+ * live at `index` (no close through it since) and price at `index` closes on
+ * the near side of it. The most recent touch wins.
+ *
+ * Returns null when nothing in the window qualifies.
+ */
+export function srTouchBounce(
+  bars: Bars, zones: Zone[], index: number, kind: ZoneKind,
+  lookback: number, tolerancePct: number, opts: SrOptions = DEFAULT_SR_OPTIONS
+): { price: number; touchIndex: number } | null {
+  const tol = tolerancePct / 100;
+  const now = bars.close[index];
+  if (now === undefined || !Number.isFinite(now)) return null;
+  for (let j = index; j >= 0 && j > index - lookback; j--) {
+    const nearest = nearestZones(zones, j, bars.close[j]!, opts);
+    const zone = kind === "support" ? nearest.support : nearest.resistance;
+    if (!zone) continue;
+    const touched = kind === "support"
+      ? bars.low[j]! <= zone.price * (1 + tol)
+      : bars.high[j]! >= zone.price * (1 - tol);
+    if (!touched) continue;
+    const holds = zone.brokenIndex === null || zone.brokenIndex > index;
+    const bounced = kind === "support" ? now > zone.price : now < zone.price;
+    if (holds && bounced) return { price: zone.price, touchIndex: j };
+  }
+  return null;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * COMPARE AND SECOND-SERIES MATHS
  *

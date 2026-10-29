@@ -128,6 +128,18 @@ export const FILTER_DEFAULTS = {
     fastLength: 12, slowLength: 26, signalLength: 9,
     target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
+  /*
+   * Price touched the nearest support in the last 10 bars and has bounced off
+   * it ("above"), or touched resistance and was rejected ("below"); a touch is
+   * a wick within 0.2% of it. Pivot length 5, not the S/R alert's 15: a swing
+   * is only knowable `length` bars after it forms, so a 15-bar swing is still
+   * unconfirmed when a "recent" bounce off it is over. On NEARUSDT 1h, 0 of 33
+   * MSB(2) bullish breaks followed a bounce off a pivot-15 support; 12 did off
+   * pivot-5 ones.
+   */
+  sr_touch: {
+    pivotLength: 5, lookback: 10, tolerancePct: 0.2, side: "above" as FilterSide,
+  },
 } as const;
 
 /**
@@ -136,7 +148,7 @@ export const FILTER_DEFAULTS = {
  * `rsi_ma` and `macd` both compare two computed series rather than a series to
  * a constant, which is why their reading is a SPREAD (see `filterReadings`).
  */
-export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd"] as const;
+export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd", "sr_touch"] as const;
 export type FilterKind = (typeof FILTER_KINDS)[number];
 export const isFilterKind = (v: string): v is FilterKind =>
   (FILTER_KINDS as readonly string[]).includes(v);

@@ -143,6 +143,14 @@ export interface FeedSample {
   adx?: (
     diLength: number, smoothing: number, level: number
   ) => { value: number; reference: number } | undefined;
+  /**
+   * Whether price touched the nearest live support (or resistance) within the
+   * last `lookback` bars and has bounced off it — `srTouchBounce` on this
+   * feed's bars. Undefined while the history cannot answer.
+   */
+  srTouch?: (
+    kind: "support" | "resistance", pivotLength: number, lookback: number, tolerancePct: number
+  ) => boolean | undefined;
   /** Canonical server result for this exact completed bar. */
   patterns?: { ids: readonly string[]; nameFor: (id: string) => string | undefined };
   /**
@@ -414,6 +422,17 @@ function gateReading(gate: AlertFilter, own: FeedSample): number | undefined {
       // covers both targets. This is the STATE the crossover left behind,
       // which is what a gate must ask — a cross is true for one bar only.
       return spread(m?.value, m?.reference);
+    }
+    case "sr_touch": {
+      // A yes/no, signed for the side asked: +1 opens an "above" (support
+      // bounce) gate, -1 a "below" (resistance rejection) one, and 0 shuts
+      // either. No touch is a shut gate, not an unknown one.
+      const above = gate.side === "above";
+      const hit = feed.srTouch?.(
+        above ? "support" : "resistance", gate.pivotLength, gate.lookback, gate.tolerancePct
+      );
+      if (hit === undefined) return undefined;
+      return hit ? (above ? 1 : -1) : 0;
     }
   }
 }

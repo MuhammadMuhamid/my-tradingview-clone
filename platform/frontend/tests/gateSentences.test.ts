@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeGate } from "../lib/alerts";
-import { MAX_ALERT_FILTERS, defaultGate, type AlertGate } from "../lib/api";
+import { FILTER_KINDS, MAX_ALERT_FILTERS, defaultGate, type AlertGate } from "../lib/api";
 
 test("the MACD gate is named for the mood, against the signal", () => {
   assert.equal(
@@ -69,10 +69,28 @@ test("a gate on the alert's own timeframe does not invent one", () => {
 test("every kind the editor can create produces a sentence", () => {
   // A kind added to FILTER_KINDS without a phrase here would render as
   // "undefined" in the alert list rather than failing loudly.
-  for (const kind of ["rsi", "ma", "supertrend", "rsi_ma", "macd"] as const) {
+  for (const kind of FILTER_KINDS) {
     const sentence = describeGate(defaultGate(kind) as AlertGate);
     assert.ok(sentence && !sentence.includes("undefined"), `${kind}: ${sentence}`);
   }
+});
+
+test("the S/R touch gate says which level and how recently", () => {
+  // Verbatim in the backend's srTouchGate.test.ts too.
+  assert.equal(
+    describeGate({
+      kind: "sr_touch", timeframe: "1h", pivotLength: 15, lookback: 10,
+      tolerancePct: 0.2, side: "above",
+    }),
+    "price bounced off the 1h support (pivot 15) within the last 10 bars"
+  );
+  assert.equal(
+    describeGate({
+      kind: "sr_touch", timeframe: "1h", pivotLength: 15, lookback: 1,
+      tolerancePct: 0.2, side: "below",
+    }),
+    "price was rejected at the 1h resistance (pivot 15) within the last bar"
+  );
 });
 
 test("the client's cap matches the server's", () => {

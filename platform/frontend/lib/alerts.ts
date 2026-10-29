@@ -381,6 +381,13 @@ export function describeGate(gate: AlertGate): string {
         : "bearish (below signal)";
       return `${lead}${tf}${label} is ${mood}`;
     }
+    case "sr_touch": {
+      const level = gate.side === "above" ? "support" : "resistance";
+      const verb = gate.side === "above" ? "bounced off" : "was rejected at";
+      const bars = gate.lookback === 1 ? "bar" : `${gate.lookback} bars`;
+      return `price ${verb} the ${tf}${level} (pivot ${gate.pivotLength}) ` +
+        `within the last ${bars}`;
+    }
   }
 }
 

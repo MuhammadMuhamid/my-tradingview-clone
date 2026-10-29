@@ -39,7 +39,8 @@ import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
 import {
   adx, autoFib, autoFibLevelPrice, enteredZone, liquiditySwings, marketStructure,
-  type ObZoneChoice, type SwingArea, bollinger, ema, macd, rsi, sma, stochastic, supertrend,
+  type ObZoneChoice, type SwingArea, bollinger, ema, macd, rsi, sma, srTouchBounce, stochastic,
+  supertrend,
 } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
 import {
@@ -53,6 +54,30 @@ import {
 import { formatAlertPush } from "../alerts/alertMessage";
 import { sendPush, type PushResult } from "../alerts/webPush";
 import { scannerRequest } from "../scanner/client";
+
+/**
+ * The `srTouch` resolver for one feed's bars, answering at the last bar.
+ *
+ * Zones are built once per pivot length and shared by every touch gate on the
+ * feed. Invalidation is by close — the `sr_zone` alert's default — so a wick
+ * through support that closes back above is the touch, not the break.
+ */
+function srTouchResolver(
+  highs: number[], lows: number[], closes: number[]
+): NonNullable<FeedSample["srTouch"]> {
+  const cache = new Map<number, ReturnType<typeof buildZones>>();
+  const bars = { high: highs, low: lows, close: closes };
+  return (kind, pivotLength, lookback, tolerancePct) => {
+    if (closes.length === 0) return undefined;
+    const opts = { ...DEFAULT_SR_OPTIONS, pivotLength, invalidation: "close" as const };
+    let zones = cache.get(pivotLength);
+    if (!zones) {
+      zones = buildZones(bars, opts);
+      cache.set(pivotLength, zones);
+    }
+    return srTouchBounce(bars, zones, closes.length - 1, kind, lookback, tolerancePct, opts) !== null;
+  };
+}
 
 /**
  * Bars of history pulled per evaluation: enough to seed the longest MA.
@@ -743,6 +768,7 @@ export class MaAlertRunner {
       bollinger: bbFor,
       stochastic: stochFor,
       adx: adxFor,
+      srTouch: srTouchResolver(bars.map((b) => b.high), bars.map((b) => b.low), closes),
     };
     const now = replayNow ?? this.dependencies.now();
 
@@ -809,8 +835,8 @@ export class MaAlertRunner {
   /**
    * A feed carrying only what a GATE can read, for one other timeframe.
    *
-   * Gates use five resolvers and no more: the moving average, RSI, RSI against
-   * its own MA, MACD and Supertrend. The support/resistance, pivot, Bollinger,
+   * Gates use six resolvers and no more: the moving average, RSI, RSI against
+   * its own MA, MACD, Supertrend and the S/R touch. The S/R zone, pivot, Bollinger,
    * stochastic, ADX and pattern resolvers are deliberately absent — no gate
    * kind reads them, and building them would scan the history for answers
    * nobody asks for.
@@ -907,6 +933,7 @@ export class MaAlertRunner {
       rsiMa: rsiMaFor,
       macd: macdFor,
       supertrend: stFor,
+      srTouch: srTouchResolver(highs, lows, closes),
     };
   }
 

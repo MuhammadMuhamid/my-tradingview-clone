@@ -897,7 +897,7 @@ export type FilterTimeframe = (typeof FILTER_TIMEFRAMES)[number];
 export const MAX_ALERT_FILTERS = 10;
 
 /** Mirrors the backend's `FILTER_KINDS`, in the order the editor offers them. */
-export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd"] as const;
+export const FILTER_KINDS = ["rsi", "ma", "supertrend", "rsi_ma", "macd", "sr_touch"] as const;
 export type FilterKind = (typeof FILTER_KINDS)[number];
 
 /** One gate. Mirrors the backend's `AlertFilter` union exactly. */
@@ -915,6 +915,11 @@ export type AlertGate =
   | {
       kind: "macd"; timeframe?: FilterTimeframe; side: FilterSide;
       fastLength: number; slowLength: number; signalLength: number; target: MacdTarget;
+    }
+  | {
+      /** "above": touched support and bounced; "below": touched resistance and rejected. */
+      kind: "sr_touch"; timeframe?: FilterTimeframe; side: FilterSide;
+      pivotLength: number; lookback: number; tolerancePct: number;
     };
 
 /** Mirrors the backend's `FILTER_DEFAULTS`. */
@@ -931,6 +936,9 @@ export const FILTER_DEFAULTS = {
     fastLength: 12, slowLength: 26, signalLength: 9,
     target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
+  sr_touch: {
+    pivotLength: 5, lookback: 10, tolerancePct: 0.2, side: "above" as FilterSide,
+  },
 } as const;
 
 /** A fresh gate of one kind, at its defaults. */
@@ -941,6 +949,7 @@ export function defaultGate(kind: FilterKind): AlertGate {
     case "supertrend": return { kind, ...FILTER_DEFAULTS.supertrend };
     case "rsi_ma": return { kind, ...FILTER_DEFAULTS.rsi_ma };
     case "macd": return { kind, ...FILTER_DEFAULTS.macd };
+    case "sr_touch": return { kind, ...FILTER_DEFAULTS.sr_touch };
   }
 }
 

@@ -230,6 +230,21 @@ than guessed at.
 > with a NULL level is `TRUE AND NULL` = NULL — the constraint accepted exactly
 > the row it was written to reject until those tests were added.
 
+### The recent S/R touch gate
+
+`sr_touch` asks whether price recently came back to a level and held: "a
+bullish 1h MSB, but only after a bounce off 1h support". Side `above` = a wick
+came within `tolerancePct` of the nearest live support in the last `lookback`
+bars and the close is still above it with no close through it since; `below`
+is the same for resistance (a rejection). The levels are the `sr_zone`
+alert's confirmed swing pivots (`srTouchBounce` in `platform/backend/src/ta/core.ts`),
+each read as of the bar of the touch, so a swing is never used before it is
+knowable. Defaults: pivot 5, last 10 bars, 0.2%. Pivot 5 rather than the S/R
+alert's 15 because a 15-bar swing is still unconfirmed when a recent bounce off
+it is over: on NEARUSDT 1h, 0 of 33 MSB(2) bullish breaks passed with pivot 15,
+12 with pivot 5. Like every gate it lives in the `filters` JSON, so it needed
+no migration, and it can name its own timeframe.
+
 ### Arming one alert across a watchlist, or every tracked coin
 
 The indicator and level dialogs offer **Apply to**: this coin only, any
