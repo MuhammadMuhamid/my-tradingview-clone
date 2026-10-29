@@ -39,7 +39,7 @@ import { ensureCandles } from "../data/binanceRest";
 import { BinanceWsManager, type BarCloseEvent, type BarUpdateEvent } from "../data/binanceWs";
 import {
   adx, autoFib, autoFibLevelPrice, enteredZone, liquiditySwings, marketStructure,
-  type ObZoneChoice, type SwingArea, bollinger, ema, macd, rsi, sma, srTouchBounce, stochastic,
+  type ObZoneChoice, type SwingArea, bollinger, ema, macd, rsi, sma, fluxSrTouchBounce, stochastic,
   supertrend,
 } from "./ta";
 import { buildZones, nearestZones, DEFAULT_SR_OPTIONS } from "./srZones";
@@ -56,26 +56,33 @@ import { sendPush, type PushResult } from "../alerts/webPush";
 import { scannerRequest } from "../scanner/client";
 
 /**
- * The `srTouch` resolver for one feed's bars, answering at the last bar.
- *
- * Zones are built once per pivot length and shared by every touch gate on the
- * feed. Invalidation is by close — the `sr_zone` alert's default — so a wick
- * through support that closes back above is the touch, not the break.
+ * The `srTouch` resolver for one feed's bars, answering at the last bar with
+ * the Flux Charts S/R engine the chart draws with. Cached per gate setting,
+ * because several alerts on one symbol normally share one.
  */
-function srTouchResolver(
-  highs: number[], lows: number[], closes: number[]
-): NonNullable<FeedSample["srTouch"]> {
-  const cache = new Map<number, ReturnType<typeof buildZones>>();
-  const bars = { high: highs, low: lows, close: closes };
-  return (kind, pivotLength, lookback, tolerancePct) => {
-    if (closes.length === 0) return undefined;
-    const opts = { ...DEFAULT_SR_OPTIONS, pivotLength, invalidation: "close" as const };
-    let zones = cache.get(pivotLength);
-    if (!zones) {
-      zones = buildZones(bars, opts);
-      cache.set(pivotLength, zones);
+function srTouchResolver(bars: readonly Candle[]): NonNullable<FeedSample["srTouch"]> {
+  const flux = bars.map((b) => ({
+    time: b.openTime, high: b.high, low: b.low, close: b.close, volume: b.volume,
+  }));
+  const cache = new Map<string, boolean>();
+  return (gate) => {
+    if (flux.length === 0) return undefined;
+    const key = [
+      gate.side, gate.pivotLength, gate.strength, gate.invalidation, gate.avoidFalseBreaks,
+      gate.breakVolumeThreshold, gate.inverseBroken, gate.lookback, gate.tolerancePct,
+    ].join("|");
+    let hit = cache.get(key);
+    if (hit === undefined) {
+      hit = fluxSrTouchBounce(flux, {
+        pivotLength: gate.pivotLength, strength: gate.strength,
+        invalidation: gate.invalidation === "wick" ? "Wick" : "Close",
+        avoidFalseBreaks: gate.avoidFalseBreaks,
+        breakVolumeThreshold: gate.breakVolumeThreshold,
+        inverseBrokenLineColor: gate.inverseBroken,
+      }, gate.side === "above" ? "support" : "resistance", gate.lookback, gate.tolerancePct) !== null;
+      cache.set(key, hit);
     }
-    return srTouchBounce(bars, zones, closes.length - 1, kind, lookback, tolerancePct, opts) !== null;
+    return hit;
   };
 }
 
@@ -768,7 +775,7 @@ export class MaAlertRunner {
       bollinger: bbFor,
       stochastic: stochFor,
       adx: adxFor,
-      srTouch: srTouchResolver(bars.map((b) => b.high), bars.map((b) => b.low), closes),
+      srTouch: srTouchResolver(bars),
     };
     const now = replayNow ?? this.dependencies.now();
 
@@ -933,7 +940,7 @@ export class MaAlertRunner {
       rsiMa: rsiMaFor,
       macd: macdFor,
       supertrend: stFor,
-      srTouch: srTouchResolver(highs, lows, closes),
+      srTouch: srTouchResolver(bars),
     };
   }
 

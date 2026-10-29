@@ -29,21 +29,20 @@
  *  - A forming bar is not confirmed: no detection, no reconciliation, no
  *    render on it, exactly as `barstate.isconfirmed` gates the script.
  */
-import { atr as atrSeries, pivothigh, pivotlow, sma } from "@/lib/ta/core";
+import { atr as atrSeries, FluxSrContext, FLUX_SR, type FluxSrInfo } from "@/lib/ta/core";
 import type { PineDrawings } from "@/lib/api";
 import type { Candle } from "@/lib/types";
 import { resolutionMs, type Resolution } from "@/lib/resolution";
 import type { NativeStudyDef } from "@/lib/native/registry";
 import { bool, num, quotedDecimals, str } from "@/lib/native/shared";
 
-const MAX_SR_INFO = 10;
 const MAX_BAR_INFO = 3000;
-const MAX_DISTANCE_TO_LAST_BAR = 500;
+const MAX_DISTANCE_TO_LAST_BAR = FLUX_SR.maxDistanceToLastBar;
 const MIN_SR_SIZE = 5;
 const RETEST_LABEL_COOLDOWN = 3;
-const TOO_CLOSE_ATR = 1 / 8;
+const TOO_CLOSE_ATR = FLUX_SR.tooCloseAtr;
 const LABEL_OFFSET_BARS = 20;
-const ATR_LEN = 20;
+const ATR_LEN = FLUX_SR.atrLength;
 
 export interface FluxSrOptions {
   pivotLength: number;
@@ -68,19 +67,8 @@ export interface FluxSrOptions {
   textColor: string;
 }
 
-type SrType = "Support" | "Resistance";
-
-interface SrInfo {
-  startTime: number;
-  price: number;
-  srType: SrType;
-  strength: number;
-  tf: string;
-  ephemeral: boolean;
-  /** NaN while unbroken — Pine's `na`. */
-  breakTime: number;
-  retestTimes: number[];
-}
+/** One level; the engine lives in `ta/core` so the S/R touch alert reads the same list. */
+type SrInfo = FluxSrInfo;
 
 interface SrObj {
   info: SrInfo;
@@ -176,124 +164,7 @@ function foldBars(candles: readonly Candle[], tf: string): Bar[] {
   return out;
 }
 
-// ── one timeframe's own list (`allSRInfoList`) ──────────────────────────────
-
-/**
- * The detection and break/strength/retest blocks of the script, run over one
- * timeframe's bars. `step(i)` advances to bar i and returns the live list.
- */
-class InfoContext {
-  readonly list: SrInfo[] = [];
-  private readonly bars: readonly Bar[];
-  private readonly atr: number[];
-  private readonly avgVolume: number[];
-  private readonly ph: number[];
-  private readonly pl: number[];
-  private readonly times: number[];
-
-  constructor(bars: readonly Bar[], private readonly opts: FluxSrOptions, private readonly tf: string) {
-    this.bars = bars;
-    const high = bars.map((b) => b.high);
-    const low = bars.map((b) => b.low);
-    const close = bars.map((b) => b.close);
-    this.atr = atrSeries(high, low, close, ATR_LEN);
-    this.avgVolume = sma(bars.map((b) => b.volume), ATR_LEN);
-    this.ph = pivothigh(high, opts.pivotLength, opts.pivotLength);
-    this.pl = pivotlow(low, opts.pivotLength, opts.pivotLength);
-    this.times = bars.map((b) => b.time);
-  }
-
-  step(i: number, confirmed: boolean): void {
-    const { opts } = this;
-    const b = this.bars[i]!;
-    const n = this.bars.length;
-    const insideBounds = i > n - 1 - MAX_DISTANCE_TO_LAST_BAR;
-    const atr = this.atr[i]!;
-    const pivotLow = this.pl[i]!;
-    const pivotHigh = this.ph[i]!;
-    const len = opts.pivotLength;
-
-    if (insideBounds && confirmed) {
-      if (!Number.isNaN(pivotLow)) {
-        let valid = true;
-        for (const cur of this.list) {
-          if (Math.abs(cur.price - pivotLow) < atr * TOO_CLOSE_ATR && Number.isNaN(cur.breakTime)) {
-            valid = false;
-            break;
-          }
-        }
-        if (valid && i - len >= 0) {
-          this.list.unshift({
-            startTime: this.times[i - len]!, price: pivotLow, srType: "Support", strength: 1,
-            tf: this.tf, ephemeral: false, breakTime: NaN, retestTimes: [],
-          });
-          while (this.list.length > MAX_SR_INFO) this.list.pop();
-        }
-      }
-      if (!Number.isNaN(pivotHigh)) {
-        let valid = true;
-        for (const cur of this.list) {
-          // The published script compares against pivotLow here, not pivotHigh.
-          if (Math.abs(cur.price - pivotLow) < atr * TOO_CLOSE_ATR && Number.isNaN(cur.breakTime)) {
-            valid = false;
-            break;
-          }
-        }
-        if (valid && i - len >= 0) {
-          this.list.unshift({
-            startTime: this.times[i - len]!, price: pivotHigh, srType: "Resistance", strength: 1,
-            tf: this.tf, ephemeral: false, breakTime: NaN, retestTimes: [],
-          });
-          if (this.list.length > MAX_SR_INFO) this.list.pop();
-        }
-      }
-    }
-
-    if (insideBounds && (opts.invalidation === "Wick" || confirmed)) {
-      const invHigh = opts.invalidation === "Close" ? b.close : b.high;
-      const invLow = opts.invalidation === "Close" ? b.close : b.low;
-      const volumeOk = !opts.avoidFalseBreaks
-        || b.volume > this.avgVolume[i]! * opts.breakVolumeThreshold;
-      for (const cur of [...this.list]) {
-        if (Number.isNaN(cur.breakTime)) {
-          if (cur.srType === "Resistance" && invHigh > cur.price) {
-            if (volumeOk) {
-              cur.breakTime = b.time;
-              if (opts.inverseBrokenLineColor && !cur.ephemeral && cur.strength >= opts.strength) {
-                this.list.unshift({
-                  startTime: b.time, price: cur.price, srType: "Support", strength: cur.strength,
-                  tf: cur.tf, ephemeral: true, breakTime: NaN, retestTimes: [],
-                });
-              }
-            }
-          } else if (cur.srType === "Support" && invLow < cur.price) {
-            if (volumeOk) {
-              cur.breakTime = b.time;
-              if (opts.inverseBrokenLineColor && !cur.ephemeral && cur.strength >= opts.strength) {
-                this.list.unshift({
-                  startTime: b.time, price: cur.price, srType: "Resistance", strength: cur.strength,
-                  tf: cur.tf, ephemeral: true, breakTime: NaN, retestTimes: [],
-                });
-              }
-            }
-          }
-        }
-        if (Number.isNaN(cur.breakTime) && b.time > cur.startTime && confirmed) {
-          const touches = cur.srType === "Resistance"
-            ? b.high >= cur.price && b.close <= cur.price
-            : b.low <= cur.price && b.close >= cur.price;
-          if (touches) {
-            const last = cur.retestTimes[0] ?? 0;
-            if (last !== b.time) {
-              if (!cur.ephemeral) cur.strength += 1;
-              cur.retestTimes.unshift(b.time);
-            }
-          }
-        }
-      }
-    }
-  }
-}
+// ── one timeframe's own list (`allSRInfoList`): `FluxSrContext` in ta/core ──
 
 // ── the chart ───────────────────────────────────────────────────────────────
 
@@ -341,13 +212,13 @@ export function computeFluxSr(
 
   // Each enabled timeframe: the chart's own context, or a folded one read at
   // its last CLOSED bar.
-  const chartCtx = new InfoContext(bars, opts, chartTf);
+  const chartCtx = new FluxSrContext(bars, opts, chartTf);
   const sources = opts.timeframes.filter((t) => t.enabled).map((t) => {
     const coarser = t.tf !== "" && tfSeconds(t.tf) > chartSec;
     if (!coarser) return { kind: "chart" as const, tf: t.tf === "" ? chartTf : t.tf };
     const htf = foldBars(candles, t.tf);
     // Snapshots of the list after each higher-timeframe bar.
-    const ctx = new InfoContext(htf, opts, t.tf);
+    const ctx = new FluxSrContext(htf, opts, t.tf);
     const snaps: SrInfo[][] = [];
     for (let k = 0; k < htf.length; k++) {
       const complete = k < htf.length - 1 || htf[k]!.closeTime < now;
@@ -601,9 +472,9 @@ const G_BREAKS = "Breaks & Retests";
 const G_STYLE = "Style";
 
 /**
- * The defaults are the ones on the user's own TradingView chart (Zones, zone
- * width 1.5, chart timeframe only), which differ from the script's published
- * defaults (Lines, 1.0) in those two places.
+ * The defaults are the ones on the user's own TradingView chart (2026-10-29:
+ * Lines, zone width 1, chart timeframe only), which are also the script's
+ * published defaults.
  */
 export const fluxSrStudy: NativeStudyDef = {
   id: "flux_sr_mtf",
@@ -643,7 +514,7 @@ export const fluxSrStudy: NativeStudyDef = {
     },
     { kind: "boolean", key: "inverseBrokenLineColor", title: "Inverse Color After Broken", defval: false, group: G_BREAKS },
     {
-      kind: "select", key: "styleMode", title: "Style", defval: "Zones", group: G_STYLE,
+      kind: "select", key: "styleMode", title: "Style", defval: "Lines", group: G_STYLE,
       options: [{ value: "Lines", label: "Lines" }, { value: "Zones", label: "Zones" }],
     },
     {
@@ -651,7 +522,7 @@ export const fluxSrStudy: NativeStudyDef = {
       options: [{ value: "____", label: "____" }, { value: "----", label: "----" }, { value: "....", label: "...." }],
     },
     { kind: "number", key: "lineWidth", title: "Line Width", defval: 2, min: 1, max: 10, integer: true, group: G_STYLE },
-    { kind: "number", key: "zoneSize", title: "Zone Width", defval: 1.5, min: 0.1, max: 10, step: 0.1, integer: false, group: G_STYLE },
+    { kind: "number", key: "zoneSize", title: "Zone Width", defval: 1, min: 0.1, max: 10, step: 0.1, integer: false, group: G_STYLE },
     { kind: "color", key: "supportColor", title: "Support Color", defval: "#08998180", group: G_STYLE },
     { kind: "color", key: "resistanceColor", title: "Resistance Color", defval: "#f2364580", group: G_STYLE },
     { kind: "color", key: "breakColor", title: "Break Color", defval: "#2196f3", group: G_STYLE },
@@ -678,10 +549,10 @@ export const fluxSrStudy: NativeStudyDef = {
       avoidFalseBreaks: bool(params, "avoidFalseBreaks", false),
       breakVolumeThreshold: num(params, "breakVolumeThreshold", 0.3),
       inverseBrokenLineColor: bool(params, "inverseBrokenLineColor", false),
-      styleMode: str(params, "styleMode", "Zones") === "Lines" ? "Lines" : "Zones",
+      styleMode: str(params, "styleMode", "Lines") === "Zones" ? "Zones" : "Lines",
       lineStyle: (["____", "----", "...."] as const).find((v) => v === str(params, "lineStyle", "____")) ?? "____",
       lineWidth: Math.round(num(params, "lineWidth", 2)),
-      zoneSize: num(params, "zoneSize", 1.5),
+      zoneSize: num(params, "zoneSize", 1),
       supportColor: str(params, "supportColor", "#08998180"),
       resistanceColor: str(params, "resistanceColor", "#f2364580"),
       breakColor: str(params, "breakColor", "#2196f3"),

@@ -385,8 +385,7 @@ export function describeGate(gate: AlertGate): string {
       const level = gate.side === "above" ? "support" : "resistance";
       const verb = gate.side === "above" ? "bounced off" : "was rejected at";
       const bars = gate.lookback === 1 ? "bar" : `${gate.lookback} bars`;
-      return `price ${verb} the ${tf}${level} (pivot ${gate.pivotLength}) ` +
-        `within the last ${bars}`;
+      return `price ${verb} a ${tf}Flux ${level} within the last ${bars}`;
     }
   }
 }

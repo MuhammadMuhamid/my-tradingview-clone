@@ -99,8 +99,8 @@ test("a higher timeframe adds its own zones, named by it", () => {
 test("the study's defaults are the user's TradingView settings", () => {
   const p = defaultParams(fluxSrStudy);
   assert.equal(p.pivotLength, 15);
-  assert.equal(p.styleMode, "Zones");
-  assert.equal(p.zoneSize, 1.5);
+  assert.equal(p.styleMode, "Lines");
+  assert.equal(p.zoneSize, 1);
   assert.equal(p.lineWidth, 2);
   assert.equal(p.expand, "Only Valid");
   assert.equal(p.tf1On, true);

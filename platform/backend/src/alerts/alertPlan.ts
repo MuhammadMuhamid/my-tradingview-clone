@@ -20,6 +20,7 @@
 import {
   evaluateCondition,
   type AlertCondition, type AlertFilter, type AlertFilters, type Sample, type Side,
+  type SrTouchGate,
 } from "./alertConditions";
 import {
   acceptsIntrabarSample, decideFire, stateAfterFire,
@@ -144,13 +145,11 @@ export interface FeedSample {
     diLength: number, smoothing: number, level: number
   ) => { value: number; reference: number } | undefined;
   /**
-   * Whether price touched the nearest live support (or resistance) within the
-   * last `lookback` bars and has bounced off it — `srTouchBounce` on this
-   * feed's bars. Undefined while the history cannot answer.
+   * Whether price retested a live Flux Charts support (or resistance) within
+   * the last `lookback` bars and bounced — `fluxSrTouchBounce` on this feed's
+   * bars. Undefined while the history cannot answer.
    */
-  srTouch?: (
-    kind: "support" | "resistance", pivotLength: number, lookback: number, tolerancePct: number
-  ) => boolean | undefined;
+  srTouch?: (gate: SrTouchGate) => boolean | undefined;
   /** Canonical server result for this exact completed bar. */
   patterns?: { ids: readonly string[]; nameFor: (id: string) => string | undefined };
   /**
@@ -428,9 +427,7 @@ function gateReading(gate: AlertFilter, own: FeedSample): number | undefined {
       // bounce) gate, -1 a "below" (resistance rejection) one, and 0 shuts
       // either. No touch is a shut gate, not an unknown one.
       const above = gate.side === "above";
-      const hit = feed.srTouch?.(
-        above ? "support" : "resistance", gate.pivotLength, gate.lookback, gate.tolerancePct
-      );
+      const hit = feed.srTouch?.(gate);
       if (hit === undefined) return undefined;
       return hit ? (above ? 1 : -1) : 0;
     }

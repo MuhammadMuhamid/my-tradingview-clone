@@ -129,16 +129,16 @@ export const FILTER_DEFAULTS = {
     target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
   /*
-   * Price touched the nearest support in the last 10 bars and has bounced off
-   * it ("above"), or touched resistance and was rejected ("below"); a touch is
-   * a wick within 0.2% of it. Pivot length 5, not the S/R alert's 15: a swing
-   * is only knowable `length` bars after it forms, so a 15-bar swing is still
-   * unconfirmed when a "recent" bounce off it is over. On NEARUSDT 1h, 0 of 33
-   * MSB(2) bullish breaks followed a bounce off a pivot-15 support; 12 did off
-   * pivot-5 ones.
+   * Price retested a live support of the Flux Charts "Support & Resistance
+   * (MTF)" indicator in the last 10 bars and bounced ("above"), or retested a
+   * resistance and was rejected ("below"). The Flux settings are the
+   * indicator's own defaults, so the level is the zone the chart draws; a
+   * touch is the indicator's own "R" retest (tolerance 0).
    */
   sr_touch: {
-    pivotLength: 5, lookback: 10, tolerancePct: 0.2, side: "above" as FilterSide,
+    pivotLength: 15, strength: 1, invalidation: "close" as "close" | "wick",
+    avoidFalseBreaks: false, breakVolumeThreshold: 0.3, inverseBroken: false,
+    lookback: 10, tolerancePct: 0, side: "above" as FilterSide,
   },
 } as const;
 

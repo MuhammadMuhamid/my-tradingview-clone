@@ -269,17 +269,52 @@ function GateFields({
             words={["support bounce", "resistance rejection"]} width={176}
             onChange={(side) => onChange({ ...gate, side })}
           />
+          <span className="basis-full" aria-hidden="true" />
           <span className="whitespace-nowrap text-sm text-ink-muted">in last</span>
           <Num value={gate.lookback} label={name("S/R touch lookback bars")} width={58}
             max="500" onChange={(lookback) => onChange({ ...gate, lookback })} />
-          <span className="whitespace-nowrap text-sm text-ink-muted">bars · pivot</span>
-          <Num value={gate.pivotLength} label={name("S/R touch pivot length")} width={58}
-            max="100" onChange={(pivotLength) => onChange({ ...gate, pivotLength })} />
-          <span className="whitespace-nowrap text-sm text-ink-muted">within</span>
+          <span className="whitespace-nowrap text-sm text-ink-muted">bars · within</span>
           <Num value={gate.tolerancePct} label={name("S/R touch tolerance percent")} width={62}
             min="0" max="10" step="0.05"
             onChange={(tolerancePct) => onChange({ ...gate, tolerancePct })} />
-          <span className="text-sm text-ink-muted">%</span>
+          <span className="text-sm text-ink-muted">% of the level</span>
+          <span className="basis-full" aria-hidden="true" />
+          {/*
+            * The Flux Charts indicator's own General and Breaks settings, so the
+            * levels this gate reads are the zones the chart draws with them.
+            */}
+          <span className="whitespace-nowrap text-sm text-ink-muted">Flux S/R: pivot</span>
+          <Num value={gate.pivotLength} label={name("Flux pivot length")} width={58}
+            min="3" max="50" onChange={(pivotLength) => onChange({ ...gate, pivotLength })} />
+          <span className="text-sm text-ink-muted">strength</span>
+          <Dropdown
+            value={String(gate.strength)} label={name("Flux strength")} width={58}
+            options={[{ value: "1", label: "1" }, { value: "2", label: "2" }, { value: "3", label: "3" }]}
+            onChange={(next) => onChange({ ...gate, strength: Number(next) })}
+          />
+          <span className="whitespace-nowrap text-sm text-ink-muted">break on</span>
+          <Dropdown
+            value={gate.invalidation} label={name("Flux invalidation")} width={84}
+            options={[
+              { value: "close", label: "Close" },
+              { value: "wick", label: "Wick" },
+            ]}
+            onChange={(next) => onChange({ ...gate, invalidation: next as "close" | "wick" })}
+          />
+          <span className="basis-full" aria-hidden="true" />
+          <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-ink-muted">
+            <input type="checkbox" checked={gate.avoidFalseBreaks} aria-label={name("Flux avoid false breaks")}
+              onChange={(e) => onChange({ ...gate, avoidFalseBreaks: e.target.checked })} />
+            Avoid false breaks
+          </label>
+          <Num value={gate.breakVolumeThreshold} label={name("Flux break volume threshold")} width={62}
+            min="0.1" max="2" step="0.1"
+            onChange={(breakVolumeThreshold) => onChange({ ...gate, breakVolumeThreshold })} />
+          <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-ink-muted">
+            <input type="checkbox" checked={gate.inverseBroken} aria-label={name("Flux inverse after broken")}
+              onChange={(e) => onChange({ ...gate, inverseBroken: e.target.checked })} />
+            Broken level flips
+          </label>
         </>
       );
   }
@@ -401,9 +436,11 @@ export function AlertFiltersField({
           timeframe is measured there. While a condition is not met the alert
           stays silent — it does not queue up and fire later. A condition whose
           indicator has not warmed up, or whose timeframe cannot be read, counts
-          as not met. A recent S/R touch means a wick came within the tolerance
-          of the nearest support (resistance) in the last N bars and price is
-          still on the near side of it, with no close through it since.
+          as not met. A recent S/R touch uses the Flux Charts Support &amp;
+          Resistance levels: in the last N bars a candle retested a live support
+          (its wick reached the level, or came within the % you allow, and it
+          closed back above — the chart&apos;s &quot;R&quot;), the support is
+          still unbroken, and price is above it. Resistance is the mirror image.
         </p>
       )}
     </>

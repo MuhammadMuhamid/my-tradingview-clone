@@ -917,9 +917,15 @@ export type AlertGate =
       fastLength: number; slowLength: number; signalLength: number; target: MacdTarget;
     }
   | {
-      /** "above": touched support and bounced; "below": touched resistance and rejected. */
+      /**
+       * "above": retested a live Flux Charts support and bounced; "below":
+       * retested a resistance and was rejected. The middle row is the
+       * indicator's own General / Breaks settings.
+       */
       kind: "sr_touch"; timeframe?: FilterTimeframe; side: FilterSide;
-      pivotLength: number; lookback: number; tolerancePct: number;
+      pivotLength: number; strength: number; invalidation: "close" | "wick";
+      avoidFalseBreaks: boolean; breakVolumeThreshold: number; inverseBroken: boolean;
+      lookback: number; tolerancePct: number;
     };
 
 /** Mirrors the backend's `FILTER_DEFAULTS`. */
@@ -937,7 +943,9 @@ export const FILTER_DEFAULTS = {
     target: "signal" as MacdTarget, side: "above" as FilterSide,
   },
   sr_touch: {
-    pivotLength: 5, lookback: 10, tolerancePct: 0.2, side: "above" as FilterSide,
+    pivotLength: 15, strength: 1, invalidation: "close" as "close" | "wick",
+    avoidFalseBreaks: false, breakVolumeThreshold: 0.3, inverseBroken: false,
+    lookback: 10, tolerancePct: 0, side: "above" as FilterSide,
   },
 } as const;
 

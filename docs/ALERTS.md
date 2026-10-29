@@ -233,17 +233,23 @@ than guessed at.
 ### The recent S/R touch gate
 
 `sr_touch` asks whether price recently came back to a level and held: "a
-bullish 1h MSB, but only after a bounce off 1h support". Side `above` = a wick
-came within `tolerancePct` of the nearest live support in the last `lookback`
-bars and the close is still above it with no close through it since; `below`
-is the same for resistance (a rejection). The levels are the `sr_zone`
-alert's confirmed swing pivots (`srTouchBounce` in `platform/backend/src/ta/core.ts`),
-each read as of the bar of the touch, so a swing is never used before it is
-knowable. Defaults: pivot 5, last 10 bars, 0.2%. Pivot 5 rather than the S/R
-alert's 15 because a 15-bar swing is still unconfirmed when a recent bounce off
-it is over: on NEARUSDT 1h, 0 of 33 MSB(2) bullish breaks passed with pivot 15,
-12 with pivot 5. Like every gate it lives in the `filters` JSON, so it needed
-no migration, and it can name its own timeframe.
+bullish 1h MSB, but only after a bounce off 1h support". The levels are the
+**Flux Charts "Support & Resistance (MTF)"** indicator's — `FluxSrContext` in
+`platform/backend/src/ta/core.ts`, the same engine the chart study
+(`lib/native/fluxSr.ts`) draws with — on the gate's timeframe, with the
+indicator's General and Breaks settings carried on the gate (pivot 15,
+strength 1, break on close, avoid false breaks off / 0.3, inverse after broken
+off). Side `above`: within the last `lookback` bars a candle retested a live
+support (wick reached it and the candle closed back above — the chart's "R";
+`tolerancePct` > 0 also accepts a wick that stopped that close), the support
+is still unbroken and price is above it. `below` is the mirror at resistance.
+
+It is deliberately strict: Flux levels with pivot 15 are few, and a true
+retest is rarer. On NEARUSDT 1h none of 33 MSB(2) bullish breaks followed a
+retest at tolerance 0 with a 10-bar window; 2 did at 1%, 7 at 2% over 20 bars.
+The first version (2026-10-29, `c9ee335`) used plain swing pivots; a gate
+stored then reads with the Flux defaults. Gates live in the `filters` JSON, so
+neither version needed a migration.
 
 ### Arming one alert across a watchlist, or every tracked coin
 

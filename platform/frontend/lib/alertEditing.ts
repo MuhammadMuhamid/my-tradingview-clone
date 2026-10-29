@@ -493,8 +493,11 @@ function gateProblem(gate: AlertGate): string | null {
       return gate.fastLength < gate.slowLength ? null
         : "The MACD filter's fast length must be below its slow length.";
     case "sr_touch":
-      if (!(Number.isInteger(gate.pivotLength) && gate.pivotLength >= 1 && gate.pivotLength <= 100)) {
-        return "The S/R touch pivot length must be from 1 to 100.";
+      if (!(Number.isInteger(gate.pivotLength) && gate.pivotLength >= 3 && gate.pivotLength <= 50)) {
+        return "The S/R touch pivot length must be from 3 to 50.";
+      }
+      if (!(gate.breakVolumeThreshold >= 0.1 && gate.breakVolumeThreshold <= 2)) {
+        return "The S/R touch break volume threshold must be from 0.1 to 2.";
       }
       if (!(Number.isInteger(gate.lookback) && gate.lookback >= 1 && gate.lookback <= 500)) {
         return "The S/R touch lookback must be from 1 to 500 bars.";

@@ -2359,41 +2359,201 @@ export function nearestZones(
   return { support, resistance };
 }
 
+// ── Support & Resistance (MTF) | Flux Charts: one timeframe's levels ───────
+
 /**
- * Whether price recently touched the nearest support (or resistance) and has
- * bounced off it: the "came back to the level and held" a trader waits for
- * before acting on a break.
- *
- * Walks the last `lookback` bars up to `index`. At each bar `j` the level is
- * the nearest live zone AS OF `j` — knowable then, never later — and bar `j`
- * touched it when its wick came within `tolerancePct` percent of the level
- * (a support's low at or below `price × (1 + tol)`, a resistance's high at or
- * above `price × (1 − tol)`). It has bounced when that same zone is still
- * live at `index` (no close through it since) and price at `index` closes on
- * the near side of it. The most recent touch wins.
- *
- * Returns null when nothing in the window qualifies.
+ * The level list of the Flux Charts "Support & Resistance (MTF)" script
+ * (S&R V2.12) on one timeframe: its detection and break/strength/retest blocks,
+ * line for line. The chart study (`lib/native/fluxSr.ts`) draws from this, and
+ * the `sr_touch` alert gate reads it, so the support an alert names is the
+ * zone the chart shows.
  */
-export function srTouchBounce(
-  bars: Bars, zones: Zone[], index: number, kind: ZoneKind,
-  lookback: number, tolerancePct: number, opts: SrOptions = DEFAULT_SR_OPTIONS
-): { price: number; touchIndex: number } | null {
-  const tol = tolerancePct / 100;
-  const now = bars.close[index];
-  if (now === undefined || !Number.isFinite(now)) return null;
-  for (let j = index; j >= 0 && j > index - lookback; j--) {
-    const nearest = nearestZones(zones, j, bars.close[j]!, opts);
-    const zone = kind === "support" ? nearest.support : nearest.resistance;
-    if (!zone) continue;
-    const touched = kind === "support"
-      ? bars.low[j]! <= zone.price * (1 + tol)
-      : bars.high[j]! >= zone.price * (1 - tol);
-    if (!touched) continue;
-    const holds = zone.brokenIndex === null || zone.brokenIndex > index;
-    const bounced = kind === "support" ? now > zone.price : now < zone.price;
-    if (holds && bounced) return { price: zone.price, touchIndex: j };
+export const FLUX_SR = {
+  maxInfo: 10,
+  maxDistanceToLastBar: 500,
+  tooCloseAtr: 1 / 8,
+  atrLength: 20,
+} as const;
+
+export interface FluxSrConfig {
+  pivotLength: number;
+  strength: number;
+  invalidation: "Wick" | "Close";
+  avoidFalseBreaks: boolean;
+  breakVolumeThreshold: number;
+  inverseBrokenLineColor: boolean;
+}
+
+export const FLUX_SR_DEFAULTS: FluxSrConfig = {
+  pivotLength: 15, strength: 1, invalidation: "Close",
+  avoidFalseBreaks: false, breakVolumeThreshold: 0.3, inverseBrokenLineColor: false,
+};
+
+export interface FluxSrBar { time: number; high: number; low: number; close: number; volume: number }
+
+export interface FluxSrInfo {
+  startTime: number;
+  price: number;
+  srType: "Support" | "Resistance";
+  strength: number;
+  tf: string;
+  ephemeral: boolean;
+  /** NaN while unbroken — Pine's `na`. */
+  breakTime: number;
+  /** Newest first. */
+  retestTimes: number[];
+  /** Bar index (in this context's bars) the level entered the list on. */
+  addedIndex: number;
+}
+
+/** `allSRInfoList` on one timeframe. `step(i)` advances to bar i. */
+export class FluxSrContext {
+  readonly list: FluxSrInfo[] = [];
+  private readonly atr: number[];
+  private readonly avgVolume: number[];
+  private readonly ph: number[];
+  private readonly pl: number[];
+
+  constructor(
+    private readonly bars: readonly FluxSrBar[],
+    private readonly opts: FluxSrConfig,
+    private readonly tf: string,
+  ) {
+    const high = bars.map((b) => b.high);
+    const low = bars.map((b) => b.low);
+    const close = bars.map((b) => b.close);
+    this.atr = atr(high, low, close, FLUX_SR.atrLength);
+    this.avgVolume = sma(bars.map((b) => b.volume), FLUX_SR.atrLength);
+    this.ph = pivothigh(high, opts.pivotLength, opts.pivotLength);
+    this.pl = pivotlow(low, opts.pivotLength, opts.pivotLength);
   }
-  return null;
+
+  step(i: number, confirmed: boolean): void {
+    const { opts } = this;
+    const b = this.bars[i]!;
+    const n = this.bars.length;
+    const insideBounds = i > n - 1 - FLUX_SR.maxDistanceToLastBar;
+    const atrNow = this.atr[i]!;
+    const pivotLow = this.pl[i]!;
+    const pivotHigh = this.ph[i]!;
+    const len = opts.pivotLength;
+    const add = (price: number, srType: FluxSrInfo["srType"]): void => {
+      this.list.unshift({
+        startTime: this.bars[i - len]!.time, price, srType, strength: 1,
+        tf: this.tf, ephemeral: false, breakTime: NaN, retestTimes: [], addedIndex: i,
+      });
+    };
+
+    if (insideBounds && confirmed) {
+      if (!Number.isNaN(pivotLow)) {
+        let valid = true;
+        for (const cur of this.list) {
+          if (Math.abs(cur.price - pivotLow) < atrNow * FLUX_SR.tooCloseAtr && Number.isNaN(cur.breakTime)) {
+            valid = false;
+            break;
+          }
+        }
+        if (valid && i - len >= 0) {
+          add(pivotLow, "Support");
+          while (this.list.length > FLUX_SR.maxInfo) this.list.pop();
+        }
+      }
+      if (!Number.isNaN(pivotHigh)) {
+        let valid = true;
+        for (const cur of this.list) {
+          // The published script compares against pivotLow here, not pivotHigh.
+          if (Math.abs(cur.price - pivotLow) < atrNow * FLUX_SR.tooCloseAtr && Number.isNaN(cur.breakTime)) {
+            valid = false;
+            break;
+          }
+        }
+        if (valid && i - len >= 0) {
+          add(pivotHigh, "Resistance");
+          if (this.list.length > FLUX_SR.maxInfo) this.list.pop();
+        }
+      }
+    }
+
+    if (insideBounds && (opts.invalidation === "Wick" || confirmed)) {
+      const invHigh = opts.invalidation === "Close" ? b.close : b.high;
+      const invLow = opts.invalidation === "Close" ? b.close : b.low;
+      const volumeOk = !opts.avoidFalseBreaks
+        || b.volume > this.avgVolume[i]! * opts.breakVolumeThreshold;
+      const flip = (cur: FluxSrInfo, srType: FluxSrInfo["srType"]): void => {
+        if (opts.inverseBrokenLineColor && !cur.ephemeral && cur.strength >= opts.strength) {
+          this.list.unshift({
+            startTime: b.time, price: cur.price, srType, strength: cur.strength,
+            tf: cur.tf, ephemeral: true, breakTime: NaN, retestTimes: [], addedIndex: i,
+          });
+        }
+      };
+      for (const cur of [...this.list]) {
+        if (Number.isNaN(cur.breakTime)) {
+          if (cur.srType === "Resistance" && invHigh > cur.price) {
+            if (volumeOk) { cur.breakTime = b.time; flip(cur, "Support"); }
+          } else if (cur.srType === "Support" && invLow < cur.price) {
+            if (volumeOk) { cur.breakTime = b.time; flip(cur, "Resistance"); }
+          }
+        }
+        if (Number.isNaN(cur.breakTime) && b.time > cur.startTime && confirmed) {
+          const touches = cur.srType === "Resistance"
+            ? b.high >= cur.price && b.close <= cur.price
+            : b.low <= cur.price && b.close >= cur.price;
+          if (touches) {
+            const last = cur.retestTimes[0] ?? 0;
+            if (last !== b.time) {
+              if (!cur.ephemeral) cur.strength += 1;
+              cur.retestTimes.unshift(b.time);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Whether price recently retested a live Flux support and bounced (or a live
+ * Flux resistance and was rejected), as of the LAST bar of `bars`.
+ *
+ * A retest is the script's own: a bar whose wick reached the level and whose
+ * close held on the near side of it — the bar the chart marks "R". With
+ * `tolerancePct` above 0 a wick that stopped that close short of the level
+ * counts too. The level must be one the chart shows (strength at least the
+ * configured Strength), still unbroken now, with price on its near side, and
+ * the touch must be within the last `lookback` bars and no earlier than the
+ * bar the level appeared on. The most recent touch wins.
+ */
+export function fluxSrTouchBounce(
+  bars: readonly FluxSrBar[], opts: FluxSrConfig, kind: "support" | "resistance",
+  lookback: number, tolerancePct: number,
+): { price: number; touchIndex: number } | null {
+  const n = bars.length;
+  if (n === 0) return null;
+  const ctx = new FluxSrContext(bars, opts, "");
+  for (let i = 0; i < n; i++) ctx.step(i, true);
+  const tol = tolerancePct / 100;
+  const last = n - 1;
+  const now = bars[last]!.close;
+  const want = kind === "support" ? "Support" : "Resistance";
+  let best: { price: number; touchIndex: number } | null = null;
+  for (const lv of ctx.list) {
+    if (lv.srType !== want || !Number.isNaN(lv.breakTime) || lv.strength < opts.strength) continue;
+    if (want === "Support" ? now < lv.price : now > lv.price) continue;
+    const from = Math.max(lv.addedIndex, last - lookback + 1, 0);
+    for (let j = last; j >= from; j--) {
+      const b = bars[j]!;
+      if (!(b.time > lv.startTime)) break;
+      const touched = want === "Support"
+        ? b.low <= lv.price * (1 + tol) && b.close >= lv.price
+        : b.high >= lv.price * (1 - tol) && b.close <= lv.price;
+      if (touched) {
+        if (!best || j > best.touchIndex) best = { price: lv.price, touchIndex: j };
+        break;
+      }
+    }
+  }
+  return best;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

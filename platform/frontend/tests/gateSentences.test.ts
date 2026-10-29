@@ -79,17 +79,15 @@ test("the S/R touch gate says which level and how recently", () => {
   // Verbatim in the backend's srTouchGate.test.ts too.
   assert.equal(
     describeGate({
-      kind: "sr_touch", timeframe: "1h", pivotLength: 15, lookback: 10,
-      tolerancePct: 0.2, side: "above",
-    }),
-    "price bounced off the 1h support (pivot 15) within the last 10 bars"
+      ...defaultGate("sr_touch"), timeframe: "1h", side: "above",
+    } as AlertGate),
+    "price bounced off a 1h Flux support within the last 10 bars"
   );
   assert.equal(
     describeGate({
-      kind: "sr_touch", timeframe: "1h", pivotLength: 15, lookback: 1,
-      tolerancePct: 0.2, side: "below",
-    }),
-    "price was rejected at the 1h resistance (pivot 15) within the last bar"
+      ...defaultGate("sr_touch"), timeframe: "1h", lookback: 1, side: "below",
+    } as AlertGate),
+    "price was rejected at a 1h Flux resistance within the last bar"
   );
 });
 

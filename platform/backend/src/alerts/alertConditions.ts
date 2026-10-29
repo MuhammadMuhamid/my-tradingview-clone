@@ -26,7 +26,7 @@ import {
   CONDITION_KINDS, PRICE_DIRECTIONS,
   PIVOT_LEVEL_ANY, ADX_DEFAULTS, BOLLINGER_DEFAULTS, MACD_DEFAULTS, RSI_DEFAULTS,
   STOCHASTIC_DEFAULTS, SUPERTREND_DEFAULTS,
-  MAX_ALERT_FILTERS,
+  MAX_ALERT_FILTERS, FILTER_DEFAULTS,
   isBollingerBand, isMaType, isRsiTarget, isMacdTarget, isStAtrMethod, isStochasticTarget,
   isFilterKind, isFilterSide, isFilterTimeframe,
   type BollingerBand, type ConditionKind, type MaAlertMode, type MaType,
@@ -175,20 +175,27 @@ export interface MacdGate extends GateBase {
 }
 
 /**
- * Price recently touched the nearest support and bounced off it ("above"), or
- * touched the nearest resistance and was rejected ("below").
+ * Price recently retested a live support of the Flux Charts S/R indicator and
+ * bounced ("above"), or retested a resistance and was rejected ("below").
  *
  * A precondition rather than a signal: "a bullish break, but only after price
- * came back to support and held". The levels are the `sr_zone` alert's —
- * confirmed swing pivots of `pivotLength`, dead once a close goes through —
- * and the test is `srTouchBounce` in `ta/core`.
+ * came back to support and held". The levels and the retest are the
+ * indicator's own (`FluxSrContext` / `fluxSrTouchBounce` in `ta/core`), with
+ * its General and Breaks settings, so the gate names the zone the chart draws.
  */
 export interface SrTouchGate extends GateBase {
   kind: "sr_touch";
   pivotLength: number;
-  /** Bars back, counting the evaluated one, a touch may have happened in. */
+  /** The indicator's Strength: retests a level needs before it is shown. */
+  strength: number;
+  invalidation: "close" | "wick";
+  avoidFalseBreaks: boolean;
+  breakVolumeThreshold: number;
+  /** "Inverse Color After Broken": a broken level flips into the other kind. */
+  inverseBroken: boolean;
+  /** Bars back, counting the evaluated one, a retest may have happened in. */
   lookback: number;
-  /** How close a wick must come to the level to count, in percent. */
+  /** Extra room for a wick that stopped short of the level, in percent. */
   tolerancePct: number;
 }
 
@@ -1480,7 +1487,22 @@ function parseStoredGate(raw: unknown): AlertFilter | null {
       const pivotLength = num(g.pivotLength), lookback = num(g.lookback);
       const tolerancePct = num(g.tolerancePct);
       if (pivotLength == null || lookback == null || tolerancePct == null) return null;
-      return { ...base, kind, pivotLength, lookback, tolerancePct };
+      // The Flux settings arrived after the first version of this gate; one
+      // stored without them reads as the indicator's defaults.
+      const d = FILTER_DEFAULTS.sr_touch;
+      const strength = g.strength === undefined ? d.strength : num(g.strength);
+      const threshold = g.breakVolumeThreshold === undefined
+        ? d.breakVolumeThreshold : num(g.breakVolumeThreshold);
+      const invalidation = g.invalidation === undefined ? d.invalidation : g.invalidation;
+      const avoidFalseBreaks = g.avoidFalseBreaks === undefined ? d.avoidFalseBreaks : g.avoidFalseBreaks;
+      const inverseBroken = g.inverseBroken === undefined ? d.inverseBroken : g.inverseBroken;
+      if (strength == null || threshold == null) return null;
+      if (invalidation !== "close" && invalidation !== "wick") return null;
+      if (typeof avoidFalseBreaks !== "boolean" || typeof inverseBroken !== "boolean") return null;
+      return {
+        ...base, kind, pivotLength, strength, invalidation, avoidFalseBreaks,
+        breakVolumeThreshold: threshold, inverseBroken, lookback, tolerancePct,
+      };
     }
   }
 }
@@ -1617,15 +1639,14 @@ export function describeGate(gate: AlertFilter): string {
 }
 
 /**
- * "price bounced off the 1h support (pivot 15) within the last 10 bars". The
- * frontend's `gateSentence` says the same words.
+ * "price bounced off a 1h Flux support within the last 10 bars". The
+ * frontend's `describeGate` says the same words.
  */
 function srTouchSentence(gate: SrTouchGate): string {
   const level = gate.side === "above" ? "support" : "resistance";
   const verb = gate.side === "above" ? "bounced off" : "was rejected at";
   const bars = gate.lookback === 1 ? "bar" : `${gate.lookback} bars`;
-  return `price ${verb} the ${tfPrefix(gate)}${level} (pivot ${gate.pivotLength}) ` +
-    `within the last ${bars}`;
+  return `price ${verb} a ${tfPrefix(gate)}Flux ${level} within the last ${bars}`;
 }
 
 /**
@@ -1714,9 +1735,16 @@ function gateError(gate: AlertFilter): string | null {
       return null;
     }
     case "sr_touch": {
-      const { pivotLength, lookback, tolerancePct } = gate;
-      if (!Number.isInteger(pivotLength) || pivotLength < 1 || pivotLength > 100) {
-        return "an S/R touch gate's pivot length must be an integer 1..100";
+      const { pivotLength, strength, breakVolumeThreshold, lookback, tolerancePct } = gate;
+      if (!Number.isInteger(pivotLength) || pivotLength < 3 || pivotLength > 50) {
+        return "an S/R touch gate's pivot length must be an integer 3..50";
+      }
+      if (![1, 2, 3].includes(strength)) return "an S/R touch gate's strength must be 1, 2 or 3";
+      if (gate.invalidation !== "close" && gate.invalidation !== "wick") {
+        return "an S/R touch gate's invalidation must be close or wick";
+      }
+      if (!Number.isFinite(breakVolumeThreshold) || breakVolumeThreshold < 0.1 || breakVolumeThreshold > 2) {
+        return "an S/R touch gate's break volume threshold must be between 0.1 and 2";
       }
       if (!Number.isInteger(lookback) || lookback < 1 || lookback > 500) {
         return "an S/R touch gate's lookback must be an integer 1..500 bars";
