@@ -137,53 +137,93 @@ with manual trading switched off now says that instead of "the state read failed
 
 ---
 
-## 6. Backtester Optimizer (Research) — first run, verified locally
+## 6. Backtester Optimizer (Research) — a complete journey, verified locally
 
-Start: `cd research && set -a && source <platform backend env> && set +a && PLATFORM_BACKEND=<platform/backend> python3 -m backtester --port 8765`.
-**The controller needs the Platform backend's full environment** (database URL and the boot
-secrets, or `AUTH_ENABLED=false`), because its read-only data check runs the Platform's own
-candle reader. Without it the data check fails with a generic message (campaign finding E1).
+Start (from the `research` checkout):
 
-| Screen | Choices you get | Evidence |
+```bash
+set -a; source <platform backend env file>; set +a   # DATABASE_URL + boot secrets, or AUTH_ENABLED=false
+PLATFORM_BACKEND=<…>/platform/platform/backend python3 -m backtester --port 8765
+```
+
+**The controller needs the Platform backend's full environment**, because its read-only data
+check and every run execute the Platform's own engine and candle reader. Started without it, the
+preflight data check failed with a generic message; since this campaign it names the real cause
+and this next step (finding E1). Candles are never downloaded by the Backtester: prepare them on the
+Platform (`POST /api/data/backfill`) for **every feed the strategy needs** — `mtf_lean` reads
+5m/15m/1h/4h-class feeds, not only the chart timeframe, and the coverage check inspects only the
+chart timeframe and says so.
+
+| Step | Choices you get | Evidence (2026-11-01) |
 |---|---|---|
-| New Run | 15 registered trees (5 current, 10 historical / not-comparable), Stage, run name, Shariah Mode pin (Off / On = ELIGIBLE-only from an imported snapshot), coin selection (tick list or paste), evaluation budget per symbol, frozen dates from the tree, resource profile (1 / half / all CPUs or exact count) | LOCAL UI VERIFIED |
-| Preflight | What will run, exact frozen dates, read-only **stored chart-feed coverage check**, frozen market assumptions, engine/controller fingerprints, warnings (e.g. dirty Platform worktree) | LOCAL UI VERIFIED |
-| Run page | Start / queue with priority, status, progress, Events, Logs, Manifest, Results & artifacts, "Test candidates in bad periods" (Stress) | LOCAL UI VERIFIED (created + started) |
-| Data | The Backtester **never downloads candles**. Prepare them on the Platform with `POST /api/data/backfill` for every feed the strategy needs — `mtf_lean` needs 5m/15m/1h/4h-class feeds, not only the chart timeframe; the coverage check only checks the chart timeframe and says so. | LOCAL UI VERIFIED: a run with only 15m data completed with 0/50 evaluations ("no 5m data"), reported honestly as *Completed — no results* |
-| History & Results, Experiments, Tree Definitions, Distributed Compute, Settings, How it works | see the in-product guide | SOURCE-IMPLEMENTED; UI tests exist (`research/tests/*.test.mjs`) |
+| New Run | 15 registered trees (5 current, 10 historical / not-comparable), Stage, run name, Shariah Mode pin (Off / On = ELIGIBLE-only from an imported snapshot), coin selection (tick list or paste), evaluation budget per symbol (Search) or candidate replay limit (Replay), frozen dates from the tree, resource profile (1 / half / all CPUs or exact count) | LOCAL UI VERIFIED |
+| Preflight | What will run, exact frozen dates, read-only stored chart-feed coverage check, frozen market assumptions, engine/controller fingerprints, warnings | LOCAL UI VERIFIED |
+| Create → Start | Immutable manifest; Start refuses if tree inputs or the Platform commit changed since creation ("clone a new run") | LOCAL UI VERIFIED (both the refusal and a normal start) |
+| Search run | `lean_optimizer15m`, ZECUSDT, 50 evaluations: completed 50/50 in 5 s, best candidate score 4.86 (net +12.2 %, drawdown 2.9 %, 58 trades) | LOCAL UI VERIFIED — after fixing E4: in a fresh checkout every evaluation failed because the tree's `results/` folder did not exist, and the run honestly said *Completed — no results* |
+| Stress ("Test candidates in bad periods") | Choose a coin and up to 10 candidates; find periods by largest decline / deepest drawdown / most volatile on daily, 4h or 1h stored candles, period length, count, search range; adjust or add periods; save a frozen study; Start; result table shows each candidate's return/drawdown/trades beside the market's own return/drawdown per period | LOCAL UI VERIFIED (1 candidate × 3 periods; market −51 %/−51 %/−39 % vs strategy −0.7 %/−0.3 %/+0.2 %) |
+| History & Results, Experiments, Tree Definitions, Settings, How it works | run history with clone, experiments comparison, immutable custom definitions, in-product guide | SOURCE-IMPLEMENTED; UI tests exist (`research/tests/*.test.mjs`) |
 
-Stress ("bad market" testing): from a completed Search run, choose up to ten candidates and up to
-ten difficult periods for one coin (auto-found by price decline, drawdown or volatility, or typed
-in), frozen into an immutable Stress study; each candidate/period pair starts with fresh capital;
-results sit beside the market's own return. Date selection uses hindsight, so Stress is **not**
-untouched Holdout. Reference: `research/docs/BACKTESTER-CONTROLLER.md`, `research/README.md`.
+Interpretation limits the product itself states: a Search result is not validation; Stress dates
+are chosen with hindsight so it is not untouched Holdout; Walk-forward / Replay / Holdout are a
+progression, not a pipeline; historical trees are not comparable with current ones.
+Reference: `research/docs/BACKTESTER-CONTROLLER.md`, `research/README.md`.
 
----
-
-## 7. Compute Helper
+## 7. Compute Helper — verified end to end on one Mac
 
 Supported job: exactly one — `full3y1h` replay, one symbol per work unit, topN = 1. Search,
 Walk-forward, Holdout, custom definitions and other replays stay on the coordinator Mac.
-Journey: *Distributed Compute → Add a Mac* on the coordinator → run the helper on the other Mac
-(`python3 -m backtester.compute_helper run`, page on :8877) → pair → *Helping ON* with a resource
-profile → progress on the run page → *Drain* / *Helping OFF* to stop safely.
-Evidence: **TESTED** (Python fixtures on one machine: pairing, leases, presence, delivery, revocation).
-**A real second Mac was not available during the campaign.** Reference:
+
+Journey (every step was exercised in the browser on 2026-11-01, with the helper and the
+coordinator on the same Mac): helper page (`python3 -m backtester.compute_helper run`, :8877) →
+*Name this Mac* creates its identity → coordinator *Distributed Compute → Add a Mac* (identity,
+pairing block, approve the helper's certificate with the fingerprint shown first, enable the
+listener, restart once) → paste the pairing block on the helper, confirm the fingerprint → *Helping
+ON* → *Connection connected* → `compute-helper.sh set-execution …` → *Able to run work: Yes* →
+New Run with the helper-compatible replay preset → *Start distributed run* → the helper took the
+unit and the coordinator accepted its result (1/1 accepted, attributed to the helper). The helper
+first offered **0 capacity because macOS Low Power Mode was on** and said so; unticking *Pause in
+Low Power Mode* under the helper's safeguards released the slot. *Drain* and *Helping OFF* stop new
+work; a running job finishes.
+
+Honest gaps: a **second physical Mac was not available**, so the private-network address step
+(step 2 on the coordinator page) was left at loopback; after all distributed work is accepted the
+run header still reads *Ready to start · 0/1* while the Distributed panel (marked authoritative)
+reads 100 % (noted as E5). Reference:
 [FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md](FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md).
 
----
-
 ## 8. Chart workstation, Screener, alerts, Quick Backtester
-
-(Sections filled in as each area is walked; see the campaign checkpoint for progress.)
 
 - **Chart**: symbol search, timeframes 1m–1d plus derived resolutions, chart styles, indicators
   (shipped Pine library + your scripts), 25 drawing tools, layouts, watchlists with live prices,
   Bar Replay, Compare. **LOCAL UI VERIFIED** (loads with live data through the Binance market-data
-  mirror; first-run default is SOLUSDT 15m with four indicator panes).
-- **Quick Backtester**: *Research → New backtest* (shipped strategies `ma_rr_v9`, `srtrend_v10`,
-  `mtf_lean`; Binance Spot symbol; 1m/5m/15m/1h/4h; dates; capital; commission % per fill;
-  slippage ticks; validation window 10–50 %; strategy parameters; fixed-cash or %-of-equity
-  sizing) and the chart's *Strategy Tester* tab (Pine strategies). Reference:
+  mirror; first-run default is SOLUSDT 15m with four indicator panes). Ordinary accounts no longer
+  see the administrator's trading, tester, automation and overlay controls (§2).
+- **Quick Backtester** (*Research → Quick backtest*, administrator): shipped strategies
+  `ma_rr_v9`, `srtrend_v10`, `mtf_lean`; tracked Binance Spot symbols; 1s–1d; dates; capital;
+  commission % per fill; slippage ticks; validation window 10–50 %; fixed-cash or %-of-equity
+  sizing; every strategy parameter. **LOCAL UI VERIFIED**: ZECUSDT 15m, 2026-08-01→11-01, done in
+  about ten seconds; the result page shows headline metrics, development/validation windows, an
+  honest affordability note (entries the account could not pay for are counted and skipped),
+  equity/drawdown curve, trades on the chart and as a list, CSV export, *Stress this run*, *Edit
+  and re-run*. The chart's *Strategy Tester* tab does the same for Pine strategies. Reference:
   [FINAL_SYSTEM_GUIDE_BACKTESTER_2026-10-11.md](FINAL_SYSTEM_GUIDE_BACKTESTER_2026-10-11.md).
-- **Alerts**: [ALERTS.md](ALERTS.md).
+- **Screener**: needs the separate Python scanner service (`platform/screener/start.sh`, FastAPI on
+  :8000, `ccxt` against Binance). Without it the page shows an honest *Scanner service
+  unavailable* notice with Retry; the chart, alerts, trading and Journal do not depend on it.
+  **NOT RUN** during the campaign (the service talks to `api.binance.com`, which answers HTTP 451
+  from this network). Reference: `platform/screener/README.md`.
+- **Alerts**: seven condition families, trend gates, four frequency modes; armed end to end
+  through the API and browser in earlier QA, but no live market event has been observed firing
+  ([OPERATIONS §6](OPERATIONS.md)). Reference: [ALERTS.md](ALERTS.md).
+
+## 9. What still needs the owner, real services or hardware
+
+| Item | Why it is open |
+|---|---|
+| Binance testnet / live manual order | No credentials in this workspace; never run. The fake-adapter and HMAC paths are tested on both sides. |
+| Exchange-native stops | Adapter exists, no call sites, needs the five testnet checks in `bot/backend/src/services/exchangeStops.ts`. |
+| Production Shariah mode, `ALLOW_SIGNUPS`, 3Commas deployments | Production database state, not visible here. |
+| Google sign-in round trip | Needs real OAuth client configuration. |
+| Second Mac for Compute Helper | Not available; one-Mac loopback pairing and execution verified. |
+| Scanner service | Not run (network); honest unavailable state verified. |
+| Policy decision | Whether a Platform with no Bot control channel may show Shariah Mode ON (today: yes, with *Bot floor: not armed* disclosed). |
