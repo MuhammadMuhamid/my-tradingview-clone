@@ -55,6 +55,12 @@ export interface TradingOverlaysInput {
    * number, and its line says nothing rather than saying zero.
    */
   manualPositions?: readonly { id: string; pnlUsdt: number; pnlPct: number }[];
+  /**
+   * False for a KNOWN ordinary account: the server refuses them trading
+   * evidence, so nothing is asked for and the menu is not offered. Unknown
+   * sessions and the admin behave as before.
+   */
+  enabled?: boolean;
 }
 
 export interface TradingOverlaysApi {
@@ -133,6 +139,7 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
   }, [symbol, interval, replay?.horizonCloseTime]);
 
   useEffect(() => {
+    if (input.enabled === false) return;
     if (!settledOverlayRange || settledOverlayContext !== overlayContext) return;
     const requestContext = overlayContext;
     const replayCutoff = replay?.horizonCloseTime ?? null;
@@ -159,11 +166,12 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
         // Keep the chart usable; the disclosure continues to show no evidence.
         setHistoricalOverlays(null); setOverlayError("Trading evidence is unavailable for this range.");
       }}).finally(() => { if (overlayHistorySeq.current.isCurrent(token)) setOverlaysLoading(false); });
-  }, [settledOverlayRange, settledOverlayContext, overlayContext, symbol, replay?.horizonCloseTime]);
+  }, [settledOverlayRange, settledOverlayContext, overlayContext, symbol, replay?.horizonCloseTime, input.enabled]);
 
   // Current state has its own bounded refresh. Historical evidence is cached
   // and never polled; Replay clears this branch before any request is made.
   useEffect(() => {
+    if (input.enabled === false) return;
     if (!settledOverlayRange || settledOverlayContext !== overlayContext || replayActive) {
       if (replayActive) setCurrentOverlays(null);
       return;
@@ -203,7 +211,7 @@ export function useTradingOverlays(input: TradingOverlaysInput): TradingOverlays
       sequence.invalidate();
     };
   }, [settledOverlayRange, settledOverlayContext, overlayContext, symbol, replayActive,
-    overlaysLoading, historicalOverlays, currentOverlays]);
+    overlaysLoading, historicalOverlays, currentOverlays, input.enabled]);
 
   const tradingOverlayData = useMemo(() => {
     const cutoff = replay?.horizonCloseTime ?? null;

@@ -27,7 +27,7 @@ import { DEFAULT_VENUE } from "../types/instrument";
 import {
   ensureCandles, ensureSymbolMetadata, fetch24hTickers, fetchKlines,
   fetchSymbolMetadata, listExchangeSymbols, syncExchangeFilters,
-  type ExchangeSymbol, type SymbolMetadata, type Ticker24h,
+  type EnsuredCoverage, type ExchangeSymbol, type SymbolMetadata, type Ticker24h,
 } from "./binanceRest";
 import { BINANCE_SPOT_PROFILE, type ProviderProfile } from "./providerProfile";
 
@@ -51,11 +51,15 @@ export interface MarketDataProvider {
   historicalCandles(
     ticker: string, interval: Interval, startMs: number, endMs: number
   ): Promise<Candle[]>;
-  /** Guarantee local coverage of a window, fetching only if it is incomplete. */
+  /**
+   * Fetch a window when the store is short of it (≥ 98.5 % by count counts as
+   * covered), and report what the range then actually holds — interior gaps
+   * included, which that count tolerance does not see.
+   */
   ensureCoverage(
     ticker: string, interval: Interval, startMs: number, endMs: number,
     log?: (msg: string) => void
-  ): Promise<void>;
+  ): Promise<EnsuredCoverage>;
 
   // ── live market data ──
   /**

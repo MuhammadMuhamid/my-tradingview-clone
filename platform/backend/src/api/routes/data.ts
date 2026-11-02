@@ -1,14 +1,87 @@
-import type { FastifyInstance } from "fastify";
-import { fetchAggTrades, fetchKlines } from "../../data/binanceRest";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { backfillRange, fetchAggTrades, fetchKlines } from "../../data/binanceRest";
 import { marketData } from "../../data/marketData";
 import * as candleRepo from "../../repositories/candles";
-import { parseResolution } from "../../data/resolution";
+import { parseResolution, type ResolutionPlan } from "../../data/resolution";
 import { sourceInterval } from "../../data/resolvedCandles";
 import { InstrumentIdError, storedSymbol } from "../../types/instrument";
-import { registerInstrument } from "../../data/instrumentRegistration";
-import { inspectCandleIntegrity } from "../../data/candleIntegrity";
+import {
+  InstrumentDirectoryUnavailableError, registerInstrument, UnknownInstrumentError,
+} from "../../data/instrumentRegistration";
+import {
+  inspectCandleIntegrity, type CandleIntegrityIssueCode, type CandleIntegrityReport,
+} from "../../data/candleIntegrity";
+import { INTERVAL_MS, type Interval } from "../../types/market";
+import { isAdmin } from "../../security/requestUser";
+import { createHistoryAdmission, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 
-export async function dataRoutes(app: FastifyInstance): Promise<void> {
+// The account bounds live with the admission cap, which the market candles
+// route (`routes/marketCatalog.ts`) applies too.
+export { USER_MAX_HISTORY_BARS, USER_MAX_HISTORY_IN_FLIGHT } from "../historyAdmission";
+
+/** Everything these routes reach outside the process; tests inject fakes. */
+export interface DataRouteDeps {
+  fetchKlines?: typeof fetchKlines;
+  backfillRange?: typeof backfillRange;
+  ensureCoverage?: (symbol: string, interval: Interval, startMs: number, endMs: number) => Promise<void>;
+  upsertCandles?: typeof candleRepo.upsertCandles;
+  countCandles?: typeof candleRepo.countCandles;
+  registerInstrument?: typeof registerInstrument;
+}
+
+/** Bars of `interval` whose open time falls in [startMs, endMs]. */
+function sourceBarsIn(interval: Interval, startMs: number, endMs: number): number {
+  return Math.floor((endMs - startMs) / INTERVAL_MS[interval]) + 1;
+}
+
+function historyLimitNote(symbol: string, plan: ResolutionPlan, stored: Interval, bars: number): string {
+  const n = (v: number) => v.toLocaleString("en-US");
+  const what = plan.id === stored
+    ? `${symbol} ${stored} history request covered about ${n(bars)} bars`
+    : `${symbol} ${plan.id} is built from ${stored} bars and this request covered about ${n(bars)} of them`;
+  return `${what}; an account may load at most ${n(USER_MAX_HISTORY_BARS)} ${stored} bars at a time, ` +
+    "so only the most recent were loaded. Ask the administrator to load deeper history.";
+}
+
+/**
+ * The span an ordinary account's request actually covers.
+ *
+ * Clamped to the newest `USER_MAX_HISTORY_BARS` source bars rather than
+ * refused: the chart offers depth presets up to "All" (200,000 bars, which it
+ * backfills ×1.1) and derived resolutions that multiply the source count, and
+ * every one of those used to load. The candles GET already serves at most this
+ * many source rows, so nothing the chart could draw is lost. The admin is not
+ * clamped; their deep backfills stream (see the route).
+ */
+function clampForAccount(
+  req: FastifyRequest, stored: Interval, startMs: number, endMs: number, bars: number,
+): { startMs: number; clamped: boolean } {
+  if (isAdmin(req) || bars <= USER_MAX_HISTORY_BARS) return { startMs, clamped: false };
+  return { startMs: endMs - (USER_MAX_HISTORY_BARS - 1) * INTERVAL_MS[stored], clamped: true };
+}
+
+// Registered as `app.register(dataRoutes)`; Fastify hands the plugin options in
+// as the second argument, which is where tests inject their fakes.
+export async function dataRoutes(app: FastifyInstance, opts: DataRouteDeps = {}): Promise<void> {
+  const deps = {
+    fetchKlines: opts.fetchKlines ?? fetchKlines,
+    backfillRange: opts.backfillRange ?? backfillRange,
+    ensureCoverage: opts.ensureCoverage ??
+      ((symbol: string, interval: Interval, startMs: number, endMs: number) =>
+        marketData.ensureCoverage(symbol, interval, startMs, endMs)),
+    upsertCandles: opts.upsertCandles ?? candleRepo.upsertCandles,
+    countCandles: opts.countCandles ?? candleRepo.countCandles,
+    registerInstrument: opts.registerInstrument ?? registerInstrument,
+  };
+
+  /*
+   * Ordinary accounts reach backfill/ensure (a chart on an untracked coin starts
+   * tracking it), so each account may run only a few at once (the span itself
+   * is clamped by `clampForAccount`). The admin is exempt. `ok: false` means it
+   * has replied.
+   */
+  const admitHistoryRequest = createHistoryAdmission();
+
   /** Ordered public executions for Range and Volume Footprint charts. */
   app.get("/api/data/trades", async (req, reply) => {
     const q = req.query as { symbol?: string; from?: string; to?: string; limit?: string };
@@ -63,22 +136,62 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `invalid interval: ${body.interval}` });
     }
     const stored = sourceInterval(plan);
-    // Registration now asks the venue for the real base and quote assets rather
-    // than guessing them off a `USDT` suffix — see `data/instrumentRegistration`.
-    await registerInstrument(symbol, req.log.warn.bind(req.log));
-    const startMs = new Date(body.start ?? NaN).getTime();
+    const requestedStartMs = new Date(body.start ?? NaN).getTime();
     const endMs = new Date(body.end ?? Date.now()).getTime();
-    if (!Number.isFinite(startMs) || startMs >= endMs) {
+    if (!Number.isFinite(requestedStartMs) || !Number.isFinite(endMs) || requestedStartMs >= endMs) {
       return reply.code(400).send({ error: "start must be a valid date before end" });
     }
-    const fetched = await fetchKlines(symbol, stored, startMs, endMs);
-    await candleRepo.upsertCandles(fetched);
-    const integrity = inspectCandleIntegrity(fetched, {
-      symbol, interval: stored, now: endMs, checkFreshness: false,
-    });
-    return {
-      symbol, interval: plan.id, source: stored, fetched: fetched.length, integrity,
-    };
+    const requestedBars = sourceBarsIn(stored, requestedStartMs, endMs);
+    const { startMs, clamped } = clampForAccount(req, stored, requestedStartMs, endMs, requestedBars);
+    const bars = clamped ? USER_MAX_HISTORY_BARS : requestedBars;
+    const clampNote = clamped
+      ? { clamped: true, coveredFrom: startMs, note: historyLimitNote(symbol, plan, stored, requestedBars) }
+      : {};
+    const admitted = admitHistoryRequest(req, reply);
+    if (!admitted.ok) return reply;
+    try {
+      // Registration now asks the venue for the real base and quote assets rather
+      // than guessing them off a `USDT` suffix — see `data/instrumentRegistration`.
+      // A pair the venue does not list is a 404 here and writes nothing.
+      try { await deps.registerInstrument(symbol, req.log.warn.bind(req.log)); }
+      catch (err) {
+        if (err instanceof UnknownInstrumentError) return reply.code(404).send({ error: err.message });
+        if (err instanceof InstrumentDirectoryUnavailableError) return reply.code(503).send({ error: err.message });
+        throw err;
+      }
+      if (bars > USER_MAX_HISTORY_BARS) {
+        /*
+         * Only the admin gets here. `fetchKlines` would hold the whole span in
+         * memory before one upsert; `backfillRange` flushes every 5,000 rows, so
+         * memory stays one buffer however deep the request. It keeps per-chunk
+         * counts rather than example timestamps, so `integrity` is the same
+         * shape with `timestamps: []` and an age it did not measure left null.
+         */
+        const report = await deps.backfillRange(symbol, stored, startMs, endMs, {
+          sink: deps.upsertCandles, log: req.log.info.bind(req.log),
+        });
+        const integrity: CandleIntegrityReport = {
+          state: report.integrity, market: "spot", symbol, interval: stored, checkedAt: Date.now(),
+          latestCompletedBarOpenTime: report.lastOpenTime, latestCompletedBarAgeMs: null,
+          issues: Object.entries(report.issues).map(([code, count]) => ({
+            code: code as CandleIntegrityIssueCode, count, timestamps: [],
+          })),
+        };
+        return {
+          symbol, interval: plan.id, source: stored, fetched: report.rows, integrity, streamed: true,
+        };
+      }
+      const fetched = await deps.fetchKlines(symbol, stored, startMs, endMs);
+      await deps.upsertCandles(fetched);
+      const integrity = inspectCandleIntegrity(fetched, {
+        symbol, interval: stored, now: endMs, checkFreshness: false,
+      });
+      return {
+        symbol, interval: plan.id, source: stored, fetched: fetched.length, integrity, ...clampNote,
+      };
+    } finally {
+      admitted.release();
+    }
   });
 
   /** Ensure coverage without necessarily refetching (used before backtests). */
@@ -94,15 +207,29 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
       if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
       throw err;
     }
-    const startMs = new Date(body.start ?? NaN).getTime();
+    const requestedStartMs = new Date(body.start ?? NaN).getTime();
     const endMs = new Date(body.end ?? Date.now()).getTime();
-    if (!Number.isFinite(startMs) || startMs >= endMs) {
+    if (!Number.isFinite(requestedStartMs) || !Number.isFinite(endMs) || requestedStartMs >= endMs) {
       return reply.code(400).send({ error: "start must be a valid date before end" });
     }
     const source = sourceInterval(plan);
-    await marketData.ensureCoverage(symbol, source, startMs, endMs);
-    const count = await candleRepo.countCandles(symbol, source);
-    return { symbol, interval: plan.id, source, storedTotal: count };
+    // Same ceiling as backfill: coverage reads, and may fetch, the whole span.
+    const requestedBars = sourceBarsIn(source, requestedStartMs, endMs);
+    const { startMs, clamped } = clampForAccount(req, source, requestedStartMs, endMs, requestedBars);
+    const admitted = admitHistoryRequest(req, reply);
+    if (!admitted.ok) return reply;
+    try {
+      await deps.ensureCoverage(symbol, source, startMs, endMs);
+      const count = await deps.countCandles(symbol, source);
+      return {
+        symbol, interval: plan.id, source, storedTotal: count,
+        ...(clamped
+          ? { clamped: true, coveredFrom: startMs, note: historyLimitNote(symbol, plan, source, requestedBars) }
+          : {}),
+      };
+    } finally {
+      admitted.release();
+    }
   });
 
   /** Sync exchange filters (tick/step/minNotional) for the given symbols. */

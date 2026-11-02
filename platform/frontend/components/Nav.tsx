@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { useStreamSummary } from "@/lib/navStatus";
-import { allNavLinks, primaryFor, sectionTabsFor } from "@/lib/navigation";
+import { allNavLinks, linksFor, primaryFor, sectionTabsFor } from "@/lib/navigation";
+import { useIsAdmin } from "@/lib/session";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProductMenu } from "@/components/tv/ProductMenu";
 
@@ -32,10 +34,29 @@ export const BARE_ROUTES = new Set(["/chart", "/login", "/signup", "/onboarding"
 
 export function Nav() {
   const path = usePathname() ?? "";
+  const admin = useIsAdmin();
+  const activeTab = useRef<HTMLAnchorElement>(null);
+  /*
+   * The strip scrolls sideways on a phone, with its scrollbar hidden — so a
+   * tab past the edge was simply cut off, and at 390px the page's OWN tab read
+   * "Journ". The active tab is brought into view; the others stay a swipe away.
+   */
+  useEffect(() => {
+    activeTab.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [path, admin]);
   if (BARE_ROUTES.has(path)) return null;
 
   const primary = primaryFor(path);
-  const tabs = sectionTabsFor(path);
+  /*
+   * Only the tabs this account can use. A Standard account that typed
+   * /journal used to see "Trading · Automations · Journal" above the refusal,
+   * drawn as two live destinations that each led to another refusal. While the
+   * role is unknown or unreadable nothing admin-only is drawn, the same rule as
+   * the rail and the product menu.
+   */
+  const sectionTabs = sectionTabsFor(path);
+  const tabs = sectionTabs ? linksFor(sectionTabs, admin) : null;
+  const showTabs = !!tabs && tabs.length > 1;
   const title = primary?.label
     ?? allNavLinks().find((l) => path === l.href || path.startsWith(`${l.href}/`))?.label
     ?? "";
@@ -47,16 +68,21 @@ export function Nav() {
       <span aria-hidden="true" className="my-2 w-px shrink-0 bg-[var(--ts-rail-separator)]" />
       <nav aria-label="This page" className="no-scrollbar flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto px-1.5">
         {title && (
-          <span className="flex shrink-0 items-center px-2 text-[15px] font-semibold text-ink">{title}</span>
+          // With a tab strip beside it the section title repeats what the
+          // active tab already says, and on a phone it is what pushed that
+          // tab off the edge — so below `sm` the tabs have the row to
+          // themselves.
+          <span className={`${showTabs ? "hidden sm:flex" : "flex"} shrink-0 items-center px-2 text-[15px] font-semibold text-ink`}>{title}</span>
         )}
-        {tabs && tabs.length > 1 && (
+        {showTabs && (
           <>
-            <span aria-hidden="true" className="my-2 w-px shrink-0 bg-[var(--ts-rail-separator)]" />
+            <span aria-hidden="true" className="my-2 hidden w-px shrink-0 bg-[var(--ts-rail-separator)] sm:block" />
             {tabs.map((t) => {
               const active = path === t.href || path.startsWith(`${t.href}/`);
               return (
                 <Link
                   key={t.href}
+                  ref={active ? activeTab : undefined}
                   href={t.href}
                   aria-current={active ? "page" : undefined}
                   aria-pressed={active}

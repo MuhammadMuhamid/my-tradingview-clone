@@ -255,6 +255,8 @@ test("the secondary strip is opened deliberately, by name, not by the viewport o
   assert.match(toggle, /aria-controls="chart-toolbar-more"/, "the strip's toggle is a row of the dropdown");
   assert.match(toggle, /aria-expanded=\{moreOpen\}/, "and announces its state");
   assert.match(toggle, /"History, overlays & automation"/, "and names what it opens");
+  assert.match(toggle, /"History depth"/,
+    "and, for an ordinary account (no overlays or automation in the strip), names only what is left");
 });
 
 test("the primary row never wraps — the timeframe strip absorbs the pressure", () => {

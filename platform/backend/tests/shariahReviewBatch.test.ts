@@ -26,6 +26,7 @@ import {
   ShariahReviewImportError, assertUncertaintiesAcknowledged, composeReason,
   importShariahReviewResults, parseAcknowledgedAssetIds, parseReviewResults,
   requiresUncertaintyAcknowledgement, validateAgainstRegistry, type ImportRegistryAsset,
+  ANSWER_KEYS,
 } from "../src/shariah/reviewImport";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -615,6 +616,21 @@ test("a file may echo the pack it answers, and a bad echo is refused", () => {
   assert.equal(typeof (pack.resultContract.example as { packGeneratedAt?: unknown }).packGeneratedAt, "string");
   // The example a researcher copies must itself be importable.
   assert.doesNotThrow(() => parseReviewResults(pack.resultContract.example));
+});
+
+test("the contract's required list names every answer key and says no timestamp may be in the future", () => {
+  // A reviewer building the file by hand reads `required`, not the example:
+  // the six keys appeared only in the example, and the "not in the future"
+  // rule only as an import error after the first attempt.
+  const pack = buildReviewPack([], {
+    generatedAt: "2026-09-02T00:00:00.000Z", batchSize: 20, needsReviewTotal: 0,
+  });
+  const required = pack.resultContract.required.join("\n");
+  const answersLine = pack.resultContract.required.find((line) => line.startsWith("answers"));
+  assert.ok(answersLine);
+  for (const key of ANSWER_KEYS) assert.match(answersLine, new RegExp(`\\b${key}\\b`), key);
+  assert.match(required, /researchCompletedAt .*must not be later than now/);
+  assert.match(required, /retrievedAt .*must not be later than now/);
 });
 
 // ── 12: the operator chooses what gets researched ──────────────────────────

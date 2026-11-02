@@ -163,6 +163,33 @@ another run's only where capital, sizing and costs match.
 
 Replaying the stored config reproduces the stored windows; a test asserts it.
 
+### Data completeness and each window's integrity (V4)
+
+Discovery counts windows in STORED bars. Over a benchmark series with an interior hole,
+"the worst 168 1h bars" is a stretch of more than a week whose return, drawdown and
+ranking were computed over a shorter price path than the period printed beside them.
+Two things are therefore recorded, neither of which adjusts or re-selects anything:
+
+- `dataCompleteness` on the provenance (V3): expected bars, leading / interior /
+  trailing missing bars and the first interior gap of the **searched** period. Absent
+  on records stored before it was measured, which reads as unknown, never complete.
+- `integrity` on every window (V4): the interval, the nominal span (bars × interval),
+  the actual span (first open to last close), the bars missing inside the window, the
+  number of gaps and the first five missing ranges, and a status —
+  `complete` (nothing missing), `impaired` (exactly one bar missing: figures stand,
+  with the warning), `not_comparable` (two or more: the candidate's result and the
+  benchmark's figures do not describe the same price path, so the comparison is
+  withheld rather than scored). The one-bar tolerance is the slack the method already
+  accepts at a window's edges; it is a constant (`STRESS_IMPAIRED_MAX_MISSING_BARS`),
+  not a setting.
+
+The `/stress` run detail shows the status on each row with the actual span against the
+nominal one and the missing UTC ranges, mutes the sign colours of a not-comparable
+window, and carries a warning above the table; a window without `integrity` reads
+*Not verified*. The Research Backtester's saved Stress table does the same, and also
+measures the candidate's own chart feed inside each period. Windows are still chosen
+by stored-bar count: a window across a gap can be selected, and is then marked.
+
 ---
 
 ## Routes

@@ -202,6 +202,8 @@ async function modeApp(over: {
   botReports?: "off" | "enforce" | "unreachable";
   /** What the bot CLAIMS it applied, when that differs from what was asked. */
   botApplies?: "off" | "enforce";
+  /** Whether a Bot control channel is configured at all (default: yes). */
+  channel?: boolean;
   /** Audit rows this harness saw, for the tests that care that one was written. */
   audit?: {
     fromMode: string; toMode: string; botFloorPushed: boolean;
@@ -229,7 +231,7 @@ async function modeApp(over: {
         stored = mode; return mode; },
     },
     botEnforcement: {
-      controlChannelConfigured: true,
+      controlChannelConfigured: over.channel ?? true,
       request: (async (input: { method: string; body?: { mode?: string } }) => {
         if (input.method === "GET") {
           if (over.botReports === "unreachable") throw new Error("bot unreachable");
@@ -332,7 +334,7 @@ test("the mode reading reports the bot's own floor, so drift is visible", async 
   const inSync = JSON.parse(
     (await agreed.app.inject({ method: "GET", url: "/api/shariah/mode" })).body);
   assert.deepEqual(inSync,
-    { mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION, botMode: "enforce", inSync: true });
+    { mode: "enforce", policyVersion: SHARIAH_POLICY_VERSION, botControlChannel: true, botMode: "enforce", inSync: true });
 
   const drifted = await modeApp({ stored: "enforce", botReports: "off" });
   t.after(() => drifted.app.close());
@@ -622,4 +624,27 @@ test("a refused arming leaves no audit row, because nothing changed", async () =
     assert.notEqual(response.statusCode, 200);
     assert.deepEqual(audit, []);
   } finally { await app.close(); }
+});
+
+test("a mode READ states whether a Bot control channel is configured, so 'no channel' never reads as 'unreachable'", async (t) => {
+  // No channel: not armed, and nothing was asked of a Bot.
+  const none = await modeApp({ stored: "enforce", channel: false });
+  t.after(() => none.app.close());
+  const noChannel = (await none.app.inject({ method: "GET", url: "/api/shariah/mode" })).json();
+  assert.equal(noChannel.botControlChannel, false);
+  assert.equal(noChannel.botMode, null);
+  assert.equal(noChannel.inSync, null);
+  // A channel whose Bot did not answer: the channel exists, the floor is unknown.
+  const dark = await modeApp({ stored: "enforce", botReports: "unreachable" });
+  t.after(() => dark.app.close());
+  const unreachable = (await dark.app.inject({ method: "GET", url: "/api/shariah/mode" })).json();
+  assert.equal(unreachable.botControlChannel, true);
+  assert.equal(unreachable.botMode, null);
+  // A channel whose Bot answered: both stated.
+  const live = await modeApp({ stored: "enforce", botReports: "enforce" });
+  t.after(() => live.app.close());
+  const answered = (await live.app.inject({ method: "GET", url: "/api/shariah/mode" })).json();
+  assert.equal(answered.botControlChannel, true);
+  assert.equal(answered.botMode, "enforce");
+  assert.equal(answered.inSync, true);
 });

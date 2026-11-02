@@ -23,8 +23,11 @@ export function AuthShell({ children, width = 400 }: { children: ReactNode; widt
         <ProductMark />
         <span className="text-[18px] font-semibold tracking-tight">{PRODUCT_NAME}</span>
       </a>
+      {/* The shared card's surface — `--ts-surface`, the strong outer line,
+          radius 6, no shadow — rather than a fourth radius on a raised
+          `surface-2` panel that no other page draws. */}
       <div style={{ maxWidth: width }}
-        className="w-full rounded-xl border border-border bg-surface-2 px-6 py-7 shadow-2xl sm:px-8">
+        className="w-full rounded-md border border-border-strong bg-surface px-6 py-7 sm:px-8">
         {children}
       </div>
     </div>

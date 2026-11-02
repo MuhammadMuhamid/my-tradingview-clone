@@ -126,6 +126,11 @@ export class ProviderCandleCache {
 
   clear(): void { this.entries.clear(); }
 
+  /** Whether a read of [startMs, endMs] is too wide to hold and goes straight to the provider. */
+  bypasses(startMs: number, endMs: number, stepMs: number): boolean {
+    return (endMs - startMs) / stepMs + 1 > this.maxBarsPerRequest;
+  }
+
   async read(request: CandleCacheRequest): Promise<CandleCacheResult> {
     const key = candleCacheKey(request);
     const previous = this.locks.get(key) ?? Promise.resolve();
@@ -144,7 +149,7 @@ export class ProviderCandleCache {
     if (!(stepMs > 0) || !(startMs <= endMs)) {
       return { rows: await request.fetch(startMs, endMs), outcome: "bypass", fetched: [[startMs, endMs]] };
     }
-    if ((endMs - startMs) / stepMs + 1 > this.maxBarsPerRequest) {
+    if (this.bypasses(startMs, endMs, stepMs)) {
       return { rows: await request.fetch(startMs, endMs), outcome: "bypass", fetched: [[startMs, endMs]] };
     }
     const now = this.now();

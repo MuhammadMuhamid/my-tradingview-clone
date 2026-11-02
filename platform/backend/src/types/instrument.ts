@@ -23,9 +23,10 @@
  *
  * `BINANCE:BTCUSDT` is the qualified form. It is reduced back to the bare
  * ticker before it reaches storage or the Bot, and it is accepted today by the
- * four market-data surfaces that a link or a client can reasonably name an
- * instrument to: `GET /api/symbols/:symbol/candles`, and the three
- * `/api/data/*` routes. Every OTHER symbol-bearing route accepts bare tickers
+ * five market-data surfaces that a link or a client can reasonably name an
+ * instrument to: `GET /api/symbols/:symbol/candles`, `POST /api/symbols`
+ * (registering a pair a chart opened), and the three `/api/data/*` routes.
+ * Every OTHER symbol-bearing route accepts bare tickers
  * only, exactly as it always has — introducing the vocabulary was the Wave A
  * scope, not rewriting every route that handles a symbol.
  * `tests/instrumentIdentity.test.ts` pins that list so this comment cannot
@@ -206,9 +207,11 @@ export function assetsFromMetadata(
 /**
  * The legacy suffix split, named so its call sites are findable.
  *
- * Kept because several paths register a pair before any metadata for it exists
- * and must not fail if the venue directory is unreachable. It is a FALLBACK,
- * never a first choice — `assetsFromMetadata` is.
+ * No registration path writes its answer any more: a guessed identity in the
+ * shared catalog outlived the directory outage it covered, so registering an
+ * unverified pair now refuses with a 503 instead (`data/instrumentRegistration`).
+ * Kept only as a pure helper; never persist its output — `assetsFromMetadata`
+ * is the source of a row's assets.
  */
 export function assetsBySuffixFallback(ticker: string): InstrumentAssets {
   const upper = ticker.toUpperCase();

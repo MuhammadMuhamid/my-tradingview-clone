@@ -47,9 +47,15 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`rounded-md border border-border-strong bg-surface ${className}`}>{children}</div>;
 }
 
+/*
+ * The header wraps. A `right` block that no longer fits beside the title drops
+ * under it, instead of squeezing the title into three lines or clipping a
+ * field — measured on /alerts at 390px, where the symbol field lost its last
+ * letter. At desktop widths nothing wraps, because everything fits.
+ */
 export function CardHeader({ title, right }: { title: ReactNode; right?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
       <h2 className="text-sm font-semibold text-ink">{title}</h2>
       {right}
     </div>

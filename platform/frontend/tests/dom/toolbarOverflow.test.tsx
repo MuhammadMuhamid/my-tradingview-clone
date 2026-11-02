@@ -169,6 +169,31 @@ test("the secondary row is opened by name, and closes from itself", async () => 
   assert.equal(strip(container), null, "the strip closes from its own row");
 });
 
+test("an ordinary account's ⋯ row names the history depth alone — its strip has no overlays or automation", async () => {
+  const { container } = render(<Harness admin={false} />);
+  fireEvent.click(more(container));
+  await settle();
+  const toggle = panel(container)!.querySelector<HTMLButtonElement>('button[aria-controls="chart-toolbar-more"]')!;
+  assert.equal(toggle.textContent, "History depth", "the row promises overlays and automation the strip does not hold");
+  fireEvent.click(toggle);
+  await settle();
+  const row = strip(container)!;
+  assert.equal(row.getAttribute("aria-label"), "History depth");
+  assert.match(row.textContent ?? "", /History.*2K/s);
+  assert.doesNotMatch(row.textContent ?? "", /Automate|Strategy|Best config/, "an admin-only control is in a user's strip");
+  assert.equal(row.querySelector('[data-toolbar-control="overlays"]'), null, "overlays are the administrator's");
+
+  fireEvent.click(more(container));
+  await settle();
+  assert.equal(panel(container)!.querySelector('button[aria-controls="chart-toolbar-more"]')!.textContent,
+    "Hide history depth");
+  fireEvent.click(more(container));
+  await settle();
+  fireEvent.click(container.querySelector('button[aria-label="Hide history depth"]')!);
+  await settle();
+  assert.equal(strip(container), null, "the strip closes from its own row");
+});
+
 test("Escape is answered by the top layer only (B-23)", async () => {
   /*
    * On a phone the bottom More sheet sits ABOVE the toolbar's ⋯ dropdown, and

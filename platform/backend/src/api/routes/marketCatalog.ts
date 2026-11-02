@@ -11,6 +11,8 @@ import { assertEquityPricePurpose, EquitySemanticError } from "../../market/usEq
 import type { EquityAdjustmentMode, EquitySessionMode } from "../../market/provider";
 import { assertTraditionalResearchSemantics, TraditionalMarketSemanticError } from "../../market/traditionalMarkets";
 import { SCREENER_FIELDS, screenerFieldsFor, workstationCategory, type WorkstationCategory } from "../../market/workstation";
+import { isAdmin } from "../../security/requestUser";
+import { createHistoryAdmission, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message.slice(0, 200) : "provider unavailable";
@@ -46,9 +48,14 @@ function compact(rows: readonly Candle[], symbol: string, interval: string, comp
     bars: rows.map((row) => [row.openTime, row.open, row.high, row.low, row.close, row.volume]) };
 }
 
+/** The ECMAScript Date range, in epoch milliseconds either side of 1970. */
+const MAX_EPOCH_MS = 8.64e15;
+
 interface ProviderResolutionPlan extends ResolutionPlan { source: Interval }
 interface CandleCompleteness {
   complete: boolean; missingBars: number; truncated: boolean; limitation?: string;
+  /** Set when the account history bound (not the provider) truncated the window. */
+  note?: string;
 }
 
 function resolutionMs(raw: string): number {
@@ -100,6 +107,8 @@ export async function marketCatalogRoutes(app: FastifyInstance): Promise<void> {
 }
 
 async function registerMarketCatalogRoutes(app: FastifyInstance, registry: ProviderRegistry, clock: () => number = Date.now): Promise<void> {
+  // Ordinary accounts' candle reads too wide for the cache (see the candles route).
+  const admitWideRead = createHistoryAdmission();
   app.get("/api/market/v1/providers", async () => ({
     contractVersion: MARKET_CONTRACT_VERSION,
     venues: venueRegistry.all(),
@@ -277,15 +286,45 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
     const endMs = Number(query.to ?? Date.now());
     const requestedStartMs = Number(query.from ?? endMs - (limit - 1) * plan.ms);
     let startMs = requestedStartMs;
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) {
+    // Finite is not enough: past the Date range (|t| > 8.64e15) `from += step`
+    // stops advancing in float arithmetic and a provider's page loop
+    // (`klineWindows`) never ends, whatever the bar bound below says.
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs ||
+      Math.abs(startMs) > MAX_EPOCH_MS || Math.abs(endMs) > MAX_EPOCH_MS) {
       return reply.code(400).send({ error: "from/to must be a valid ascending epoch-millisecond range" });
     }
+    const sourceMs = INTERVAL_MS[plan.source];
     const maximumBars = provider.candles.pagination.maximumBars;
     let truncated = false;
     if (maximumBars !== undefined) {
-      const earliest = endMs - (maximumBars - 1) * INTERVAL_MS[plan.source];
+      const earliest = endMs - (maximumBars - 1) * sourceMs;
       if (startMs < earliest) { startMs = earliest; truncated = true; }
     }
+    /*
+     * The same account bound as backfill/ensure (`routes/data.ts`), counted in
+     * the SOURCE bars the provider is asked for. `limit` only slices AFTER the
+     * fetch, and a derived resolution multiplies the span by its factor, so
+     * without this `from=0&limit=10` (or `interval=1439m&limit=200000`) made the
+     * server page years of 1m bars into memory; a span this wide also bypasses
+     * the candle cache. Clamped to the newest bars after the provider's own
+     * `maximumBars`, so the tighter of the two wins, and reported as truncated.
+     * The admin is exempt, as in `routes/data.ts`.
+     */
+    let historyLimit: string | undefined;
+    if (!isAdmin(req) && Math.floor((endMs - startMs) / sourceMs) + 1 > USER_MAX_HISTORY_BARS) {
+      const n = (v: number) => v.toLocaleString("en-US");
+      const asked = Math.floor((endMs - requestedStartMs) / sourceMs) + 1;
+      startMs = endMs - (USER_MAX_HISTORY_BARS - 1) * sourceMs;
+      truncated = true;
+      historyLimit = `${requestedInterval}${plan.native ? "" : ` is built from ${plan.source} bars and this`} request ` +
+        `covered about ${n(asked)} ${plan.source} bars; an account may load at most ${n(USER_MAX_HISTORY_BARS)} ` +
+        `${plan.source} bars at a time, so only the most recent were returned.`;
+    }
+    // A read that still bypasses the cache holds one of the account's few slots;
+    // ordinary chart windows (cache-sized) are never gated.
+    const admitted = !isAdmin(req) && registry.candleCache.bypasses(startMs, endMs, sourceMs)
+      ? admitWideRead(req, reply) : { ok: true as const, release: () => {} };
+    if (!admitted.ok) return reply;
     const controller = new AbortController();
     const abort = () => controller.abort();
     req.raw.once("aborted", abort);
@@ -313,7 +352,8 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
           phasesIncluded: dataset.phasesIncluded, feed: dataset.feed,
           executionCompatible: dataset.executionCompatible, studies: dataset.studies,
           corporateActionIds: dataset.corporateActionIds,
-          completeness: dataset.completeness };
+          completeness: dataset.completeness,
+          ...(historyLimit ? { historyLimit: { truncated: true, note: historyLimit } } : {}) };
         return query.format === "compact"
           ? { ...compact(named, canonicalId, requestedInterval), marketData: semantics }
           : { symbol: canonicalId, interval: requestedInterval, bars: named, marketData: semantics };
@@ -327,8 +367,12 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       const rows = cached.rows;
       const folded = foldBars(rows, plan).filter((row) => row.openTime >= requestedStartMs && row.openTime <= endMs);
       const named = folded.slice(-limit).map((row) => ({ ...row, symbol: canonicalId })) as Candle[];
-      const completeness = candleCompleteness(named, Math.max(requestedStartMs, startMs), endMs, plan.ms,
-        truncated, provider.candles.pagination.limitation);
+      // Completeness is judged over the window the response can hold: `limit`
+      // bars of the requested resolution ending at `to`. A from=0&limit=5
+      // request is not "199,995 bars missing" — those bars were never asked for.
+      const windowStartMs = Math.max(requestedStartMs, startMs, endMs - (limit - 1) * plan.ms);
+      const completeness = { ...candleCompleteness(named, windowStartMs, endMs, plan.ms,
+        truncated, provider.candles.pagination.limitation), ...(historyLimit ? { note: historyLimit } : {}) };
       const traditional = mapping.instrument.fx ? { priceBasis: query.priceBasis, marketStructure: "otc_provider_quote",
         spreadIncluded: query.priceBasis === "bid" || query.priceBasis === "ask", providerHours: mapping.instrument.sessions,
         rollover: mapping.instrument.fx.rollover }
@@ -341,7 +385,7 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       req.log.warn({ providerId: provider.id, err: error }, "provider candles unavailable");
       return reply.code(502).send({ error: safeError(error), providerId: provider.id,
         health: registry.health(provider.id) });
-    } finally { req.raw.off("aborted", abort); }
+    } finally { req.raw.off("aborted", abort); admitted.release(); }
   });
 
   app.get("/api/market/v1/instrument/:canonicalId", async (req, reply) => {

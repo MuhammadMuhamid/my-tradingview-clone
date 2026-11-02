@@ -193,6 +193,23 @@ export const UNIVERSE_FILTER_EMPTY: Record<ShariahUniverseFilter, string> = {
   all: "The registry holds no assets yet.",
 };
 
+/**
+ * A refused or failed Shariah request, with the HTTP status it came back with.
+ *
+ * The message alone could not tell "your session has ended" (401) from "this
+ * account may not do this" (403) from the server judging the request (400):
+ * all three were read out of prose, and a 401 whose body says "not
+ * authenticated" matched none of the patterns, so the page said nothing
+ * useful. `detail` is the server's sentence, the shape `ownRefusal` reads.
+ */
+export class ShariahRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ShariahRequestError";
+  }
+  get detail(): string { return this.message; }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -207,7 +224,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       const body = (await res.json()) as { error?: string };
       if (body.error) msg = body.error;
     } catch { /* keep status text */ }
-    throw new Error(msg);
+    throw new ShariahRequestError(msg, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -342,6 +359,67 @@ export function reviewPackPath(request: ShariahReviewPackRequest = {}): string {
   return `/api/shariah/review-pack${query ? `?${query}` : ""}`;
 }
 
+/*
+ * Where "sign in again" goes, and where it brings the operator back to.
+ *
+ * The login page already honours `?next=` (validated by `safeNextPath`), and
+ * this page already opens the Screening tab for `?view=screening`. Without it
+ * a sign-in after an expired session landed on the chart. The pasted results
+ * are deliberately NOT kept across it — this surface keeps no browser storage
+ * — so the copy that offers this link says so.
+ */
+export const SHARIAH_SIGN_IN_HREF = `/login?next=${encodeURIComponent("/shariah?view=screening")}`;
+
+function httpStatusOf(cause: unknown): number | null {
+  const status = (cause as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : null;
+}
+
+/** The session ended (401), as opposed to any other refusal. */
+export function sessionEnded(cause: unknown): boolean {
+  return httpStatusOf(cause) === 401;
+}
+
+/** The two refusals that are about WHO is asking, in the reader's words; null for any other. */
+export function identityRefusal(cause: unknown): string | null {
+  const status = httpStatusOf(cause);
+  if (status === 401) {
+    return "Your session has ended — sign in again (you will return here). "
+      + "Text pasted on this page is not kept, so copy it first if you need it.";
+  }
+  if (status === 403) {
+    return "This account may read Shariah decisions but not change them; only the administrator can.";
+  }
+  return null;
+}
+
+/**
+ * Assets that need a reviewer's attention, in the review queue's own order:
+ * STALE, then UNSCREENED, then settled decisions due for re-review.
+ *
+ * "Select due assets" used to pick only the last group, so it stayed disabled
+ * while every asset on a freshly synced install was UNSCREENED. UNSCREENED and
+ * STALE are taken whether or not the ticker is still listed, because the
+ * "Needs attention" count beside the button counts them that way; a due
+ * decision only while it is active, as `counts.dueForReReview` does.
+ */
+export function assetsNeedingAttention(assets: readonly ShariahAssetState[]): ShariahAssetState[] {
+  const rank = (a: ShariahAssetState): number =>
+    a.lifecycle === "STALE" ? 0 : a.lifecycle === "UNSCREENED" ? 1
+      : a.dueForReReview === true && a.binanceAvailable ? 2 : -1;
+  return assets.filter((a) => rank(a) >= 0)
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => rank(x.a) - rank(y.a) || x.i - y.i)
+    .map(({ a }) => a);
+}
+
+/** "BTC, ETH, SOL (3)" — and "… and N more" past ten, so a 100-asset pack is still one line. */
+export function namedAssetList(baseAssets: readonly string[], shown = 10): string {
+  const head = baseAssets.slice(0, shown).join(", ");
+  const more = baseAssets.length > shown ? ` and ${baseAssets.length - shown} more` : "";
+  return `${head}${more} (${baseAssets.length})`;
+}
+
 /** The import URL, carrying the operator's per-asset acknowledgements beside the document. */
 export function importResultsPath(acknowledgedAssetIds: readonly string[] = []): string {
   return acknowledgedAssetIds.length === 0
@@ -418,6 +496,12 @@ export interface ShariahModeResponse {
   /** Whether the two agree. `null` when the Bot's answer is unknown. */
   inSync?: boolean | null;
   /**
+   * Reads: whether a Bot control channel (URL + HMAC key) is configured at
+   * all. `false` is "no Bot to talk to" — not armed — which a reload must not
+   * turn into "unreachable"; absent (older API) is not stated.
+   */
+  botControlChannel?: boolean | null;
+  /**
    * Mutations only: whether a floor was actually pushed to a Bot.
    *
    * `false` means this installation has no Bot control channel configured, so
@@ -434,6 +518,7 @@ export interface ShariahModeState {
   botMode: ShariahMode | null;
   inSync: boolean | null;
   botFloorPushed: boolean | null;
+  botControlChannel: boolean | null;
 }
 
 /**
@@ -447,7 +532,7 @@ export function normalizeShariahMode(
   response: ShariahModeResponse | null | undefined,
   previous: ShariahModeState | null = null
 ): ShariahModeState {
-  if (!response) return previous ?? { mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null };
+  if (!response) return previous ?? { mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null, botControlChannel: null };
   const mode: ShariahMode = response.mode === "enforce" ? "enforce" : "off";
   const botMode = response.botMode === "enforce" || response.botMode === "off"
     ? response.botMode : null;
@@ -457,6 +542,8 @@ export function normalizeShariahMode(
     botMode,
     inSync: typeof response.inSync === "boolean" ? response.inSync : null,
     botFloorPushed: typeof response.botFloorPushed === "boolean" ? response.botFloorPushed : null,
+    botControlChannel: typeof response.botControlChannel === "boolean" ? response.botControlChannel
+      : previous?.botControlChannel ?? null,
   };
 }
 
@@ -486,7 +573,8 @@ export interface ShariahSyncView {
  * The order of the checks is the safety argument:
  *
  *   1. Not enforcing here → nothing to confirm.
- *   2. A mutation that reported `botFloorPushed: false` → no channel, no floor.
+ *   2. A mutation that reported `botFloorPushed: false`, or a read that says no
+ *      control channel is configured → no channel, no floor ("not armed").
  *      This is checked before anything else because it is the one case that
  *      returns 200 with nothing armed, and it must never reach "confirmed".
  *   3. The Bot's answer is missing → unknown. Not off, not confirmed.
@@ -513,7 +601,7 @@ export function describeShariahSync(state: ShariahModeState | null): ShariahSync
     };
   }
 
-  if (state.botFloorPushed === false) {
+  if (state.botFloorPushed === false || state.botControlChannel === false) {
     return {
       level: "unknown",
       label: "Bot floor: not armed",
@@ -609,6 +697,50 @@ export interface PublishRequest {
   reviewedAt: string;
 }
 
+/** `POST /api/shariah/universe/sync` — `backend/src/shariah/sync.ts` returns base-asset LISTS. */
+export interface ShariahUniverseSyncResult {
+  policyVersion: string;
+  qualifying: number;
+  created: string[];
+  reactivated: string[];
+  deactivated: string[];
+}
+
+/** "1 citation", "2 citations" — a count that reads as English, not "1 citations". */
+export function countLabel(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/*
+ * A sync can move hundreds of assets; the notice names the first few and
+ * counts the rest rather than printing the whole registry into one line.
+ */
+const SYNC_NAMES_SHOWN = 10;
+
+function syncPart(assets: readonly string[], label: string): string {
+  if (assets.length === 0) return `0 ${label}`;
+  const shown = assets.slice(0, SYNC_NAMES_SHOWN).join(", ");
+  const more = assets.length > SYNC_NAMES_SHOWN ? `, +${assets.length - SYNC_NAMES_SHOWN} more` : "";
+  return `${assets.length} ${label} (${shown}${more})`;
+}
+
+/**
+ * The notice after a universe sync.
+ *
+ * The client typed `created`/`reactivated`/`deactivated` as numbers while the
+ * backend sends base-asset arrays, so the page interpolated the arrays and
+ * printed "BTC,ETH,SOL newly discovered, relisted, no longer tracked" — an
+ * empty list rendered as nothing at all, and a count as a list of names.
+ */
+export function formatUniverseSync(r: ShariahUniverseSyncResult): string {
+  return `Universe synced against ${countLabel(r.qualifying,
+    "qualifying Binance Spot USDT base asset", "qualifying Binance Spot USDT base assets")}: `
+    + `${syncPart(r.created, "newly discovered")}, ${syncPart(r.reactivated, "relisted")}, `
+    + `${syncPart(r.deactivated, "no longer tracked")}. `
+    + "Newly discovered assets are UNSCREENED, which counts as REVIEW — nothing "
+    + "here has been classified, and nothing new can be bought until you publish a decision.";
+}
+
 export const shariahApi = {
   universe: () => req<ShariahUniverse>("/api/shariah/universe"),
 
@@ -626,10 +758,7 @@ export const shariahApi = {
    * UNSCREENED, which reads as REVIEW, and has no path that writes ELIGIBLE or
    * EXCLUDED. Running it can never widen what may be bought.
    */
-  syncUniverse: () => req<{
-    policyVersion: string; qualifying: number;
-    created: number; reactivated: number; deactivated: number;
-  }>("/api/shariah/universe/sync", { method: "POST" }),
+  syncUniverse: () => req<ShariahUniverseSyncResult>("/api/shariah/universe/sync", { method: "POST" }),
   asset: (assetId: string) => req<ShariahAssetDetail>(`/api/shariah/assets/${assetId}`),
   addEvidence: (assetId: string, body: Omit<ShariahEvidence, "id" | "assetId" | "createdAt">) =>
     req<ShariahEvidence>(`/api/shariah/assets/${assetId}/evidence`, {
@@ -669,7 +798,7 @@ export const shariahApi = {
 };
 
 /**
- * Saves a review pack as a file the operator uploads to ChatGPT.
+ * Saves a review pack as a file the operator hands to an external reviewer (ChatGPT or a person).
  *
  * A Blob + object URL rather than a data: URL because a 20-asset pack with
  * prior context comfortably exceeds what some browsers accept in a navigable
@@ -728,7 +857,7 @@ export function parseResultsFile(text: string): unknown {
     // operator whether they pasted a markdown fence, commentary or half a file.
     const where = e instanceof Error ? e.message.replace(/\.$/, "") : "it could not be parsed";
     throw new ResultsFileError(
-      `The pasted text is not a JSON document: ${where}. Paste only the JSON document ChatGPT `
+      `The pasted text is not a JSON document: ${where}. Paste only the JSON document the reviewer `
       + "returned — no markdown fence, no commentary."
     );
   }

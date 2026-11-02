@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 import { useEffect, useState, useCallback } from "react";
 import { useAsk } from "@/components/AskDialog";
 import { Button, Card, CardHeader, Empty, PageShell, PageHeader, Notice } from "@/components/ui";
@@ -21,7 +22,7 @@ import { automationsHeadline, RUNNER_OFF_NOTICE, runnerOff } from "@/lib/evaluat
 import { useStrategyRunner } from "@/lib/useEvaluationState";
 import { DeploymentStatusBadge, RunnerOffRowNote } from "@/components/DeploymentStatus";
 
-export default function DeploymentsPage() {
+function AutomationsView() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const ask = useAsk();
   const [deps, setDeps] = useState<Deployment[]>([]);
@@ -425,4 +426,9 @@ export default function DeploymentsPage() {
       />
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function DeploymentsPage() {
+  return <AdminOnlyPage title="Automations"><AutomationsView /></AdminOnlyPage>;
 }

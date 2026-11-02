@@ -69,6 +69,19 @@ test("the registry has a populate control, and it reaches the sync route", async
     "the control exists but asks nothing — the registry is still unreachable");
 });
 
+test("the sync notice counts and names what moved", async () => {
+  // The route answers with base-asset lists; the notice once printed them raw.
+  server.routes.set("POST /api/shariah/universe/sync", () => ({
+    policyVersion: "TS_SHARIAH_V1", qualifying: 3, created: ["BTC", "ETH", "SOL"], reactivated: [], deactivated: [],
+  }));
+  await mount();
+  fireEvent.click(screen.getByRole("button", { name: /Sync universe/i }));
+  await settle();
+  const notice = screen.getByText(/^Universe synced against/);
+  assert.match(notice.textContent ?? "",
+    /3 newly discovered \(BTC, ETH, SOL\), 0 relisted, 0 no longer tracked\./);
+});
+
 test("the control says discovery is not approval", async () => {
   await mount();
   const sync = screen.getByRole("button", { name: /Sync universe/i });
@@ -89,7 +102,7 @@ test("an empty registry says what it means and what to do about it", async () =>
   const warning = screen.queryByText(/This registry is empty/i);
   assert.ok(warning, "an empty registry rendered no warning");
   const text = warning.textContent ?? "";
-  assert.match(text, /every symbol reads as REVIEW/i);
+  assert.match(text, /every asset counts as REVIEW \(UNSCREENED\) until a decision is published/i);
   assert.match(text, /would refuse every BUY/i);
   assert.match(text, /Sync universe/,
     "the warning must name the control that fixes it");

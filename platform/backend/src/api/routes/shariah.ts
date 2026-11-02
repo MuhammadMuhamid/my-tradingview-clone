@@ -24,9 +24,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config } from "../../config";
 import { pool } from "../../db/pool";
-import {
-  SESSION_COOKIE, readCookie, verifySession,
-} from "../../security/session";
+import * as users from "../../repositories/users";
 import { listExchangeSymbols } from "../../data/binanceRest";
 import * as shariah from "../../repositories/shariah";
 import * as symbolRepo from "../../repositories/symbols";
@@ -58,21 +56,42 @@ import {
   pushShariahModeToBot, readBotShariahMode, ShariahBotSyncError, ShariahModeDriftError,
   type BotEnforcementDeps,
 } from "../../shariah/botEnforcement";
+import { isManualControlChannelConfigured } from "../../manualTrading/client";
 import type { PoolClient } from "pg";
 
 /**
- * Who is publishing. The global session gate has already established that a
- * valid session exists when auth is on; this re-reads the claims because the
- * published_by field is an audit fact and must come from the signed cookie,
- * never from the request body.
+ * Who is publishing. The published_by / created_by / changed_by fields are
+ * audit facts, so they come from the session the global gate already resolved
+ * (`req.user`, set in `api/server.ts`) — never from the request body.
+ *
+ * This used to re-verify the cookie itself as the pre-accounts
+ * `<username>.<expiry>.<hmac>` admin token. Since accounts (de947c8) every
+ * sign-in issues a `u2.<userId>.…` token and the gate rewrites any legacy
+ * cookie into that shape on its first request, so that re-check answered
+ * "not authenticated" for every signed-in administrator and no decision could
+ * be published at all with authentication on.
+ *
+ * The gate already refuses a non-admin before any Shariah write (only `GET
+ * /api/shariah/*` is in `USER_ROUTES`); the role check here is the second
+ * line, for a route mounted without the gate.
  */
-function operatorIdentity(req: FastifyRequest): string | null {
-  if (!config.authEnabled) return "local-operator";
-  const token = readCookie(req.headers.cookie, SESSION_COOKIE);
-  const claims = token
-    ? verifySession(token, config.sessionSecret, { expectedUsername: config.adminUsername })
-    : null;
-  return claims?.username ?? null;
+type OperatorLookup = (id: string) => Promise<{ email: string | null } | null>;
+
+type Operator = { identity: string } | { status: 401 | 403; error: string };
+
+async function resolveOperator(req: FastifyRequest, lookup: OperatorLookup): Promise<Operator> {
+  if (!config.authEnabled) return { identity: "local-operator" };
+  const user = req.user;
+  if (!user) return { status: 401, error: "not authenticated" };
+  if (user.role !== "admin") {
+    return { status: 403, error: "This part of the platform is available to the administrator only." };
+  }
+  // The account's sign-in email, as `/api/auth/me` names it; the built-in
+  // admin (no email) is the configured admin name.
+  const account = await lookup(user.id);
+  if (account?.email) return { identity: account.email };
+  if (user.id === users.ADMIN_USER_ID) return { identity: config.adminUsername };
+  return { identity: `account:${user.id}` };
 }
 
 const asStringArray = (v: unknown): string[] =>
@@ -97,6 +116,8 @@ export async function shariahRoutes(
      * the test and surfaced as an uncaught "terminating connection".
      */
     recordModeChange?: typeof shariah.recordShariahModeChange;
+    /** The signed-in account's audit identity, injectable so it is provable without PostgreSQL. */
+    operatorAccount?: OperatorLookup;
     /** Binance SPOT metadata, injectable so the sync is provable without a network call. */
     exchangeSymbols?: () => Promise<readonly BinanceSpotSymbolMeta[]>;
     /**
@@ -118,6 +139,8 @@ export async function shariahRoutes(
   const readMode = dependencies.mode?.get ?? getShariahMode;
   const writeMode = dependencies.mode?.set ?? setShariahMode;
   const recordModeChange = dependencies.recordModeChange ?? shariah.recordShariahModeChange;
+  const lookupOperator: OperatorLookup = dependencies.operatorAccount ?? users.getUser;
+  const operatorOf = (req: FastifyRequest) => resolveOperator(req, lookupOperator);
   const packReads = {
     listAllAssets: dependencies.reviewPackReads?.listAllAssets ?? shariah.listAllAssets,
     loadReviewPackContext:
@@ -328,8 +351,9 @@ export async function shariahRoutes(
   app.post("/api/shariah/assets/:assetId/publications", async (req, reply) => {
     const { assetId } = req.params as { assetId: string };
     if (!isDigits(assetId)) return reply.code(400).send({ error: "assetId must be numeric" });
-    const publishedBy = operatorIdentity(req);
-    if (!publishedBy) return reply.code(401).send({ error: "not authenticated" });
+    const operator = await operatorOf(req);
+    if (!("identity" in operator)) return reply.code(operator.status).send({ error: operator.error });
+    const publishedBy = operator.identity;
 
     const b = (req.body ?? {}) as Record<string, unknown>;
     const input: PublishShariahDecisionInput = {
@@ -369,8 +393,9 @@ export async function shariahRoutes(
 
   /** Freezes current authoritative state into a new immutable snapshot. */
   app.post("/api/shariah/snapshots", async (req, reply) => {
-    const createdBy = operatorIdentity(req);
-    if (!createdBy) return reply.code(401).send({ error: "not authenticated" });
+    const operator = await operatorOf(req);
+    if (!("identity" in operator)) return reply.code(operator.status).send({ error: operator.error });
+    const createdBy = operator.identity;
     const client = await connect();
     try {
       const snapshot = await createShariahUniverseSnapshot(client, { createdBy });
@@ -511,8 +536,9 @@ export async function shariahRoutes(
    * refuses the whole import with a 400 naming the asset and the field.
    */
   app.post("/api/shariah/review-results/import", async (req, reply) => {
-    const publishedBy = operatorIdentity(req);
-    if (!publishedBy) return reply.code(401).send({ error: "not authenticated" });
+    const operator = await operatorOf(req);
+    if (!("identity" in operator)) return reply.code(operator.status).send({ error: operator.error });
+    const publishedBy = operator.identity;
     let acknowledgedAssetIds: string[];
     try {
       acknowledgedAssetIds = parseAcknowledgedAssetIds(
@@ -556,9 +582,17 @@ export async function shariahRoutes(
    */
   app.get("/api/shariah/mode", async () => {
     const [mode, bot] = await Promise.all([readMode(), readBotShariahMode(botEnforcementDeps)]);
+    /*
+     * Whether a Bot control channel is configured at all is stated on every
+     * read. Without it the console could only tell "no channel" from "Bot
+     * unreachable" right after a mode change (the PUT's `botFloorPushed`), so
+     * a reload turned "Bot floor: not armed — no control channel is configured"
+     * into "unknown — the Bot could not be reached": two accounts of one state.
+     */
     return {
       mode,
       policyVersion: TS_SHARIAH_V1,
+      botControlChannel: botEnforcementDeps.controlChannelConfigured ?? isManualControlChannelConfigured(),
       botMode: bot?.mode ?? null,
       inSync: bot === null ? null : bot.mode === mode,
     };
@@ -575,7 +609,9 @@ export async function shariahRoutes(
       return reply.code(400).send({ error: 'mode must be "off" or "enforce"' });
     }
     const previousMode = await readMode();
-    const operator = operatorIdentity(req);
+    const resolved = await operatorOf(req);
+    if (!("identity" in resolved)) return reply.code(resolved.status).send({ error: resolved.error });
+    const operator = resolved.identity;
     /*
      * The audit row is written after the change has actually landed, and never
      * blocks it: `app_settings` held this switch as one mutable key/value row
@@ -591,7 +627,7 @@ export async function shariahRoutes(
       try {
         await recordModeChange({
           fromMode: previousMode, toMode: mode,
-          changedBy: operator ?? "unknown-operator",
+          changedBy: operator,
           botFloorPushed: pushed, policyVersion: TS_SHARIAH_V1,
         });
       } catch (error) {

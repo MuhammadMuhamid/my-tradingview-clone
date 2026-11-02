@@ -223,3 +223,89 @@ export function inspectBackfillLiveBoundary(
 export function issueCounts(report: CandleIntegrityReport): Record<string, number> {
   return Object.fromEntries(report.issues.map((issue) => [issue.code, issue.count]));
 }
+
+/**
+ * What a stored range actually holds, against the closed bars it should hold.
+ *
+ * `ensureCandles` decides whether to FETCH by count (≥ 98.5 %, a deliberate
+ * tolerance for exchange downtime), and that is the right question for a
+ * chart. It is the wrong one for "is this range complete": a 1 % hole in the
+ * middle of 10,000 bars passes it. This answers that question instead, with
+ * the shortfall split by where it is, because each place means something
+ * different and none of them is automatically a defect:
+ *
+ *   leading   before the first stored bar — a later listing, or a cache that
+ *             starts inside the range
+ *   interior  between two stored bars — a missed write, or a venue outage the
+ *             venue itself has no bars for; either way time the series skips
+ *   trailing  after the last stored bar — not yet written
+ *
+ * Expected slots are aligned open times in [startMs, endMs) that have CLOSED
+ * by `now`; a bar still forming is not a missing fact, and a bar opening
+ * exactly at `endMs` is accepted if present but never required. An interior
+ * gap is the same thing `checkSeries` calls a gap.
+ *
+ * `openTimes` must be ascending (the repository's order); repeats and
+ * misaligned or out-of-range times are skipped. One pass, constant memory.
+ */
+export interface CandleCoverage {
+  interval: Interval;
+  startMs: number;
+  endMs: number;
+  expectedBars: number;
+  presentBars: number;
+  firstOpenTime: number | null;
+  lastOpenTime: number | null;
+  leadingMissingBars: number;
+  interiorGaps: number;
+  interiorMissingBars: number;
+  firstGap: { afterOpenTime: number; beforeOpenTime: number; missingBars: number } | null;
+  trailingMissingBars: number;
+  /**
+   * Every expected closed slot is present. Disclosure, not a refusal.
+   *
+   * VACUOUS when `expectedBars` is 0 (a range wholly in the future, inverted,
+   * or narrower than one closed bar): nothing was expected, so nothing is
+   * missing, and that says nothing about data. A consumer that means "this
+   * range holds data" must check `expectedBars > 0` as well.
+   */
+  complete: boolean;
+}
+
+export function measureCandleCoverage(
+  openTimes: Iterable<number>, interval: Interval, startMs: number, endMs: number, now: number,
+): CandleCoverage {
+  const step = INTERVAL_MS[interval];
+  const firstSlot = Math.ceil(startMs / step) * step;
+  const lastSlot = Math.min(Math.ceil(endMs / step) * step - step, newestClosedBarOpenTime(interval, now));
+  const expectedBars = lastSlot >= firstSlot ? (lastSlot - firstSlot) / step + 1 : 0;
+  let present = 0;
+  let first: number | null = null;
+  let last: number | null = null;
+  let gaps = 0;
+  let interior = 0;
+  let firstGap: CandleCoverage["firstGap"] = null;
+  if (expectedBars > 0) {
+    for (const t of openTimes) {
+      if (t < firstSlot || t > lastSlot || t % step !== 0 || (last !== null && t <= last)) continue;
+      if (last !== null && t > last + step) {
+        const missing = (t - last) / step - 1;
+        gaps += 1;
+        interior += missing;
+        firstGap ??= { afterOpenTime: last, beforeOpenTime: t, missingBars: missing };
+      }
+      first ??= t;
+      last = t;
+      present += 1;
+    }
+  }
+  const leading = first === null ? expectedBars : (first - firstSlot) / step;
+  const trailing = last === null ? 0 : (lastSlot - last) / step;
+  return {
+    interval, startMs, endMs, expectedBars, presentBars: present,
+    firstOpenTime: first, lastOpenTime: last,
+    leadingMissingBars: leading, interiorGaps: gaps, interiorMissingBars: interior, firstGap,
+    trailingMissingBars: trailing,
+    complete: leading + interior + trailing === 0,
+  };
+}

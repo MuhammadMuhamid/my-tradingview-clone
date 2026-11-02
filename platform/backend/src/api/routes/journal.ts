@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { config } from "../../config";
 import { manualBotRequest } from "../../manualTrading/client";
 import {
   automatedActivityRows, automatedRealizationRows, manualActivityRows, paperFillRows,
@@ -134,6 +135,27 @@ function manualEvidence(state: ManualState, query: ParsedJournalQuery): ManualAc
     (b.completedAt ?? b.submittedAt ?? b.createdAt) - (a.completedAt ?? a.submittedAt ?? a.createdAt));
 }
 
+interface ManualRead { state: ManualState; unavailable: boolean; disabled: boolean }
+
+/** Shown instead of "the read failed" when there was, by configuration, nothing to read. */
+export const MANUAL_DISABLED_LIMITATION =
+  "Manual trading is disabled on this installation (MANUAL_TRADING_ENABLED), so there are no manual rows to show.";
+
+/*
+ * An installation with manual trading off has no Bot to ask. Asking anyway
+ * made every Journal page end with "the ManualOrder state read failed", which
+ * told the operator a feature they had switched off was broken.
+ */
+function readManualState(symbol: string | null): Promise<ManualRead> {
+  if (!config.manualTradingEnabled) {
+    return Promise.resolve({ state: {}, unavailable: false, disabled: true });
+  }
+  return manualBotRequest<ManualState>({ method: "GET", path:
+    `/api/manual-trading/state${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}` })
+    .then((state) => ({ state, unavailable: false, disabled: false }))
+    .catch(() => ({ state: {}, unavailable: true, disabled: false }));
+}
+
 export async function journalRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: JournalQuery }>("/api/journal", async (req, reply) => {
     const parsed = parseJournalQuery(req.query);
@@ -147,10 +169,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       q.sources.includes("AUTOMATED") ? journalRepo.listAutomatedActivity(filter) : Promise.resolve([]),
       q.sources.includes("PAPER") ? journalRepo.listPaperFills(filter) : Promise.resolve([]),
       q.sources.includes("MANUAL") && !q.deploymentId && q.strategyId === null
-        ? manualBotRequest<ManualState>({ method: "GET", path:
-          `/api/manual-trading/state${q.symbol ? `?symbol=${encodeURIComponent(q.symbol)}` : ""}` })
-          .then((state) => ({ state, unavailable: false })).catch(() => ({ state: {}, unavailable: true }))
-        : Promise.resolve({ state: {}, unavailable: false }),
+        ? readManualState(q.symbol)
+        : Promise.resolve<ManualRead>({ state: {}, unavailable: false, disabled: false }),
     ]);
     const sourceTruncated = realizations.length > JOURNAL_SUMMARY_SCAN_LIMIT
       || activity.length > JOURNAL_SUMMARY_SCAN_LIMIT || paper.length > JOURNAL_SUMMARY_SCAN_LIMIT;
@@ -174,6 +194,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         "Real automated summaries use Platform-owned persisted realization rows only; the Journal makes no per-intent Bot history calls.",
         "Manual rows come from one current bounded state read and remain activity with unknown economics; manual BUY and SELL orders are never paired.",
         "Exchange fill and commission history that is not persisted remains unavailable rather than estimated.",
+        ...(manual.disabled ? [MANUAL_DISABLED_LIMITATION] : []),
         ...(manual.unavailable ? ["Manual activity is unavailable because the current ManualOrder state read failed."] : []),
         ...(truncated ? [`Summary evidence exceeded the hard scan bound of ${JOURNAL_SUMMARY_SCAN_LIMIT} rows per source and is explicitly truncated.`] : []),
       ],

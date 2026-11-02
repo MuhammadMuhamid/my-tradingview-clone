@@ -307,6 +307,15 @@ test("a backtest result can be opened without a mouse", () => {
   assert.match(list, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);
 });
 
+test("the Research link says it only opens on the Mac that runs Research", () => {
+  // The Research controller is loopback-only by design. The link is kept, with
+  // its port and target; the visible sentence says where it works.
+  const list = read("app/research/page.tsx");
+  assert.match(list, /href="http:\/\/127\.0\.0\.1:8765" target="_blank" rel="noreferrer"/);
+  assert.match(list, /on this Mac only/);
+  assert.match(list, /Opening this link starts no service or download\./);
+});
+
 test("the not-found page and the chart's product menu offer every destination the nav has", () => {
   // The not-found page renders `allNavLinks()` directly. The chart workspace,
   // which has no header bar at all after FC2-H3 and is also the manifest's
@@ -335,7 +344,7 @@ test("the not-found page and the chart's product menu offer every destination th
 });
 
 test("controls that speak, and failures that are announced", () => {
-  assert.match(read("app/shariah/page.tsx"), /aria-label="Load a ChatGPT review results JSON file"/);
+  assert.match(read("app/shariah/page.tsx"), /aria-label="Load a results JSON file"/);
   // A shared `Dropdown` now, whose `label` IS its accessible name.
   assert.match(read("app/shariah/page.tsx"), /label="Filter the screening universe"/);
   assert.match(read("app/login/page.tsx"), /\{err && <p role="alert"/);

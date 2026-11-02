@@ -562,3 +562,145 @@ test("a run recorded before the split says so, rather than implying it had none"
   assert.ok(screen.getByText(/not a\s*statement that it had no validation window/i),
     "absence of a record is not evidence of absence, and the panel must not imply it is");
 });
+
+// ── A window's own data: actual span, missing bars, comparability ───────────
+
+/** Complete 21 × 1d bars: nominal and actual both 21 days. */
+function completeIntegrity() {
+  return {
+    intervalMs: DAY, nominalMs: 21 * DAY, actualMs: 21 * DAY,
+    missingBars: 0, gapCount: 0, gaps: [], status: "complete" as const,
+  };
+}
+
+/**
+ * Rank 1 becomes 21 STORED daily bars across a 3-day hole: it opens
+ * 2025-02-10, closes 2025-03-05, and is 24 days long, not 21.
+ */
+function gappedRun(): StressRunDetail {
+  const detail = stressRun();
+  const first = detail.windows[0]!;
+  first.endMs = first.startMs + 24 * DAY - 1;
+  first.integrity = {
+    intervalMs: DAY, nominalMs: 21 * DAY, actualMs: 24 * DAY, missingBars: 3, gapCount: 1,
+    gaps: [{ startMs: first.startMs + 10 * DAY, endMs: first.startMs + 13 * DAY - 1, bars: 3 }],
+    status: "not_comparable",
+  };
+  detail.windows[1]!.integrity = completeIntegrity();
+  detail.discovery.dataCompleteness = {
+    complete: false, expectedBars: 203, missingBars: 3, interiorMissingBars: 3, interiorGaps: 1,
+    firstGapAt: first.startMs + 10 * DAY, leadingMissingBars: 0, trailingMissingBars: 0,
+    note: "3 1d bar(s) missing inside the searched period in 1 gap(s), the first at 2025-02-20T00:00:00.000Z.",
+  };
+  return detail;
+}
+
+const flat = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ");
+
+test("a window across missing benchmark bars is marked not comparable on its row, with its actual span and missing bars", async () => {
+  await mountRun(gappedRun());
+  const rows = [...document.querySelectorAll("[data-stress-row]")];
+  assert.equal(rows.length, 2);
+  const [gapped, whole] = rows as [Element, Element];
+
+  assert.equal(gapped.getAttribute("data-comparable"), "false");
+  assert.equal(flat(gapped.querySelector("[data-stress-integrity]")), "Not comparable");
+  const said = flat(gapped.querySelector("[data-stress-integrity-detail]"));
+  assert.match(said, /Actually spans 2025-02-10 00:00 UTC → 2025-03-05 23:59 UTC: 24 d elapsed, not the 21 d its 21 × 1d bars imply\./,
+    `the row states its ACTUAL span against its nominal length: ${said}`);
+  assert.match(said, /3 1d bars missing inside it \(2025-02-20 00:00 UTC → 2025-02-22 23:59 UTC\)/);
+  assert.match(said, /cannot be read against them/);
+  assert.match(flat(gapped), /2025-02-10 → 2025-03-05/, "the dates are the window's real first open and last close");
+
+  // Its strategy figure is not presented as a verdict: no gain/loss colour.
+  const strategy = gapped.querySelector("[data-stress-strategy]")!;
+  assert.match(flat(strategy), /-1\.50%/, "the computed figure is still shown, not hidden");
+  assert.ok(!/text-(up|down)/.test(strategy.className), `not-comparable figure kept its verdict colour: ${strategy.className}`);
+  assert.match(strategy.getAttribute("title") ?? "", /Not comparable/);
+
+  // The complete window keeps the existing row exactly.
+  assert.equal(whole.getAttribute("data-comparable"), "true");
+  assert.equal(flat(whole.querySelector("[data-stress-integrity]")), "Complete");
+  assert.equal(whole.querySelector("[data-stress-integrity-detail]"), null);
+  assert.match(whole.querySelector("[data-stress-strategy]")!.className, /text-down/);
+
+  // The run says so above the table — not in a tooltip, not behind a disclosure.
+  const summary = document.querySelector("[data-stress-integrity-summary]");
+  assert.ok(summary, "a run with a not-comparable window must say so above its numbers");
+  assert.match(flat(summary), /1 of 2 windows crosses missing BTCUSDT 1d data and is marked not comparable/);
+  assert.equal(summary.closest("details"), null);
+  assert.ok(summary.compareDocumentPosition(document.querySelector("table")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    "the warning comes before the table it qualifies");
+  assert.match(flat(document.querySelector("[data-stress-completeness]")), /3 1d bar\(s\) missing inside the searched period/);
+});
+
+test("contiguous data keeps the normal result: no warning, every window Complete, figures coloured as before", async () => {
+  const detail = stressRun();
+  for (const w of detail.windows) w.integrity = completeIntegrity();
+  detail.discovery.dataCompleteness = {
+    complete: true, expectedBars: 200, missingBars: 0, interiorMissingBars: 0, interiorGaps: 0,
+    firstGapAt: null, leadingMissingBars: 0, trailingMissingBars: 0,
+    note: "Every closed bar of the requested period is present.",
+  };
+  await mountRun(detail);
+  assert.equal(document.querySelector("[data-stress-integrity-summary]"), null);
+  assert.equal(document.querySelector("[data-stress-integrity-detail]"), null);
+  const badges = [...document.querySelectorAll("[data-stress-integrity]")].map(flat);
+  assert.deepEqual(badges, ["Complete", "Complete"]);
+  for (const row of document.querySelectorAll("[data-stress-row]")) {
+    assert.equal(row.getAttribute("data-comparable"), "true");
+    assert.match(row.querySelector("[data-stress-strategy]")!.className, /text-down/);
+  }
+  assert.match(flat(document.querySelector("[data-stress-completeness]")),
+    /Every closed benchmark bar of the searched period was present/);
+  // The exposure example still uses the worst complete target, as before.
+  assert.match(document.querySelector("[data-stress-exposure]")?.textContent ?? "", /moved -28\.40%/);
+});
+
+test("a run saved before completeness was measured says not verified — never complete", async () => {
+  await mountRun(); // the fixture run carries neither window integrity nor dataCompleteness
+  const badges = [...document.querySelectorAll("[data-stress-integrity]")];
+  assert.deepEqual(badges.map(flat), ["Not verified", "Not verified"]);
+  for (const badge of badges) {
+    assert.match(badge.getAttribute("title") ?? "", /Data completeness not verified \(saved before it was measured\)/);
+  }
+  const summary = document.querySelector("[data-stress-integrity-summary]");
+  assert.match(flat(summary), /saved before window data completeness was measured, so none of its windows is verified complete/);
+  assert.match(flat(document.querySelector("[data-stress-completeness]")), /not verified — provenance unavailable/);
+  const table = document.querySelector("table")!;
+  assert.equal(/\bComplete\b/.test(flat(table.querySelector("tbody"))), false,
+    "an unmeasured window is never labelled complete");
+});
+
+test("an impaired window (one missing bar) keeps its figures and says what it spans", async () => {
+  const detail = stressRun();
+  const first = detail.windows[0]!;
+  first.endMs = first.startMs + 22 * DAY - 1;
+  first.integrity = {
+    intervalMs: DAY, nominalMs: 21 * DAY, actualMs: 22 * DAY, missingBars: 1, gapCount: 1,
+    gaps: [{ startMs: first.startMs + 5 * DAY, endMs: first.startMs + 6 * DAY - 1, bars: 1 }],
+    status: "impaired",
+  };
+  detail.windows[1]!.integrity = completeIntegrity();
+  await mountRun(detail);
+  const row = document.querySelector("[data-stress-row]")!;
+  assert.equal(row.getAttribute("data-comparable"), "true");
+  assert.equal(flat(row.querySelector("[data-stress-integrity]")), "Impaired");
+  assert.match(flat(row.querySelector("[data-stress-integrity-detail]")),
+    /22 d elapsed, not the 21 d its 21 × 1d bars imply\. 1 1d bar missing inside it \(2025-02-15 00:00 UTC\)/);
+  assert.match(flat(document.querySelector("[data-stress-integrity-summary]")), /marked impaired/);
+});
+
+test("the discovery preview marks a window across a gap before anything is run", async () => {
+  const gapped = gappedRun();
+  server.routes.set("POST /api/stress/windows", () => ({
+    windows: gapped.windows.map(({ backtestId: _, ...w }) => w),
+    discovery: gapped.discovery, path: [], epistemicNote: "",
+  }));
+  await mountStress();
+  fireEvent.click(screen.getByRole("button", { name: /Find the windows/ }));
+  await settle();
+  const badges = [...document.querySelectorAll("[data-stress-integrity]")].map(flat);
+  assert.deepEqual(badges, ["Not comparable", "Complete"]);
+  assert.match(flat(document.querySelector("[data-stress-integrity-detail]")), /24 d elapsed, not the 21 d/);
+});

@@ -305,6 +305,39 @@ export interface StressWindow {
   benchmarkVolatilityPct: number;
   selectedBy: { metric: StressMethod; value: number };
   label?: string;
+  /**
+   * The window's own bars: nominal span (bars × interval) against the span
+   * it actually covers, and the bars missing inside it. Absent on windows
+   * saved before it was measured — unknown, never "complete".
+   */
+  integrity?: StressWindowIntegrity;
+}
+
+/** `engine/stress.ts`: 0 missing = complete, 1 = impaired, 2+ = not comparable. */
+export type StressWindowIntegrityStatus = "complete" | "impaired" | "not_comparable";
+
+export interface StressWindowIntegrity {
+  intervalMs: number;
+  nominalMs: number;
+  actualMs: number;
+  missingBars: number;
+  gapCount: number;
+  /** The first few runs of missing bars: first missing open to last missing close. */
+  gaps: { startMs: number; endMs: number; bars: number }[];
+  status: StressWindowIntegrityStatus;
+}
+
+/** Whether the benchmark series discovery searched was whole. */
+export interface StressDataCompleteness {
+  complete: boolean;
+  expectedBars: number;
+  missingBars: number;
+  interiorMissingBars: number;
+  interiorGaps: number;
+  firstGapAt: number | null;
+  leadingMissingBars: number;
+  trailingMissingBars: number;
+  note: string;
 }
 
 export type StressMethod =
@@ -324,6 +357,8 @@ export interface StressDiscovery {
     manualWindows?: { startMs: number; endMs: number; label?: string }[];
   };
   epistemicNote: string;
+  /** Absent on runs saved before it was measured: not verified, not complete. */
+  dataCompleteness?: StressDataCompleteness;
 }
 
 export interface StressRun {

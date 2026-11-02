@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -40,6 +41,10 @@ function SummaryCard({ title, scope, paper = false }: {
   title: string; scope: JournalSummarySlice; paper?: boolean;
 }) {
   const known = scope.knownRealizedRows > 0;
+  // Nothing in range is not the same fact as "economics unknown": the first is
+  // an empty period, the second is activity whose cost basis is missing.
+  const empty = !known && scope.realizationRows === 0 && scope.unknownEconomicRows === 0
+    && scope.incompleteRows === 0;
   return (
     <Card className={paper ? "border-warn/30" : ""}>
       <div className="p-4">
@@ -50,14 +55,16 @@ function SummaryCard({ title, scope, paper = false }: {
           }`}>{paper ? "PAPER" : "REAL"}</span>
         </div>
         <p className={`mt-2 tabular text-2xl font-semibold ${known ? signClass(scope.knownRealizedPnl) : "text-ink-muted"}`}>
-          {known ? money(scope.knownRealizedPnl) : "Unknown"}
+          {known ? money(scope.knownRealizedPnl) : empty ? "—" : "Unknown"}
         </p>
         <p className="mt-1 text-xs text-ink-faint">
-          {paper ? "Known realized net" : "Known realized P&L"} · {scope.knownRealizedRows} known outcome{scope.knownRealizedRows === 1 ? "" : "s"}
+          {empty
+            ? "No realized results in this range"
+            : <>{paper ? "Known realized net" : "Known realized P&L"} · {scope.knownRealizedRows} known outcome{scope.knownRealizedRows === 1 ? "" : "s"}</>}
         </p>
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div><dt className="text-ink-faint">Known fees</dt><dd className="mt-0.5 tabular text-ink">
-            {scope.feeKnownRows > 0 ? `$${fmtNum(scope.knownFees)}` : "Unknown"}
+            {scope.feeKnownRows > 0 ? `$${fmtNum(scope.knownFees)}` : empty ? "—" : "Unknown"}
           </dd></div>
           <div><dt className="text-ink-faint">Wins / losses</dt><dd className="mt-0.5 tabular text-ink">
             {scope.wins} / {scope.losses}
@@ -66,7 +73,7 @@ function SummaryCard({ title, scope, paper = false }: {
             {scope.incompleteRows}
           </dd></div>
           <div><dt className="text-ink-faint">Average duration</dt><dd className="mt-0.5 tabular text-ink">
-            {duration(scope.averageDurationMs)}
+            {empty ? "—" : duration(scope.averageDurationMs)}
           </dd></div>
         </dl>
       </div>
@@ -139,7 +146,7 @@ function JournalItem({ row }: { row: JournalRow }) {
   );
 }
 
-export default function JournalPage() {
+function JournalView() {
   const defaults = today();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -203,7 +210,9 @@ export default function JournalPage() {
           <Field label="Summary"><Select className="min-h-11 min-w-0 w-full" value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}>
             <option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option>
           </Select></Field>
-          <Button type="submit" variant="primary" disabled={loading} className="min-h-11">
+          {/* 44px is the phone touch target; from `sm` up the row is one
+              height — 34px, like the fields beside it. */}
+          <Button type="submit" variant="primary" disabled={loading} className="min-h-11 sm:min-h-0">
             {loading ? "Loading…" : "Apply"}
           </Button>
         </form>
@@ -220,12 +229,17 @@ export default function JournalPage() {
               <p className="mt-0.5 text-xs text-ink-faint">Newest first · {data.summary.incompleteRows} incomplete evidence row{data.summary.incompleteRows === 1 ? "" : "s"}</p></div>
             {data.summary.truncated && <span className="rounded-full border border-warn/30 bg-warn/10 px-2 py-1 text-xs text-warn">Summary bound reached</span>}
           </div>
-          {data.rows.length === 0 ? <Empty>No authoritative Journal evidence matches this range.</Empty>
+          {data.rows.length === 0 ? <Empty>
+              Nothing recorded between these dates. The Journal fills from manual orders placed through the
+              Trading Scene order ticket, realization events the execution Bot reports for automated deployments,
+              and paper deployment fills. Widen the dates, or open a deployment&apos;s Timeline under Trading for
+              one order&apos;s exact history.
+            </Empty>
             : <div>{data.rows.map((row) => <JournalItem key={row.id} row={row} />)}</div>}
           <div className="flex items-center justify-between border-t border-border px-3 py-2 sm:px-4">
-            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11">Previous</Button>
+            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11 sm:min-h-0">Previous</Button>
             <span className="text-xs text-ink-faint">Page {page}</span>
-            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11">Next</Button>
+            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11 sm:min-h-0">Next</Button>
           </div>
         </Card>
 
@@ -264,4 +278,9 @@ export default function JournalPage() {
       </>}
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function JournalPage() {
+  return <AdminOnlyPage title="Journal" width="narrow"><JournalView /></AdminOnlyPage>;
 }

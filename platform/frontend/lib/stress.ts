@@ -6,7 +6,9 @@
  * involved in CHOOSING the windows — that happens on the server, from the
  * benchmark's candles alone, before the strategy is named.
  */
-import type { Backtest, ExecutionTruth, Interval, StressDiscovery, StressWindow } from "./types";
+import type {
+  Backtest, ExecutionTruth, Interval, StressDiscovery, StressWindow, StressWindowIntegrityStatus,
+} from "./types";
 import { displayTicker, displayVenue } from "./instrument";
 import { fmtNum, fmtPct } from "./format";
 
@@ -175,4 +177,123 @@ export function exposureNote(
   return `${head} Held through the whole of a window in which ${displayTicker(example.symbol)} `
     + `moved ${fmtPct(example.returnPct)}, a position of that size would show about `
     + `${fmtPct((example.returnPct * share) / 100)} here before costs.`;
+}
+
+// ── A window's own integrity ────────────────────────────────────────────────
+
+/**
+ * What the reader is told about one window's data.
+ *
+ * `unverified` is a window saved before its bars were measured. It is NOT
+ * `complete`: nothing was checked, so nothing may be claimed.
+ */
+export type StressIntegrityState = StressWindowIntegrityStatus | "unverified";
+
+export interface StressIntegrityView {
+  state: StressIntegrityState;
+  /** The badge: two words at most. */
+  label: string;
+  /** The figures stand beside the benchmark's. False for not comparable. */
+  comparable: boolean;
+  /** One sentence on the row, or null for a complete window. */
+  detail: string | null;
+}
+
+/** "2025-01-07 06:00 UTC" — minutes, because a gap in hourly bars is not a day. */
+export function utcMinute(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+/** A span as a reader says it: "5 d 4 h", "124 h" is not what anyone says. */
+export function spanLabel(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  const d = Math.floor(minutes / 1440);
+  const h = Math.floor((minutes % 1440) / 60);
+  const m = minutes % 60;
+  const parts = [d ? `${d} d` : "", h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean);
+  return parts.length ? parts.join(" ") : `${Math.round(ms / 1000)} s`;
+}
+
+export const UNVERIFIED_INTEGRITY =
+  "Data completeness not verified (saved before it was measured).";
+
+/**
+ * One window's data, said on its row.
+ *
+ * A window that crosses a gap shows its ACTUAL elapsed span beside the span
+ * its bar count implies, and how many bars are missing inside it, because
+ * "the worst 24 bars" over a 100-bar hole is five days, not one — and its
+ * benchmark figures were computed over the stored bars only.
+ */
+export function windowIntegrityView(window: StressWindow, interval: Interval): StressIntegrityView {
+  const integrity = window.integrity;
+  if (!integrity) {
+    return { state: "unverified", label: "Not verified", comparable: true, detail: UNVERIFIED_INTEGRITY };
+  }
+  if (integrity.status === "complete") {
+    return { state: "complete", label: "Complete", comparable: true, detail: null };
+  }
+  const missing = `${integrity.missingBars.toLocaleString("en-US")} ${interval} bar${integrity.missingBars === 1 ? "" : "s"}`;
+  const listed = integrity.gaps.map((g) => g.bars === 1
+    ? utcMinute(g.startMs)
+    : `${utcMinute(g.startMs)} → ${utcMinute(g.endMs)}`);
+  const more = integrity.gapCount > integrity.gaps.length
+    ? ` and ${integrity.gapCount - integrity.gaps.length} more gap${integrity.gapCount - integrity.gaps.length === 1 ? "" : "s"}`
+    : "";
+  const span = `Actually spans ${utcMinute(window.startMs)} → ${utcMinute(window.endMs)}: `
+    + `${spanLabel(integrity.actualMs)} elapsed, not the ${spanLabel(integrity.nominalMs)} its `
+    + `${window.bars.toLocaleString("en-US")} × ${interval} bars imply. ${missing[0]!.toUpperCase()}${missing.slice(1)} `
+    + `missing inside it (${listed.join("; ")}${more}).`;
+  if (integrity.status === "impaired") {
+    return {
+      state: "impaired", label: "Impaired", comparable: true,
+      detail: `${span} The benchmark figures omit that bar's prices.`,
+    };
+  }
+  return {
+    state: "not_comparable", label: "Not comparable", comparable: false,
+    detail: `${span} The benchmark figures cover only the stored bars, so the strategy's `
+      + "result in this window cannot be read against them.",
+  };
+}
+
+/**
+ * The run-level sentence above the table, or null when every window is
+ * measured and whole. Counts are by state so a reader knows how many rows to
+ * look at; the rows themselves carry the detail.
+ */
+export function integritySummary(
+  windows: readonly StressWindow[], benchmarkSymbol: string, interval: Interval,
+): { tone: "warn" | "info"; text: string } | null {
+  const states = windows.map((w) => windowIntegrityView(w, interval).state);
+  const n = (state: StressIntegrityState) => states.filter((s) => s === state).length;
+  const notComparable = n("not_comparable");
+  const impaired = n("impaired");
+  const unverified = n("unverified");
+  const ticker = displayTicker(benchmarkSymbol);
+  const of = (k: number) => `${k} of ${windows.length} window${windows.length === 1 ? "" : "s"}`;
+  const parts: string[] = [];
+  if (notComparable) {
+    parts.push(`${of(notComparable)} cross${notComparable === 1 ? "es" : ""} missing ${ticker} ${interval} data and `
+      + `${notComparable === 1 ? "is" : "are"} marked not comparable: ${notComparable === 1 ? "it spans" : "they span"} `
+      + "more time than the window length says, and the benchmark figures skip the missing bars.");
+  }
+  if (impaired) {
+    parts.push(`${of(impaired)} ${impaired === 1 ? "is" : "are"} missing one ${interval} bar inside `
+      + `${impaired === 1 ? "it" : "them"} and ${impaired === 1 ? "is" : "are"} marked impaired.`);
+  }
+  if (unverified) {
+    parts.push(unverified === windows.length
+      ? `This run was saved before window data completeness was measured, so none of its windows is verified complete.`
+      : `${of(unverified)} ${unverified === 1 ? "was" : "were"} saved before data completeness was measured and ${unverified === 1 ? "is" : "are"} not verified.`);
+  }
+  if (!parts.length) return null;
+  return { tone: notComparable || impaired ? "warn" : "info", text: parts.join(" ") };
+}
+
+/** The searched period's completeness, as the provenance line says it. */
+export function discoveryCompleteness(discovery: StressDiscovery): string {
+  const c = discovery.dataCompleteness;
+  if (!c) return "Benchmark data completeness: not verified — provenance unavailable for runs saved before it was measured.";
+  return c.complete ? "Every closed benchmark bar of the searched period was present." : c.note;
 }

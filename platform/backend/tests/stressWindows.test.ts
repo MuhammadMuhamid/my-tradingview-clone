@@ -17,6 +17,12 @@ import {
   validateStressConfig, type StressWindowConfig,
 } from "../src/engine/stress";
 import type { Candle, Interval } from "../src/types/market";
+import { measureCandleCoverage } from "../src/data/candleIntegrity";
+
+/** What the route measures from the rows discovery searched. */
+const coverageOf = (candles: Candle[]) => measureCandleCoverage(
+  candles.map((c) => c.openTime), candles[0]!.interval, candles[0]!.openTime,
+  candles[candles.length - 1]!.closeTime + 1, Number.MAX_SAFE_INTEGER);
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2025-01-01T00:00:00Z");
@@ -312,7 +318,7 @@ test("provenance records enough to regenerate the same windows", () => {
     symbol: "BTCUSDT",
     canonicalInstrument: "instrument:v1:BINANCE:spot:BTC:USDT:USDT:spot",
     interval: "1h", providerId: "binance-spot", feedId: "binance-public-klines",
-  }, candles, config);
+  }, candles, config, coverageOf(candles));
 
   assert.equal(p.schemaVersion, "stress-discovery.v2",
     "v2 measures from the window's first open; a stored v1 record measured from its first close");
@@ -329,6 +335,7 @@ test("provenance records enough to regenerate the same windows", () => {
     method: "worst_return", lengthBars: 10, topN: 3,
     minSeparationBars: 7, manualWindows: undefined,
   });
+  assert.equal(p.dataCompleteness.complete, true, "a contiguous benchmark is recorded as whole");
 
   // Replaying the stored configuration must reproduce the stored windows.
   assert.deepEqual(
@@ -344,7 +351,7 @@ test("the epistemic note is carried on the record, not left to the caller", () =
   const p = stressProvenance({
     symbol: "BTCUSDT", canonicalInstrument: null, interval: "1h",
     providerId: "binance-spot", feedId: "binance-public-klines",
-  }, twoEpisodes(), BASE);
+  }, twoEpisodes(), BASE, coverageOf(twoEpisodes()));
   assert.equal(p.epistemicNote, STRESS_EPISTEMIC_NOTE);
   assert.match(STRESS_EPISTEMIC_NOTE, /hindsight/);
   assert.match(STRESS_EPISTEMIC_NOTE, /not out-of-sample evidence/);
@@ -564,9 +571,16 @@ test("the bounded discovery returns exactly what the exhaustive one did", () => 
               method, lengthBars, topN,
               ...(minSeparationBars === undefined ? {} : { minSeparationBars }),
             };
-            assert.deepStrictEqual(
-              discoverStressWindows(candles, config), referenceDiscover(candles, config),
-              `${name} · ${method} · L=${lengthBars} · top ${topN} · sep ${minSeparationBars}`);
+            const label = `${name} · ${method} · L=${lengthBars} · top ${topN} · sep ${minSeparationBars}`;
+            const found = discoverStressWindows(candles, config);
+            // Every fixture is contiguous: each window is measured whole, and
+            // apart from that measurement the figures are the reference's.
+            for (const w of found) {
+              assert.equal(w.integrity?.status, "complete", label);
+              assert.equal(w.integrity?.actualMs, w.integrity?.nominalMs, label);
+            }
+            assert.deepStrictEqual(found.map(({ integrity: _, ...rest }) => rest),
+              referenceDiscover(candles, config), label);
             compared += 1;
           }
         }

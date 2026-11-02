@@ -236,7 +236,8 @@ per-asset published history, snapshots, and the *Needs review* count on the batc
 | Malformed / incomplete results file | whole batch refused, nothing published, per-line reasons |
 | Concurrent sync during import | lock + revalidate; stale-ified asset refused; all-or-nothing |
 | Screening store down | BUY fails closed; SELL proceeds without provenance |
-| Bot unreachable when turning Mode ON | Mode stays OFF (honest), operator told |
+| Bot control channel configured but the Bot is unreachable or answers a different floor when turning Mode ON | Mode stays OFF (honest), operator told (502) |
+| No Bot control channel configured (`MANUAL_TRADING_BOT_URL` / `MANUAL_TRADING_HMAC_SECRET` unset) when turning Mode ON | Mode turns ON for every Platform-originated path; the Status tab shows *Bot floor: not armed* and says a signal sent straight to a Bot webhook is not gated (verified locally 2026-11-01; `botEnforcement.ts` `pushShariahModeToBot` returns `pushed: false`) |
 | Unknown symbol / non-USDT quote | REVIEW → BUY refused under enforcement |
 | Reused ticker | STALE → REVIEW; full fresh screening required |
 | Aged decision | surfaced as due; still enforced; never auto-demoted |
@@ -324,3 +325,18 @@ publications. Final **Confirm publication of N decisions** remains deliberate an
 A blocked order offers an asset/symbol-specific `/shariah` link to review or view
 the decision and evidence. This does not bypass the BUY gate; SELL/exits remain
 available. Unknown identity cannot be made eligible merely by following a link.
+
+## Campaign update — 2026-11-01
+
+The full export → research → import → check → publish → enforce cycle was exercised in a local
+browser against the real backend and a disposable PostgreSQL (three fixture decisions: ELIGIBLE,
+REVIEW with an unresolved uncertainty, EXCLUDED). Fixes made on the Shariah screen: the universe
+sync notice now reads as counts with names (it interpolated the backend's symbol lists as if they
+were numbers); never-researched assets say *Never researched* instead of "unknown days"; the final
+publication summary says *no prior decision* and pluralises citations; and the single-asset panel
+now states whether a new BUY of that asset is allowed under the current Platform mode, with the
+constant reminder that selling or reducing is never blocked. An ordinary (non-administrator) account sees this screen read-only: the
+universe, each asset's published decision, evidence and BUY-permission line, with
+no write control and no first-person operator copy; every write route is
+administrator-only on the backend. The owner-facing walkthrough is in
+[TRADING_SCENE_OWNER_GUIDE.md](TRADING_SCENE_OWNER_GUIDE.md) §3.

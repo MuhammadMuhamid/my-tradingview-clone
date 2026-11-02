@@ -40,6 +40,7 @@
  * independently of the traded symbol, and may be the traded symbol.
  */
 import { INTERVAL_MS, type Candle, type Interval } from "../types/market";
+import type { CandleCoverage } from "../data/candleIntegrity";
 
 /** Travels with every stress result. It is not decoration. */
 export const STRESS_EPISTEMIC_NOTE =
@@ -99,6 +100,122 @@ export interface StressWindow {
   /** The metric this window was RANKED on, named so the ranking is auditable. */
   selectedBy: { metric: StressMethod; value: number };
   label?: string;
+  /**
+   * Whether the window's own bars are contiguous: its nominal length against
+   * the time it actually spans, and the bars missing inside it. Always set by
+   * discovery; absent on windows stored before it was measured, which is
+   * UNKNOWN — never read an absent value as complete.
+   */
+  integrity?: StressWindowIntegrity;
+}
+
+/*
+ * ── A window's own integrity ──────────────────────────────────────────────
+ *
+ * Discovery counts windows in STORED bars. Over a series with an interior
+ * hole, "the worst 168 1h bars" is then a stretch of more than a week: the
+ * window's first open and last close are real, but between them the series
+ * skips time the strategy (run over the window's calendar span on the traded
+ * symbol) lived through and the benchmark statistics never saw. The return
+ * from first open to last close is still a true price change; the drawdown,
+ * the volatility and — for every method but `manual` — the ranking itself
+ * were computed over a shorter price path than the period they are printed
+ * beside.
+ *
+ * Nothing is adjusted or re-selected here — choosing calendar-correct windows
+ * would change which crash a stored provenance reproduces. Each window instead
+ * carries what it actually is, so the result can say so on the row.
+ *
+ * ── The threshold ─────────────────────────────────────────────────────────
+ *
+ *   complete        no bar missing inside the window: actual span = nominal.
+ *   impaired        exactly ONE bar missing: the window spans one bar more
+ *                   than its length says. Figures stand, with the warning.
+ *   not_comparable  two or more bars missing. The candidate's result and the
+ *                   benchmark's figures do not describe the same price path,
+ *                   so the comparison is withheld rather than scored.
+ *
+ * One bar is the tolerance this product already accepts at a window's EDGES:
+ * a manual window is snapped with a whole bar of slack at each end, and
+ * `stressTarget.ts` calls the traded figure complete within one traded bar.
+ * An interior hole is held to the same resolution and no finer, because a
+ * finer one would claim a precision the bar grid does not have; it is held
+ * to no coarser one, because a stress window is chosen for its most violent
+ * stretch, which is exactly when a venue is most likely to have gone dark,
+ * and a missing bar's high and low cannot be bounded. It is a constant of the
+ * method, not a setting.
+ */
+export type StressWindowIntegrityStatus = "complete" | "impaired" | "not_comparable";
+
+/** Most missing bars a window may have and still be read against its benchmark. */
+export const STRESS_IMPAIRED_MAX_MISSING_BARS = 1;
+/** How many missing ranges a window lists; `gapCount` is always the full count. */
+export const STRESS_MAX_LISTED_GAPS = 5;
+
+export interface StressMissingRange {
+  /** Open time of the first missing bar. */
+  startMs: number;
+  /** Close time of the last missing bar. */
+  endMs: number;
+  bars: number;
+}
+
+export interface StressWindowIntegrity {
+  /** One bar of the series the window was counted in, in ms. */
+  intervalMs: number;
+  /** What the window's length says it spans: its bars × the interval. */
+  nominalMs: number;
+  /** What it does span: its first bar's open to its last bar's close. */
+  actualMs: number;
+  /** Bars of the interval absent between the window's first and last bar. */
+  missingBars: number;
+  /** Separate runs of missing bars inside the window. */
+  gapCount: number;
+  /** The first `STRESS_MAX_LISTED_GAPS` of them, in time order. */
+  gaps: StressMissingRange[];
+  status: StressWindowIntegrityStatus;
+}
+
+/** The status a window with `missingBars` interior holes earns. See the threshold above. */
+export function stressIntegrityStatus(missingBars: number): StressWindowIntegrityStatus {
+  if (!(missingBars > 0)) return "complete";
+  return missingBars <= STRESS_IMPAIRED_MAX_MISSING_BARS ? "impaired" : "not_comparable";
+}
+
+function barMsOf(bar: Candle): number {
+  return INTERVAL_MS[bar.interval] ?? (bar.closeTime - bar.openTime + 1);
+}
+
+/** Measured from the window's own bars `[i, j]`: what it spans, and what is missing in it. */
+export function stressWindowIntegrity(
+  candles: readonly Candle[], i: number, j: number,
+): StressWindowIntegrity {
+  const first = candles[i]!;
+  const last = candles[j]!;
+  const step = barMsOf(first);
+  let missingBars = 0;
+  let gapCount = 0;
+  const gaps: StressMissingRange[] = [];
+  for (let k = i + 1; k <= j; k += 1) {
+    const before = candles[k - 1]!.openTime;
+    const slots = Math.round((candles[k]!.openTime - before) / step) - 1;
+    if (slots > 0) {
+      missingBars += slots;
+      gapCount += 1;
+      if (gaps.length < STRESS_MAX_LISTED_GAPS) {
+        gaps.push({ startMs: before + step, endMs: before + (slots + 1) * step - 1, bars: slots });
+      }
+    }
+  }
+  return {
+    intervalMs: step,
+    nominalMs: (j - i + 1) * step,
+    actualMs: last.closeTime + 1 - first.openTime,
+    missingBars,
+    gapCount,
+    gaps,
+    status: stressIntegrityStatus(missingBars),
+  };
 }
 
 export class StressDiscoveryError extends Error {
@@ -243,6 +360,7 @@ function rankAndSeparate(
       benchmarkDrawdownPct: stats.drawdownPct,
       benchmarkVolatilityPct: stats.volatilityPct,
       selectedBy: { metric: method, value: values[index]! },
+      integrity: stressWindowIntegrity(candles, index, j),
     };
   });
 }
@@ -447,6 +565,7 @@ function manualWindows(
       benchmarkVolatilityPct: stats.volatilityPct,
       selectedBy: { metric: "manual", value: stats.returnPct },
       ...(window.label === undefined ? {} : { label: window.label }),
+      integrity: stressWindowIntegrity(candles, i, j),
     };
   });
 }
@@ -479,13 +598,70 @@ export interface StressProvenance {
     & { minSeparationBars: number; manualWindows: StressWindowConfig["manualWindows"] };
   /** Restated on the record itself, so a stored result cannot lose it. */
   epistemicNote: string;
+  /** Absent on records stored before it was measured: unknown, not complete. */
+  dataCompleteness?: StressDataCompleteness;
+}
+
+/**
+ * Whether the benchmark series discovery searched was whole.
+ *
+ * Discovery counts windows in BARS and assumes the series is contiguous, and
+ * the store's 98.5 % fetch tolerance lets a 1 % interior hole through, so a
+ * "168-bar week" across a 100-bar hole is really eleven days. That is
+ * disclosed here rather than refused or corrected: a hole may be a venue
+ * outage that no refetch can fill, and the figures stay exactly as computed.
+ */
+export interface StressDataCompleteness {
+  complete: boolean;
+  expectedBars: number;
+  /** Leading + interior + trailing closed bars absent from the requested period. */
+  missingBars: number;
+  interiorMissingBars: number;
+  interiorGaps: number;
+  /** Open time of the first bar missing BETWEEN two present bars; null when none is. */
+  firstGapAt: number | null;
+  leadingMissingBars: number;
+  trailingMissingBars: number;
+  note: string;
+}
+
+function dataCompleteness(coverage: CandleCoverage): StressDataCompleteness {
+  const step = INTERVAL_MS[coverage.interval];
+  const missingBars = coverage.leadingMissingBars + coverage.interiorMissingBars + coverage.trailingMissingBars;
+  const firstGapAt = coverage.firstGap ? coverage.firstGap.afterOpenTime + step : null;
+  const parts: string[] = [];
+  if (firstGapAt !== null) {
+    parts.push(`${coverage.interiorMissingBars} ${coverage.interval} bar(s) missing inside the searched `
+      + `period in ${coverage.interiorGaps} gap(s), the first at ${new Date(firstGapAt).toISOString()}. `
+      + "Windows are counted in bars, so one that crosses a gap can span more time than its length "
+      + "says; its figures are not adjusted, and each window records its own span and missing bars.");
+  }
+  if (coverage.leadingMissingBars > 0) {
+    parts.push(`The first ${coverage.leadingMissingBars} bar(s) of the requested period are not stored `
+      + "(a later listing, or history not yet acquired).");
+  }
+  if (coverage.trailingMissingBars > 0) {
+    parts.push(`The last ${coverage.trailingMissingBars} closed bar(s) of the requested period are not stored.`);
+  }
+  return {
+    complete: coverage.complete,
+    expectedBars: coverage.expectedBars,
+    missingBars,
+    interiorMissingBars: coverage.interiorMissingBars,
+    interiorGaps: coverage.interiorGaps,
+    firstGapAt,
+    leadingMissingBars: coverage.leadingMissingBars,
+    trailingMissingBars: coverage.trailingMissingBars,
+    note: parts.length > 0 ? parts.join(" ") : "Every closed bar of the requested period is present.",
+  };
 }
 
 export function stressProvenance(
   benchmark: StressProvenance["benchmark"],
   candles: readonly Candle[],
   config: StressWindowConfig,
-): StressProvenance {
+  coverage: CandleCoverage,
+): StressProvenance & { dataCompleteness: StressDataCompleteness } {
   return {
     schemaVersion: "stress-discovery.v2",
     benchmark,
@@ -502,6 +678,7 @@ export function stressProvenance(
       manualWindows: config.manualWindows,
     },
     epistemicNote: STRESS_EPISTEMIC_NOTE,
+    dataCompleteness: dataCompleteness(coverage),
   };
 }
 

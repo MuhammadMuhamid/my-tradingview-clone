@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { PageHeader, PageShell } from "@/components/ui";
+import { ManualLink } from "@/components/ManualLink";
 
 /**
  * The in-product manual.
@@ -92,12 +92,13 @@ const SECTIONS: readonly SectionSpec[] = [
  * information — every step has a full section below — but a competent trader
  * should be able to run the product from these six lines alone.
  */
-const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string }> = [
+const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string; adminOnly?: boolean }> = [
   { step: "Find a market", where: "Chart — press / for symbol search, or add it to the watchlist", href: "/chart" },
   { step: "Inspect it", where: "Chart — timeframe strip, Indicators, drawings; the feed badge says whether prices are live", href: "/chart" },
   { step: "Arm an alert", where: "Chart → Alert, or the bell beside a moving average. Alerts notify only; they never trade", href: "/alerts" },
   { step: "Paper first", where: "Trading → Automations → New automation → Paper. Simulated fills, no orders", href: "/trading" },
-  { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart" },
+  // The chart is everyone's, but its Trade ticket is the administrator's: a Standard account has no Trade button to follow.
+  { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart", adminOnly: true },
   { step: "Review", where: "Chart → Positions & Orders for now; Trading → Journal for what accumulated", href: "/journal" },
 ];
 
@@ -229,12 +230,12 @@ function C({ children }: { children: ReactNode }) {
   );
 }
 
-function A({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link href={href} className="text-accent underline-offset-2 hover:underline">
-      {children}
-    </Link>
-  );
+/**
+ * A link to the page it names — or, for an account that cannot open an
+ * administrator-only page, the name marked "(administrator)" (`ManualLink`).
+ */
+function A({ href, children, adminOnly }: { href: string; children: ReactNode; adminOnly?: boolean }) {
+  return <ManualLink href={href} adminOnly={adminOnly}>{children}</ManualLink>;
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -265,7 +266,7 @@ export default function GettingStarted() {
             <li key={item.step} className="flex gap-2 rounded-md bg-surface-2/50 px-3 py-2">
               <span aria-hidden="true" className="tabular text-sm font-semibold text-accent">{i + 1}</span>
               <span className="min-w-0">
-                <A href={item.href}>{item.step}</A>
+                <A href={item.href} adminOnly={item.adminOnly}>{item.step}</A>
                 <span className="block text-xs leading-5 text-ink-muted">{item.where}</span>
               </span>
             </li>
@@ -760,7 +761,7 @@ export default function GettingStarted() {
             <p>
               Shariah Mode restricts <strong className="text-ink">new exposure</strong>{" "}
               to assets screened as eligible. It is a server-side setting with its console
-              at <A href="/shariah">Shariah</A>, headed <C>Shariah review</C>, and it is
+              at <A href="/shariah">Shariah</A> (tabs <C>Status</C> and <C>Screening &amp; publication</C>; a Standard account sees <C>Universe &amp; decisions</C>, read-only), and it is
               off by default. What follows describes how the software behaves; the
               screening methodology itself is a separate document and is not re-argued
               here.
@@ -830,9 +831,9 @@ export default function GettingStarted() {
                 anywhere in the path:
               </p>
               <Ol>
-                <li><C>Download next 20 for ChatGPT</C> exports the next batch of assets that need review as a JSON file.</li>
-                <li>You review them outside the product and get a JSON document back.</li>
-                <li>You load or paste that document, press <C>Check results</C>, then <C>Import &amp; publish</C> — the console states that this one action is your approval for the whole batch.</li>
+                <li><C>Sync universe</C> discovers the Binance Spot USDT assets this install tracks (nothing is classified by it). Tick assets and <C>Download pack for selected</C>, or <C>Download next N</C> from the review queue, to export a JSON review pack.</li>
+                <li>The research happens outside Trading Scene — ChatGPT or a person fills the results file the pack describes; the product only validates its shape and never issues a ruling.</li>
+                <li>You load or paste that document, press <C>Check results</C>, read each decision, then <C>Review publication summary</C> and <C>Confirm publication of N decisions</C> — the console states that this one action is your approval for the whole batch. A single asset can also be published from its panel with <C>Publish a decision</C>.</li>
               </Ol>
               <p>
                 Published decisions are append-only: a later decision adds a row, it never

@@ -131,9 +131,26 @@ export interface ChartBottomPanelProps {
   /** The instrument the ticket points at (the focused pane, unless pinned). */
   tradingSymbol: string;
   onOpenTicket: () => void;
+  /**
+   * False for a KNOWN ordinary account. Positions & Orders and the Strategy
+   * Tester are the administrator's — the server refuses anyone else — so they
+   * are not offered, and the panel is the Pine Editor alone.
+   */
+  admin: boolean;
 }
 
 export type BottomTab = "trading" | "tester" | "pine";
+
+const TABS = [["trading", "Positions & Orders"], ["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const;
+
+/**
+ * The tab actually shown. A stored or defaulted admin-only tab falls back to
+ * the editor without being overwritten, so nothing about the stored choice
+ * has to be migrated and an ordinary account never lands on a refusal.
+ */
+function shownTab(tab: BottomTab, admin: boolean): BottomTab {
+  return admin ? tab : "pine";
+}
 
 export function ChartBottomPanel(props: ChartBottomPanelProps) {
   /*
@@ -299,6 +316,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
    */
   if (collapsed) return null;
 
+  const shown = shownTab(tab, props.admin);
   return (
     <div className="shrink-0 border-t border-border bg-surface">
       {/*
@@ -337,7 +355,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
       )}
       <div role="tablist" aria-label="Bottom workstation"
         className="flex items-center gap-1 border-b border-border px-2">
-        {([["trading", "Positions & Orders"], ["tester", "Strategy Tester"], ["pine", "Pine Editor"]] as const).map(([id, label]) => (
+        {TABS.filter(([id]) => shownTab(id, props.admin) === id).map(([id, label]) => (
           <button
             key={id}
             role="tab"
@@ -355,12 +373,12 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
              * supposed to catch them only matched a ternary written on one
              * line. All three are on this chip now.
              */
-            aria-selected={tab === id && !collapsed}
+            aria-selected={shown === id && !collapsed}
             onClick={() => {
               userChoseTab.current = true;
               // Clicking the active tab while collapsed reopens it, which
               // is what a collapsed tab strip invites you to do.
-              if (tab === id) toggleBottom();
+              if (shown === id) toggleBottom();
               else {
                 setTab(id);
                 setCollapsed(false);
@@ -371,7 +389,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
             // that brings a collapsed panel back, so it has to be pressable
             // with a thumb, not only clickable with a pointer.
             className={`tvc-control flex min-h-[32px] items-center px-2 text-[13px] font-medium ${
-              tab === id && !collapsed ? "text-ink" : "text-ink-muted hover:text-ink"
+              shown === id && !collapsed ? "text-ink" : "text-ink-muted hover:text-ink"
             }`}
           >
             {label}
@@ -421,7 +439,7 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
       {/* The body unmounts rather than hiding, so a Pine Editor that is not
           on screen stops compiling on every keystroke. FG-04 made the whole
           panel absent when collapsed, so there is no collapsed case here. */}
-      {tab === "trading" ? (
+      {shown === "trading" ? (
         <TradingStateStrip
           state={props.manualState}
           readAt={props.manualReadAt}
@@ -429,12 +447,12 @@ export function ChartBottomPanel(props: ChartBottomPanelProps) {
           onOpenTicket={props.onOpenTicket}
           unavailable={props.manualUnavailable}
         />
-      ) : tab === "tester" && props.replayActive ? (
+      ) : shown === "tester" && props.replayActive ? (
         <div style={{ height: Math.min(height, 180) }}
           className="flex items-center justify-center px-6 text-center text-sm text-ink-muted">
           Strategy Tester is unavailable during Bar Replay. Exit Replay to run a full-range strategy test.
         </div>
-      ) : tab === "tester" ? (
+      ) : shown === "tester" ? (
         <StrategyTester
           symbol={props.symbol}
           timeframe={props.interval}

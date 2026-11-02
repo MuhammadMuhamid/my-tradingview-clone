@@ -1,22 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   MAX_REVIEW_PACK_ASSETS, ResultsFileError, SHARIAH_ANSWER_LABELS, ShariahImportError, UNIVERSE_FILTERS,
   UNIVERSE_FILTER_EMPTY, comparePreviewToPack, describeShariahSync, downloadReviewPack,
   downloadSnapshot, filterUniverse, normalizeShariahMode, parseResultsFile,
-  evidenceCitedLabel, publicationSourceLabel, shariahApi,
-  type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
+  countLabel, evidenceCitedLabel, formatUniverseSync, publicationSourceLabel, shariahApi,
+  SHARIAH_SIGN_IN_HREF, assetsNeedingAttention, identityRefusal, namedAssetList, sessionEnded,
+  type ShariahAssetDetail, type ShariahAssetState, type ShariahClassification, type ShariahImportIssue,
   type ShariahImportPreview, type ShariahImportPreviewResult, type ShariahLastPack,
   type ShariahMode, type ShariahModeChange, type ShariahModeState, type ShariahReviewPackRequest,
   type ShariahSnapshotMeta, type ShariahSyncLevel, type ShariahUniverse, type ShariahUniverseFilter,
 } from "@/lib/shariah";
 import {
   Button, Card, CardHeader, Checkbox, Dropdown, Empty, Field, Notice, PageShell, Select,
-  TextInput, PageHeader,
+  TextInput, Textarea, PageHeader,
 } from "@/components/ui";
 import { fmtUtcStamp } from "@/lib/format";
 import { failureReason, ownRefusal } from "@/lib/errorCopy";
+import { refreshSession, useSessionRole } from "@/lib/session";
 
 /**
  * The private Shariah review console.
@@ -49,6 +51,47 @@ const LIFECYCLE_NOTE: Record<string, string> = {
     + "classification cannot be reconfirmed.",
   SCREENED: "Screened under a published decision.",
 };
+
+/*
+ * An UNSCREENED asset has no decision, so it has no age: this read "Research
+ * age: unknown days. No advisory reminder due." — a non-answer followed by
+ * reassurance about a decision that does not exist.
+ */
+function researchAgeLine(asset: ShariahAssetState): string {
+  const age = asset.decisionAgeDays == null ? null
+    : `Research age: ${countLabel(asset.decisionAgeDays, "day", "days")}.`;
+  if (asset.lifecycle === "STALE") {
+    return [age, "STALE: requires fresh screening; new BUY exposure is blocked when Mode is ON."]
+      .filter(Boolean).join(" ");
+  }
+  if (age === null && asset.lifecycle === "UNSCREENED") return "Never researched.";
+  const reminder = asset.dueForReReview
+    ? "Due for re-review — advisory; the decision still stands." : "No advisory reminder due.";
+  return `${age ?? "Research age not recorded."} ${reminder}`;
+}
+
+/*
+ * Whether a new BUY of this asset is permitted right now, said where the
+ * decision is read. It restates what the page already shows — the server's
+ * mode and the server's effectiveStatus, under the rule the enforcement banner
+ * states ("refused unless the asset is ELIGIBLE") — and decides nothing: the
+ * backend gate is still the only thing that refuses an order.
+ */
+function buyPermissionLine(mode: ShariahMode | null, baseAsset: string,
+  status: ShariahClassification, hasDecision = true): string {
+  const symbol = `${baseAsset}USDT`;
+  const head = mode === "enforce"
+    ? (status === "ELIGIBLE"
+      ? `Mode ON: a new BUY of ${symbol} is allowed (status ELIGIBLE).`
+      : `Mode ON: a new BUY of ${symbol} is refused (status ${status}).`)
+    : mode === "off"
+      // With nothing published there is no decision to call "recorded".
+      ? (hasDecision ? "Mode OFF: BUYs are not screened; this decision is recorded but not enforced."
+        : "Mode OFF: BUYs are not screened.")
+      // Unread is unknown, never off — the same rule the Bot floor panel keeps.
+      : `Mode unknown: whether a new BUY of ${symbol} is allowed cannot be stated.`;
+  return `${head} Selling or reducing a position is never blocked.`;
+}
 
 function StatusPill({ status }: { status: ShariahClassification }) {
   return (
@@ -160,7 +203,10 @@ function nowIso(): string {
  * do and everything about our plumbing.
  */
 function shortReason(raw: string): string {
-  if (/\b(401|403|unauthor|forbidden)/i.test(raw)) return "You may need to sign in again.";
+  if (/\b401\b|not authenticated|unauthor/i.test(raw)) {
+    return "Your session has ended — sign in again (you will return here).";
+  }
+  if (/\b403\b|forbidden|administrator only/i.test(raw)) return "Only the administrator can do this.";
   if (/\b(404|no route)/i.test(raw)) return "This environment does not serve it.";
   if (/\b(5\d\d|timeout|fetch failed|network)/i.test(raw)) return "The service did not answer. Try again shortly.";
   if (/reason|evidence|classification|categor|reviewed|retrieved|fresh|timestamp|must |required|invalid/i.test(raw) && !/\b(src|stack|SELECT|INSERT|UPDATE)\b/i.test(raw)) return raw;
@@ -176,10 +222,19 @@ function shortReason(raw: string): string {
  * universe was unreadable. Each failure now says what it was; a problem with
  * the pasted results is not here at all, but under the paste box.
  */
-interface PageFailure { headline: string; cause: string }
+interface PageFailure { headline: string; cause: string; sessionEnded?: boolean }
 
 const failed = (headline: string, e: unknown): PageFailure =>
-  ({ headline, cause: e instanceof Error ? e.message : String(e) });
+  ({ headline, cause: e instanceof Error ? e.message : String(e), sessionEnded: sessionEnded(e) });
+
+/*
+ * The way back after a session ends: the login page's own `next`, pointed at
+ * this tab. Plain navigation, offered — never automatic, because leaving the
+ * page discards anything pasted into it and the reader decides when.
+ */
+function SignInAgainLink() {
+  return <a className="ml-1 font-medium underline" href={SHARIAH_SIGN_IN_HREF}>Sign in again</a>;
+}
 
 export default function ShariahPage() {
   const [view, setView] = useState<"status" | "screening">("status");
@@ -221,6 +276,35 @@ export default function ShariahPage() {
   /** False until the first universe/mode read has come back, either way. */
   const [loaded, setLoaded] = useState(false);
   const mode: ShariahMode | null = modeState?.mode ?? null;
+  /*
+   * An ordinary account may READ this screen (`GET /api/shariah/*`) and every
+   * write is refused with a 403. Offering it Turn on, Sync, the batch review
+   * and the publish form was a set of controls that appear to work and end in
+   * a refusal; for a known user they are not rendered. While the session is
+   * still being read they are not rendered either, so they never flash: the
+   * read-only view is the neutral one (no control, no refusal, and copy that
+   * is true for any account). A session that could not be read gets the same
+   * neutral, read-only view — the backend is still what refuses. The header's
+   * copy is role-free in that window too, so neither the operator's "by you"
+   * nor the user's "by the administrator" is a guess.
+   */
+  const role = useSessionRole();
+  const canManage = role === "admin";
+  /*
+   * Neither a known administrator nor a known user — still being read, or the
+   * read failed. Written as "not admin and not user" rather than naming the
+   * other states, so a new one (a failed read) gets the role-free copy and
+   * the read-only view without this page having to know its name.
+   */
+  const roleUnknown = role !== "admin" && role !== "user";
+  /*
+   * Turning enforcement ON asks first. One click used to refuse every BUY on
+   * the Platform — on a fresh install with nothing ELIGIBLE that is a total
+   * BUY stop — and the consequence was printed only after it had happened.
+   * Turning it OFF loosens nothing that protects a position, so it stays one
+   * click.
+   */
+  const [confirmingOn, setConfirmingOn] = useState(false);
 
   const loadUniverse = useCallback(async () => {
     try {
@@ -334,6 +418,7 @@ export default function ShariahPage() {
    */
   const toggleMode = async () => {
     const next: ShariahMode = mode === "enforce" ? "off" : "enforce";
+    setConfirmingOn(false);
     setBusy(true); setError(null); setNotice(null);
     try {
       const saved = normalizeShariahMode(await shariahApi.setMode(next));
@@ -387,11 +472,7 @@ export default function ShariahPage() {
     setBusy(true); setError(null); setNotice(null);
     try {
       const r = await shariahApi.syncUniverse();
-      setNotice(
-        `Universe synced against ${r.qualifying} qualifying Binance Spot USDT base asset(s): `
-        + `${r.created} newly discovered, ${r.reactivated} relisted, ${r.deactivated} no longer `
-        + "tracked. Newly discovered assets are UNSCREENED, which counts as REVIEW — nothing "
-        + "here has been classified, and nothing new can be bought until you publish a decision.");
+      setNotice(formatUniverseSync(r));
       await loadUniverse();
     } catch (e) {
       setError(failed("The universe could not be synced.", e));
@@ -416,16 +497,23 @@ export default function ShariahPage() {
         <div className="min-w-0">
           <PageHeader
             title="Shariah"
-            description={`Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`}
+            description={canManage
+              ? `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`
+              : roleUnknown
+              ? `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · Screening decisions are published deliberately; nothing here is decided automatically.`
+              : `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · Screening decisions and enforcement are managed by the administrator. This screen shows the current universe and, for each asset, the published decision, its evidence and whether a BUY is allowed under the current mode.`}
           />
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">You publish evidence-backed screening decisions; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">{canManage ? "You publish evidence-backed screening decisions"
+            : roleUnknown ? "Screening decisions are evidence-backed"
+            : "The administrator publishes evidence-backed screening decisions"}; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
           <details className="mt-1 text-xs text-ink-muted"><summary className="cursor-pointer">Understand screening statuses</summary>
-            <p className="mt-1">ELIGIBLE: approved under a published decision. REVIEW: evidence needs further review. EXCLUDED: excluded under the published policy. UNSCREENED: no decision yet. UNKNOWN: registry identity cannot be established. STALE: a prior decision was invalidated and fresh review is required. All except ELIGIBLE block new BUY when Mode is ON.</p>
+            <p className="mt-1">ELIGIBLE: approved under a published decision. REVIEW: evidence needs further review. EXCLUDED: excluded under the published policy. UNSCREENED: no decision yet. UNKNOWN: registry identity cannot be established. STALE: a prior decision was invalidated and fresh review is required. UNSCREENED and STALE are lifecycle states, not classifications; both count as REVIEW for enforcement. All except ELIGIBLE block new BUY when Mode is ON.</p>
             <p>Due for re-review is an advisory reminder: the existing decision still stands. It is different from STALE.</p>
             <a className="text-accent underline" href="/getting-started">Read the screening workflow in the Manual</a>
           </details>
           <div role="tablist" aria-label="Shariah views" className="mt-2 flex gap-1">
-            {([["status", "Status"], ["screening", "Screening & publication"]] as const).map(([id, label]) => (
+            {/* A reader who cannot publish is shown what is there, not offered a workflow. */}
+            {([["status", "Status"], ["screening", canManage ? "Screening & publication" : "Universe & decisions"]] as const).map(([id, label]) => (
               <button
                 key={id}
                 role="tab"
@@ -444,8 +532,16 @@ export default function ShariahPage() {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
+        {/*
+          The same controls on both tabs, so nothing moves when the tab
+          changes: the snapshot action that used to appear here on one tab
+          (and push Turn on / Sync ~200px sideways) lives in the Snapshots
+          card. At phone width the mode chip takes its own row instead of
+          wrapping onto three lines beside the buttons.
+        */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="basis-full sm:basis-auto">
+          <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold ${
             mode === "enforce" ? "bg-up/15 text-up border-up/30" : "bg-surface-2 text-ink-muted border-border"
           }`}>
             {/*
@@ -457,22 +553,49 @@ export default function ShariahPage() {
             Platform mode: {mode !== null ? (mode === "enforce" ? "ON" : "OFF")
               : loaded ? "unknown" : "…"}
           </span>
-          <Button onClick={toggleMode} disabled={busy || mode === null}>
-            {mode === "enforce" ? "Turn off" : "Turn on"}
-          </Button>
-          <Button onClick={syncUniverse} disabled={busy}
-            title="Ask Binance which USDT spot base assets this install tracks, and add any it has not seen. Discovery only — nothing is classified and nothing becomes buyable.">
-            Sync universe
-          </Button>
-          {screeningView && (
-            <Button variant="primary" onClick={createSnapshot} disabled={busy}>
-              Create universe snapshot
+          </span>
+          {canManage && (<>
+            <Button onClick={() => (mode === "enforce" ? void toggleMode() : setConfirmingOn(true))}
+              disabled={busy || mode === null}>
+              {mode === "enforce" ? "Turn off" : "Turn on"}
             </Button>
-          )}
+            <Button onClick={syncUniverse} disabled={busy}
+              title="Ask Binance which USDT spot base assets this install tracks, and add any it has not seen. Discovery only — nothing is classified and nothing becomes buyable.">
+              Sync universe
+            </Button>
+          </>)}
         </div>
       </div>
 
+      {canManage && confirmingOn && mode !== "enforce" && (
+        <div className="mb-3">
+          <Notice tone="warn" role="alert">
+            <span className="block font-semibold">Turn on Shariah enforcement?</span>
+            <span className="block">
+              {universe ? countLabel(universe.counts.eligible, "ELIGIBLE asset", "ELIGIBLE assets")
+                : "An unknown number of ELIGIBLE assets"} right now; every other BUY on this
+              Platform will be refused until you publish ELIGIBLE decisions. SELL is never blocked.
+              Nothing you hold is sold.
+            </span>
+            <span className="mt-2 flex flex-wrap gap-2">
+              <Button variant="primary" onClick={() => void toggleMode()} disabled={busy}>
+                Turn on enforcement
+              </Button>
+              <Button onClick={() => setConfirmingOn(false)} disabled={busy}>Cancel</Button>
+            </span>
+          </Notice>
+        </div>
+      )}
+
       <BotFloorPanel state={modeState} unreadable={loaded} />
+
+      {role === "unreadable" && (
+        <Notice tone="warn" role="alert">
+          <span className="mr-2">Your account could not be checked — the server did not answer. The screen stays
+            read-only until it can be read; nothing here is refused.</span>
+          <Button onClick={() => void refreshSession()}>Retry</Button>
+        </Notice>
+      )}
 
       {/*
         The append-only record of who changed enforcement, when, and whether
@@ -483,10 +606,10 @@ export default function ShariahPage() {
       */}
       {modeHistory !== null && modeHistory.length > 0 && (
         <details className="mb-3 rounded-md border border-border bg-surface-2/40">
-          <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint hover:text-ink">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint hover:text-ink">
             Enforcement history — {modeHistory.length} change{modeHistory.length === 1 ? "" : "s"}
           </summary>
-          <ul className="border-t border-border px-3 py-2 text-[11px] text-ink-muted">
+          <ul className="border-t border-border px-3 py-2 text-xs text-ink-muted">
             {modeHistory.slice(0, 20).map((change) => (
               <li key={change.id} className="flex flex-wrap items-center gap-x-3 py-0.5">
                 <span className="tabular text-ink-faint">
@@ -525,6 +648,7 @@ export default function ShariahPage() {
       {error && (
         <Notice tone="error" role="alert">
           <span title={error.cause}>{error.headline} {shortReason(error.cause)}</span>
+          {error.sessionEnded && <SignInAgainLink />}
         </Notice>
       )}
       {notice && <Notice tone="success" role="status">{notice}</Notice>}
@@ -532,7 +656,7 @@ export default function ShariahPage() {
       {!screeningView && (
         <Card>
           <CardHeader title="Universe at a glance" right={
-            <Button onClick={() => setView("screening")}>Open screening &amp; publication</Button>
+            <Button onClick={() => setView("screening")}>{canManage ? "Open screening & publication" : "Open universe & decisions"}</Button>
           } />
           {universe ? (
             <div className="grid grid-cols-5 gap-px border-b border-border bg-border text-center">
@@ -549,7 +673,7 @@ export default function ShariahPage() {
                 .map(([label, value]) => (
                   <div key={label} className="bg-surface px-2 py-2">
                     <div className="text-sm font-semibold text-ink">{value}</div>
-                    <div className="text-[11px] text-ink-faint">{label}</div>
+                    <div className="text-xs text-ink-faint">{label}</div>
                   </div>
                 ))}
             </div>
@@ -559,14 +683,23 @@ export default function ShariahPage() {
               : "Loading the screening universe…"}</Empty>
           )}
           {universe && universe.counts.active === 0 && (
-            <div className="border-b border-border bg-warn/10 px-4 py-2 text-[11px] leading-5 text-warn">
-              This registry is empty, so every symbol reads as REVIEW and turning enforcement on
-              would refuse every BUY. <span className="font-medium">Sync universe</span> discovers the
-              assets this install tracks; it classifies nothing.
+            <div className="border-b border-border bg-warn/10 px-4 py-2 text-sm leading-5 text-warn">
+              {/* The legend's word for an asset with no decision, so the two never disagree. */}
+              {canManage ? (<>
+                This registry is empty, so every asset counts as REVIEW (UNSCREENED) until a decision
+                is published, and turning enforcement on would refuse every BUY.{" "}
+                <span className="font-medium">Sync universe</span> discovers the assets this install
+                tracks; it classifies nothing.
+              </>) : (
+                // A user has no Sync control, so the warning must not name one.
+                "This registry is empty, so every asset counts as REVIEW (UNSCREENED) until a decision "
+                + "is published and, with enforcement on, every BUY is refused. Only the administrator "
+                + "can populate it."
+              )}
             </div>
           )}
           {universe && universe.counts.dueForReReview > 0 && (
-            <div className="border-b border-border px-4 py-2 text-[11px] leading-5 text-ink-muted">
+            <div className="border-b border-border px-4 py-2 text-xs leading-5 text-ink-muted">
               {universe.counts.dueForReReview} settled decision(s) were researched more than{" "}
               {universe.reviewPolicy.reviewMaxAgeDays} days ago. They still stand and are still
               enforced — age withdraws nothing — but they join after unresolved assets in the next review pack
@@ -574,9 +707,14 @@ export default function ShariahPage() {
             </div>
           )}
           {universe && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-[11px] text-ink-muted">
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs text-ink-muted">
               <span>Re-review a settled decision after</span>
-              <select
+              {/* The horizon is stated to a user, not offered as a control the server refuses. */}
+              {!canManage && (
+                <span className="text-ink">{universe.reviewPolicy.reviewMaxAgeDays
+                  ? `${universe.reviewPolicy.reviewMaxAgeDays} days` : "never (off)"}</span>
+              )}
+              {canManage && <Select
                 aria-label="Days after which a settled decision is surfaced as due for re-review"
                 disabled={busy}
                 value={universe.reviewPolicy.reviewMaxAgeDays ?? 0}
@@ -591,40 +729,61 @@ export default function ShariahPage() {
                     .catch((e) => setError(failed("The re-review horizon was not changed.", e)))
                     .finally(() => setBusy(false));
                 }}
-                className="rounded border border-control-border bg-transparent px-1.5 py-0.5"
               >
                 <option value={180}>180 days</option>
                 <option value={365}>365 days</option>
                 <option value={730}>730 days</option>
                 <option value={0}>never (off)</option>
-              </select>
+              </Select>}
               <span className="text-ink-faint">
                 Advisory only — an aged decision still stands and is still enforced.
               </span>
             </div>
           )}
-          <p className="px-4 py-2 text-[11px] leading-5 text-ink-faint">
+          <p className="px-4 py-2 text-xs leading-5 text-ink-faint">
             With enforcement on, only ELIGIBLE assets can be bought; REVIEW, UNSCREENED and STALE are refused.
-            Screening, evidence and publication — the work that moves an asset between these states — live
-            under Screening &amp; publication.
+            {canManage
+              ? " Screening, evidence and publication — the work that moves an asset between these states — live under Screening & publication."
+              : " Each asset's published decision and its evidence are under Universe & decisions."}
           </p>
         </Card>
       )}
 
-      {universe && <Card className="mb-3"><div className="flex flex-wrap items-center gap-3 px-4 py-2 text-xs text-ink-muted">
-        <span>Needs attention: {universe.assets.filter((a) => a.lifecycle === "UNSCREENED").length} unscreened · {universe.assets.filter((a) => a.lifecycle === "STALE").length} stale</span>
-        <Button onClick={() => { setView("screening"); setFilter("needs-review"); }}>Review unresolved assets</Button>
-        <Button onClick={() => { setView("screening"); setFilter("due"); }}>Review today — {universe.counts.dueForReReview} advisory reminders</Button>
-        <Button disabled={!universe.counts.dueForReReview} onClick={() => { setView("screening"); setFilter("due"); setChosen(new Set(universe.assets.filter((a) => a.dueForReReview && a.binanceAvailable).slice(0, MAX_REVIEW_PACK_ASSETS).map((a) => a.assetId))); }}>Select due assets for a pack (up to {MAX_REVIEW_PACK_ASSETS})</Button>
-      </div></Card>}
-      {screeningView && (
+      {universe && (() => {
+        /*
+         * "Needs attention" and the control that acts on it count the same
+         * assets. The button used to select re-review-DUE decisions only, so on
+         * a freshly synced install it sat disabled beside "4 unscreened".
+         */
+        const attention = assetsNeedingAttention(universe.assets);
+        const forPack = attention.slice(0, MAX_REVIEW_PACK_ASSETS);
+        const unscreened = universe.assets.filter((a) => a.lifecycle === "UNSCREENED").length;
+        const stale = universe.assets.filter((a) => a.lifecycle === "STALE").length;
+        return (
+          <Card className="mb-3"><div className="flex flex-wrap items-center gap-3 px-4 py-2 text-xs text-ink-muted">
+            <span>Needs attention: {unscreened} unscreened · {stale} stale · {universe.counts.dueForReReview} due for re-review</span>
+            {canManage && (
+              <Button disabled={forPack.length === 0}
+                title={`Ticks them in the universe list for "Download pack for selected". STALE first, then UNSCREENED, then settled decisions due for re-review; at most ${MAX_REVIEW_PACK_ASSETS} per pack.`}
+                onClick={() => { setView("screening"); setFilter("all"); setChosen(new Set(forPack.map((a) => a.assetId))); }}>
+                {attention.length > forPack.length
+                  ? `Select the first ${forPack.length} of ${attention.length} assets needing review`
+                  : `Select the ${countLabel(forPack.length, "asset", "assets")} needing review`}
+              </Button>
+            )}
+            <Button onClick={() => { setView("screening"); setFilter("needs-review"); }}>{canManage ? "Review unresolved assets" : "Show unresolved"}</Button>
+            <Button onClick={() => { setView("screening"); setFilter("due"); }}>{canManage ? "Review today" : "Show due today"} — {universe.counts.dueForReReview} advisory reminders</Button>
+          </div></Card>
+        );
+      })()}
+      {/* Every step of the batch review ends in a write: the admin's workflow only. */}
+      {screeningView && canManage && (
       <BatchReviewCard
         currentAssets={universe?.assets ?? []}
         categoryOptions={universe?.prohibitedCategories ?? []}
         needsReview={universe ? universe.counts.review : null}
         universeLoaded={loaded}
         chosenIds={[...chosen]}
-        onClearChosen={() => setChosen(new Set())}
         onError={setError}
         onNotice={setNotice}
         onImported={loadUniverse}
@@ -655,7 +814,7 @@ export default function ShariahPage() {
                   ))}
               </div>
             )}
-            {universe && (
+            {universe && canManage && (
               /*
                * Choosing what to research. "Select all" adds what this filter
                * shows — so "Stale" then "Select all" is one way to ask for
@@ -672,7 +831,7 @@ export default function ShariahPage() {
                 </Button>
                 <Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => setChosen(new Set())}
                   disabled={chosen.size === 0}>
-                  Clear
+                  Clear selection
                 </Button>
               </div>
             )}
@@ -694,11 +853,11 @@ export default function ShariahPage() {
                   className={`flex items-center gap-2 border-b border-border pl-3 ${
                     selected === asset.assetId ? "bg-state-active" : "hover:bg-state-hover"
                   }`}>
-                  <Checkbox
+                  {canManage && <Checkbox
                     checked={chosen.has(asset.assetId)}
                     onChange={(on) => toggleChosen(asset.assetId, on)}
                     label={`Choose ${asset.baseAsset} for the next review pack`}
-                  />
+                  />}
                   <button
                     onClick={() => setSelected(asset.assetId)}
                     aria-current={selected === asset.assetId ? "true" : undefined}
@@ -713,7 +872,7 @@ export default function ShariahPage() {
                   >
                     <span className="min-w-0">
                       <span className="font-medium text-ink">{asset.baseAsset}</span>
-                      <p className="mt-1">Research age: {asset.decisionAgeDays ?? "unknown"} days. {asset.lifecycle === "STALE" ? "STALE: requires fresh screening; new BUY exposure is blocked when Mode is ON." : asset.dueForReReview ? "Due for re-review — advisory; the decision still stands." : "No advisory reminder due."}</p>
+                      <p className="mt-1">{researchAgeLine(asset)}</p>
           {!asset.binanceAvailable && (
                         <span className="ml-2 text-[11px] text-ink-faint">delisted</span>
                       )}
@@ -729,7 +888,15 @@ export default function ShariahPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Snapshots" />
+            <CardHeader title="Snapshots" right={canManage ? (
+              <Button onClick={createSnapshot} disabled={busy}>Create universe snapshot</Button>
+            ) : undefined} />
+            {canManage && (
+              <p className="border-b border-border px-3 py-2 text-xs text-ink-muted">
+                Optional: freezes the current universe list with a content hash for Research runs.
+                Not required to publish.
+              </p>
+            )}
             {snapshots.length === 0 && (universe
               ? <Empty>No snapshot has been created yet.</Empty>
               : <Empty>{loaded
@@ -766,11 +933,13 @@ export default function ShariahPage() {
               key={detail.asset.assetId}
               detail={detail}
               categories={universe?.prohibitedCategories ?? []}
+              mode={mode}
+              canManage={canManage}
               onChanged={async () => { await loadDetail(detail.asset.assetId); await loadUniverse(); }}
               onError={setError}
               onNotice={setNotice}
             />
-          : <Card><Empty>Select an asset to review.</Empty></Card>}
+          : <Card><Empty>{canManage ? "Select an asset to review." : "Select an asset to see its published decision."}</Empty></Card>}
       </div>
       )}
     </PageShell>
@@ -783,8 +952,9 @@ export default function ShariahPage() {
  *
  * The whole point of this card is that the research step costs nothing. Trading
  * Scene calls no model API, no paid search API and no crawler; the operator
- * uploads the pack to a ChatGPT session they already pay for, and brings the
- * JSON back.
+ * hands the pack to an external reviewer — a ChatGPT session they already pay
+ * for, or a person — and brings the results JSON back. Nothing here cares who
+ * filled the file; the backend validates its shape and never issues a ruling.
  *
  * The final confirmation is the approval. One deliberate confirmation publishes
  * the whole researched batch after Check results and summary review. The preview
@@ -795,6 +965,7 @@ export default function ShariahPage() {
  * acknowledged row by row before the button will publish — a rule the backend
  * enforces too, so this card collects the acknowledgement and decides nothing.
  */
+/* Labels short enough for the 100px dropdown would be bare numbers; the menu is widened instead. */
 const PACK_SIZES = [
   { value: "10", label: "10 assets" },
   { value: "20", label: "20 assets" },
@@ -802,7 +973,7 @@ const PACK_SIZES = [
 ] as const;
 
 function BatchReviewCard({
-  currentAssets, categoryOptions, needsReview, universeLoaded, chosenIds, onClearChosen, onError, onNotice, onImported,
+  currentAssets, categoryOptions, needsReview, universeLoaded, chosenIds, onError, onNotice, onImported,
 }: {
   currentAssets: ShariahUniverse["assets"];
   categoryOptions: string[];
@@ -811,7 +982,6 @@ function BatchReviewCard({
   universeLoaded: boolean;
   /** Assets the operator ticked in the universe list, for "Download pack for selected". */
   chosenIds: readonly string[];
-  onClearChosen: () => void;
   onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
   onImported: () => Promise<void>;
@@ -822,7 +992,9 @@ function BatchReviewCard({
   const [issues, setIssues] = useState<ShariahImportIssue[]>([]);
   /** A check/import failure that is not a per-row issue; said under the paste box. */
   const [fileProblem, setFileProblem] = useState<
-    { text: string; title?: string; service: boolean } | null>(null);
+    { text: string; title?: string; service: boolean; signIn?: boolean } | null>(null);
+  /* The OS-drawn file control is hidden; this opens it from a product Button. */
+  const fileInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [correction, setCorrection] = useState<ShariahImportPreviewResult | null>(null);
   const [correctionReason, setCorrectionReason] = useState("");
@@ -850,7 +1022,7 @@ function BatchReviewCard({
     setAcknowledged(new Set());
   };
 
-  const download = async (request: ShariahReviewPackRequest, chosen: boolean) => {
+  const download = async (request: ShariahReviewPackRequest) => {
     setBusy(true); onError(null); onNotice(null);
     try {
       const pack = await shariahApi.reviewPack(request);
@@ -863,10 +1035,15 @@ function BatchReviewCard({
       }
       downloadReviewPack(pack);
       setLastPack({ generatedAt: pack.generatedAt, assetIds: pack.assets.map((a) => a.assetId) });
-      if (chosen) onClearChosen();
-      onNotice(`Downloaded ${pack.assetCount} asset${pack.assetCount === 1 ? "" : "s"} `
-        + `(${pack.needsReviewTotal} still need review). Upload the file to ChatGPT and ask it to `
-        + "follow the instructions inside, then paste the JSON it returns below.");
+      /*
+       * The ticks stay: clearing them was the only visible change, so the
+       * download read as a no-op. The notice names what went into the file and
+       * says plainly that nothing about those assets has changed yet.
+       */
+      onNotice(`Downloaded ${namedAssetList(pack.assets.map((a) => a.baseAsset))}. `
+        + "Their status does not change until you publish results — "
+        + `${pack.needsReviewTotal} still need review. Give the file to your reviewer, `
+        + "then paste or load the results JSON below.");
     } catch (e) {
       onError(failed("The review pack could not be downloaded.", e));
     } finally {
@@ -893,6 +1070,17 @@ function BatchReviewCard({
    */
   const reportFileFailure = (e: unknown, action: string) => {
     if (e instanceof ResultsFileError) { setFileProblem({ text: e.message, service: false }); return; }
+    /*
+     * WHO is asking, said apart from what is wrong with the file: an ended
+     * session is not "You may need to sign in again" (said even when the
+     * session was valid), it is a fact with a way back to this tab.
+     */
+    const identity = identityRefusal(e);
+    if (identity) {
+      setFileProblem({ text: identity, title: e instanceof Error ? e.message : String(e),
+        service: true, signIn: sessionEnded(e) });
+      return;
+    }
     if (e instanceof ShariahImportError && e.status !== null && e.status >= 400 && e.status < 500) {
       setIssues(e.issues);
       if (e.issues.length === 0) {
@@ -936,7 +1124,7 @@ function BatchReviewCard({
       onNotice(`Published ${summary.importedCount} decision${summary.importedCount === 1 ? "" : "s"} `
         + `— ${summary.counts.ELIGIBLE} ELIGIBLE, ${summary.counts.EXCLUDED} EXCLUDED, `
         + `${summary.counts.REVIEW} REVIEW. Each one is an immutable publication with its own evidence. `
-        + "Create a universe snapshot when you have finished importing for now.");
+        + "Optional: create a universe snapshot (Snapshots card) for Research runs.");
       editResults("");
       await onImported();
     } catch (e) {
@@ -953,7 +1141,7 @@ function BatchReviewCard({
   return (
     <Card className="mb-3">
       <CardHeader
-        title="Batch review with ChatGPT"
+        title="Batch review by an external reviewer (ChatGPT or a person)"
         right={
           <span className="text-xs text-ink-muted">
             Needs review: <span className="font-semibold text-ink">{needsReview ?? (universeLoaded ? "unknown" : "…")}</span>
@@ -963,13 +1151,14 @@ function BatchReviewCard({
       <div className="px-3 py-3">
         <ol className="mb-3 grid gap-1 text-xs text-ink-muted sm:grid-cols-3">
           <li><span className="font-semibold text-ink">1.</span> Download a pack — the next assets in the queue, or the ones you ticked below.</li>
-          <li><span className="font-semibold text-ink">2.</span> Upload that file to ChatGPT and let it research.</li>
-          <li><span className="font-semibold text-ink">3.</span> Paste the JSON back here, read each decision, and publish.</li>
+          <li><span className="font-semibold text-ink">2.</span> Give that file to your reviewer — upload it to ChatGPT, or hand it to a person.</li>
+          <li><span className="font-semibold text-ink">3.</span> Paste or load the results JSON here, read each decision, and publish.</li>
         </ol>
+        <p className="mb-2 text-xs text-ink-muted">Research happens outside Trading Scene; any reviewer may fill the results file — this app only validates its shape and never issues a ruling.</p>
 
-        <p className="mb-2 text-[11px] text-ink-muted">Queue order: STALE, UNSCREENED, published REVIEW, then due settled decisions. Downloading does not advance or reserve the queue; unchanged decisions produce the same next pack. Verify external sources: an AI assertion alone is not evidence.</p>
+        <p className="mb-2 text-xs text-ink-muted">Queue order: STALE, UNSCREENED, published REVIEW, then due settled decisions. Downloading does not advance or reserve the queue; unchanged decisions produce the same next pack. Verify external sources: an AI assertion alone is not evidence.</p>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Dropdown label="Assets per pack" width={100} value={size} options={PACK_SIZES}
+          <Dropdown label="Assets per pack" width={150} value={size} options={PACK_SIZES}
             onChange={setSize} disabled={busy} />
           <label className="flex items-center gap-2 text-xs text-ink-muted"
             title="Settled ELIGIBLE/EXCLUDED decisions join the queue after everything unsettled. Nothing is demoted by being researched again.">
@@ -978,11 +1167,11 @@ function BatchReviewCard({
             Include settled decisions
           </label>
           <Button variant="primary" disabled={busy}
-            onClick={() => void download({ size: Number(size), includeSettled }, false)}>
-            Download next {size} for ChatGPT
+            onClick={() => void download({ size: Number(size), includeSettled })}>
+            Download next {size}
           </Button>
           <Button disabled={busy || chosenIds.length === 0 || tooManyChosen}
-            onClick={() => void download({ assetIds: chosenIds }, true)}
+            onClick={() => void download({ assetIds: chosenIds })}
             title={tooManyChosen
               ? `One pack carries at most ${MAX_REVIEW_PACK_ASSETS} assets.`
               : "Exactly the assets ticked in the universe list, whatever their state."}>
@@ -996,26 +1185,34 @@ function BatchReviewCard({
         </div>
 
         <div className="mb-3">
-          {/* Announced as a bare "file upload button" until it was named. */}
+          {/*
+            The OS-drawn "Choose File" was a ~22px system control beside 34px
+            product buttons. The input stays in the document — named, so it is
+            still a labelled file control for assistive technology and tests —
+            and a product Button opens it.
+          */}
           <input
+            ref={fileInput}
             id="shariah-results-file"
             type="file"
             accept="application/json,.json"
-            aria-label="Load a ChatGPT review results JSON file"
-            onChange={(e) => void chooseFile(e.target.files?.[0])}
-            className="text-xs text-ink-muted file:mr-2 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink"
+            aria-label="Load a results JSON file"
+            tabIndex={-1}
+            onChange={(e) => { void chooseFile(e.target.files?.[0]); e.target.value = ""; }}
+            className="sr-only"
           />
+          <Button disabled={busy} onClick={() => fileInput.current?.click()}>Load a results JSON file</Button>
         </div>
 
-        <Field label="ChatGPT results (TS_SHARIAH_REVIEW_RESULTS_V1)"
+        <Field label="Review results (TS_SHARIAH_REVIEW_RESULTS_V1)"
           help="Paste only the JSON document — no markdown fence, no commentary. Check results, review the summary, then confirm publication.">
-          <textarea
+          <Textarea
             value={resultsText}
             onChange={(e) => editResults(e.target.value)}
             rows={6}
             spellCheck={false}
             placeholder='{ "format": "TS_SHARIAH_REVIEW_RESULTS_V1", ... }'
-            className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-xs text-ink outline-none focus:border-accent"
+            className="font-mono text-xs"
           />
         </Field>
 
@@ -1091,7 +1288,9 @@ function BatchReviewCard({
             </div>
             <ul aria-label="Problems with the pasted results" className="max-h-40 overflow-y-auto text-[11px] text-down">
               {fileProblem && (
-                <li className="border-t border-down/20 py-1" title={fileProblem.title}>{fileProblem.text}</li>
+                <li className="border-t border-down/20 py-1" title={fileProblem.title}>
+                  {fileProblem.text}{fileProblem.signIn && <SignInAgainLink />}
+                </li>
               )}
               {issues.map((issue, i) => (
                 <li key={i} className="border-t border-down/20 py-1">
@@ -1123,7 +1322,9 @@ function BatchReviewCard({
           <p>Append-only publication. When Mode is ON, only ELIGIBLE permits new exposure. Exits remain possible.</p>
           <ul className="mt-2 max-h-48 overflow-auto">{preview.results.map((r) => {
             const prior = currentAssets.find((a) => a.assetId === r.assetId);
-            return <li key={r.assetId}>{r.baseAsset}: {prior?.effectiveStatus ?? "Unknown prior decision"} → {r.classification}; {r.evidenceCount} citations; {r.unresolvedUncertainties.length} uncertainties{prior?.lifecycle === "STALE" ? " · fresh review required" : ""}</li>;
+            // An UNSCREENED asset's REVIEW is a default, not a decision; and "1 citations" read as a typo.
+            const before = prior && prior.lifecycle !== "UNSCREENED" ? prior.effectiveStatus : "no prior decision";
+            return <li key={r.assetId}>{r.baseAsset}: {before} → {r.classification} · {countLabel(r.evidenceCount, "citation", "citations")} · {countLabel(r.unresolvedUncertainties.length, "uncertainty", "uncertainties")}{prior?.lifecycle === "STALE" ? " · fresh review required" : ""}</li>;
           })}</ul>
           <p className="mt-2">Validation passed. {needingAck.length} uncertain ELIGIBLE decision(s) require individual acknowledgement; {unacknowledged.length} remain unacknowledged. Read the sources and grounds before publishing.</p>
           <Button variant="primary" disabled={busy || unacknowledged.length > 0} onClick={publish}>Confirm publication of {preview.assetCount} decisions</Button> <Button onClick={() => setConfirming(false)}>Back to review</Button>
@@ -1245,9 +1446,12 @@ function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, onC
   );
 }
 
-function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
+function ReviewPanel({ detail, categories, mode, canManage, onChanged, onError, onNotice }: {
   detail: ShariahAssetDetail;
   categories: string[];
+  mode: ShariahMode | null;
+  /** False for a known ordinary user: the decision and its evidence are read, never written. */
+  canManage: boolean;
   onChanged: () => Promise<void>;
   onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
@@ -1259,6 +1463,17 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
   const [selectedEvidence, setSelectedEvidence] = useState<string[]>([]);
   const [reviewedAt, setReviewedAt] = useState(nowIso());
   const [busy, setBusy] = useState(false);
+  /*
+   * What happened to the last "Publish", said under the button that sent it.
+   *
+   * A refusal used to go only to the page's error slot, which sits at the top
+   * of the page — above the batch card and the universe list, far out of view
+   * of a reader at this form. Measured: a 401 left the form filled, the
+   * history at "Never published" and nothing visible anywhere near the
+   * button, so publication failed silently.
+   */
+  const [publishResult, setPublishResult] = useState<
+    { ok: true; text: string } | { ok: false; text: string; title: string; signIn: boolean } | null>(null);
   const [evidenceDraft, setEvidenceDraft] = useState({
     url: "", title: "", publisher: "", retrievedAt: "", excerpt: "",
   });
@@ -1287,7 +1502,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
 
   const publish = async () => {
     if (!classification) return;
-    setBusy(true); onError(null); onNotice(null);
+    setBusy(true); onError(null); onNotice(null); setPublishResult(null);
     try {
       const published = await shariahApi.publish(asset.assetId, {
         classification, reason,
@@ -1295,12 +1510,19 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
         evidenceIds: selectedEvidence,
         reviewedAt,
       });
-      onNotice(`Published ${published.classification} for ${asset.baseAsset} `
-        + `(decision #${published.publicationId}).`);
+      setPublishResult({ ok: true, text: `Published ${published.classification} for ${asset.baseAsset} `
+        + `(decision #${published.publicationId}).` });
       setClassification(""); setReason(""); setSelectedCategories([]); setSelectedEvidence([]);
       await onChanged();
     } catch (e) {
-      onError(failed("The decision was not published.", e));
+      // The same sentence the batch path uses: who is asking first, then the
+      // server's own refusal of the decision, then what a failure means.
+      setPublishResult({
+        ok: false,
+        text: identityRefusal(e) ?? failureReason(e),
+        title: e instanceof Error ? e.message : String(e),
+        signIn: sessionEnded(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -1316,6 +1538,10 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
         />
         <div className="px-4 py-3 text-xs text-ink-muted">
           <p><span className="font-medium text-ink">{asset.lifecycle}</span> — {LIFECYCLE_NOTE[asset.lifecycle]}</p>
+          <p className="mt-1 text-ink" data-buy-permission>{buyPermissionLine(mode, asset.baseAsset, asset.effectiveStatus, detail.publications.length > 0)}</p>
+          {!canManage && detail.publications.length === 0 && (
+            <p className="mt-1">No decision yet — evidence recorded by the administrator is shown for transparency.</p>
+          )}
           {/*
             An imported decision's reason is STRUCTURED text — the researcher's
             reason, then "TS_SHARIAH_V1 review answers:" and one line per
@@ -1329,16 +1555,16 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
       </Card>
 
       <Card>
-        <CardHeader title="Evidence — select citations for the new decision" />
+        <CardHeader title={canManage ? "Evidence — select citations for the new decision" : "Evidence"} />
         {detail.evidence.length === 0 && <Empty>No evidence recorded.</Empty>}
         {detail.evidence.map((e) => (
           <label key={e.id} className="flex items-start gap-2 border-b border-border px-4 py-2 text-xs">
-            <input
+            {canManage && <input
               type="checkbox"
               className="mt-0.5"
               checked={selectedEvidence.includes(e.id)}
               onChange={() => setSelectedEvidence((prev) => toggle(prev, e.id))}
-            />
+            />}
             <span className="min-w-0">
               <span className="font-medium text-ink">{e.title ?? e.url ?? `Evidence #${e.id}`}</span>
               {e.publisher && <span className="text-ink-faint"> · {e.publisher}</span>}
@@ -1349,7 +1575,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
             </span>
           </label>
         ))}
-        <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
+        {canManage && <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
           <Field label="URL"><TextInput value={evidenceDraft.url}
             onChange={(ev) => setEvidenceDraft({ ...evidenceDraft, url: ev.target.value })} /></Field>
           <Field label="Title"><TextInput value={evidenceDraft.title}
@@ -1372,10 +1598,10 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
           <div className="sm:col-span-2">
             <Button onClick={addEvidence} disabled={busy}>Record evidence</Button>
           </div>
-        </div>
+        </div>}
       </Card>
 
-      <Card>
+      {canManage && <Card>
         <CardHeader title="Publish a decision" />
         <div className="grid gap-2 px-4 py-3">
           <Field label="Classification"
@@ -1420,8 +1646,16 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
               Publish under TS_SHARIAH_V1
             </Button>
           </div>
+          {publishResult && (publishResult.ok
+            ? <Notice tone="success" role="status">{publishResult.text}</Notice>
+            : (
+              <Notice tone="error" role="alert">
+                <span title={publishResult.title}>Nothing was published. {publishResult.text}</span>
+                {publishResult.signIn && <SignInAgainLink />}
+              </Notice>
+            ))}
         </div>
-      </Card>
+      </Card>}
 
       <Card>
         <CardHeader title="Published decision history" />

@@ -16,7 +16,10 @@ import type { PoolClient } from "pg";
 import { config } from "../src/config";
 import { buildServer } from "../src/api/server";
 import { shariahRoutes } from "../src/api/routes/shariah";
-import { SESSION_COOKIE, signSession } from "../src/security/session";
+import { SESSION_COOKIE, readCookie, signSession, signUserSession } from "../src/security/session";
+import { useUserLoaderForTests } from "../src/security/requestUser";
+import { authenticate } from "../src/api/routes/auth";
+import { ADMIN_USER_ID } from "../src/repositories/users";
 import type { LiveRunner } from "../src/engine/liveRunner";
 import { TS_SHARIAH_V1 } from "../src/shariah/policy";
 import { toPublication, type PublicationRow, type ShariahAssetState } from "../src/repositories/shariah";
@@ -60,14 +63,222 @@ test("every Shariah route — snapshot reads included — requires a session", a
     assert.deepEqual(denied.json(), { error: "not authenticated" });
   }
 
-  // The signed-in operator gets past the gate (the publish route then refuses
-  // the empty body on its own terms, which is the next test's subject).
-  const token = signSession("owner", config.sessionSecret);
+  // A signed-in administrator gets past the gate. Sessions are `u2.<userId>…`
+  // tokens since accounts; this test used to sign a legacy `<username>.…`
+  // cookie, which is exactly why a route that only understood the legacy shape
+  // looked fine here while refusing every real browser. The id is malformed on
+  // purpose: the route refuses it with its own 400 before any database read.
+  useUserLoaderForTests(async (id) => (id === ADMIN_USER_ID ? { id, role: "admin", sessionVersion: 1 } : null));
+  t.after(() => useUserLoaderForTests(null));
+  const token = signUserSession(ADMIN_USER_ID, 1, config.sessionSecret);
   const allowed = await app.inject({
-    method: "POST", url: "/api/shariah/assets/1/publications",
+    method: "POST", url: "/api/shariah/assets/BTC/publications",
     headers: { cookie: `${SESSION_COOKIE}=${token}` }, payload: {},
   });
-  assert.notEqual(allowed.statusCode, 401);
+  assert.equal(allowed.statusCode, 400, allowed.body);
+  assert.match(allowed.json().error, /assetId must be numeric/);
+});
+
+const ORDINARY_USER = "22222222-2222-4222-8222-222222222222";
+
+test("an ordinary account's session is refused by the gate on every Shariah write, and may still read", async (t) => {
+  const previous = { ...config };
+  config.authEnabled = true;
+  config.adminUsername = "owner";
+  config.sessionSecret = "shariah-route-test-session-secret-000000000000";
+  t.after(() => Object.assign(config, previous));
+  useUserLoaderForTests(async (id) => (id === ORDINARY_USER ? { id, role: "user", sessionVersion: 1 } : null));
+  t.after(() => useUserLoaderForTests(null));
+  const app = buildServer(() => ({} as LiveRunner));
+  t.after(() => app.close());
+
+  const cookie = `${SESSION_COOKIE}=${signUserSession(ORDINARY_USER, 1, config.sessionSecret)}`;
+  for (const route of SHARIAH_PATHS.filter((r) => r.method !== "GET")) {
+    const refused = await app.inject({ ...route, headers: { cookie }, payload: {} });
+    assert.equal(refused.statusCode, 403, `${route.method} ${route.url} accepted an ordinary account`);
+    assert.match(refused.json().error, /administrator/);
+  }
+});
+
+// ── Who is recorded as the operator, with authentication on ─────────────────
+
+/** Answers the SQL of a publication, an import and a snapshot, and keeps every parameter. */
+class AuditClient {
+  readonly calls: Array<{ sql: string; params: unknown[] }> = [];
+  private evidence = 0;
+  async query<T extends QueryResultRow = QueryResultRow>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
+    this.calls.push({ sql: sql.trim(), params });
+    const ok = (rows: unknown[]): QueryResult<T> =>
+      ({ rows: rows as T[], rowCount: rows.length, command: "", oid: 0, fields: [] });
+    if (/FROM shariah_asset_binance_mappings m/.test(sql)) {
+      return ok([{ asset_id: "1", base_asset: "AAA", binance_available: true, lifecycle: "UNSCREENED", updated_at: null }]);
+    }
+    if (/INSERT INTO shariah_evidence/.test(sql)) return ok([{ id: String(100 + this.evidence++) }]);
+    if (/SELECT id FROM shariah_evidence/.test(sql)) {
+      return ok(Array.from({ length: this.evidence }, (_, i) => ({ id: String(100 + i) })));
+    }
+    if (/FROM shariah_assets a/.test(sql)) return ok([{ asset_id: "1", base_asset: "AAA", project_name: null }]);
+    if (/INSERT INTO shariah_publications/.test(sql)) {
+      return ok([{ publication_id: "77", published_at: "2026-09-02T00:00:00.000Z", reviewed_at: "2026-09-01T12:00:00.000Z" }]);
+    }
+    if (/INSERT INTO shariah_universe_snapshots/.test(sql)) {
+      return ok([{ snapshot_id: "5", created_at: "2026-09-02T00:00:00.000Z" }]);
+    }
+    return ok([]);
+  }
+  /** The `published_by` of every publication row written. */
+  publishedBy(): unknown[] {
+    return this.calls.filter((c) => /INSERT INTO shariah_publications/.test(c.sql)).map((c) => c.params[8]);
+  }
+  createdBy(): unknown[] {
+    return this.calls.filter((c) => /INSERT INTO shariah_universe_snapshots/.test(c.sql)).map((c) => c.params[3]);
+  }
+  release(): void { /* pooled client stand-in */ }
+}
+
+const OTHER_ADMIN = "44444444-4444-4444-8444-444444444444";
+const ACCOUNTS: Record<string, { role: "admin" | "user"; email: string | null }> = {
+  [ADMIN_USER_ID]: { role: "admin", email: null },
+  [OTHER_ADMIN]: { role: "admin", email: "second.admin@example.test" },
+  [ORDINARY_USER]: { role: "user", email: "standard@example.test" },
+};
+
+/**
+ * The Shariah routes behind the real session resolution (`authenticate`, the
+ * function the global gate calls), WITHOUT the gate's role refusal — so these
+ * tests prove the route's own derivation of the operator and its own second
+ * line of defence. The gate's 403 is the previous test.
+ */
+async function signedInApp(client: AuditClient, audit: Array<{ changedBy: string }> = []) {
+  useUserLoaderForTests(async (id) => {
+    const a = ACCOUNTS[id];
+    return a ? { id, role: a.role, sessionVersion: 1 } : null;
+  });
+  const app = Fastify({ logger: false });
+  app.decorateRequest("user", null);
+  app.addHook("onRequest", async (req) => {
+    req.user = (await authenticate(readCookie(req.headers.cookie, SESSION_COOKIE)))?.user ?? null;
+  });
+  let stored: "off" | "enforce" = "enforce";
+  await app.register(shariahRoutes, {
+    connect: async () => client as unknown as PoolClient,
+    operatorAccount: async (id: string) => (ACCOUNTS[id] ? { email: ACCOUNTS[id]!.email } : null),
+    mode: { get: async () => stored, set: async (mode: "off" | "enforce") => { stored = mode; return mode; } },
+    recordModeChange: async (input: { changedBy: string }) => { audit.push(input); },
+    botEnforcement: { controlChannelConfigured: false },
+  });
+  return app;
+}
+
+function withAuthOn(t: { after: (fn: () => void) => void }) {
+  const previous = { ...config };
+  config.authEnabled = true;
+  config.adminUsername = "owner";
+  config.sessionSecret = "shariah-route-test-session-secret-000000000000";
+  t.after(() => { Object.assign(config, previous); useUserLoaderForTests(null); });
+}
+
+const sessionFor = (id: string) => ({ cookie: `${SESSION_COOKIE}=${signUserSession(id, 1, config.sessionSecret)}` });
+
+const MANUAL_REVIEW = {
+  classification: "REVIEW", reason: "Evidence is incomplete; kept in REVIEW.",
+  reviewedAt: "2026-09-01T12:00:00.000Z", evidenceIds: [],
+};
+
+test("an administrator's account session publishes, imports and snapshots, attributed to that account", async (t) => {
+  withAuthOn(t);
+  const client = new AuditClient();
+  const app = await signedInApp(client);
+  t.after(() => app.close());
+
+  // The built-in admin has no email: the configured admin name is the audit identity.
+  const manual = await app.inject({
+    method: "POST", url: "/api/shariah/assets/1/publications", headers: sessionFor(ADMIN_USER_ID), payload: MANUAL_REVIEW,
+  });
+  assert.equal(manual.statusCode, 201, manual.body);
+  assert.equal(manual.json().publishedBy, "owner");
+
+  const imported = await app.inject({
+    method: "POST", url: "/api/shariah/review-results/import?acknowledgedAssetIds=1",
+    headers: sessionFor(ADMIN_USER_ID), payload: uncertainEligibleDocument(),
+  });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(imported.json().importedCount, 1);
+
+  const snapshot = await app.inject({ method: "POST", url: "/api/shariah/snapshots", headers: sessionFor(ADMIN_USER_ID) });
+  assert.equal(snapshot.statusCode, 201, snapshot.body);
+  assert.equal(snapshot.json().createdBy, "owner");
+
+  // A second administrator account is recorded by its email, not as the owner.
+  const second = await app.inject({
+    method: "POST", url: "/api/shariah/assets/1/publications", headers: sessionFor(OTHER_ADMIN), payload: MANUAL_REVIEW,
+  });
+  assert.equal(second.statusCode, 201, second.body);
+  assert.equal(second.json().publishedBy, "second.admin@example.test");
+
+  // What reached the database, not only what the reply says.
+  assert.deepEqual(client.publishedBy(), ["owner", "owner", "second.admin@example.test"]);
+  assert.deepEqual(client.createdBy(), ["owner"]);
+});
+
+test("an ordinary account, or no session, is refused by the routes themselves and nothing is written", async (t) => {
+  withAuthOn(t);
+  const client = new AuditClient();
+  const audit: Array<{ changedBy: string }> = [];
+  const app = await signedInApp(client, audit);
+  t.after(() => app.close());
+
+  for (const [headers, status] of [[sessionFor(ORDINARY_USER), 403], [{}, 401]] as const) {
+    const manual = await app.inject({
+      method: "POST", url: "/api/shariah/assets/1/publications", headers, payload: MANUAL_REVIEW,
+    });
+    assert.equal(manual.statusCode, status, manual.body);
+    const imported = await app.inject({
+      method: "POST", url: "/api/shariah/review-results/import?acknowledgedAssetIds=1",
+      headers, payload: uncertainEligibleDocument(),
+    });
+    assert.equal(imported.statusCode, status, imported.body);
+    const snapshot = await app.inject({ method: "POST", url: "/api/shariah/snapshots", headers });
+    assert.equal(snapshot.statusCode, status, snapshot.body);
+    const mode = await app.inject({ method: "PUT", url: "/api/shariah/mode", headers, payload: { mode: "off" } });
+    assert.equal(mode.statusCode, status, mode.body);
+  }
+  assert.deepEqual(client.calls, [], "a refused operator reached the database");
+  assert.deepEqual(audit, [], "a refused mode change was recorded");
+});
+
+test("a pre-accounts admin cookie is resolved by the gate to the admin and publishes as the admin", async (t) => {
+  withAuthOn(t);
+  const client = new AuditClient();
+  const app = await signedInApp(client);
+  t.after(() => app.close());
+
+  const legacy = { cookie: `${SESSION_COOKIE}=${signSession("owner", config.sessionSecret)}` };
+  const manual = await app.inject({
+    method: "POST", url: "/api/shariah/assets/1/publications", headers: legacy, payload: MANUAL_REVIEW,
+  });
+  assert.equal(manual.statusCode, 201, manual.body);
+  assert.equal(manual.json().publishedBy, "owner");
+
+  // A legacy-shaped cookie for any other name is not a session.
+  const forged = { cookie: `${SESSION_COOKIE}=${signSession("someone-else", config.sessionSecret)}` };
+  const refused = await app.inject({
+    method: "POST", url: "/api/shariah/assets/1/publications", headers: forged, payload: MANUAL_REVIEW,
+  });
+  assert.equal(refused.statusCode, 401);
+});
+
+test("a mode change records the signed-in administrator, never an unknown operator", async (t) => {
+  withAuthOn(t);
+  const audit: Array<{ changedBy: string }> = [];
+  const app = await signedInApp(new AuditClient(), audit);
+  t.after(() => app.close());
+
+  const off = await app.inject({ method: "PUT", url: "/api/shariah/mode", headers: sessionFor(OTHER_ADMIN), payload: { mode: "off" } });
+  assert.equal(off.statusCode, 200, off.body);
+  const on = await app.inject({ method: "PUT", url: "/api/shariah/mode", headers: sessionFor(ADMIN_USER_ID), payload: { mode: "enforce" } });
+  assert.equal(on.statusCode, 200, on.body);
+  assert.deepEqual(audit.map((a) => a.changedBy), ["second.admin@example.test", "owner"]);
 });
 
 /** Records every statement, so "nothing reached the database" is checkable. */

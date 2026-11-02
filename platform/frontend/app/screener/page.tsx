@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { shortReason } from "@/lib/errorCopy";
 import { useAsk } from "@/components/AskDialog";
+import { Button, Card, Notice } from "@/components/ui";
+import { useIsAdmin } from "@/lib/session";
 import { EMPTY_FILTERS, FilterPanel, countActive, type Filters } from "@/components/scanner/FilterPanel";
 import { ScreenerTable } from "@/components/scanner/ScreenerTable";
 import { COLUMNS } from "@/lib/scanner/columns";
@@ -18,6 +20,8 @@ function message(error: unknown): string {
 
 export default function ScannerPage() {
   const ask = useAsk();
+  // Operations is the administrator's page; nobody else is pointed at it.
+  const admin = useIsAdmin();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -188,7 +192,7 @@ export default function ScannerPage() {
         <header className="border-b border-border bg-surface px-3 py-2">
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold text-ink">Market Screener</h1>
-            <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
+            <span className="rounded-md border border-border-strong bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-ink-muted">
               {marketLabel}
             </span>
             <select value={category} onChange={(event) => setCategory(event.target.value as WorkstationCategory)}
@@ -197,25 +201,36 @@ export default function ScannerPage() {
             </select>
           </div>
         </header>
-        <div className="grid flex-1 place-items-center p-6">
-          <div role="alert" className="max-w-md text-center">
-            <p className="text-sm font-medium text-ink">
-              {unconfigured ? "The Screener is not set up on this install." : "Scanner service unavailable."}
-            </p>
-            <p className="mt-2 text-xs leading-5 text-ink-muted">
-              {unconfigured
-                ? "Screening runs in a separate service that this Platform has not been pointed at. The chart, alerts, trading and the Journal do not depend on it."
-                : "The screening service did not answer. The chart, alerts, trading and the Journal do not depend on it; this page will work again once the service is reachable."}
-            </p>
-            {/* REV-UX-01: this line was the raw thrown message. */}
-            <p className="mt-2 text-[11px] text-ink-faint" title={error}>{shortReason(error)}</p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <button className="scanner-control" onClick={() => void load()}>Retry</button>
-              {unconfigured && (
-                <a href="/operations" className="scanner-control">Operations</a>
-              )}
+        {/*
+          On a panel, as every other page's feedback is — this was a bare
+          paragraph on the grey ground — and in the shared error notice, with
+          the reported cause on hover. The copy names only what this reader can
+          use: a Standard account has no trading or Journal to be reassured
+          about.
+        */}
+        <div className="flex-1 p-3 sm:p-6">
+          <Card className="mx-auto max-w-xl">
+            <div className="space-y-3 p-4">
+              <Notice tone="error" role="alert">
+                <span className="font-medium">
+                  {unconfigured ? "The Screener is not set up on this install." : "Scanner service unavailable."}
+                </span>{" "}
+                {/* REV-UX-01: this line was the raw thrown message. */}
+                <span title={error}>{shortReason(error)}</span>
+              </Notice>
+              <p className="text-sm leading-6 text-ink-muted">
+                {unconfigured
+                  ? "Screening runs in a separate service that this Platform has not been pointed at. The chart and alerts do not depend on it."
+                  : "The screening service did not answer. The chart and alerts do not depend on it; this page will work again once the service is reachable."}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => void load()}>Retry</Button>
+                {unconfigured && admin && (
+                  <a href="/operations"><Button>Operations</Button></a>
+                )}
+              </div>
             </div>
-          </div>
+          </Card>
         </div>
       </div>
     );
@@ -228,7 +243,7 @@ export default function ScannerPage() {
           <div className="mr-1 min-w-[220px]">
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-semibold text-ink">Market Screener</h1>
-              <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-medium text-accent">
+              <span className="rounded-md border border-border-strong bg-surface-2 px-1.5 py-0.5 font-medium text-ink-muted">
                 {marketLabel}
               </span>
             </div>

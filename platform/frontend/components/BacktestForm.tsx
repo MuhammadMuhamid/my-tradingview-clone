@@ -9,7 +9,7 @@ import {
   DEFAULT_VALIDATION_FRACTION, RUN_LIMITS, VALIDATION_FRACTIONS, orderSizeHint, runFormProblem, strategyFor,
 } from "@/lib/backtestFigures";
 import { INTERVAL_VALUES, type Backtest, type Interval, type Strategy, type StrategyParams, type SymbolInfo } from "@/lib/types";
-import { displaySymbol } from "@/lib/instrument";
+import { displayTicker } from "@/lib/instrument";
 import { researchAssumptions } from "@/lib/workstation";
 
 const INTERVALS = INTERVAL_VALUES;
@@ -145,8 +145,12 @@ export function BacktestForm({
           <Field label="Symbol">
             <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
               {/* A preset's symbol stays choosable even if the list has not arrived. */}
-              {!symbols.some((s) => s.symbol === symbol) && <option value={symbol}>{symbol}</option>}
-              {symbols.map((s) => <option key={s.symbol} value={s.symbol}>{displaySymbol(s.canonicalId ?? s.symbol)}</option>)}
+              {!symbols.some((s) => s.symbol === symbol) && <option value={symbol}>{displayTicker(symbol)}</option>}
+              {/* The ticker, as the chart's symbol pill and Stress name it —
+                  not the qualified `BINANCE:SOL/USDT · SPOT` identity, which
+                  truncated in this field and named the market differently
+                  from every other place the reader had just seen it. */}
+              {symbols.map((s) => <option key={s.symbol} value={s.symbol}>{displayTicker(s.canonicalId ?? s.symbol)}</option>)}
             </Select>
           </Field>
           <Field label="Timeframe">

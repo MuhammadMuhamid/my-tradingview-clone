@@ -451,7 +451,14 @@ Shared primitives live in `components/ui.tsx`: `PageShell`, `PageHeader`,
 `Card`, `CardHeader`, `Button`, `IconButton`, `Field`, `TextInput`, `Select`,
 `Textarea`, `Empty`, `Loading`, `Notice`, `StatusBadge`, `Separator`.
 `components/Modal.tsx` is the only dialog. Reach for these before writing a
-class string.
+class string. `CardHeader` wraps: a `right` block that no longer fits beside
+the title drops under it (left-aligned, 8px below) instead of squeezing the
+title into three lines or clipping a field — measured on Alerts at 390px, where
+the 84px symbol field lost the last letter of SOLUSDT; the field is 110px at
+every width now. At desktop widths nothing wraps because everything fits
+(measured in Chrome at 1440: input 110×34 and button 118×34 on the title row;
+`tests/dom/alertsPhoneHeader.test.tsx` pins the classes, since jsdom lays
+nothing out).
 
 Two habits to preserve because they are product meaning, not styling:
 

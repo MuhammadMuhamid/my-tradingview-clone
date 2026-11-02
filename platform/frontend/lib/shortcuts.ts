@@ -264,7 +264,7 @@ export const BINDINGS: readonly Binding[] = [
    * TVP8 R4b-05: ⇧⌥P rather than the bare `p`, because a bare letter is the
    * symbol search now. ⌥P alone is the reference's percent scale.
    */
-  { action: "bottom-panel", key: "p", alt: true, shift: true, label: "Positions, tester and Pine editor", group: "Navigation" },
+  { action: "bottom-panel", key: "p", alt: true, shift: true, label: "Bottom workstation panel", group: "Navigation" },
   /*
    * TVP8 round two: ⌘⇧C was Chrome's element inspector.
    *
