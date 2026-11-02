@@ -28,6 +28,7 @@ import {
   ALERT_EVALUATOR_OFF_NOTICE, alertInventoryTitle, alertsPageDescription, alertStateLabel,
 } from "@/lib/evaluationState";
 import { useAlertEvaluatorOff } from "@/lib/useEvaluationState";
+import { useIsAdmin } from "@/lib/session";
 /**
  * Every alert across every coin, in one place.
  *
@@ -36,6 +37,7 @@ import { useAlertEvaluatorOff } from "@/lib/useEvaluationState";
  * is armed, what fired, and whether it actually reached a phone.
  */
 export default function AlertsPage() {
+  const admin = useIsAdmin();
   const ask = useAsk();
   const [alerts, setAlerts] = useState<MaAlert[] | null>(null);
   const [events, setEvents] = useState<MaAlertEvent[]>([]);
@@ -229,16 +231,21 @@ export default function AlertsPage() {
             who reasonably assumes an alert is an alert.
           */}
           <p className="text-xs text-ink-faint">
-            These notify only. Strategy automations that place orders live on{" "}
-            {/* inline-block with vertical padding, so these links clear the
-                24 CSS-pixel target minimum the Phase 6 QA measures everything
-                against. A 15px-tall link is a link only a mouse can hit. */}
-            <a href="/trading" className="inline-block py-1.5 underline hover:text-ink">
-              Trading → Automations
-            </a>, and their delivery health is on{" "}
-            <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
-              Operations
-            </a>.
+            {admin ? (<>
+              These notify only. Strategy automations that place orders live on{" "}
+              {/* inline-block with vertical padding, so these links clear the
+                  24 CSS-pixel target minimum the Phase 6 QA measures everything
+                  against. A 15px-tall link is a link only a mouse can hit. */}
+              <a href="/trading" className="inline-block py-1.5 underline hover:text-ink">
+                Trading → Automations
+              </a>, and their delivery health is on{" "}
+              <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
+                Operations
+              </a>.
+            </>) : (
+              // An ordinary account has no automations to be pointed at.
+              <>These notify only. They never place an order.</>
+            )}
           </p>
         </div>
         <div className="w-full sm:w-[320px]">
