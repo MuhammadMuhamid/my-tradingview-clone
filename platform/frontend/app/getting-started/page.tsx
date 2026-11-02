@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { PageHeader, PageShell } from "@/components/ui";
+import { ManualLink } from "@/components/ManualLink";
 
 /**
  * The in-product manual.
@@ -229,12 +229,12 @@ function C({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * A link to the page it names — or, for an account that cannot open an
+ * administrator-only page, the name marked "(administrator)" (`ManualLink`).
+ */
 function A({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link href={href} className="text-accent underline-offset-2 hover:underline">
-      {children}
-    </Link>
-  );
+  return <ManualLink href={href}>{children}</ManualLink>;
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -760,7 +760,7 @@ export default function GettingStarted() {
             <p>
               Shariah Mode restricts <strong className="text-ink">new exposure</strong>{" "}
               to assets screened as eligible. It is a server-side setting with its console
-              at <A href="/shariah">Shariah</A>, headed <C>Shariah review</C>, and it is
+              at <A href="/shariah">Shariah</A> (tabs <C>Status</C> and <C>Screening &amp; publication</C>; a Standard account sees <C>Universe &amp; decisions</C>, read-only), and it is
               off by default. What follows describes how the software behaves; the
               screening methodology itself is a separate document and is not re-argued
               here.
@@ -830,9 +830,9 @@ export default function GettingStarted() {
                 anywhere in the path:
               </p>
               <Ol>
-                <li><C>Download next 20 for ChatGPT</C> exports the next batch of assets that need review as a JSON file.</li>
-                <li>You review them outside the product and get a JSON document back.</li>
-                <li>You load or paste that document, press <C>Check results</C>, then <C>Import &amp; publish</C> — the console states that this one action is your approval for the whole batch.</li>
+                <li><C>Sync universe</C> discovers the Binance Spot USDT assets this install tracks (nothing is classified by it). Tick assets and <C>Download pack for selected</C>, or <C>Download next N</C> from the review queue, to export a JSON review pack.</li>
+                <li>The research happens outside Trading Scene — ChatGPT or a person fills the results file the pack describes; the product only validates its shape and never issues a ruling.</li>
+                <li>You load or paste that document, press <C>Check results</C>, read each decision, then <C>Review publication summary</C> and <C>Confirm publication of N decisions</C> — the console states that this one action is your approval for the whole batch. A single asset can also be published from its panel with <C>Publish a decision</C>.</li>
               </Ol>
               <p>
                 Published decisions are append-only: a later decision adds a row, it never

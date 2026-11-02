@@ -9,8 +9,10 @@
  * limit is stated, never hidden behind a control that appears to work.
  *
  * Now the page says so in its copy, offers the chart, and is not mounted at
- * all — so nothing on it asks the server for anything. The administrator, and
- * a session that could not be read, get the page exactly as before.
+ * all — so nothing on it asks the server for anything. The administrator (and
+ * an instance without accounts) get the page exactly as before. A session that
+ * could not be read gets neither: it is told the account could not be checked,
+ * and offered Retry.
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +21,9 @@ import { closeBrowser, render, resetBrowser, server, settle } from "./harness/en
 import { AppRoute } from "./harness/routing";
 import JournalPage from "@/app/journal/page";
 import DeploymentsPage from "@/app/trading/page";
-import { ADMIN_ONLY_PAGE_NOTICE } from "@/components/AdminOnlyPage";
+import {
+  ADMIN_ONLY_PAGE_NOTICE, SESSION_SIGNED_OUT_NOTICE, SESSION_UNREADABLE_NOTICE,
+} from "@/components/AdminOnlyPage";
 import { resetSessionForTests } from "@/lib/session";
 
 beforeEach(() => { resetBrowser(); resetSessionForTests(); });
@@ -112,13 +116,75 @@ test("the administrator gets /trading as before", async () => {
   assert.ok(server.callsTo("/api/deployments").length >= 1, "the automations were not read");
 });
 
-test("a session that could not be read keeps the page (the backend enforces reach)", async () => {
-  // No /api/auth/me route: the fixture answers 404, which reads as an unknown session.
+test("a session that could not be read (500) does not mount the page: it says so, and offers Retry", async () => {
+  server.routes.set("GET /api/auth/me", () => new Response("upstream down", { status: 500 }));
   render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
   await settle(6);
 
-  assert.ok(document.querySelector("form"), "an unknown session must not lock the administrator out");
+  assert.ok(screen.getByRole("heading", { level: 1, name: "Journal" }), "the page keeps its own title");
+  assert.equal(screen.getByRole("alert").textContent, SESSION_UNREADABLE_NOTICE);
+  assert.equal(SESSION_UNREADABLE_NOTICE,
+    "Your account could not be checked — the server did not answer. Nothing on this page is offered until it can be.");
+  assert.equal(document.querySelector("form"), null, "the administrator's form was drawn for an unknown account");
+  assert.equal(screen.queryByLabelText("From"), null);
+  assert.equal(body().includes(NOTICE), false, "the refusal is a guess when the account is not known");
+  assert.equal(body().includes("Could not load"), false);
+  assert.deepEqual(pageCalls(), [], "the page asked the server for something");
+  assert.ok(screen.getByRole("button", { name: "Retry" }));
+  const chart = screen.getByRole("button", { name: "Open the chart" }).closest("a");
+  assert.equal(chart?.getAttribute("href"), "/chart");
+});
+
+test("a session read that never reached the server is the same honest state", async () => {
+  server.offline = true;
+  render(<AppRoute path="/trading"><DeploymentsPage /></AppRoute>);
+  await settle(6);
+  server.offline = false;
+
+  assert.equal(screen.getByRole("alert").textContent, SESSION_UNREADABLE_NOTICE);
+  assert.equal(screen.queryByRole("button", { name: "+ New automation" }), null);
+  assert.equal(server.callsTo("/api/deployments").length, 0);
+  assert.ok(screen.getByRole("button", { name: "Retry" }));
+});
+
+test("Retry reads the session again, and the administrator then gets the page", async () => {
+  server.routes.set("GET /api/auth/me", () => new Response("upstream down", { status: 500 }));
+  render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
+  await settle(6);
+  assert.equal(document.querySelector("form"), null);
+
+  account("admin");
+  screen.getByRole("button", { name: "Retry" }).click();
+  await settle(6);
+  assert.ok(document.querySelector("form"), "the administrator's form once the account is known");
+  assert.equal(body().includes(SESSION_UNREADABLE_NOTICE), false);
+  assert.ok(server.callsTo("/api/journal").length >= 1, "the journal was not read");
+});
+
+test("a session the server answered as signed out offers sign-in, not the page", async () => {
+  server.routes.set("GET /api/auth/me", () => ({
+    authenticated: false, authEnabled: true, user: null, providers: { google: false, signups: true },
+  }));
+  render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
+  await settle(6);
+
+  assert.equal(screen.getByRole("alert").textContent, SESSION_SIGNED_OUT_NOTICE);
+  assert.equal(document.querySelector("form"), null);
+  assert.deepEqual(pageCalls(), []);
+  const signIn = screen.getByRole("button", { name: "Sign in" }).closest("a");
+  assert.match(signIn?.getAttribute("href") ?? "", /^\/login(\?next=%2F)/, "Sign in returns to the page it was offered on");
+});
+
+test("an instance without accounts is the administrator's: the page as before", async () => {
+  server.routes.set("GET /api/auth/me", () => ({
+    authenticated: false, authEnabled: false, user: null, providers: { google: false, signups: true },
+  }));
+  render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
+  await settle(6);
+
+  assert.ok(document.querySelector("form"));
   assert.equal(body().includes(NOTICE), false);
+  assert.equal(body().includes(SESSION_UNREADABLE_NOTICE), false);
   assert.ok(server.callsTo("/api/journal").length >= 1);
 });
 

@@ -9,7 +9,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { safeNextPath } from "@/lib/safeRedirect";
 import { refreshSession, useSession } from "@/lib/session";
-import { AUTH_FIELD, AuthShell, PRIMARY_BUTTON } from "@/components/AuthShell";
+import { AuthShell } from "@/components/AuthShell";
+import { Button, TextInput } from "@/components/ui";
 import { PRODUCT_NAME } from "@/lib/navigation";
 
 /** Liquid Binance spot pairs a new watchlist commonly starts from. */
@@ -80,10 +81,11 @@ function Onboarding() {
           <h1 className="text-[22px] font-semibold text-ink">Welcome to {PRODUCT_NAME}</h1>
           <p className="mt-1.5 text-[14px] text-ink-muted">What should we call you?</p>
           <label className="mt-6 block text-[13px] text-ink-muted" htmlFor="name">Display name</label>
-          <input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus
-            className={`mt-1.5 ${AUTH_FIELD}`} />
-          <button type="button" disabled={!name.trim()} onClick={() => setStep(2)}
-            className={`mt-6 ${PRIMARY_BUTTON}`}>Continue</button>
+          {/* The shared 34px field and button, as on every other page. */}
+          <TextInput id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus
+            className="mt-1.5 block w-full" />
+          <Button variant="primary" disabled={!name.trim()} onClick={() => setStep(2)}
+            className="mt-6 w-full">Continue</Button>
         </>
       ) : (
         <>
@@ -96,7 +98,7 @@ function Onboarding() {
               const on = picks.has(s);
               return (
                 <button key={s} type="button" aria-pressed={on} onClick={() => toggle(s)}
-                  className={`h-9 rounded-md border text-[13px] font-medium transition-colors ${
+                  className={`h-[34px] rounded-md border text-[13px] font-medium transition-colors ${
                     on ? "border-ink-muted bg-state-active text-ink" : "border-control-border text-ink-muted hover:bg-state-hover"
                   }`}>
                   {s.replace(/USDT$/, "")}
@@ -105,10 +107,10 @@ function Onboarding() {
             })}
           </div>
           {err && <p role="alert" title={err} className="mt-4 text-[13px] text-down">{err}</p>}
-          <button type="button" disabled={busy || picks.size === 0} onClick={() => void finish(true)}
-            className={`mt-6 ${PRIMARY_BUTTON}`}>
+          <Button variant="primary" disabled={busy || picks.size === 0} onClick={() => void finish(true)}
+            className="mt-6 w-full">
             {busy ? "Setting up…" : `Create watchlist with ${picks.size} coin${picks.size === 1 ? "" : "s"}`}
-          </button>
+          </Button>
           <div className="mt-4 flex items-center justify-between text-[13px]">
             <button type="button" onClick={() => setStep(1)} className="text-ink-muted hover:text-ink">Back</button>
             <button type="button" disabled={busy} onClick={() => void finish(false)}

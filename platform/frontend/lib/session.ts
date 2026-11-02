@@ -27,10 +27,20 @@ export interface SessionState {
   authEnabled: boolean;
   user: SessionUser | null;
   providers: { google: boolean; signups: boolean };
+  /**
+   * True when `/api/auth/me` did not answer: a network failure or a non-2xx.
+   *
+   * Recorded rather than folded into "signed out" or "administrator", because
+   * neither is known. The screen offers nothing role-specific for it and says
+   * the account could not be checked (`roleOf` → "unreadable").
+   */
+  readFailed?: boolean;
 }
 
-const EMPTY: SessionState = {
+/** What a read that did not answer leaves us with: no account, and that it failed. */
+const UNREAD: SessionState = {
   authenticated: false, authEnabled: true, user: null, providers: { google: false, signups: true },
+  readFailed: true,
 };
 
 let pending: Promise<SessionState> | null = null;
@@ -40,7 +50,7 @@ const listeners = new Set<(s: SessionState) => void>();
 async function fetchSession(): Promise<SessionState> {
   try {
     const res = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
-    if (!res.ok) return EMPTY;
+    if (!res.ok) return UNREAD;
     const body = await res.json() as Partial<SessionState>;
     return {
       authenticated: !!body.authenticated,
@@ -49,8 +59,28 @@ async function fetchSession(): Promise<SessionState> {
       providers: { google: !!body.providers?.google, signups: body.providers?.signups !== false },
     };
   } catch {
-    return EMPTY;
+    return UNREAD;
   }
+}
+
+/** Pages a signed-out reader is meant to be on; never redirected away from. */
+const SIGN_IN_PAGES = new Set(["/login", "/signup"]);
+
+/**
+ * Send the reader to sign in, carrying where they were.
+ *
+ * Shared with `lib/api.ts`: an expired session is recoverable, and both a 401
+ * from any request and a session read that answers "not signed in" end here. Never during SSR, never
+ * for the auth endpoints themselves (a wrong password is a 401 the form must
+ * show), and never from the sign-in pages, which would loop.
+ */
+export function redirectToSignIn(path = ""): void {
+  if (typeof window === "undefined") return;
+  if (path.startsWith("/api/auth/")) return;
+  const here = window.location.pathname;
+  if (SIGN_IN_PAGES.has(here)) return;
+  const next = encodeURIComponent(here + window.location.search);
+  window.location.href = `/login?next=${next}`;
 }
 
 export function loadSession(): Promise<SessionState> {
@@ -60,6 +90,14 @@ export function loadSession(): Promise<SessionState> {
     pending = null;
     forgetOtherAccountsCache(s.user?.id ?? null, s.user?.role === "admin");
     listeners.forEach((fn) => fn(s));
+    /*
+     * The server ANSWERED, and said nobody is signed in: the cookie the proxy
+     * let through no longer verifies (expired, or signed out elsewhere). That
+     * used to read as the administrator — `user` is null, so it was not "an
+     * ordinary account" — and the page drew the owner's controls for a reader
+     * with no session at all. It is a way back to sign-in instead.
+     */
+    if (!s.readFailed && s.authEnabled && !s.authenticated) redirectToSignIn();
     return s;
   });
   return pending;
@@ -82,8 +120,9 @@ export function useSession(): SessionState | null {
 }
 
 /**
- * What this account may be OFFERED: "admin", "user", or "unknown" while the
- * one shared session read is still in flight.
+ * What this account may be OFFERED: "admin", "user", "unknown" while the one
+ * shared session read is still in flight, or "unreadable" when it could not be
+ * checked.
  *
  * The backend is what enforces reach; this only decides what the screen
  * offers. "unknown" exists so that nothing is drawn as the administrator's —
@@ -92,18 +131,26 @@ export function useSession(): SessionState | null {
  * an ordinary account watched them appear and then vanish. A caller renders a
  * neutral state for it (no admin controls, no restriction notice).
  *
- * Once the read has ANSWERED, only an account known to be ordinary is "user".
- * A read that failed (offline, a 5xx) and an instance without authentication
- * are "admin": hiding the administrator's pages whenever the session could not
- * be read would lock the admin out of their own menu, and the server refuses
- * anyone else regardless. `lib/api.ts` `refusedForThisAccount` applies the
- * same rule.
+ * "unreadable" is a read that did not answer (offline, a 5xx), or one that
+ * answered "nobody is signed in" on an instance that has accounts. Either way
+ * the account is not known, so — exactly as for "unknown" — nothing of the
+ * administrator's is offered. This used to resolve to "admin" so the owner
+ * could not be locked out of their own menu; the result was that an ordinary
+ * account whose read failed was shown the owner's Trade ticket, Turn on, Sync
+ * universe and the whole admin navigation. The owner's way back is a Retry
+ * (`AdminOnlyPage`), not an assumption. An instance WITHOUT authentication is
+ * still "admin": there is no other account it could be. `lib/api.ts`
+ * `refusedForThisAccount` refuses locally only for a KNOWN ordinary account,
+ * so an unreadable session's requests still reach the server, which answers.
  */
-export type SessionRole = "admin" | "user" | "unknown";
+export type SessionRole = "admin" | "user" | "unknown" | "unreadable";
 
 export function roleOf(s: SessionState | null): SessionRole {
   if (s === null) return "unknown";
-  return s.authEnabled && s.user?.role === "user" ? "user" : "admin";
+  if (s.readFailed) return "unreadable";
+  if (!s.authEnabled) return "admin";
+  if (!s.authenticated || !s.user) return "unreadable";
+  return s.user.role === "admin" ? "admin" : "user";
 }
 
 export function useSessionRole(): SessionRole {
@@ -112,8 +159,9 @@ export function useSessionRole(): SessionRole {
 
 /**
  * True once the account is known to be one the administrator's controls are
- * for (see `useSessionRole`). False for an ordinary account AND while the
- * session is still being read, so no admin control is drawn before the answer.
+ * for (see `useSessionRole`). False for an ordinary account, while the session
+ * is still being read, and when it could not be read — so no admin control is
+ * drawn for an account that is not known to be the administrator's.
  */
 export function useIsAdmin(): boolean {
   return useSessionRole() === "admin";

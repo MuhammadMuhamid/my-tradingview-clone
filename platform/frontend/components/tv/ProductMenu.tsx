@@ -289,9 +289,12 @@ export function ProductMenu(
    * (REV-UX-01), and Operations — two rows down this menu — is the page that
    * exists to say what is wrong and what to do about it.
    */
+  // The operations readout is the administrator's: for any other account the
+  // poll is refused, and "could not be read … administrator only" is not a
+  // status, so the row's title carries the stream alone.
   const statusDetail = [
     stream ? `${stream.label} — ${stream.detail}` : null,
-    health.detail ? `${health.summary} ${health.detail}` : health.summary,
+    admin ? (health.detail ? `${health.summary} ${health.detail}` : health.summary) : null,
   ].filter(Boolean).join(" · ");
 
   const initial = (username?.trim()?.[0] ?? PRODUCT_NAME[0]!).toUpperCase();
@@ -463,8 +466,8 @@ export function ProductMenu(
             </>
           )}
 
-          {linksFor(productMenuLinks().map((x) => ({ ...x, href: x.link.href })), admin).map(({ link }) => (
-            <MenuLink key={link.href} href={link.href} path={path} onDone={() => setOpen(false)}>
+          {linksFor(productMenuLinks().map((x) => ({ ...x, href: x.link.href })), admin).map(({ link, nested }) => (
+            <MenuLink key={link.href} href={link.href} path={path} nested={nested} onDone={() => setOpen(false)}>
               {link.label}
             </MenuLink>
           ))}
@@ -642,10 +645,16 @@ function Switch({ on }: { on: boolean }) {
  * padding did, and TradingView's menu has no nesting.
  */
 function MenuLink(
-  { href, path, children, onDone, note }:
+  { href, path, children, onDone, note, nested = false }:
   {
     href: string; path: string; children: React.ReactNode;
     onDone: () => void; note?: string;
+    /**
+     * A section tab under its destination (Journal under Trading, Stress and
+     * Optimizer results under Research). `productMenuLinks` always said so;
+     * the row drew flush, so the menu read as eleven peers. 16px more inset.
+     */
+    nested?: boolean;
   },
 ) {
   const current = path === href || path.startsWith(`${href}/`);
@@ -655,7 +664,8 @@ function MenuLink(
       role="menuitem"
       aria-current={current ? "page" : undefined}
       onClick={onDone}
-      className="tvc-menu-row gap-1 pl-1 pr-2.5 text-[14px] font-normal text-ink"
+      data-nested={nested ? "true" : undefined}
+      className={`tvc-menu-row gap-1 ${nested ? "pl-5" : "pl-1"} pr-2.5 text-[14px] font-normal text-ink`}
     >
       <Glyph>{GLYPHS[href] ?? GLYPHS.fallback}</Glyph>
       <span className="flex-1 truncate">{children}</span>

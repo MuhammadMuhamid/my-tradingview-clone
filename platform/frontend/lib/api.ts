@@ -19,7 +19,7 @@ export interface StressDiscoveryRequest {
 import type { Resolution } from "./resolution";
 import type { TradingOverlayResponse } from "./tradingOverlays";
 import { canonicalCandleSemantics } from "./instrument";
-import { loadSession } from "@/lib/session";
+import { loadSession, redirectToSignIn } from "@/lib/session";
 
 export interface OptimizerBest {
   symbol: string;
@@ -748,15 +748,11 @@ async function failureText(res: Response): Promise<string> {
  * never fires during SSR, never fires on the sign-in exchange itself (a wrong
  * password is a 401 the form has to be able to show), and never fires when the
  * user is already on `/login`, which would be a redirect loop.
+ *
+ * The function itself lives in `lib/session.ts` (`redirectToSignIn`), because
+ * a session read that answers "not signed in" needs the same way back and that
+ * module cannot import this one without a cycle.
  */
-function redirectToSignIn(path: string): void {
-  if (typeof window === "undefined") return;
-  if (path.startsWith("/api/auth/")) return;
-  const here = window.location.pathname;
-  if (here === "/login") return;
-  const next = encodeURIComponent(here + window.location.search);
-  window.location.href = `/login?next=${next}`;
-}
 
 /**
  * Endpoints that act on the platform owner's bots, exchange account or

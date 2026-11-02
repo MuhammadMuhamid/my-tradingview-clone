@@ -210,7 +210,9 @@ function JournalView() {
           <Field label="Summary"><Select className="min-h-11 min-w-0 w-full" value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}>
             <option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option>
           </Select></Field>
-          <Button type="submit" variant="primary" disabled={loading} className="min-h-11">
+          {/* 44px is the phone touch target; from `sm` up the row is one
+              height — 34px, like the fields beside it. */}
+          <Button type="submit" variant="primary" disabled={loading} className="min-h-11 sm:min-h-0">
             {loading ? "Loading…" : "Apply"}
           </Button>
         </form>
@@ -235,9 +237,9 @@ function JournalView() {
             </Empty>
             : <div>{data.rows.map((row) => <JournalItem key={row.id} row={row} />)}</div>}
           <div className="flex items-center justify-between border-t border-border px-3 py-2 sm:px-4">
-            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11">Previous</Button>
+            <Button variant="ghost" disabled={loading || page <= 1} onClick={() => void load(page - 1)} className="min-h-11 sm:min-h-0">Previous</Button>
             <span className="text-xs text-ink-faint">Page {page}</span>
-            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11">Next</Button>
+            <Button variant="ghost" disabled={loading || !data.page.hasNext} onClick={() => void load(page + 1)} className="min-h-11 sm:min-h-0">Next</Button>
           </div>
         </Card>
 

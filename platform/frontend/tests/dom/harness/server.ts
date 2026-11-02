@@ -630,6 +630,20 @@ export class FixtureServer {
     if (layout !== undefined) return layout;
 
     const table: Record<string, unknown> = {
+      /*
+       * An instance without accounts, which is the administrator's by
+       * definition (`lib/session` `roleOf`). This route used to be unmapped,
+       * and its 404 read as "the session could not be read" — which the
+       * product then treated as the administrator. It no longer does (an
+       * unreadable session offers nothing admin-only), so a test that does not
+       * name an account gets the one answer that still means "everything",
+       * stated rather than inferred from a failure. A test that wants a
+       * signed-in account, a failed read or a held one sets the route itself.
+       */
+      "/api/auth/me": {
+        authenticated: false, authEnabled: false, user: null,
+        providers: { google: false, signups: true },
+      },
       // The history repair path. `chartShell.test.tsx` exercises a stale tail
       // deliberately; everywhere else it must simply not 404.
       "/api/data/backfill": { fetched: 0 },

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD, StatusBadge } from "@/components/ui";
 import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
@@ -187,8 +187,19 @@ export function ManualTradingPanel({
   /** Set for one render after a symbol change discarded a staged ticket. */
   const [disarmedFrom, setDisarmedFrom] = useState<string | null>(null);
 
+  /*
+   * Whether this panel has asked even once. The polling gate is install-wide
+   * and module-scoped: the chart's own Positions & Orders read usually learns
+   * "manual trading is disabled" before this panel is opened, and a gate that
+   * also stopped the FIRST read left `state` null with no error — so the panel
+   * said "Loading manual trading…" for ever, over an answer the server had
+   * already given. The first read always runs; the gate only stops the poll.
+   */
+  const asked = useRef(false);
+
   const refresh = useCallback(async () => {
-    if (!manualTradingPollingAllowed()) return;
+    if (asked.current && !manualTradingPollingAllowed()) return;
+    asked.current = true;
     try {
       /*
        * Account-wide, not symbol-scoped.

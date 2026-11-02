@@ -233,13 +233,15 @@ export default function AlertsPage() {
           <p className="text-xs text-ink-faint">
             {admin ? (<>
               These notify only. Strategy automations that place orders live on{" "}
-              {/* inline-block with vertical padding, so these links clear the
-                  24 CSS-pixel target minimum the Phase 6 QA measures everything
-                  against. A 15px-tall link is a link only a mouse can hit. */}
-              <a href="/trading" className="inline-block py-1.5 underline hover:text-ink">
+              {/* Inline, inside the sentence. The vertical padding still widens
+                  the hit area towards the 24 CSS-pixel target the Phase 6 QA
+                  measures, but on an inline box it does not change the line
+                  box — as `inline-block` it did, and on a phone "Operations."
+                  dropped onto a padded line of its own. */}
+              <a href="/trading" className="py-1.5 underline hover:text-ink">
                 Trading → Automations
               </a>, and their delivery health is on{" "}
-              <a href="/operations" className="inline-block py-1.5 underline hover:text-ink">
+              <a href="/operations" className="py-1.5 underline hover:text-ink">
                 Operations
               </a>.
             </>) : (
@@ -270,15 +272,18 @@ export default function AlertsPage() {
               : alertInventoryTitle(activeCount, alerts.length, evaluatorOff)
           }
           right={
-            <div className="flex items-center gap-2">
+            // The button keeps its one line; on a phone the symbol field is
+            // what gives up width, and the title beside it wraps instead.
+            <div className="ml-3 flex shrink-0 items-center gap-2">
               <input
                 value={newSymbol}
                 onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
                 placeholder="SYMBOL"
                 aria-label="Symbol for a new level alert"
-                className="w-[110px] rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
+                className="w-[84px] rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent sm:w-[110px]"
               />
-              <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}>
+              <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}
+                className="shrink-0 whitespace-nowrap">
                 Add level alert
               </Button>
             </div>

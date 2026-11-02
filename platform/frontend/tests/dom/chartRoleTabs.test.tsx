@@ -6,8 +6,10 @@
  * part of the platform is available to the administrator only." The
  * navigation already hid the admin pages; the chart drew both bottom tabs and
  * the Trade pill for everyone, so an ordinary user met two tabs that could
- * only ever show that refusal. An admin, and a session that could not be read,
- * keep all of it. While the session is still being READ the chart offers none
+ * only ever show that refusal. An admin (and an instance without accounts)
+ * keeps all of it. A session that could not be read is not assumed to be the
+ * administrator's: like one still being read, it is offered nothing
+ * admin-only. While the session is still being READ the chart offers none
  * of it — nothing admin-only flashes for an ordinary account — and nothing it
  * hides is forgotten: the administrator's stored tab is still theirs once the
  * answer is in.
@@ -188,4 +190,50 @@ test("the ⋯ row names what an ordinary account's strip holds: the history dept
   const chart = await mountChart();
   await settle();
   assert.equal(await stripToggleLabel(chart.container), "History depth");
+});
+
+/*
+ * A session read that FAILED is not the administrator's. It used to be: a 500
+ * or a dropped request resolved to "admin", and an ordinary account was drawn
+ * the Trade ticket, the Automations and order-ticket rail cells and the
+ * administrator's bottom tabs. Not knowing who is signed in offers nothing
+ * admin-only — the same neutral set as a read still in flight.
+ */
+async function assertNothingAdminOnly(container: HTMLElement, why: string): Promise<void> {
+  const strip = await openBottomPanel(container);
+  assert.deepEqual(tabs(strip), ["Pine Editor"], `an admin-only tab was offered ${why}`);
+  assert.equal(tradePill(container), null, `the Trade ticket was offered ${why}`);
+  assert.equal(automationsCell(container), null, `the rail's Automations was offered ${why}`);
+  assert.equal(ticketCell(container), null, `the rail's order ticket was offered ${why}`);
+  assert.equal(await stripToggleLabel(container), "History depth");
+  assert.deepEqual([...reads], [], `admin-only reads started ${why}`);
+}
+
+test("a session read that answered 500 offers no Trade, no admin tabs and no admin rail cells", async () => {
+  server.routes.set("GET /api/auth/me", () => new Response("upstream down", { status: 500 }));
+  await loadSession();
+  const chart = await mountChart();
+  await settle(6);
+  await assertNothingAdminOnly(chart.container, "for a session that answered 500");
+});
+
+test("a session read that never reached the server offers no Trade and no admin tabs either", async () => {
+  server.offline = true;
+  await loadSession();
+  server.offline = false;
+  const chart = await mountChart();
+  await settle(6);
+  await assertNothingAdminOnly(chart.container, "for a session read that failed on the network");
+});
+
+test("an instance without accounts is the administrator's: Trade and all three tabs", async () => {
+  server.routes.set("GET /api/auth/me", () => ({
+    authenticated: false, authEnabled: false, user: null, providers: { google: false, signups: true },
+  }));
+  await loadSession();
+  const chart = await mountChart();
+  await settle(6);
+  const strip = await openBottomPanel(chart.container);
+  assert.deepEqual(tabs(strip), ["Positions & Orders", "Strategy Tester", "Pine Editor"]);
+  assert.ok(tradePill(chart.container), "an instance without accounts lost the Trade ticket");
 });

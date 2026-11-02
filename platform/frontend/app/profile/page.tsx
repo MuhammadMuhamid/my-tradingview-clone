@@ -9,7 +9,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { refreshSession, signOut, useSession } from "@/lib/session";
 import { PRODUCT_NAME } from "@/lib/navigation";
-import { AUTH_FIELD, Avatar, GoogleMark, ProductMark } from "@/components/AuthShell";
+import { Avatar, GoogleMark, ProductMark } from "@/components/AuthShell";
+import { Button, Card as Panel, CardHeader, PageHeader, TextInput } from "@/components/ui";
 
 type Section = "profile" | "security" | "account";
 
@@ -18,8 +19,6 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "security", label: "Password & sign-in" },
   { id: "account", label: "Account" },
 ];
-
-const BUTTON = "inline-flex h-9 items-center justify-center rounded-md px-4 text-[13px] font-semibold disabled:opacity-40";
 
 async function send(path: string, method: string, body?: unknown): Promise<{ error?: string }> {
   const res = await fetch(path, {
@@ -32,12 +31,18 @@ async function send(path: string, method: string, body?: unknown): Promise<{ err
   return json;
 }
 
+/**
+ * A section, on the shared card: `--ts-surface`, the strong outer line, radius
+ * 6 and the 14px `CardHeader` — the surface every other page's sections use.
+ * This page used to draw its own (radius 8, `surface-2`, a 15px heading), a
+ * second product's card inside the first.
+ */
 function Card({ title, children, danger }: { title: string; children: ReactNode; danger?: boolean }) {
   return (
-    <section className={`rounded-lg border bg-surface-2 p-5 ${danger ? "border-down/40" : "border-border"}`}>
-      <h2 className={`text-[15px] font-semibold ${danger ? "text-down" : "text-ink"}`}>{title}</h2>
-      <div className="mt-4">{children}</div>
-    </section>
+    <Panel>
+      <CardHeader title={danger ? <span className="text-down">{title}</span> : title} />
+      <div className="p-4">{children}</div>
+    </Panel>
   );
 }
 
@@ -145,6 +150,7 @@ export default function ProfilePage() {
         </aside>
 
         <main className="min-w-0 flex-1 space-y-5">
+          <PageHeader title="Profile" />
           {section === "profile" && (
             <Card title="Public profile">
               <div className="flex items-center gap-4">
@@ -154,11 +160,11 @@ export default function ProfilePage() {
                 </p>
               </div>
               <label className="mt-5 block text-[13px] text-ink-muted" htmlFor="display-name">Display name</label>
-              <input id="display-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
-                className={`mt-1.5 max-w-sm ${AUTH_FIELD}`} />
+              <TextInput id="display-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
+                className="mt-1.5 block w-full max-w-sm" />
               <div className="mt-4">
-                <button type="button" disabled={busy || !name.trim() || name.trim() === user.displayName}
-                  onClick={() => void saveName()} className={`${BUTTON} bg-accent text-white`}>Save</button>
+                <Button variant="primary" disabled={busy || !name.trim() || name.trim() === user.displayName}
+                  onClick={() => void saveName()}>Save</Button>
               </div>
               {nameMsg && <Notice ok={nameMsg.ok}>{nameMsg.text}</Notice>}
               <dl className="mt-6 grid max-w-sm grid-cols-[120px_1fr] gap-y-2 text-[13px]">
@@ -190,8 +196,8 @@ export default function ProfilePage() {
                     {user.hasPassword ? (
                       <>
                         <label className="block text-[13px] text-ink-muted" htmlFor="current">Current password</label>
-                        <input id="current" type="password" autoComplete="current-password" value={current}
-                          onChange={(e) => setCurrent(e.target.value)} className={`mt-1.5 ${AUTH_FIELD}`} />
+                        <TextInput id="current" type="password" autoComplete="current-password" value={current}
+                          onChange={(e) => setCurrent(e.target.value)} className="mt-1.5 block w-full" />
                       </>
                     ) : (
                       <p className="text-[13px] text-ink-muted">
@@ -199,13 +205,14 @@ export default function ProfilePage() {
                       </p>
                     )}
                     <label className="mt-4 block text-[13px] text-ink-muted" htmlFor="new">New password</label>
-                    <input id="new" type="password" autoComplete="new-password" value={fresh}
-                      onChange={(e) => setFresh(e.target.value)} className={`mt-1.5 ${AUTH_FIELD}`} />
+                    <TextInput id="new" type="password" autoComplete="new-password" value={fresh}
+                      onChange={(e) => setFresh(e.target.value)} className="mt-1.5 block w-full" />
                     <p className="mt-1.5 text-[12px] text-ink-faint">At least 8 characters.</p>
-                    <button type="submit" disabled={busy || fresh.length < 8 || (user.hasPassword && !current)}
-                      className={`mt-4 ${BUTTON} bg-accent text-white`}>
-                      {user.hasPassword ? "Change password" : "Set password"}
-                    </button>
+                    <div className="mt-4">
+                      <Button type="submit" variant="primary" disabled={busy || fresh.length < 8 || (user.hasPassword && !current)}>
+                        {user.hasPassword ? "Change password" : "Set password"}
+                      </Button>
+                    </div>
                     {pwMsg && <Notice ok={pwMsg.ok}>{pwMsg.text}</Notice>}
                   </form>
                 )}
@@ -218,9 +225,8 @@ export default function ProfilePage() {
                     {user.googleLinked ? "Linked — you can sign in with Google." : "Not linked."}
                   </span>
                   {!user.googleLinked && session.providers.google && (
-                    <a href="/api/auth/google/start?mode=link&next=/profile"
-                      className={`${BUTTON} border border-control-border text-ink hover:bg-state-hover`}>
-                      Link Google account
+                    <a href="/api/auth/google/start?mode=link&next=/profile">
+                      <Button>Link Google account</Button>
                     </a>
                   )}
                 </div>
@@ -233,10 +239,9 @@ export default function ProfilePage() {
                 <p className="text-[13px] text-ink-muted">
                   Signed in on a computer you no longer use? Sign out of every device, this one included.
                 </p>
-                <button type="button" onClick={() => void signOut(true)}
-                  className={`mt-4 ${BUTTON} border border-control-border text-ink hover:bg-state-hover`}>
-                  Sign out everywhere
-                </button>
+                <div className="mt-4">
+                  <Button onClick={() => void signOut(true)}>Sign out everywhere</Button>
+                </div>
               </Card>
             </>
           )}
@@ -252,10 +257,13 @@ export default function ProfilePage() {
                     This cannot be undone.
                   </p>
                   <label className="mt-4 block text-[13px] text-ink-muted" htmlFor="confirm">Type DELETE to confirm</label>
-                  <input id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)}
-                    className={`mt-1.5 max-w-xs ${AUTH_FIELD}`} />
-                  <button type="button" disabled={busy || confirm !== "DELETE"} onClick={() => void deleteAccount()}
-                    className={`mt-4 ${BUTTON} bg-down text-white`}>Delete my account</button>
+                  <TextInput id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)}
+                    className="mt-1.5 block w-full max-w-xs" />
+                  <div className="mt-4">
+                    <Button variant="danger" disabled={busy || confirm !== "DELETE"} onClick={() => void deleteAccount()}>
+                      Delete my account
+                    </Button>
+                  </div>
                   {delMsg && <Notice ok={false}>{delMsg}</Notice>}
                 </>
               )}

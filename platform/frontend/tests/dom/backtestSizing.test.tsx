@@ -33,3 +33,18 @@ test("fixed cash and equity sizing send canonical request inputs and all native 
   await settle();
   assert.equal(((payload as Record<string, unknown> | null)?.params as Record<string, unknown>).qty_pct_equity, 25);
 });
+
+test("the Symbol field names each market by its ticker, as the chart and Stress do", () => {
+  // A canonical identity (`instrument:v1:…`) used to render through
+  // `displaySymbol` as `BINANCE:SOL/USDT · SPOT`, truncated in a 207px field.
+  const canonical = [
+    {...symbols[0]!, symbol: "SOLUSDT", baseAsset: "SOL", canonicalId: "instrument:v1:BINANCE:spot:SOL:USDT:USDT:spot"},
+    {...symbols[0]!, symbol: "BTCUSDT", canonicalId: null},
+  ] as SymbolInfo[];
+  render(<BacktestForm symbols={canonical} strategies={strategies} onQueued={() => {}} />);
+  const field = screen.getByLabelText("Symbol");
+  const options = within(field).getAllByRole("option") as HTMLOptionElement[];
+  assert.deepEqual(options.map((o) => o.textContent), ["SOLUSDT", "BTCUSDT"]);
+  assert.deepEqual(options.map((o) => o.value), ["SOLUSDT", "BTCUSDT"], "the value sent is unchanged");
+  for (const o of options) assert.doesNotMatch(o.textContent ?? "", /BINANCE:|·|\//);
+});
