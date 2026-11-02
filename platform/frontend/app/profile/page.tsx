@@ -163,7 +163,16 @@ export default function ProfilePage() {
               {nameMsg && <Notice ok={nameMsg.ok}>{nameMsg.text}</Notice>}
               <dl className="mt-6 grid max-w-sm grid-cols-[120px_1fr] gap-y-2 text-[13px]">
                 <dt className="text-ink-faint">Email</dt><dd className="truncate">{user.email ?? "—"}</dd>
-                <dt className="text-ink-faint">Account type</dt><dd>{admin ? "Administrator" : "Standard"}</dd>
+                <dt className="text-ink-faint">Account type</dt>
+                <dd>
+                  {admin ? "Administrator" : "Standard"}
+                  {/* Say what the type gives, so nobody has to find out from a refusal. */}
+                  <span className="mt-0.5 block text-[12px] text-ink-faint">
+                    {admin
+                      ? "Everything, including trading, automations, the Journal and research tools."
+                      : "Charts, Screener, alerts, watchlists, layouts, Pine scripts and the Shariah screen. Trading, automations, the Journal and research tools belong to the administrator."}
+                  </span>
+                </dd>
                 <dt className="text-ink-faint">Member since</dt><dd>{since}</dd>
               </dl>
             </Card>
