@@ -50,13 +50,16 @@ What an ordinary account may do with market history is bounded
 (`platform/backend/src/api/routes/data.ts`, added 2026-11-01): a backfill or
 coverage request is clamped to the newest 200,000 source bars — the same amount
 the candles read serves — and the response says so (`clamped`, `coveredFrom`,
-`note`); at most four such requests per account run at once (429 beyond that).
-The admin is not clamped; an admin backfill deeper than that streams through
-`backfillRange` in bounded memory. Registering a symbol (`POST /api/symbols`,
+`note`); at most four such requests per account run at once (429 beyond that);
+a Pine run (`POST /api/pine/run`) that would read more than 200,000 source bars
+including warm-up is refused with a sentence naming the limit. The admin is not
+bounded; an admin backfill deeper than that streams through `backfillRange` in
+bounded memory. Registering a symbol (`POST /api/symbols`,
 or implicitly through a backfill) never trusts caller-supplied assets and never
 writes a pair the venue does not list (404 instead); a suffix-guessed row is
-written only when the exchange directory is unreachable, and is marked
-`degraded` in the response.
+written only when the exchange directory is unreachable and the quote asset
+is recognisable (otherwise 503), and `POST /api/symbols` marks such a row
+`degraded` in its response.
 
 ## 3. Sessions
 

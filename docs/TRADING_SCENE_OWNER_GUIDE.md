@@ -43,7 +43,7 @@ environment's password hash.
 |---|---|---|
 | Chart, Screener (read), alerts, watchlists, layouts, drawings, Pine scripts, push devices, Shariah screen (read-only) | yes | yes — isolated per account |
 | Trading ticket, Automations, Journal, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
-| Deep market-history requests | unlimited (large backfills stream) | clamped to the newest 200,000 source bars per request, 4 in flight; the response says `clamped` |
+| Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars, 4 in flight (the response says `clamped`); a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
 
 **Options:** display name, password change, Google link (admin links from Profile; a user whose
 Google email matches a password account joins it and loses the password), sign out everywhere,
@@ -161,17 +161,18 @@ VERIFIED** (empty state, admin and user views). Reference: [OPERATIONS.md](OPERA
 ## 6. Chart workstation and alerts
 
 **Where:** `/chart` (every account). **Choices:** symbol search across Binance Spot pairs (tracked
-pairs first); timeframes 1m / 5m / 15m / 1h / 4h / 1d plus every derived resolution the venue's
-bars fold into exactly (seconds, 2m, 3m, 45m, 2h…); chart styles (candles, Heikin Ashi, Renko and
+pairs first); native intervals 1s / 1m / 3m / 5m / 15m / 30m / 1h / 2h / 4h / 6h / 8h / 12h / 1d (the
+toolbar shows six favourites) plus every derived resolution the venue's bars fold into exactly
+(5s, 30s, 2m, 45m, 23m…); chart styles (candles, Heikin Ashi, Renko and
 more); indicators from the shipped Pine library and your own scripts (Pine editor in the bottom
 panel); 25 drawing tools with magnet, lock, hide, templates; history depth 2K / 10K / 50K / All;
 layouts (single/multi-pane, saved layouts); watchlists with live prices; Bar Replay; Compare;
 light/dark theme; keyboard shortcuts sheet. Administrator-only on the chart: Trade, Positions &
 Orders, Strategy Tester, Automate, Strategy / Best config, trading Overlays.
 
-**Alerts** (`/alerts` and from the chart): fifteen condition families (`price`, `ma`, `ma_vs_ma`,
+**Alerts** (`/alerts` and from the chart): sixteen condition families (`price`, `ma`, `ma_vs_ma`,
 `sr_zone`, `pivot_level`, `rsi`, `macd`, `supertrend`, `bollinger`, `stochastic`, `adx`,
-`fib_level`, `msb`, `order_block`, `liquidity_swing`), optional trend gates, four frequency modes
+`fib_level`, `msb`, `order_block`, `liquidity_swing`, `candlestick_pattern`), optional trend gates, four frequency modes
 (`once_per_bar_close` default, `once_per_bar`, `once_per_minute`, `once_only`), cooldown, a note,
 arming across a watchlist or every tracked coin; delivery by web push after *Enable* on the device.
 **Success/errors:** "N alerts armed on SYMBOL · tf"; *Recently fired* list; alerts never place
