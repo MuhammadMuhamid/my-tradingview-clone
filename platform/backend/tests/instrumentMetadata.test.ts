@@ -127,3 +127,53 @@ test("a failing sweep is cooled too, and the explicit path is never cooled", asy
   await assert.rejects(() => ensureInstrumentMetadata(["BTCUSDT"], state.deps));
   assert.equal(state.calls.sync.length, 2, "the explicit seam must retry immediately");
 });
+
+const REFUSED = 'Binance 400: {"code":-1121,"msg":"Invalid symbol."}';
+
+test("one historical bad row does not stop the metadata refresh of valid rows", async () => {
+  // Binance refuses the WHOLE `exchangeInfo?symbols=[…]` batch when any one
+  // ticker is unlisted. A delisted or once-guessed row must cost only itself.
+  resetInstrumentMetadataSweep();
+  const state = fake([row("BTCUSDT", null), row("DEADUSDT", null), row("ETHUSDT", null)]);
+  const sync = state.deps.syncInstrumentFilters;
+  state.deps.syncInstrumentFilters = async (symbols) => {
+    if (symbols.includes("DEADUSDT")) { state.calls.sync.push([...symbols]); throw new Error(REFUSED); }
+    await sync(symbols);
+  };
+
+  await assert.rejects(() => syncMissingActiveInstrumentMetadata(state.deps), /-1121/,
+    "the bad row's refusal is still reported, not swallowed");
+  assert.equal(state.rows.get("BTCUSDT")?.priceTick, 0.01);
+  assert.equal(state.rows.get("ETHUSDT")?.priceTick, 0.01);
+  assert.equal(state.rows.get("DEADUSDT")?.priceTick, null, "no tick invented for the refused row");
+
+  // Per-symbol callers: valid ones resolve, only the bad one carries the refusal.
+  const fresh = fake([row("BTCUSDT", null), row("DEADUSDT", null)]);
+  fresh.deps.syncInstrumentFilters = state.deps.syncInstrumentFilters;
+  const both = ensureInstrumentMetadata(["BTCUSDT", "DEADUSDT"], fresh.deps);
+  await assert.rejects(() => both, /-1121/);
+});
+
+test("a refused registration batch still registers the listed pairs", async () => {
+  const state = fake([]);
+  const register = state.deps.registerInstruments;
+  state.deps.registerInstruments = async (symbols) => {
+    state.calls.register.push([...symbols]);
+    if (symbols.includes("NOPEUSDT")) throw new Error(REFUSED);
+    await register(symbols);
+  };
+  const solo = ensureInstrumentMetadata(["ADAUSDT", "NOPEUSDT"], state.deps);
+  await assert.rejects(() => solo, /-1121/);
+  assert.equal(state.rows.get("ADAUSDT")?.priceTick, 0.01);
+  assert.equal(state.rows.has("NOPEUSDT"), false, "the unlisted pair is never written");
+});
+
+test("an outage is not per-symbol: it fails the flight without fanning out", async () => {
+  const state = fake([row("BTCUSDT", null), row("ETHUSDT", null)]);
+  state.deps.syncInstrumentFilters = async (symbols) => {
+    state.calls.sync.push([...symbols]);
+    throw new Error("fetch failed");
+  };
+  await assert.rejects(() => ensureInstrumentMetadata(["BTCUSDT", "ETHUSDT"], state.deps), /fetch failed/);
+  assert.deepEqual(state.calls.sync, [["BTCUSDT", "ETHUSDT"]], "one attempt, not one per symbol");
+});

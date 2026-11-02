@@ -6,7 +6,8 @@ import { toCompact } from "../../data/candleWire";
 import {
   fetch24hTickers, isUnknownSymbolRefusal, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h,
 } from "../../data/binanceRest";
-import { assetsBySuffixFallback, InstrumentIdError, storedSymbol } from "../../types/instrument";
+import { InstrumentIdError, storedSymbol } from "../../types/instrument";
+import { InstrumentDirectoryUnavailableError } from "../../data/instrumentRegistration";
 import type { SymbolInfo } from "../../types/market";
 import {
   ensureInstrumentMetadata, syncMissingActiveInstrumentMetadata,
@@ -27,7 +28,6 @@ export interface SymbolRouteDeps {
   now?: () => number;
   ensureMetadata?: (symbols: readonly string[]) => Promise<(SymbolInfo | null)[]>;
   getSymbol?: (symbol: string) => Promise<SymbolInfo | null>;
-  addSymbol?: (symbol: string, baseAsset: string, quoteAsset: string) => Promise<SymbolInfo>;
 }
 
 export function symbolRoutes(deps: SymbolRouteDeps = {}): (app: FastifyInstance) => Promise<void> {
@@ -36,9 +36,8 @@ export function symbolRoutes(deps: SymbolRouteDeps = {}): (app: FastifyInstance)
   const tickerCache = new Map<string, { at: number; rows: Ticker24h[] }>();
   const ensureMetadata = deps.ensureMetadata ?? ((s) => ensureInstrumentMetadata(s));
   const getSymbol = deps.getSymbol ?? symbols.getSymbol;
-  const addSymbol = deps.addSymbol ?? symbols.addSymbol;
   return async (app) => registerSymbolRoutes(app, {
-    loadTickers, now, tickerCache, ensureMetadata, getSymbol, addSymbol,
+    loadTickers, now, tickerCache, ensureMetadata, getSymbol,
   });
 }
 
@@ -48,7 +47,6 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
   tickerCache: Map<string, { at: number; rows: Ticker24h[] }>;
   ensureMetadata: (symbols: readonly string[]) => Promise<(SymbolInfo | null)[]>;
   getSymbol: (symbol: string) => Promise<SymbolInfo | null>;
-  addSymbol: (symbol: string, baseAsset: string, quoteAsset: string) => Promise<SymbolInfo>;
 }): Promise<void> {
   app.get("/api/symbols", async (req) => {
     const { active } = req.query as { active?: string };
@@ -121,8 +119,9 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
    *
    *   venue lists it            201 with the row
    *   venue does not list it    404, nothing written (null row, or Binance -1121)
-   *   directory unavailable     200 with an existing row, untouched; otherwise
-   *                             201 registered by suffix — both say `degraded`
+   *   directory unavailable     200 with an existing row, untouched, `degraded`;
+   *                             otherwise 503, nothing written — a guessed
+   *                             identity in the shared catalog outlives the outage
    */
   app.post("/api/symbols", async (req, reply) => {
     const body = req.body as { symbol?: string; baseAsset?: string; quoteAsset?: string };
@@ -146,16 +145,8 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
         req.log.warn({ err, symbol: ticker }, "instrument metadata unavailable; kept the existing symbol row");
         return reply.code(200).send({ ...existing, degraded });
       }
-      const assets = assetsBySuffixFallback(ticker);
-      // No recognised quote suffix: a guess would be a junk row every account sees.
-      if (!assets.quoteAsset) {
-        return reply.code(503).send({
-          error: `instrument metadata is unavailable and ${ticker} has no recognisable quote asset; try again later`,
-        });
-      }
-      req.log.warn({ err, symbol: ticker }, "instrument metadata unavailable; registering symbol by suffix fallback");
-      const row = await ctx.addSymbol(ticker, assets.baseAsset, assets.quoteAsset);
-      return reply.code(201).send({ ...row, degraded });
+      req.log.warn({ err, symbol: ticker }, "instrument metadata unavailable; refused to register an unverified symbol");
+      return reply.code(503).send({ error: new InstrumentDirectoryUnavailableError(ticker).message });
     }
     if (!created) return reply.code(404).send({ error: `${ticker} is not a Binance spot symbol` });
     return reply.code(201).send(created);

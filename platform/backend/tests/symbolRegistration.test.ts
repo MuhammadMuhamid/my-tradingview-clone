@@ -2,16 +2,19 @@
  * `POST /api/symbols` writes the SHARED symbols table every account reads, and
  * ordinary accounts reach it. So the row's assets come from the venue and never
  * from the request body, a pair the venue does not list is never written, and
- * the suffix guess is used only while the directory is unavailable, for a pair
- * that has no row yet — and the response says it was a guess.
+ * while the directory is unavailable nothing is written at all: an existing
+ * row is served (flagged `degraded`), a new pair is a retryable 503.
  *
- * Nothing here reaches Binance or PostgreSQL: every dependency is injected.
+ * Nothing here reaches Binance or PostgreSQL: the directory is injected, and
+ * the catalog's writers are mocked so "nothing written" is a counted fact.
  */
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { symbolRoutes, type SymbolRouteDeps } from "../src/api/routes/symbols";
 import type { SymbolInfo } from "../src/types/market";
+import * as symbolRepo from "../src/repositories/symbols";
+import { pool } from "../src/db/pool";
 
 function row(symbol: string, baseAsset: string, quoteAsset: string): SymbolInfo {
   return {
@@ -20,15 +23,33 @@ function row(symbol: string, baseAsset: string, quoteAsset: string): SymbolInfo 
   };
 }
 
+/*
+ * PostgreSQL replaced at the pool, the one place every repository query goes
+ * through: any write to the catalog, by `symbolRepo.addSymbol` or any other
+ * route, is recorded here as a call rather than surfacing as a connection
+ * error that happens to fail the test. Registering a symbol writes the
+ * symbols row as `insert <ticker> <base> <quote>`.
+ */
+function catalogWrites(t: TestContext): string[] {
+  const writes: string[] = [];
+  t.mock.method(pool, "query", async (sql: string, params: unknown[] = []) => {
+    if (/INSERT INTO symbols/.test(sql)) {
+      const [, symbol, base, quote] = params as string[];
+      writes.push(`insert ${symbol} ${base} ${quote}`);
+      return { rows: [{ symbol, base_asset: base, quote_asset: quote, price_tick: null, qty_step: null,
+        min_notional: null, is_active: true }] };
+    }
+    if (!/^\s*SELECT/i.test(sql)) writes.push(`sql ${sql.trim().slice(0, 40)}`);
+    return { rows: [] };
+  });
+  return writes;
+}
+
 function harness(t: TestContext, deps: Pick<SymbolRouteDeps, "ensureMetadata" | "getSymbol">) {
-  const added: Array<[string, string, string]> = [];
+  const added = catalogWrites(t);
   const app = Fastify({ logger: false });
   t.after(() => app.close());
-  const ready = app.register(symbolRoutes({
-    tickers: async () => [],
-    ...deps,
-    addSymbol: async (symbol, base, quote) => { added.push([symbol, base, quote]); return row(symbol, base, quote); },
-  }));
+  const ready = app.register(symbolRoutes({ tickers: async () => [], ...deps }));
   const register = async (payload: object) => { await ready; return app.inject({ method: "POST", url: "/api/symbols", payload }); };
   return { register, added };
 }
@@ -51,7 +72,8 @@ test("an invalid ticker is a 400 naming the problem, before any lookup", async (
 
 test("the venue's metadata is the row, whatever the body claimed", async (t) => {
   const { register, added } = harness(t, {
-    ensureMetadata: async (symbols) => symbols.map((s) => row(s, "ETH", "BTC")),
+    // As the real metadata path does: the VENUE's assets go through the repository.
+    ensureMetadata: async (symbols) => Promise.all(symbols.map((s) => symbolRepo.addSymbol(s, "ETH", "BTC"))),
     getSymbol: async () => null,
   });
   const res = await register({ symbol: "ethbtc", baseAsset: "ETHB", quoteAsset: "USDT" });
@@ -60,7 +82,7 @@ test("the venue's metadata is the row, whatever the body claimed", async (t) => 
   assert.equal(res.json().baseAsset, "ETH");
   assert.equal(res.json().quoteAsset, "BTC");
   assert.equal(res.json().degraded, undefined);
-  assert.deepEqual(added, [], "metadata registration writes through its own path, never the body's assets");
+  assert.deepEqual(added, ["insert ETHBTC ETH BTC"], "exactly one write, with the venue's assets, never the body's");
 });
 
 test("a pair the venue does not list is a 404 and nothing is written", async (t) => {
@@ -96,20 +118,21 @@ test("directory unavailable and the row exists: it is returned untouched", async
   assert.deepEqual(added, []);
 });
 
-test("directory unavailable and no row: registered by suffix, never by the body, and flagged", async (t) => {
+test("directory unavailable and no row: 503, nothing written, whatever the suffix or body", async (t) => {
   const { register, added } = harness(t, { ensureMetadata: unavailable, getSymbol: async () => null });
-  const res = await register({ symbol: "ETHBTC", baseAsset: "ETHB", quoteAsset: "TC" });
-  assert.equal(res.statusCode, 201);
-  assert.deepEqual(added, [["ETHBTC", "ETH", "BTC"]], "the caller's assets are ignored");
-  assert.equal(res.json().degraded, "instrument metadata unavailable");
-
-  // The frontend's current body shape (a guessed base) and a bare symbol both work.
-  const bare = await register({ symbol: "SOLUSDT" });
-  assert.equal(bare.statusCode, 201);
-  assert.deepEqual(added[1], ["SOLUSDT", "SOL", "USDT"]);
-
-  // No recognisable quote suffix: refusing beats a junk row every account would see.
-  const unknownQuote = await register({ symbol: "FOOBAR", baseAsset: "FOO", quoteAsset: "BAR" });
-  assert.equal(unknownQuote.statusCode, 503);
-  assert.equal(added.length, 2);
+  // A recognisable suffix (ETHBTC, SOLUSDT) and caller-supplied assets are both
+  // guesses; neither may become a row every account reads.
+  for (const payload of [
+    { symbol: "ETHBTC", baseAsset: "ETH", quoteAsset: "BTC" },
+    { symbol: "SOLUSDT" },
+    { symbol: "FOOBAR", baseAsset: "FOO", quoteAsset: "BAR" },
+  ]) {
+    const res = await register(payload);
+    assert.equal(res.statusCode, 503, payload.symbol);
+    const { error } = res.json();
+    assert.match(error, /instrument directory is unavailable/);
+    assert.match(error, /try again later/);
+    assert.match(error, new RegExp(payload.symbol));
+  }
+  assert.deepEqual(added, []);
 });

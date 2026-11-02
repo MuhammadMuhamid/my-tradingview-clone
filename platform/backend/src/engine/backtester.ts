@@ -228,9 +228,9 @@ export async function executeBacktest(
     const symbol = need.symbol ?? row.symbol;
     if (need.symbol) {
       // e.g. BTCUSDT for the BTC filter on a coin that isn't tracked yet. The
-      // assets come from the venue's own metadata; the suffix split survives
-      // only as a fallback when the directory is unreachable, so a backtest
-      // does not fail because `exchangeInfo` blipped. See
+      // assets come from the venue's own metadata; a pair with no row cannot
+      // be registered while the directory is unreachable (503, nothing
+      // guessed), while an already-registered one keeps working. See
       // `data/instrumentRegistration`.
       await registerInstrument(need.symbol, log);
     }

@@ -13,6 +13,7 @@ import * as symbolRepo from "../repositories/symbols";
 import type { SymbolInfo } from "../types/market";
 import { storedSymbol } from "../types/instrument";
 import { marketData } from "./marketData";
+import { isUnknownSymbolRefusal } from "./binanceRest";
 
 export interface InstrumentMetadataDependencies {
   getSymbol(symbol: string): Promise<SymbolInfo | null>;
@@ -43,6 +44,34 @@ function deferred<T>(): Deferred<T> {
 
 /** One process must never race two writes for the same provider symbol. */
 const inFlight = new Map<string, Deferred<SymbolInfo | null>>();
+
+/**
+ * Binance refuses a whole `exchangeInfo?symbols=[…]` request with -1121 when
+ * ANY one ticker is unlisted, so one historical bad row (a delisted pair, an
+ * old suffix-guessed registration) used to keep every valid row in the same
+ * batch from ever receiving its filters. On that refusal, ask once per symbol
+ * so it lands only on the ticker it is about; any other error still fails the
+ * whole flight, since an outage is not per-symbol.
+ */
+async function isolatingRefusals(
+  batch: string[], call: (symbols: string[]) => Promise<unknown>, refused: Map<string, unknown>,
+): Promise<void> {
+  if (batch.length === 0) return;
+  try {
+    await call(batch);
+    return;
+  } catch (error) {
+    if (batch.length === 1 && isUnknownSymbolRefusal(error)) { refused.set(batch[0]!, error); return; }
+    if (!isUnknownSymbolRefusal(error)) throw error;
+  }
+  for (const symbol of batch) {
+    try { await call([symbol]); }
+    catch (error) {
+      if (!isUnknownSymbolRefusal(error)) throw error;
+      refused.set(symbol, error);
+    }
+  }
+}
 
 /** The chart's precision-sensitive features require a genuine positive tick. */
 export function hasProviderPriceTick(row: SymbolInfo | null): boolean {
@@ -92,12 +121,16 @@ export async function ensureInstrumentMetadata(
           if (row === null) register.push(symbol);
           else sync.push(symbol);
         }
-        if (register.length > 0) await deps.registerInstruments(register);
-        if (sync.length > 0) await deps.syncInstrumentFilters(sync);
+        const refused = new Map<string, unknown>();
+        await isolatingRefusals(register, deps.registerInstruments, refused);
+        await isolatingRefusals(sync, deps.syncInstrumentFilters, refused);
 
         const after = await Promise.all(ownedSymbols.map((symbol) => deps.getSymbol(symbol)));
         for (let i = 0; i < ownedSymbols.length; i += 1) {
-          owned.get(ownedSymbols[i]!)!.resolve(after[i] ?? null);
+          const symbol = ownedSymbols[i]!;
+          // The refusal still reaches this symbol's callers, who map it to 404.
+          if (refused.has(symbol)) owned.get(symbol)!.reject(refused.get(symbol));
+          else owned.get(symbol)!.resolve(after[i] ?? null);
         }
       } catch (error) {
         for (const reservation of owned.values()) reservation.reject(error);

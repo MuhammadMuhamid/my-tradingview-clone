@@ -8,8 +8,8 @@ import * as candleRepo from "../repositories/candles";
 import * as symbolRepo from "../repositories/symbols";
 import { config } from "../config";
 import {
-  inspectCandleIntegrity, issueCounts,
-  type CandleIntegrityState,
+  inspectCandleIntegrity, issueCounts, measureCandleCoverage,
+  type CandleCoverage, type CandleIntegrityState,
 } from "./candleIntegrity";
 import { RequestPacer } from "./requestPacer";
 
@@ -292,30 +292,79 @@ export async function fetchKlines(
   return out;
 }
 
+/** What `ensureCandles` reaches outside the process; tests inject fakes. */
+export interface EnsureCandlesDeps {
+  getCandles?: typeof candleRepo.getCandles;
+  upsertCandles?: (candles: Candle[]) => Promise<unknown>;
+  fetchKlines?: (symbol: string, interval: Interval, startMs: number, endMs: number) => Promise<Candle[]>;
+  now?: () => number;
+}
+
+/** `ensureCandles`' answer: the range's final coverage, and whether it fetched. */
+export interface EnsuredCoverage extends CandleCoverage {
+  fetched: boolean;
+}
+
+/** Ascending, de-duplicated open times of two ascending series, without building a third. */
+function* mergedOpenTimes(a: readonly Candle[], b: readonly Candle[]): Generator<number> {
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const x = i < a.length ? a[i]!.openTime : Infinity;
+    const y = j < b.length ? b[j]!.openTime : Infinity;
+    if (x <= y) { yield x; i += 1; if (x === y) j += 1; } else { yield y; j += 1; }
+  }
+}
+
 /**
  * Guarantee the DB holds candles for [startMs, endMs]; fetch from Binance when
  * coverage is incomplete. Allows ~1.5% missing bars for exchange downtime.
+ *
+ * That tolerance decides only whether to FETCH, so charts, alerts and the live
+ * runner behave exactly as before. It is not a completeness claim: the return
+ * value is the range's actual coverage after any fetch (`complete` is false for
+ * any interior, leading or trailing shortfall of closed bars), for callers
+ * that must not present a gapped range as whole. Callers that ignore it lose
+ * nothing they had.
  */
 export async function ensureCandles(
   symbol: string,
   interval: Interval,
   startMs: number,
   endMs: number,
-  log?: (msg: string) => void
-): Promise<void> {
-  const stored = await candleRepo.getCandles(symbol, interval, { from: startMs, to: endMs });
+  log?: (msg: string) => void,
+  deps: EnsureCandlesDeps = {}
+): Promise<EnsuredCoverage> {
+  const getCandles = deps.getCandles ?? candleRepo.getCandles;
+  const upsert = deps.upsertCandles ?? candleRepo.upsertCandles;
+  const fetchRange = deps.fetchKlines ?? fetchKlines;
+  const now = (deps.now ?? Date.now)();
+  const stored = await getCandles(symbol, interval, { from: startMs, to: endMs });
   const expected = Math.floor((endMs - startMs) / INTERVAL_MS[interval]);
   const covered =
     stored.length >= expected * 0.985 &&
     stored.length > 0 &&
     stored[0]!.openTime <= startMs + INTERVAL_MS[interval] * 2;
-  if (covered || expected <= 0) return;
+  // The rows are already in memory for the count, so measuring them is one
+  // pass with no new allocation.
+  const disclose = (coverage: CandleCoverage, fetched: boolean): EnsuredCoverage => {
+    if (coverage.interiorGaps > 0) {
+      log?.(`${symbol} ${interval}: ${coverage.interiorMissingBars} bar(s) missing inside the range ` +
+        `in ${coverage.interiorGaps} gap(s), first after ${new Date(coverage.firstGap!.afterOpenTime).toISOString()}`);
+    }
+    return { ...coverage, fetched };
+  };
+  if (covered || expected <= 0) {
+    return disclose(measureCandleCoverage(mergedOpenTimes(stored, []), interval, startMs, endMs, now), false);
+  }
   log?.(`backfilling ${symbol} ${interval}: ${expected} bars`);
-  const fetched = await fetchKlines(symbol, interval, startMs, endMs);
+  const fetched = await fetchRange(symbol, interval, startMs, endMs);
   if (fetched.length === 0) {
     throw new Error(`Binance returned no ${interval} klines for ${symbol} in range`);
   }
-  await candleRepo.upsertCandles(fetched);
+  await upsert(fetched);
+  // The store now holds both reads' rows; merge them rather than re-read the range.
+  return disclose(measureCandleCoverage(mergedOpenTimes(stored, fetched), interval, startMs, endMs, now), true);
 }
 
 /** One tradable pair from exchangeInfo — the symbol-search directory. */

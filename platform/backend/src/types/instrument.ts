@@ -207,9 +207,11 @@ export function assetsFromMetadata(
 /**
  * The legacy suffix split, named so its call sites are findable.
  *
- * Kept because several paths register a pair before any metadata for it exists
- * and must not fail if the venue directory is unreachable. It is a FALLBACK,
- * never a first choice — `assetsFromMetadata` is.
+ * No registration path writes its answer any more: a guessed identity in the
+ * shared catalog outlived the directory outage it covered, so registering an
+ * unverified pair now refuses with a 503 instead (`data/instrumentRegistration`).
+ * Kept only as a pure helper; never persist its output — `assetsFromMetadata`
+ * is the source of a row's assets.
  */
 export function assetsBySuffixFallback(ticker: string): InstrumentAssets {
   const upper = ticker.toUpperCase();

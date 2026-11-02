@@ -25,6 +25,7 @@ import * as strategies from "../../repositories/strategies";
 import * as symbols from "../../repositories/symbols";
 import * as candleRepo from "../../repositories/candles";
 import { ensureCandles } from "../../data/binanceRest";
+import { measureCandleCoverage } from "../../data/candleIntegrity";
 import {
   benchmarkPath, discoverStressWindows, StressDiscoveryError, stressProvenance,
   STRESS_EPISTEMIC_NOTE, validateStressConfig, type StressMethod, type StressWindowConfig,
@@ -33,7 +34,7 @@ import { targetReturn, type TargetReturn } from "../../engine/stressTarget";
 import { isUuid, parseStressRunSettings } from "./stressRequest";
 import { paramsProblem, sizingProblem } from "../backtestRequest";
 import { engineDefaultParams } from "../../engine/backtester";
-import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
+import { INTERVAL_MS, isInterval, type Candle, type Interval } from "../../types/market";
 import {
   DEFAULT_COMMISSION_PCT, DEFAULT_INITIAL_CAPITAL, DEFAULT_SLIPPAGE_TICKS,
 } from "./backtests";
@@ -187,7 +188,7 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       return {
         windows,
         discovery: stressProvenance(
-          { ...benchmark, interval }, candles, config),
+          { ...benchmark, interval }, candles, config, benchmarkCoverage(candles, interval, startMs, endMs)),
         // The searched period to draw the windows over; the candles are in hand.
         path: benchmarkPath(candles),
         epistemicNote: STRESS_EPISTEMIC_NOTE,
@@ -315,7 +316,8 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
         initialCapital, commissionPct, slippageTicks,
         benchmarkSymbol: benchmark.symbol,
         benchmarkInterval: interval,
-        discovery: stressProvenance({ ...benchmark, interval }, candles, config),
+        discovery: stressProvenance({ ...benchmark, interval }, candles, config,
+          benchmarkCoverage(candles, interval, startMs, endMs)),
         windows: [],
       }, runQuery);
       const windows: stressRepo.StressRunWindow[] = [];
@@ -392,6 +394,18 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
       benchmark.symbol, benchmark.interval, { from: searched.startMs, to: searched.endMs });
     return { symbol: benchmark.symbol, interval: benchmark.interval, path: benchmarkPath(candles) };
   });
+}
+
+/**
+ * Measured from the rows discovery actually searched, not from the store's
+ * fetch decision: `ensureCandles` accepts a range with a 1 % interior hole,
+ * and the provenance must say so.
+ */
+function benchmarkCoverage(
+  candles: readonly Candle[], interval: Interval, startMs: number, endMs: number,
+) {
+  return measureCandleCoverage((function* () { for (const c of candles) yield c.openTime; })(),
+    interval, startMs, endMs, Date.now());
 }
 
 /**
