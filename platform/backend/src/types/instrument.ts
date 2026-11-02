@@ -23,9 +23,10 @@
  *
  * `BINANCE:BTCUSDT` is the qualified form. It is reduced back to the bare
  * ticker before it reaches storage or the Bot, and it is accepted today by the
- * four market-data surfaces that a link or a client can reasonably name an
- * instrument to: `GET /api/symbols/:symbol/candles`, and the three
- * `/api/data/*` routes. Every OTHER symbol-bearing route accepts bare tickers
+ * five market-data surfaces that a link or a client can reasonably name an
+ * instrument to: `GET /api/symbols/:symbol/candles`, `POST /api/symbols`
+ * (registering a pair a chart opened), and the three `/api/data/*` routes.
+ * Every OTHER symbol-bearing route accepts bare tickers
  * only, exactly as it always has — introducing the vocabulary was the Wave A
  * scope, not rewriting every route that handles a symbol.
  * `tests/instrumentIdentity.test.ts` pins that list so this comment cannot

@@ -130,6 +130,17 @@ export async function fetchAggTrades(symbol: string, startMs: number, endMs: num
   const unique = new Map<number, AggregateTrade>(); for (const t of out) unique.set(t.id, t); return [...unique.values()].sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
 }
 
+/**
+ * Binance answers `exchangeInfo?symbols=[...]` for a pair it does not list with
+ * HTTP 400 and code -1121 ("Invalid symbol."), which `getJson` throws. That is
+ * the directory ANSWERING "no such pair", not the directory being unavailable:
+ * callers must treat it as "unknown instrument", never fall back to guessing.
+ */
+export function isUnknownSymbolRefusal(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : "";
+  return /^Binance 400:/.test(message) && /-1121|Invalid symbol/i.test(message);
+}
+
 type RawKline = [number, string, string, string, string, string, number, string, number, ...unknown[]];
 
 /**

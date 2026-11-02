@@ -191,10 +191,11 @@ test("exactly the documented routes resolve a venue-qualified symbol", () => {
   const header = fs.readFileSync(
     path.join(__dirname, "..", "src", "types", "instrument.ts"), "utf8");
   assert.match(header, /GET \/api\/symbols\/:symbol\/candles/);
+  assert.match(header, /POST \/api\/symbols\b/);
   assert.match(header, /\/api\/data\/\*/);
   assert.match(header, /Every OTHER symbol-bearing route accepts bare tickers/);
 
-  // And the count the header claims — four surfaces — is the count that
+  // And the count the header claims — five surfaces — is the count that
   // exists. `storedSymbol` is used both as a call and as a `.map` argument, so
   // uses are counted rather than call syntax, minus the one import per file.
   const uses = (file: string): number => {
@@ -203,8 +204,8 @@ test("exactly the documented routes resolve a venue-qualified symbol", () => {
     const imported = /import[^;]*\bstoredSymbol\b[^;]*;/.test(src) ? 1 : 0;
     return total - imported;
   };
-  assert.equal(uses("data.ts") + uses("symbols.ts"), 4,
-    "the header says four surfaces resolve; that must be four resolving sites");
+  assert.equal(uses("data.ts") + uses("symbols.ts"), 5,
+    "the header says five surfaces resolve; that must be five resolving sites");
 });
 
 test("the three legacy suffix-parsing sites each carry the call-out the header promises", () => {

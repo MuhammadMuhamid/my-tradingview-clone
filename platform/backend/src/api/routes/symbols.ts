@@ -3,8 +3,11 @@ import * as symbols from "../../repositories/symbols";
 import { parseResolution } from "../../data/resolution";
 import { IncompleteDerivedCandleError, readResolvedCandles } from "../../data/resolvedCandles";
 import { toCompact } from "../../data/candleWire";
-import { fetch24hTickers, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h } from "../../data/binanceRest";
-import { InstrumentIdError, storedSymbol } from "../../types/instrument";
+import {
+  fetch24hTickers, isUnknownSymbolRefusal, listExchangeSymbols, TICKER_BATCH_LIMIT, type Ticker24h,
+} from "../../data/binanceRest";
+import { assetsBySuffixFallback, InstrumentIdError, storedSymbol } from "../../types/instrument";
+import type { SymbolInfo } from "../../types/market";
 import {
   ensureInstrumentMetadata, syncMissingActiveInstrumentMetadata,
 } from "../../data/instrumentMetadata";
@@ -22,19 +25,30 @@ const TICKER_CACHE_TTL_MS = 3_000;
 export interface SymbolRouteDeps {
   tickers?: (symbols: readonly string[]) => Promise<Ticker24h[]>;
   now?: () => number;
+  ensureMetadata?: (symbols: readonly string[]) => Promise<(SymbolInfo | null)[]>;
+  getSymbol?: (symbol: string) => Promise<SymbolInfo | null>;
+  addSymbol?: (symbol: string, baseAsset: string, quoteAsset: string) => Promise<SymbolInfo>;
 }
 
 export function symbolRoutes(deps: SymbolRouteDeps = {}): (app: FastifyInstance) => Promise<void> {
   const loadTickers = deps.tickers ?? ((s) => fetch24hTickers(s));
   const now = deps.now ?? (() => Date.now());
   const tickerCache = new Map<string, { at: number; rows: Ticker24h[] }>();
-  return async (app) => registerSymbolRoutes(app, { loadTickers, now, tickerCache });
+  const ensureMetadata = deps.ensureMetadata ?? ((s) => ensureInstrumentMetadata(s));
+  const getSymbol = deps.getSymbol ?? symbols.getSymbol;
+  const addSymbol = deps.addSymbol ?? symbols.addSymbol;
+  return async (app) => registerSymbolRoutes(app, {
+    loadTickers, now, tickerCache, ensureMetadata, getSymbol, addSymbol,
+  });
 }
 
 async function registerSymbolRoutes(app: FastifyInstance, ctx: {
   loadTickers: (symbols: readonly string[]) => Promise<Ticker24h[]>;
   now: () => number;
   tickerCache: Map<string, { at: number; rows: Ticker24h[] }>;
+  ensureMetadata: (symbols: readonly string[]) => Promise<(SymbolInfo | null)[]>;
+  getSymbol: (symbol: string) => Promise<SymbolInfo | null>;
+  addSymbol: (symbol: string, baseAsset: string, quoteAsset: string) => Promise<SymbolInfo>;
 }): Promise<void> {
   app.get("/api/symbols", async (req) => {
     const { active } = req.query as { active?: string };
@@ -99,26 +113,51 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
     };
   });
 
+  /*
+   * Ordinary accounts reach this (opening an untracked coin starts tracking
+   * it) and every account reads the row it writes, so the assets come from the
+   * venue, never from the body. `baseAsset`/`quoteAsset` are still accepted so
+   * older clients keep working, and ignored.
+   *
+   *   venue lists it            201 with the row
+   *   venue does not list it    404, nothing written (null row, or Binance -1121)
+   *   directory unavailable     200 with an existing row, untouched; otherwise
+   *                             201 registered by suffix — both say `degraded`
+   */
   app.post("/api/symbols", async (req, reply) => {
-    const body = req.body as {
-      symbol?: string;
-      baseAsset?: string;
-      quoteAsset?: string;
-    };
-    if (!body?.symbol || !body.baseAsset || !body.quoteAsset) {
-      return reply
-        .code(400)
-        .send({ error: "symbol, baseAsset and quoteAsset are required" });
+    const body = req.body as { symbol?: string; baseAsset?: string; quoteAsset?: string };
+    if (!body?.symbol) return reply.code(400).send({ error: "symbol is required" });
+    let ticker: string;
+    try { ticker = storedSymbol(body.symbol); }
+    catch (err) {
+      if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
+      throw err;
     }
-    let created;
+    let created: SymbolInfo | null;
     try {
-      [created] = await ensureInstrumentMetadata([body.symbol]);
+      [created = null] = await ctx.ensureMetadata([ticker]);
     } catch (err) {
-      req.log.warn({ err }, "instrument metadata unavailable while registering symbol");
+      if (isUnknownSymbolRefusal(err)) {
+        return reply.code(404).send({ error: `${ticker} is not a Binance spot symbol` });
+      }
+      const degraded = "instrument metadata unavailable";
+      const existing = await ctx.getSymbol(ticker);
+      if (existing) {
+        req.log.warn({ err, symbol: ticker }, "instrument metadata unavailable; kept the existing symbol row");
+        return reply.code(200).send({ ...existing, degraded });
+      }
+      const assets = assetsBySuffixFallback(ticker);
+      // No recognised quote suffix: a guess would be a junk row every account sees.
+      if (!assets.quoteAsset) {
+        return reply.code(503).send({
+          error: `instrument metadata is unavailable and ${ticker} has no recognisable quote asset; try again later`,
+        });
+      }
+      req.log.warn({ err, symbol: ticker }, "instrument metadata unavailable; registering symbol by suffix fallback");
+      const row = await ctx.addSymbol(ticker, assets.baseAsset, assets.quoteAsset);
+      return reply.code(201).send({ ...row, degraded });
     }
-    created ??= await symbols.addSymbol(
-      body.symbol.toUpperCase(), body.baseAsset.toUpperCase(), body.quoteAsset.toUpperCase()
-    );
+    if (!created) return reply.code(404).send({ error: `${ticker} is not a Binance spot symbol` });
     return reply.code(201).send(created);
   });
 
