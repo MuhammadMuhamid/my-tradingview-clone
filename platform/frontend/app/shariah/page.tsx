@@ -5,8 +5,8 @@ import {
   MAX_REVIEW_PACK_ASSETS, ResultsFileError, SHARIAH_ANSWER_LABELS, ShariahImportError, UNIVERSE_FILTERS,
   UNIVERSE_FILTER_EMPTY, comparePreviewToPack, describeShariahSync, downloadReviewPack,
   downloadSnapshot, filterUniverse, normalizeShariahMode, parseResultsFile,
-  evidenceCitedLabel, publicationSourceLabel, shariahApi,
-  type ShariahAssetDetail, type ShariahClassification, type ShariahImportIssue,
+  countLabel, evidenceCitedLabel, formatUniverseSync, publicationSourceLabel, shariahApi,
+  type ShariahAssetDetail, type ShariahAssetState, type ShariahClassification, type ShariahImportIssue,
   type ShariahImportPreview, type ShariahImportPreviewResult, type ShariahLastPack,
   type ShariahMode, type ShariahModeChange, type ShariahModeState, type ShariahReviewPackRequest,
   type ShariahSnapshotMeta, type ShariahSyncLevel, type ShariahUniverse, type ShariahUniverseFilter,
@@ -49,6 +49,45 @@ const LIFECYCLE_NOTE: Record<string, string> = {
     + "classification cannot be reconfirmed.",
   SCREENED: "Screened under a published decision.",
 };
+
+/*
+ * An UNSCREENED asset has no decision, so it has no age: this read "Research
+ * age: unknown days. No advisory reminder due." — a non-answer followed by
+ * reassurance about a decision that does not exist.
+ */
+function researchAgeLine(asset: ShariahAssetState): string {
+  const age = asset.decisionAgeDays == null ? null
+    : `Research age: ${countLabel(asset.decisionAgeDays, "day", "days")}.`;
+  if (asset.lifecycle === "STALE") {
+    return [age, "STALE: requires fresh screening; new BUY exposure is blocked when Mode is ON."]
+      .filter(Boolean).join(" ");
+  }
+  if (age === null && asset.lifecycle === "UNSCREENED") return "Never researched.";
+  const reminder = asset.dueForReReview
+    ? "Due for re-review — advisory; the decision still stands." : "No advisory reminder due.";
+  return `${age ?? "Research age not recorded."} ${reminder}`;
+}
+
+/*
+ * Whether a new BUY of this asset is permitted right now, said where the
+ * decision is read. It restates what the page already shows — the server's
+ * mode and the server's effectiveStatus, under the rule the enforcement banner
+ * states ("refused unless the asset is ELIGIBLE") — and decides nothing: the
+ * backend gate is still the only thing that refuses an order.
+ */
+function buyPermissionLine(mode: ShariahMode | null, baseAsset: string,
+  status: ShariahClassification): string {
+  const symbol = `${baseAsset}USDT`;
+  const head = mode === "enforce"
+    ? (status === "ELIGIBLE"
+      ? `Mode ON: a new BUY of ${symbol} is allowed (status ELIGIBLE).`
+      : `Mode ON: a new BUY of ${symbol} is refused (status ${status}).`)
+    : mode === "off"
+      ? "Mode OFF: BUYs are not screened; this decision is recorded but not enforced."
+      // Unread is unknown, never off — the same rule the Bot floor panel keeps.
+      : `Mode unknown: whether a new BUY of ${symbol} is allowed cannot be stated.`;
+  return `${head} Selling or reducing a position is never blocked.`;
+}
 
 function StatusPill({ status }: { status: ShariahClassification }) {
   return (
@@ -387,11 +426,7 @@ export default function ShariahPage() {
     setBusy(true); setError(null); setNotice(null);
     try {
       const r = await shariahApi.syncUniverse();
-      setNotice(
-        `Universe synced against ${r.qualifying} qualifying Binance Spot USDT base asset(s): `
-        + `${r.created} newly discovered, ${r.reactivated} relisted, ${r.deactivated} no longer `
-        + "tracked. Newly discovered assets are UNSCREENED, which counts as REVIEW — nothing "
-        + "here has been classified, and nothing new can be bought until you publish a decision.");
+      setNotice(formatUniverseSync(r));
       await loadUniverse();
     } catch (e) {
       setError(failed("The universe could not be synced.", e));
@@ -713,7 +748,7 @@ export default function ShariahPage() {
                   >
                     <span className="min-w-0">
                       <span className="font-medium text-ink">{asset.baseAsset}</span>
-                      <p className="mt-1">Research age: {asset.decisionAgeDays ?? "unknown"} days. {asset.lifecycle === "STALE" ? "STALE: requires fresh screening; new BUY exposure is blocked when Mode is ON." : asset.dueForReReview ? "Due for re-review — advisory; the decision still stands." : "No advisory reminder due."}</p>
+                      <p className="mt-1">{researchAgeLine(asset)}</p>
           {!asset.binanceAvailable && (
                         <span className="ml-2 text-[11px] text-ink-faint">delisted</span>
                       )}
@@ -766,6 +801,7 @@ export default function ShariahPage() {
               key={detail.asset.assetId}
               detail={detail}
               categories={universe?.prohibitedCategories ?? []}
+              mode={mode}
               onChanged={async () => { await loadDetail(detail.asset.assetId); await loadUniverse(); }}
               onError={setError}
               onNotice={setNotice}
@@ -1123,7 +1159,9 @@ function BatchReviewCard({
           <p>Append-only publication. When Mode is ON, only ELIGIBLE permits new exposure. Exits remain possible.</p>
           <ul className="mt-2 max-h-48 overflow-auto">{preview.results.map((r) => {
             const prior = currentAssets.find((a) => a.assetId === r.assetId);
-            return <li key={r.assetId}>{r.baseAsset}: {prior?.effectiveStatus ?? "Unknown prior decision"} → {r.classification}; {r.evidenceCount} citations; {r.unresolvedUncertainties.length} uncertainties{prior?.lifecycle === "STALE" ? " · fresh review required" : ""}</li>;
+            // An UNSCREENED asset's REVIEW is a default, not a decision; and "1 citations" read as a typo.
+            const before = prior && prior.lifecycle !== "UNSCREENED" ? prior.effectiveStatus : "no prior decision";
+            return <li key={r.assetId}>{r.baseAsset}: {before} → {r.classification} · {countLabel(r.evidenceCount, "citation", "citations")} · {countLabel(r.unresolvedUncertainties.length, "uncertainty", "uncertainties")}{prior?.lifecycle === "STALE" ? " · fresh review required" : ""}</li>;
           })}</ul>
           <p className="mt-2">Validation passed. {needingAck.length} uncertain ELIGIBLE decision(s) require individual acknowledgement; {unacknowledged.length} remain unacknowledged. Read the sources and grounds before publishing.</p>
           <Button variant="primary" disabled={busy || unacknowledged.length > 0} onClick={publish}>Confirm publication of {preview.assetCount} decisions</Button> <Button onClick={() => setConfirming(false)}>Back to review</Button>
@@ -1245,9 +1283,10 @@ function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, onC
   );
 }
 
-function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
+function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }: {
   detail: ShariahAssetDetail;
   categories: string[];
+  mode: ShariahMode | null;
   onChanged: () => Promise<void>;
   onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
@@ -1316,6 +1355,7 @@ function ReviewPanel({ detail, categories, onChanged, onError, onNotice }: {
         />
         <div className="px-4 py-3 text-xs text-ink-muted">
           <p><span className="font-medium text-ink">{asset.lifecycle}</span> — {LIFECYCLE_NOTE[asset.lifecycle]}</p>
+          <p className="mt-1 text-ink" data-buy-permission>{buyPermissionLine(mode, asset.baseAsset, asset.effectiveStatus)}</p>
           {/*
             An imported decision's reason is STRUCTURED text — the researcher's
             reason, then "TS_SHARIAH_V1 review answers:" and one line per

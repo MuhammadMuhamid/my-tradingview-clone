@@ -609,6 +609,50 @@ export interface PublishRequest {
   reviewedAt: string;
 }
 
+/** `POST /api/shariah/universe/sync` — `backend/src/shariah/sync.ts` returns base-asset LISTS. */
+export interface ShariahUniverseSyncResult {
+  policyVersion: string;
+  qualifying: number;
+  created: string[];
+  reactivated: string[];
+  deactivated: string[];
+}
+
+/** "1 citation", "2 citations" — a count that reads as English, not "1 citations". */
+export function countLabel(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/*
+ * A sync can move hundreds of assets; the notice names the first few and
+ * counts the rest rather than printing the whole registry into one line.
+ */
+const SYNC_NAMES_SHOWN = 10;
+
+function syncPart(assets: readonly string[], label: string): string {
+  if (assets.length === 0) return `0 ${label}`;
+  const shown = assets.slice(0, SYNC_NAMES_SHOWN).join(", ");
+  const more = assets.length > SYNC_NAMES_SHOWN ? `, +${assets.length - SYNC_NAMES_SHOWN} more` : "";
+  return `${assets.length} ${label} (${shown}${more})`;
+}
+
+/**
+ * The notice after a universe sync.
+ *
+ * The client typed `created`/`reactivated`/`deactivated` as numbers while the
+ * backend sends base-asset arrays, so the page interpolated the arrays and
+ * printed "BTC,ETH,SOL newly discovered, relisted, no longer tracked" — an
+ * empty list rendered as nothing at all, and a count as a list of names.
+ */
+export function formatUniverseSync(r: ShariahUniverseSyncResult): string {
+  return `Universe synced against ${countLabel(r.qualifying,
+    "qualifying Binance Spot USDT base asset", "qualifying Binance Spot USDT base assets")}: `
+    + `${syncPart(r.created, "newly discovered")}, ${syncPart(r.reactivated, "relisted")}, `
+    + `${syncPart(r.deactivated, "no longer tracked")}. `
+    + "Newly discovered assets are UNSCREENED, which counts as REVIEW — nothing "
+    + "here has been classified, and nothing new can be bought until you publish a decision.";
+}
+
 export const shariahApi = {
   universe: () => req<ShariahUniverse>("/api/shariah/universe"),
 
@@ -626,10 +670,7 @@ export const shariahApi = {
    * UNSCREENED, which reads as REVIEW, and has no path that writes ELIGIBLE or
    * EXCLUDED. Running it can never widen what may be bought.
    */
-  syncUniverse: () => req<{
-    policyVersion: string; qualifying: number;
-    created: number; reactivated: number; deactivated: number;
-  }>("/api/shariah/universe/sync", { method: "POST" }),
+  syncUniverse: () => req<ShariahUniverseSyncResult>("/api/shariah/universe/sync", { method: "POST" }),
   asset: (assetId: string) => req<ShariahAssetDetail>(`/api/shariah/assets/${assetId}`),
   addEvidence: (assetId: string, body: Omit<ShariahEvidence, "id" | "assetId" | "createdAt">) =>
     req<ShariahEvidence>(`/api/shariah/assets/${assetId}/evidence`, {

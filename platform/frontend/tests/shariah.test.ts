@@ -12,7 +12,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  comparePreviewToPack, downloadReviewPack, downloadSnapshot, filterUniverse, importResultsPath,
+  comparePreviewToPack, countLabel, downloadReviewPack, downloadSnapshot, filterUniverse, formatUniverseSync,
+  importResultsPath,
   ResultsFileError, evidenceCitedLabel, parseResultsFile, publicationSourceLabel, reviewPackPath,
   type ShariahAssetState, type ShariahReviewPack, type ShariahSnapshot,
 } from "../lib/shariah";
@@ -151,4 +152,37 @@ test("the Shariah Mode toggle renders the server's value, never a local one", ()
   // because the gate that enforces it is backend code.
   assert.doesNotMatch(page, /localStorage/);
   assert.doesNotMatch(read("lib/shariah.ts"), /localStorage/);
+});
+
+test("a universe sync reads as counts with names, not interpolated arrays", () => {
+  /*
+   * The backend sends base-asset LISTS; the client typed them as numbers and
+   * the notice printed "BTC,ETH,SOL newly discovered, relisted, no longer
+   * tracked" — the empty lists vanished and the names stood in for a count.
+   */
+  const notice = formatUniverseSync({
+    policyVersion: "TS_SHARIAH_V1", qualifying: 3,
+    created: ["BTC", "ETH", "SOL"], reactivated: [], deactivated: [],
+  });
+  assert.match(notice, /^Universe synced against 3 qualifying Binance Spot USDT base assets: /);
+  assert.match(notice, /: 3 newly discovered \(BTC, ETH, SOL\), 0 relisted, 0 no longer tracked\. /);
+  // The explanation that discovery is not approval survives.
+  assert.match(notice, /Newly discovered assets are UNSCREENED, which counts as REVIEW/);
+  assert.match(notice, /nothing new can be bought until you publish a decision\.$/);
+
+  const one = formatUniverseSync({
+    policyVersion: "TS_SHARIAH_V1", qualifying: 1, created: [], reactivated: ["DOT"], deactivated: ["LUNA"],
+  });
+  assert.match(one, /against 1 qualifying Binance Spot USDT base asset: 0 newly discovered, 1 relisted \(DOT\), 1 no longer tracked \(LUNA\)\./);
+
+  // A first sync of a large install names a few and counts the rest.
+  const many = Array.from({ length: 12 }, (_, i) => `A${i}`);
+  assert.match(formatUniverseSync({ policyVersion: "TS_SHARIAH_V1", qualifying: 12, created: many, reactivated: [], deactivated: [] }),
+    /12 newly discovered \(A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, \+2 more\)/);
+});
+
+test("countLabel agrees the noun with the count", () => {
+  assert.equal(countLabel(0, "citation", "citations"), "0 citations");
+  assert.equal(countLabel(1, "citation", "citations"), "1 citation");
+  assert.equal(countLabel(2, "uncertainty", "uncertainties"), "2 uncertainties");
 });

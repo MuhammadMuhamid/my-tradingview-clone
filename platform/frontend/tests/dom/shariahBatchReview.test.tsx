@@ -432,3 +432,66 @@ test("existing publications expose exact safe citations and research freshness",
   assert.equal(source.getAttribute("rel"), "noopener noreferrer nofollow");
   assert.equal(document.querySelectorAll('a[href^="javascript:"]').length, 0);
 });
+
+// ── Copy found in a live session ────────────────────────────────────────────
+
+test("a never-researched row says so, instead of 'unknown days' and a reassurance", async () => {
+  await openScreening();
+  await chooseFilter("All assets");
+  const row = (base: string) => screen.getByRole("button", { name: new RegExp(`^${base}`) }).textContent ?? "";
+  assert.match(row("AAA"), /Never researched\./);
+  assert.doesNotMatch(row("AAA"), /unknown days|No advisory reminder due/);
+  assert.match(row("CCC"), /STALE: requires fresh screening/);
+  assert.match(row("DDD"), /Research age: 400 days\. Due for re-review/);
+});
+
+test("the final summary names a missing prior decision and counts in English", async () => {
+  /*
+   * This pinned nothing before: the summary read "AAA: Unknown prior decision
+   * → ELIGIBLE; 1 citations; 1 uncertainties" — AAA is UNSCREENED, so its
+   * REVIEW is a default rather than a decision, and the counts did not agree
+   * with their nouns.
+   */
+  await openScreening();
+  await checkPastedResults();
+  fireEvent.click(screen.getByRole("checkbox", {
+    name: "Acknowledge AAA's unresolved uncertainties and publish it as ELIGIBLE" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Review publication summary/ }));
+  await settle();
+  const items = within(screen.getByRole("region", { name: "Final publication summary" }))
+    .getAllByRole("listitem").map((li) => li.textContent);
+  assert.deepEqual(items, [
+    "AAA: no prior decision → ELIGIBLE · 1 citation · 1 uncertainty",
+    "EEE: EXCLUDED → REVIEW · 0 citations · 0 uncertainties",
+  ]);
+});
+
+const buyLine = (): string => document.querySelector("[data-buy-permission]")?.textContent ?? "";
+
+test("with Mode OFF the asset panel says its decision is recorded, not enforced", async () => {
+  await openScreening();
+  fireEvent.click(screen.getByRole("button", { name: /^BBB/ }));
+  await settle();
+  assert.equal(buyLine(), "Mode OFF: BUYs are not screened; this decision is recorded but not enforced. "
+    + "Selling or reducing a position is never blocked.");
+});
+
+test("with Mode ON the asset panel says whether a new BUY of it is allowed", async () => {
+  const detailFor = (a: ShariahAssetState) => () => ({ asset: a, evidence: [], publications: [] });
+  server.routes.set("GET /api/shariah/assets/4", detailFor(ASSETS[3]!));
+  server.routes.set("GET /api/shariah/assets/5", detailFor(ASSETS[4]!));
+  server.routes.set("GET /api/shariah/mode", () => ({ mode: "enforce", policyVersion: "TS_SHARIAH_V1" }));
+  await openScreening();
+  await chooseFilter("All assets");
+  fireEvent.click(screen.getByRole("button", { name: /^DDD/ }));
+  await settle();
+  assert.equal(buyLine(), "Mode ON: a new BUY of DDDUSDT is allowed (status ELIGIBLE). "
+    + "Selling or reducing a position is never blocked.");
+  fireEvent.click(screen.getByRole("button", { name: /^EEE/ }));
+  await settle();
+  assert.equal(buyLine(), "Mode ON: a new BUY of EEEUSDT is refused (status EXCLUDED). "
+    + "Selling or reducing a position is never blocked.");
+  // Read from what the page already holds — no per-symbol status call.
+  assert.equal(server.callsTo("/api/shariah/status").length, 0);
+});
