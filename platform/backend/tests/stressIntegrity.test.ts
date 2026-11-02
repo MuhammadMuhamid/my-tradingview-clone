@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import {
   discoverStressWindows, STRESS_IMPAIRED_MAX_MISSING_BARS, STRESS_MAX_LISTED_GAPS,
-  stressIntegrityStatus, stressWindowIntegrity,
+  stressIntegrityStatus, stressWindowIntegrity, type StressWindow,
 } from "../src/engine/stress";
 import { stressRoutes } from "../src/api/routes/stress";
 import { pool } from "../src/db/pool";
@@ -170,8 +170,8 @@ test("a stress run stores each window's integrity beside the benchmark's searche
     benchmark_interval: "1h", discovery: {}, windows: [], status: "running", error: null,
     created_at: new Date(T0), finished_at: null,
   };
-  let storedDiscovery: Record<string, any> | null = null;
-  let attached: Record<string, any>[] | null = null;
+  let storedDiscovery: { dataCompleteness: { complete: boolean; interiorMissingBars: number } } | null = null;
+  let attached: StressWindow[] | null = null;
   let child = 0;
   t.mock.method(pool, "query", async (sql: string) => {
     if (sql.startsWith("SELECT * FROM symbols WHERE")) return { rows: [{ symbol: "BTCUSDT",
@@ -215,7 +215,7 @@ test("a stress run stores each window's integrity beside the benchmark's searche
     } });
     assert.equal(response.statusCode, 201, response.body);
     assert.ok(attached, "the windows were attached");
-    const windows = attached as Record<string, any>[];
+    const windows = attached as StressWindow[];
     assert.ok(windows.length >= 2);
     for (const w of windows) {
       assert.ok(w.integrity, "every stored window carries its measured integrity");
@@ -223,7 +223,7 @@ test("a stress run stores each window's integrity beside the benchmark's searche
       assert.equal(w.integrity.status, crosses ? "not_comparable" : "complete");
       assert.equal(w.integrity.missingBars, crosses ? 3 : 0);
     }
-    assert.ok(windows.some((w) => w.integrity.status === "not_comparable"),
+    assert.ok(windows.some((w) => w.integrity?.status === "not_comparable"),
       "the steepest 4 stored bars are the ones across the hole");
     assert.equal(storedDiscovery!.dataCompleteness.complete, false);
     assert.equal(storedDiscovery!.dataCompleteness.interiorMissingBars, 3);
