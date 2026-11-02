@@ -61,7 +61,11 @@ controls appear once the role is known. A session that **cannot be read** (backe
 network) is a fourth, distinct state since V4: no administrator control is drawn anywhere, the chart
 and Shariah screen stay in their neutral view, the admin-only pages say "Your account could not be
 checked — the server did not answer" with *Retry* and *Open the chart*, and an answered "signed out"
-(expired cookie) sends the browser to sign in and back to the page it was on. An instance with
+(expired cookie) sends the browser to sign in and back to the page it was on. Since the V4 polish the
+same sentence is also in the chart's product menu (the avatar at the top left, and the same menu on
+every other page) with *Retry* and *Sign out*, where the account row would be — so an administrator
+whose read failed is told why the page looks like a Standard one and can recover without reloading;
+the Shariah screen shows its own read-only sentence with *Retry* above its tabs. An instance with
 accounts disabled is still the administrator's. The navigation never offers an admin-only page to a
 non-administrator: the rail, the product menu, the section tabs (no "Automations · Journal" strip
 above a refusal) and the Manual's step links all follow the role.
@@ -278,7 +282,10 @@ Evidence: **LOCAL UI VERIFIED** (ZECUSDT 15m, 2026-08-01→11-01). Reference:
 
 **Where:** `http://127.0.0.1:8765` after `set -a; source <platform backend env>; set +a;
 PLATFORM_BACKEND=<…>/platform/platform/backend python3 -m backtester` from the `research`
-checkout. **Who:** whoever runs it on that Mac (loopback only). **Prerequisite:** the Platform
+checkout. **Who:** whoever runs it on that Mac (loopback only: the controller listens on
+`127.0.0.1`, so the Platform's "Open Research Backtester / Optimizer" link and this address work only
+in a browser on the Mac that runs Research — from another computer they do not resolve, by design;
+the Platform page says so since the V4 polish). **Prerequisite:** the Platform
 backend's full environment (`.env`, or at least `AUTH_ENABLED=false`, `ALERT_ENCRYPTION_KEY`,
 `ALLOWED_WEBHOOK_HOSTS`; `DATABASE_URL` defaults to :5433), and candles prepared on the Platform
 with `POST /api/data/backfill` for **every feed the strategy reads** (chart timeframe plus the

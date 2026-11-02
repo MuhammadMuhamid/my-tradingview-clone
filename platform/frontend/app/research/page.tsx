@@ -130,9 +130,9 @@ function BacktestsView() {
         run itself, and the list is one Back away.
       */}
       <section className="mb-3 rounded-md border border-border px-3 py-2 text-xs text-ink-muted">
-            Quick backtest tests one configuration. <a className="text-accent underline" href="http://127.0.0.1:8765" target="_blank" rel="noreferrer">Open Research Backtester / Optimizer</a> to search many configurations.
+            Quick backtest tests one configuration. <a className="text-accent underline" href="http://127.0.0.1:8765" target="_blank" rel="noreferrer">Open Research Backtester / Optimizer</a> to search many configurations — it opens the Research app on this Mac only (it listens on this computer's loopback address, so the link does not work from another computer).
             <details className="mt-1"><summary className="cursor-pointer">Research is not running?</summary>
-              <p>On this Mac, open a terminal in the Research checkout and run <code>python3 -m backtester</code>, then reopen the link. Both checkouts and the prepared market data must be available. Opening this link starts no service or download.</p>
+              <p>On the Mac that runs Research, open a terminal in the Research checkout and run <code>python3 -m backtester</code>, then reopen the link from a browser on that same Mac. Both checkouts and the prepared market data must be available. Opening this link starts no service or download.</p>
             </details>
           </section>
           <BacktestForm key={preset ? `${preset.id}:${strategies.length > 0}` : "new"}

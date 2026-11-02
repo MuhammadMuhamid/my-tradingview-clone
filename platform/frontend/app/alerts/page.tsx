@@ -272,15 +272,16 @@ export default function AlertsPage() {
               : alertInventoryTitle(activeCount, alerts.length, evaluatorOff)
           }
           right={
-            // The button keeps its one line; on a phone the symbol field is
-            // what gives up width, and the title beside it wraps instead.
-            <div className="ml-3 flex shrink-0 items-center gap-2">
+            // The button keeps its one line and the symbol field keeps its full
+            // width at every size: a ticker like SOLUSDT is never clipped. On a
+            // phone the whole block drops under the title (CardHeader wraps).
+            <div className="flex shrink-0 items-center gap-2">
               <input
                 value={newSymbol}
                 onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
                 placeholder="SYMBOL"
                 aria-label="Symbol for a new level alert"
-                className="w-[84px] rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent sm:w-[110px]"
+                className="w-[110px] rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
               <Button variant="primary" onClick={() => setLevelOpen(true)} disabled={!newSymbol.trim()}
                 className="shrink-0 whitespace-nowrap">

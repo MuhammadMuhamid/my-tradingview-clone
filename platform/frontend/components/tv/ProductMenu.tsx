@@ -61,11 +61,12 @@
 import { useEdgeClamp } from "@/lib/useEdgeClamp";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useExclusivePopover } from "@/lib/useExclusivePopover";
 import { useOpsHealth, useStreamSummary } from "@/lib/navStatus";
 import { linksFor, productMenuLinks, PRODUCT_NAME, SYSTEM_LINKS } from "@/lib/navigation";
-import { signOut as signOutSession, useIsAdmin, useSession } from "@/lib/session";
+import { refreshSession, signOut as signOutSession, useIsAdmin, useSession } from "@/lib/session";
+import { SESSION_UNREADABLE_NOTICE } from "@/components/AdminOnlyPage";
 import { Avatar } from "@/components/AuthShell";
 import { menuItems, moveMenuFocus } from "@/lib/menuKeyboard";
 import { THEME_KEY, type ThemeName } from "@/components/ThemeToggle";
@@ -211,6 +212,11 @@ export function ProductMenu(
   const username = useUsername();
   const session = useSession();
   const account = session?.authEnabled ? session.user : null;
+  // A read that did not answer is neither "signed out" nor "the administrator"
+  // (`lib/session` `readFailed`); the menu says so, and offers Retry and Sign
+  // out, instead of opening as a neutral menu that explains nothing.
+  const unreadable = session?.readFailed === true;
+  const unreadableNoticeId = useId();
   const admin = useIsAdmin();
   const [open, setOpen] = useExclusivePopover("product-menu");
   const boxRef = useRef<HTMLDivElement>(null);
@@ -241,9 +247,11 @@ export function ProductMenu(
     };
   }, [open, setOpen]);
 
+  // Re-run when the session becomes readable while the menu is open: Retry
+  // unmounts its own row, and focus would otherwise fall to <body>.
   useEffect(() => {
     if (open) menuItems(menuRef.current)[0]?.focus();
-  }, [open]);
+  }, [open, unreadable]);
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === "Escape") {
@@ -466,6 +474,37 @@ export function ProductMenu(
             </>
           )}
 
+          {unreadable && (
+            <>
+              {/*
+                Where the account row would be. The sentence is the admin-only
+                pages' sentence for the same state (`AdminOnlyPage`), so the
+                menu and those pages describe a failed read the same way. Not a
+                `menuitem`: it is read, not chosen, and the Retry row carries it
+                as its description. Retry re-reads in place and
+                leaves the menu open, so the account row appears here when the
+                server answers — the chart had no recovery short of a reload.
+              */}
+              <p id={unreadableNoticeId} className="mx-1.5 px-2.5 py-2 text-[12px] leading-[18px] text-ink-faint">
+                {SESSION_UNREADABLE_NOTICE}
+              </p>
+              <button
+                type="button"
+                role="menuitem"
+                aria-describedby={unreadableNoticeId}
+                onClick={() => void refreshSession()}
+                className="tvc-menu-row gap-1 pl-1 pr-2.5 text-left text-[14px] font-normal text-ink"
+              >
+                <Glyph>
+                  <path d="M20 12a8 8 0 11-2.4-5.7" />
+                  <path d="M20 4v5h-5" />
+                </Glyph>
+                <span className="flex-1 truncate">Retry</span>
+              </button>
+              <Spacer />
+            </>
+          )}
+
           {linksFor(productMenuLinks().map((x) => ({ ...x, href: x.link.href })), admin).map(({ link, nested }) => (
             <MenuLink key={link.href} href={link.href} path={path} nested={nested} onDone={() => setOpen(false)}>
               {link.label}
@@ -555,14 +594,14 @@ export function ProductMenu(
             </button>
           )}
 
-          {username && (
+          {(username || unreadable) && (
             <>
               <Spacer />
               <button
                 type="button"
                 role="menuitem"
                 onClick={signOut}
-                title={`Signed in as ${username}`}
+                title={username ? `Signed in as ${username}` : "Sign out of this browser"}
                 className="tvc-menu-row gap-1 pl-1 pr-2.5 text-left text-[14px] font-normal text-down"
               >
                 <Glyph>
