@@ -246,7 +246,10 @@ export interface ChartToolbarProps {
   /**
    * False for a KNOWN ordinary account, which the server refuses the ticket,
    * automation, the tester's strategy and the optimizer: Trade, Automate,
-   * Strategy and Best config are then not drawn. Omitted means shown.
+   * Strategy and Best config are then not drawn, and the ⋯ row that opens the
+   * secondary strip names only what is left in it ("History depth"). The page
+   * also passes false while the session is still being read. Omitted means
+   * shown.
    */
   admin?: boolean;
 
@@ -1170,7 +1173,11 @@ export function ChartToolbar(props: ChartToolbarProps) {
                   className="flex h-[38px] w-full items-center gap-2 rounded-md px-2.5 text-left text-sm text-ink hover:bg-state-hover"
                 >
                   <span className="min-w-0 flex-1 truncate">
-                    {moreOpen ? "Hide history, overlays & automation" : "History, overlays & automation"}
+                    {/* An ordinary account's strip holds the history depth alone:
+                        overlays and automation are the administrator's (below). */}
+                    {props.admin !== false
+                      ? (moreOpen ? "Hide history, overlays & automation" : "History, overlays & automation")
+                      : (moreOpen ? "Hide history depth" : "History depth")}
                   </span>
                 </button>
               </div>
@@ -1208,7 +1215,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           id="chart-toolbar-more"
           data-toolbar-row="secondary"
           role="group"
-          aria-label="History, overlays and automation"
+          aria-label={props.admin !== false ? "History, overlays and automation" : "History depth"}
           className="flex min-h-[38px] flex-wrap items-center gap-1 border-t border-border px-1"
         >
           <div {...ctl("history")} role="group" aria-label="History depth"
@@ -1280,7 +1287,7 @@ export function ChartToolbar(props: ChartToolbarProps) {
           <button
             type="button"
             onClick={() => onMoreOpen(false)}
-            aria-label="Hide history, overlays and automation"
+            aria-label={props.admin !== false ? "Hide history, overlays and automation" : "Hide history depth"}
             data-tooltip="Hide this row"
             className={`${TOOL_ICON_BUTTON} ml-auto`}
           >

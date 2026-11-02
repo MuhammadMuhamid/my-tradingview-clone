@@ -7,7 +7,9 @@
  * one of them a control that appears to work and ends in a refusal, under a
  * header that said "every classification is published deliberately by you".
  * A known user now gets the read-only screen and a header that says who
- * decides; the administrator (and an unknown session) keeps everything.
+ * decides; the administrator (and a session that could not be read) keeps
+ * everything. While the session is still being read, nobody is offered a
+ * write control: the read-only view is the neutral one.
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -158,4 +160,59 @@ test("the administrator keeps the whole operator surface", async () => {
   await settle();
   assert.ok(screen.getByText("Publish a decision"));
   assert.ok(button(/Record evidence/));
+});
+
+/*
+ * While the session is still being read the role is unknown. The operator's
+ * controls must not flash in that window — an ordinary account would watch
+ * Turn on and Sync appear and vanish — and nothing may say the screen is
+ * refused either. The read-only view is the neutral one.
+ */
+function assertNeutral(): void {
+  for (const name of [/^Turn on$/, /^Turn off$/, /Sync universe/, /Create universe snapshot/, /Select due assets for a pack/]) {
+    assertAbsent(button(name), `the write control ${name} before the role is known`);
+  }
+  assertAbsent(screen.queryByLabelText(/Days after which a settled decision is surfaced as due for re-review/),
+    "the re-review horizon selector before the role is known");
+  assertAbsent(screen.queryByText(/published deliberately by you/), "the operator's header before the role is known");
+  assertAbsent(screen.queryByText(/managed by the administrator/), "the user's header before the role is known");
+  assertAbsent(screen.queryByText(/^You publish evidence-backed/), "the operator's first-person line before the role is known");
+  assertAbsent(screen.queryByText(/^The administrator publishes/), "the user's line before the role is known");
+  assert.ok(screen.getByText(/Screening decisions are published deliberately; nothing here is decided automatically\./),
+    "the role-free header while the role is unknown");
+  assertAbsent(screen.queryByText(/administrator only/), "a refusal for a question still being answered");
+  assert.ok(screen.getByText(/Platform mode: ON/), "the screen itself is read meanwhile");
+}
+
+test("an unknown session shows the neutral read-only screen, then the administrator's controls appear", async () => {
+  me("admin");
+  const release = server.hold("/api/auth/me");
+  await mount();
+  assertNeutral();
+
+  release();
+  await settle();
+  assert.ok(screen.getByText(/every classification is published deliberately by you/));
+  assert.ok(screen.getByText(/^You publish evidence-backed/));
+  assertAbsent(screen.queryByText(/Screening decisions are published deliberately;/), "the role-free header after the answer");
+  assert.ok(button(/^Turn off$/), "the administrator's mode control");
+  assert.ok(button(/Sync universe/));
+  assert.ok(screen.getByLabelText(/Days after which a settled decision is surfaced as due for re-review/));
+});
+
+test("an unknown session shows the neutral read-only screen, then an ordinary account stays read-only", async () => {
+  me("user");
+  const release = server.hold("/api/auth/me");
+  await mount();
+  assertNeutral();
+
+  release();
+  await settle();
+  assert.ok(screen.getByText(/Screening decisions and enforcement are managed by the administrator\./),
+    "the user's header once the role is known");
+  assert.ok(screen.getByText(/^The administrator publishes evidence-backed/), "the user's line once the role is known");
+  assertAbsent(screen.queryByText(/Screening decisions are published deliberately;/), "the role-free header after the answer");
+  assertAbsent(button(/^Turn off$/), "the mode control for a known user");
+  assertAbsent(button(/Sync universe/), "Sync for a known user");
+  assert.ok(screen.getByText("365 days"), "the horizon is stated, not offered");
 });

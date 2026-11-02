@@ -6,8 +6,11 @@
  * part of the platform is available to the administrator only." The
  * navigation already hid the admin pages; the chart drew both bottom tabs and
  * the Trade pill for everyone, so an ordinary user met two tabs that could
- * only ever show that refusal. An admin, and a session not yet read, keep all
- * of it.
+ * only ever show that refusal. An admin, and a session that could not be read,
+ * keep all of it. While the session is still being READ the chart offers none
+ * of it — nothing admin-only flashes for an ordinary account — and nothing it
+ * hides is forgotten: the administrator's stored tab is still theirs once the
+ * answer is in.
  */
 import { after, afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -36,8 +39,8 @@ afterEach(() => {
 });
 after(closeBrowser);
 
-/** Sign in as `role` and let the session be read, as a page navigated to would find it. */
-async function signIn(role: "admin" | "user"): Promise<void> {
+/** Answer the session read as `role` — without reading it yet. */
+function account(role: "admin" | "user"): void {
   server.routes.set("GET /api/auth/me", () => ({
     authenticated: true, authEnabled: true, providers: { google: false, signups: true },
     user: {
@@ -47,6 +50,11 @@ async function signIn(role: "admin" | "user"): Promise<void> {
       createdAt: "2026-10-16T00:00:00.000Z",
     },
   }));
+}
+
+/** Sign in as `role` and let the session be read, as a page navigated to would find it. */
+async function signIn(role: "admin" | "user"): Promise<void> {
+  account(role);
   // Before anything is stored: a first sign-in clears another account's cache.
   await loadSession();
 }
@@ -65,6 +73,11 @@ const selected = (strip: HTMLElement): string[] =>
   [...strip.querySelectorAll('[role="tab"][aria-selected="true"]')].map((t) => (t.textContent ?? "").trim());
 const tradePill = (container: HTMLElement): Element | null =>
   container.querySelector('[data-toolbar-control="trade"]');
+/** The right rail's Automations and order-ticket cells (`ChartSidePanel`). */
+const automationsCell = (container: HTMLElement): Element | null =>
+  container.querySelector('button[aria-label="Automations"]');
+const ticketCell = (container: HTMLElement): Element | null =>
+  container.querySelector('button[aria-label="Paper / demo / testnet order ticket"]');
 
 test("an ordinary account sees the Pine Editor alone, and nothing it would be refused", async () => {
   await signIn("user");
@@ -103,4 +116,76 @@ test("the administrator keeps all three tabs, the stored one, and Trade", async 
   assert.ok(tradePill(chart.container), "the administrator lost the Trade ticket");
   assert.ok(reads.includes("manualState") && reads.includes("listStrategies"),
     "the administrator's reads did not start");
+});
+
+/** The ⋯ dropdown's row that opens the secondary strip, by what it says. */
+async function stripToggleLabel(container: HTMLElement): Promise<string> {
+  const more = container.querySelector<HTMLElement>('button[aria-label="More controls"]');
+  assert.ok(more, "setup: the ⋯ cell is missing");
+  fireEvent.click(more);
+  await settle();
+  const toggle = container.querySelector<HTMLElement>('#chart-toolbar-overflow button[aria-controls="chart-toolbar-more"]');
+  assert.ok(toggle, "setup: the ⋯ dropdown has no row for the secondary strip");
+  const label = (toggle.textContent ?? "").trim();
+  fireEvent.click(more);
+  await settle();
+  return label;
+}
+
+test("an unknown session offers nothing admin-only, then the administrator gets it all back", async () => {
+  account("admin");
+  window.localStorage.setItem("tv.bottomTab", "tester");
+  const release = server.hold("/api/auth/me");
+  const chart = await mountChart();
+  await settle();
+  const strip = await openBottomPanel(chart.container);
+
+  assert.deepEqual(tabs(strip), ["Pine Editor"], "an admin-only tab was offered before the role was known");
+  assert.equal(tradePill(chart.container), null, "the Trade ticket flashed before the role was known");
+  assert.equal(automationsCell(chart.container), null, "the rail's Automations flashed before the role was known");
+  assert.equal(ticketCell(chart.container), null, "the rail's order ticket flashed before the role was known");
+  assert.equal(await stripToggleLabel(chart.container), "History depth");
+  assert.doesNotMatch(chart.container.textContent ?? "", /administrator only/,
+    "a refusal was shown for a question still being answered");
+  // A copy: `deepEqual` narrows its argument, and `reads` is read again below.
+  assert.deepEqual([...reads], [], "admin-only reads started before the role was known");
+
+  release();
+  await settle(6);
+  assert.deepEqual(tabs(strip), ["Positions & Orders", "Strategy Tester", "Pine Editor"]);
+  assert.deepEqual(selected(strip), ["Strategy Tester"], "the administrator's stored tab was lost");
+  assert.ok(tradePill(chart.container), "the Trade ticket did not appear once the role was known");
+  assert.ok(automationsCell(chart.container), "the rail's Automations did not appear once the role was known");
+  assert.ok(ticketCell(chart.container), "the rail's order ticket did not appear once the role was known");
+  assert.equal(await stripToggleLabel(chart.container), "History, overlays & automation");
+  assert.ok(reads.includes("manualState") && reads.includes("listStrategies"),
+    "the administrator's reads did not start once the role was known");
+});
+
+test("an unknown session that resolves to an ordinary account stays without admin-only controls", async () => {
+  account("user");
+  const release = server.hold("/api/auth/me");
+  const chart = await mountChart();
+  await settle();
+  const strip = await openBottomPanel(chart.container);
+  assert.deepEqual(tabs(strip), ["Pine Editor"], "an admin-only tab was offered before the role was known");
+  assert.equal(tradePill(chart.container), null);
+  assert.equal(automationsCell(chart.container), null, "the rail's Automations flashed before the role was known");
+  assert.equal(ticketCell(chart.container), null, "the rail's order ticket flashed before the role was known");
+
+  release();
+  await settle(6);
+  assert.deepEqual(tabs(strip), ["Pine Editor"]);
+  assert.equal(tradePill(chart.container), null);
+  assert.equal(automationsCell(chart.container), null, "Automations for a known user");
+  assert.equal(ticketCell(chart.container), null, "the order ticket for a known user");
+  assert.doesNotMatch(chart.container.textContent ?? "", /administrator only/);
+  assert.deepEqual(reads, [], "admin-only reads started for a user");
+});
+
+test("the ⋯ row names what an ordinary account's strip holds: the history depth alone", async () => {
+  await signIn("user");
+  const chart = await mountChart();
+  await settle();
+  assert.equal(await stripToggleLabel(chart.container), "History depth");
 });

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui";
 import { fmtUtcStamp } from "@/lib/format";
 import { failureReason, ownRefusal } from "@/lib/errorCopy";
-import { useIsAdmin } from "@/lib/session";
+import { useSessionRole } from "@/lib/session";
 
 /**
  * The private Shariah review console.
@@ -265,10 +265,16 @@ export default function ShariahPage() {
    * An ordinary account may READ this screen (`GET /api/shariah/*`) and every
    * write is refused with a 403. Offering it Turn on, Sync, the batch review
    * and the publish form was a set of controls that appear to work and end in
-   * a refusal; for a known user they are not rendered. An unknown session
-   * keeps them, as the navigation does — the backend is still what refuses.
+   * a refusal; for a known user they are not rendered. While the session is
+   * still being read they are not rendered either, so they never flash: the
+   * read-only view is the neutral one (no control, no refusal, and copy that
+   * is true for any account). A session that could not be read keeps them, as
+   * the navigation does — the backend is still what refuses. The header's
+   * copy is role-free in that window too, so neither the operator's "by you"
+   * nor the user's "by the administrator" is a guess.
    */
-  const canManage = useIsAdmin();
+  const role = useSessionRole();
+  const canManage = role === "admin";
 
   const loadUniverse = useCallback(async () => {
     try {
@@ -462,9 +468,13 @@ export default function ShariahPage() {
             title="Shariah"
             description={canManage
               ? `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`
+              : role === "unknown"
+              ? `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · Screening decisions are published deliberately; nothing here is decided automatically.`
               : `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · Screening decisions and enforcement are managed by the administrator. This screen shows the current universe and, for each asset, the published decision, its evidence and whether a BUY is allowed under the current mode.`}
           />
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">{canManage ? "You publish" : "The administrator publishes"} evidence-backed screening decisions; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">{canManage ? "You publish evidence-backed screening decisions"
+            : role === "unknown" ? "Screening decisions are evidence-backed"
+            : "The administrator publishes evidence-backed screening decisions"}; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
           <details className="mt-1 text-xs text-ink-muted"><summary className="cursor-pointer">Understand screening statuses</summary>
             <p className="mt-1">ELIGIBLE: approved under a published decision. REVIEW: evidence needs further review. EXCLUDED: excluded under the published policy. UNSCREENED: no decision yet. UNKNOWN: registry identity cannot be established. STALE: a prior decision was invalidated and fresh review is required. All except ELIGIBLE block new BUY when Mode is ON.</p>
             <p>Due for re-review is an advisory reminder: the existing decision still stands. It is different from STALE.</p>

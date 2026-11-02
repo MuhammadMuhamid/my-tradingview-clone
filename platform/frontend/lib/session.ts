@@ -82,16 +82,41 @@ export function useSession(): SessionState | null {
 }
 
 /**
- * False only once the account is KNOWN to be an ordinary one.
+ * What this account may be OFFERED: "admin", "user", or "unknown" while the
+ * one shared session read is still in flight.
  *
- * The backend is what enforces reach; this only decides what the navigation
- * offers. Hiding the administrator's pages whenever the session could not be
- * read (offline, a slow first request) would lock the admin out of their own
- * menu, so an unknown session keeps everything visible.
+ * The backend is what enforces reach; this only decides what the screen
+ * offers. "unknown" exists so that nothing is drawn as the administrator's —
+ * and nothing is drawn as refused — before the answer is in: the server render
+ * and the first client paint of a page used to show every admin control, and
+ * an ordinary account watched them appear and then vanish. A caller renders a
+ * neutral state for it (no admin controls, no restriction notice).
+ *
+ * Once the read has ANSWERED, only an account known to be ordinary is "user".
+ * A read that failed (offline, a 5xx) and an instance without authentication
+ * are "admin": hiding the administrator's pages whenever the session could not
+ * be read would lock the admin out of their own menu, and the server refuses
+ * anyone else regardless. `lib/api.ts` `refusedForThisAccount` applies the
+ * same rule.
+ */
+export type SessionRole = "admin" | "user" | "unknown";
+
+export function roleOf(s: SessionState | null): SessionRole {
+  if (s === null) return "unknown";
+  return s.authEnabled && s.user?.role === "user" ? "user" : "admin";
+}
+
+export function useSessionRole(): SessionRole {
+  return roleOf(useSession());
+}
+
+/**
+ * True once the account is known to be one the administrator's controls are
+ * for (see `useSessionRole`). False for an ordinary account AND while the
+ * session is still being read, so no admin control is drawn before the answer.
  */
 export function useIsAdmin(): boolean {
-  const s = useSession();
-  return !(s?.authEnabled && s.user?.role === "user");
+  return useSessionRole() === "admin";
 }
 
 export async function signOut(everywhere = false): Promise<void> {

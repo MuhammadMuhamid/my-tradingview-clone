@@ -10,17 +10,18 @@
  * that appear to work. This says the limit in the page copy instead, and does
  * not mount the page, so none of its reads or effects run.
  *
- * `useIsAdmin` keeps its meaning: only an account KNOWN to be ordinary is
+ * Three states, from `useSessionRole`: only an account KNOWN to be ordinary is
  * turned away; an unreadable session or an instance without authentication
  * renders the page as before (the backend is what enforces reach). While the
- * one shared session read is still in flight the page is not mounted yet —
- * its admin-only reads would wait on that same read anyway (`lib/api.ts`
- * `refusedForThisAccount`), so holding the mount costs no time.
+ * one shared session read is still in flight ("unknown") the page is neither
+ * mounted nor refused — it says it is checking. Its admin-only reads would
+ * wait on that same read anyway (`lib/api.ts` `refusedForThisAccount`), so
+ * holding the mount costs no time.
  */
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button, Loading, Notice, PageHeader, PageShell } from "@/components/ui";
-import { useIsAdmin, useSession } from "@/lib/session";
+import { useSessionRole } from "@/lib/session";
 
 export const ADMIN_ONLY_PAGE_NOTICE =
   "This page is for the administrator. It acts on the platform owner's exchange account, bots or "
@@ -33,10 +34,9 @@ export function AdminOnlyPage({ title, width, children }: {
   width?: "wide" | "narrow";
   children: ReactNode;
 }) {
-  const session = useSession();
-  const isAdmin = useIsAdmin();
+  const role = useSessionRole();
 
-  if (session === null) {
+  if (role === "unknown") {
     return (
       <PageShell width={width}>
         <PageHeader title={title} />
@@ -44,7 +44,7 @@ export function AdminOnlyPage({ title, width, children }: {
       </PageShell>
     );
   }
-  if (isAdmin) return <>{children}</>;
+  if (role === "admin") return <>{children}</>;
 
   return (
     <PageShell width={width}>

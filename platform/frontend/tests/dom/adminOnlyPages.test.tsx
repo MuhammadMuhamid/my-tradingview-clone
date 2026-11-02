@@ -121,3 +121,47 @@ test("a session that could not be read keeps the page (the backend enforces reac
   assert.equal(body().includes(NOTICE), false);
   assert.ok(server.callsTo("/api/journal").length >= 1);
 });
+
+/*
+ * While the one shared session read is in flight the role is UNKNOWN: the page
+ * must neither be mounted (its admin-only controls would flash) nor refused
+ * (the notice would be a guess). It says it is checking, and asks for nothing.
+ */
+function assertCheckingAccount(): void {
+  assert.ok(screen.getByRole("heading", { level: 1, name: "Journal" }), "the page keeps its own title");
+  assert.ok(body().includes("Checking your account…"), "the neutral state says what it is waiting for");
+  assert.equal(document.querySelector("form"), null, "the Journal form flashed before the role was known");
+  assert.equal(body().includes(NOTICE), false, "the restriction was shown before the role was known");
+  assert.equal(screen.queryByRole("alert"), null, "no failure for a question still being answered");
+  assert.deepEqual(pageCalls(), [], "the page asked the server for something before the role was known");
+}
+
+test("an unknown session shows /journal as neutral, then the administrator gets the page", async () => {
+  account("admin");
+  const release = server.hold("/api/auth/me");
+  render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
+  await settle(6);
+  assertCheckingAccount();
+
+  release();
+  await settle(6);
+  assert.ok(document.querySelector("form"), "the administrator's filter form is drawn once the role is known");
+  assert.equal(body().includes("Checking your account…"), false);
+  assert.equal(body().includes(NOTICE), false);
+  assert.ok(server.callsTo("/api/journal").length >= 1, "the journal was not read");
+});
+
+test("an unknown session shows /journal as neutral, then an ordinary account gets the notice", async () => {
+  account("user");
+  const release = server.hold("/api/auth/me");
+  render(<AppRoute path="/journal"><JournalPage /></AppRoute>);
+  await settle(6);
+  assertCheckingAccount();
+
+  release();
+  await settle(6);
+  assert.equal(screen.getByRole("status").textContent, NOTICE);
+  assert.equal(document.querySelector("form"), null);
+  assert.equal(body().includes("Checking your account…"), false);
+  assert.deepEqual(pageCalls(), [], "the page asked the server for something");
+});

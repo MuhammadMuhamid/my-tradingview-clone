@@ -453,8 +453,9 @@ export default function TvWorkspace() {
   /*
    * Manual trading, Automations, the Strategy Tester, the strategy list and
    * the optimizer are the administrator's: the server refuses an ordinary
-   * account every one of them. False only once the account is KNOWN to be an
-   * ordinary one, so an admin on a slow or unread session keeps everything.
+   * account every one of them. False for a known ordinary account and while
+   * the session is still being read (nothing flashes before the answer); an
+   * admin, and a session that could not be read, keep everything.
    */
   const admin = useIsAdmin();
   /*
