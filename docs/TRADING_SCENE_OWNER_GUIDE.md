@@ -13,9 +13,9 @@ a disposable database during the campaign; screenshots in the campaign evidence 
 executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no credentialed exchange call has ever
 been made from this workspace, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 
-Final test runs (2026-11-02, Experience-Finish V4, at platform `d925f56` / research `9cb54fa`, logs in
-`Trading-Scene-Campaign/Experience-Finish-V4/evidence/final-*.log`): Platform backend 1,498 tests,
-0 skipped; Platform frontend 1,588 unit + 663 DOM, 0 skipped; Research 262 Python (0 skipped, single
+Final test runs (2026-11-02, Experience-Finish V4, at platform `cefef1f` / research `c0c4314`, logs in
+`Trading-Scene-Campaign/Experience-Finish-V4/evidence/final-*.log`): Platform backend 1,499 tests,
+0 skipped; Platform frontend 1,589 unit + 665 DOM, 0 skipped; Research 262 Python (0 skipped, single
 run, no tear-down race this time) + 127 node `.mjs` + 29 TypeScript; Bot unchanged since the V2 logs
 (386 backend, 13 dashboard). Two-account isolation and Shariah publication ran against a real
 PostgreSQL 16. `tsc` (backend and frontend) and `next build` pass at the final commit. (V3 figures for
@@ -132,9 +132,13 @@ Status tab says which of *not required / not armed / enforcing / unknown / out o
 
 **Unsupported/unverified:** other asset classes (refused for BUY under enforcement); production
 mode is not visible here; the owner must decide whether a no-channel installation may show ON.
-Evidence: **LOCAL UI VERIFIED** (full fixture cycle with ELIGIBLE / REVIEW / EXCLUDED, mode on/off,
-read-only user view), **TESTED** (`shariahGate`, `shariahExitAvailability`, `shariahReviewBatch`,
-`shariahUniverseDb` on real Postgres; Bot `shariahEnforcement`). Reference:
+Evidence: **LOCAL UI VERIFIED** (V4, 2026-11-02: two independent fresh-context evaluators each walked the whole
+journey in a real browser with authentication on — empty registry → sync → select → pack → invalid and valid
+import → publish → per-asset publish → reload / new tab / sign-out-in persistence → Mode ON with confirmation →
+Bot floor "not armed" → Mode OFF → Standard read-only view; the first found the publication 401, the second
+completed everything; ledgers and 58 screenshots under `Experience-Finish-V4/`), **TESTED** (`shariahRoutes` with
+account sessions, `shariahGate`, `shariahExitAvailability`, `shariahReviewBatch`, `shariahUniverseDb` on real
+Postgres; Bot `shariahEnforcement`; 17 first-use DOM tests). Reference:
 [FINAL_SYSTEM_GUIDE_SHARIAH_2026-10-11.md](FINAL_SYSTEM_GUIDE_SHARIAH_2026-10-11.md).
 
 ---
