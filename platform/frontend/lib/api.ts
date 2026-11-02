@@ -482,7 +482,7 @@ export interface CompactCandles {
   interval: Resolution;
   stepMs: number;
   count: number;
-  completeness?: { complete: boolean; missingBars: number; truncated: boolean; limitation?: string };
+  completeness?: { complete: boolean; missingBars: number; truncated: boolean; limitation?: string; note?: string };
   bars: CompactBar[];
 }
 
