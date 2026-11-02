@@ -16,7 +16,11 @@ import {
   importResultsPath,
   ResultsFileError, evidenceCitedLabel, parseResultsFile, publicationSourceLabel, reviewPackPath,
   type ShariahAssetState, type ShariahReviewPack, type ShariahSnapshot,
+  SHARIAH_SIGN_IN_HREF, ShariahRequestError, assetsNeedingAttention, identityRefusal, namedAssetList,
+  sessionEnded,
 } from "../lib/shariah";
+import { safeNextPath } from "../lib/safeRedirect";
+import { failureReason } from "../lib/errorCopy";
 
 const ROOT = path.join(__dirname, "..");
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -130,7 +134,7 @@ test("the browser never re-derives the exposure rule", () => {
 test("the review console separates checking, summary review, and batch approval", () => {
   const page = read("app/shariah/page.tsx");
   // The queue download is sized by a picker now (10/20/50, 20 by default).
-  assert.match(page, /Download next \{size\} for ChatGPT/);
+  assert.match(page, /Download next \{size\}/);
   assert.match(page, /useState\("20"\)/);
   assert.match(page, /Review publication summary/);
   assert.match(page, /Confirm publication of/);
@@ -185,4 +189,47 @@ test("countLabel agrees the noun with the count", () => {
   assert.equal(countLabel(0, "citation", "citations"), "0 citations");
   assert.equal(countLabel(1, "citation", "citations"), "1 citation");
   assert.equal(countLabel(2, "uncertainty", "uncertainties"), "2 uncertainties");
+});
+
+// ── V4 first use ────────────────────────────────────────────────────────────
+
+const state = (over: Partial<ShariahAssetState> & { assetId: string; baseAsset: string }): ShariahAssetState => ({
+  projectName: null, binanceAvailable: true, classification: "REVIEW", lifecycle: "UNSCREENED",
+  effectiveStatus: "REVIEW", policyVersion: "TS_SHARIAH_V1", reason: null, prohibitedCategories: [],
+  reviewedAt: null, publishedAt: null, decisionAgeDays: null, dueForReReview: false, ...over,
+});
+
+test("assets needing attention: STALE, then UNSCREENED, then active due decisions — nothing settled and current", () => {
+  const picked = assetsNeedingAttention([
+    state({ assetId: "1", baseAsset: "AAA" }),
+    state({ assetId: "2", baseAsset: "BBB", lifecycle: "SCREENED", effectiveStatus: "ELIGIBLE", dueForReReview: true }),
+    state({ assetId: "3", baseAsset: "CCC", lifecycle: "STALE" }),
+    state({ assetId: "4", baseAsset: "DDD", lifecycle: "SCREENED", effectiveStatus: "EXCLUDED" }),
+    // Due but delisted: not counted, exactly as counts.dueForReReview does not count it.
+    state({ assetId: "5", baseAsset: "EEE", lifecycle: "SCREENED", effectiveStatus: "ELIGIBLE",
+      dueForReReview: true, binanceAvailable: false }),
+    state({ assetId: "6", baseAsset: "FFF" }),
+  ]);
+  assert.deepEqual(picked.map((a) => a.baseAsset), ["CCC", "AAA", "FFF", "BBB"]);
+});
+
+test("a downloaded pack is named, not just counted, and a long one stays one line", () => {
+  assert.equal(namedAssetList(["BTC", "ETH", "SOL"]), "BTC, ETH, SOL (3)");
+  const many = Array.from({ length: 23 }, (_, i) => `T${i}`);
+  assert.equal(namedAssetList(many), "T0, T1, T2, T3, T4, T5, T6, T7, T8, T9 and 13 more (23)");
+});
+
+test("an ended session is told apart from every other refusal, and the way back lands on this tab", () => {
+  const ended = new ShariahRequestError("not authenticated", 401);
+  assert.equal(sessionEnded(ended), true);
+  assert.match(identityRefusal(ended)!, /^Your session has ended — sign in again \(you will return here\)\./);
+  const forbidden = new ShariahRequestError("This part of the platform is available to the administrator only.", 403);
+  assert.equal(sessionEnded(forbidden), false);
+  assert.match(identityRefusal(forbidden)!, /only the administrator can/);
+  // A refusal of the decision itself is the server's own sentence, not an identity problem.
+  const refused = new ShariahRequestError("ELIGIBLE requires at least one evidence item", 400);
+  assert.equal(identityRefusal(refused), null);
+  assert.equal(failureReason(refused), "ELIGIBLE requires at least one evidence item.");
+  // The login page accepts the target as-is: it is a same-origin path.
+  assert.equal(safeNextPath(new URL(SHARIAH_SIGN_IN_HREF, "http://x").searchParams.get("next")), "/shariah?view=screening");
 });

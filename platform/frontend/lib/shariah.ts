@@ -193,6 +193,23 @@ export const UNIVERSE_FILTER_EMPTY: Record<ShariahUniverseFilter, string> = {
   all: "The registry holds no assets yet.",
 };
 
+/**
+ * A refused or failed Shariah request, with the HTTP status it came back with.
+ *
+ * The message alone could not tell "your session has ended" (401) from "this
+ * account may not do this" (403) from the server judging the request (400):
+ * all three were read out of prose, and a 401 whose body says "not
+ * authenticated" matched none of the patterns, so the page said nothing
+ * useful. `detail` is the server's sentence, the shape `ownRefusal` reads.
+ */
+export class ShariahRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ShariahRequestError";
+  }
+  get detail(): string { return this.message; }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
@@ -207,7 +224,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       const body = (await res.json()) as { error?: string };
       if (body.error) msg = body.error;
     } catch { /* keep status text */ }
-    throw new Error(msg);
+    throw new ShariahRequestError(msg, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -340,6 +357,67 @@ export function reviewPackPath(request: ShariahReviewPackRequest = {}): string {
   }
   const query = params.toString();
   return `/api/shariah/review-pack${query ? `?${query}` : ""}`;
+}
+
+/*
+ * Where "sign in again" goes, and where it brings the operator back to.
+ *
+ * The login page already honours `?next=` (validated by `safeNextPath`), and
+ * this page already opens the Screening tab for `?view=screening`. Without it
+ * a sign-in after an expired session landed on the chart. The pasted results
+ * are deliberately NOT kept across it — this surface keeps no browser storage
+ * — so the copy that offers this link says so.
+ */
+export const SHARIAH_SIGN_IN_HREF = `/login?next=${encodeURIComponent("/shariah?view=screening")}`;
+
+function httpStatusOf(cause: unknown): number | null {
+  const status = (cause as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : null;
+}
+
+/** The session ended (401), as opposed to any other refusal. */
+export function sessionEnded(cause: unknown): boolean {
+  return httpStatusOf(cause) === 401;
+}
+
+/** The two refusals that are about WHO is asking, in the reader's words; null for any other. */
+export function identityRefusal(cause: unknown): string | null {
+  const status = httpStatusOf(cause);
+  if (status === 401) {
+    return "Your session has ended — sign in again (you will return here). "
+      + "Text pasted on this page is not kept, so copy it first if you need it.";
+  }
+  if (status === 403) {
+    return "This account may read Shariah decisions but not change them; only the administrator can.";
+  }
+  return null;
+}
+
+/**
+ * Assets that need a reviewer's attention, in the review queue's own order:
+ * STALE, then UNSCREENED, then settled decisions due for re-review.
+ *
+ * "Select due assets" used to pick only the last group, so it stayed disabled
+ * while every asset on a freshly synced install was UNSCREENED. UNSCREENED and
+ * STALE are taken whether or not the ticker is still listed, because the
+ * "Needs attention" count beside the button counts them that way; a due
+ * decision only while it is active, as `counts.dueForReReview` does.
+ */
+export function assetsNeedingAttention(assets: readonly ShariahAssetState[]): ShariahAssetState[] {
+  const rank = (a: ShariahAssetState): number =>
+    a.lifecycle === "STALE" ? 0 : a.lifecycle === "UNSCREENED" ? 1
+      : a.dueForReReview === true && a.binanceAvailable ? 2 : -1;
+  return assets.filter((a) => rank(a) >= 0)
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => rank(x.a) - rank(y.a) || x.i - y.i)
+    .map(({ a }) => a);
+}
+
+/** "BTC, ETH, SOL (3)" — and "… and N more" past ten, so a 100-asset pack is still one line. */
+export function namedAssetList(baseAssets: readonly string[], shown = 10): string {
+  const head = baseAssets.slice(0, shown).join(", ");
+  const more = baseAssets.length > shown ? ` and ${baseAssets.length - shown} more` : "";
+  return `${head}${more} (${baseAssets.length})`;
 }
 
 /** The import URL, carrying the operator's per-asset acknowledgements beside the document. */
@@ -710,7 +788,7 @@ export const shariahApi = {
 };
 
 /**
- * Saves a review pack as a file the operator uploads to ChatGPT.
+ * Saves a review pack as a file the operator hands to an external reviewer (ChatGPT or a person).
  *
  * A Blob + object URL rather than a data: URL because a 20-asset pack with
  * prior context comfortably exceeds what some browsers accept in a navigable
@@ -769,7 +847,7 @@ export function parseResultsFile(text: string): unknown {
     // operator whether they pasted a markdown fence, commentary or half a file.
     const where = e instanceof Error ? e.message.replace(/\.$/, "") : "it could not be parsed";
     throw new ResultsFileError(
-      `The pasted text is not a JSON document: ${where}. Paste only the JSON document ChatGPT `
+      `The pasted text is not a JSON document: ${where}. Paste only the JSON document the reviewer `
       + "returned — no markdown fence, no commentary."
     );
   }

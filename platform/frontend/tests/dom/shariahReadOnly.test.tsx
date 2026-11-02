@@ -7,9 +7,10 @@
  * one of them a control that appears to work and ends in a refusal, under a
  * header that said "every classification is published deliberately by you".
  * A known user now gets the read-only screen and a header that says who
- * decides; the administrator (and a session that could not be read) keeps
- * everything. While the session is still being read, nobody is offered a
- * write control: the read-only view is the neutral one.
+ * decides; the administrator keeps everything. While the session is still
+ * being read, or when it could not be read at all, nobody is offered a write
+ * control: the read-only view is the neutral one (`sessionUnreadable` tests
+ * the failed read).
  */
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -95,7 +96,7 @@ test("a user reads the screen and is offered no control the server refuses", asy
   assertAbsent(screen.queryByText(/^You publish evidence-backed/), "the operator's first-person explanation");
 
   // Status view: what is enforced is read; nothing that changes it is offered.
-  for (const name of [/^Turn on$/, /^Turn off$/, /Sync universe/, /Create universe snapshot/, /Select due assets for a pack/]) {
+  for (const name of [/^Turn on$/, /^Turn off$/, /Sync universe/, /Create universe snapshot/, /needing review/]) {
     assertAbsent(button(name), `the write control ${name}`);
   }
   assertAbsent(screen.queryByLabelText(/Days after which a settled decision is surfaced as due for re-review/),
@@ -105,11 +106,16 @@ test("a user reads the screen and is offered no control the server refuses", asy
   assert.ok(screen.getByText(/^Bot floor:/), "the Bot floor panel");
   assert.ok(screen.getByText(/Enforcement history — 1 change/));
   assert.ok(screen.getByText("Universe at a glance"));
+  // A reader's controls say what they do for a reader: they show, they do not review.
+  assert.ok(button("Show unresolved"));
+  assert.ok(button(/^Show due today/));
+  assertAbsent(button(/^Review unresolved assets$/), "the operator's review wording");
+  assertAbsent(screen.queryByRole("tab", { name: /Screening & publication/ }), "the operator's tab name");
 
-  // Screening view: the universe, its filter and search, and the snapshots.
-  fireEvent.click(screen.getByRole("tab", { name: /Screening & publication/ }));
+  // Universe view: the universe, its filter and search, and the snapshots.
+  fireEvent.click(screen.getByRole("tab", { name: "Universe & decisions" }));
   await settle();
-  assertAbsent(screen.queryByText("Batch review with ChatGPT"), "the batch review panel");
+  assertAbsent(screen.queryByText("Batch review by an external reviewer (ChatGPT or a person)"), "the batch review panel");
   assertAbsent(button(/Download pack/), "the review-pack download");
   assertAbsent(button(/Check results/), "the results check");
   assertAbsent(button(/Select all shown/), "pack selection");
@@ -151,7 +157,7 @@ test("the administrator keeps the whole operator surface", async () => {
 
   fireEvent.click(screen.getByRole("tab", { name: /Screening & publication/ }));
   await settle();
-  assert.ok(screen.getByText("Batch review with ChatGPT"));
+  assert.ok(screen.getByText("Batch review by an external reviewer (ChatGPT or a person)"));
   assert.ok(button(/Create universe snapshot/));
   await showAllAssets();
   assert.ok(screen.getByRole("checkbox", { name: "Choose AAA for the next review pack" }));
@@ -169,7 +175,7 @@ test("the administrator keeps the whole operator surface", async () => {
  * refused either. The read-only view is the neutral one.
  */
 function assertNeutral(): void {
-  for (const name of [/^Turn on$/, /^Turn off$/, /Sync universe/, /Create universe snapshot/, /Select due assets for a pack/]) {
+  for (const name of [/^Turn on$/, /^Turn off$/, /Sync universe/, /Create universe snapshot/, /needing review/]) {
     assertAbsent(button(name), `the write control ${name} before the role is known`);
   }
   assertAbsent(screen.queryByLabelText(/Days after which a settled decision is surfaced as due for re-review/),

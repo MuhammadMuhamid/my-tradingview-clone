@@ -310,11 +310,14 @@ const RESULT_CONTRACT_REQUIRED: readonly string[] = [
   "baseAsset — copied verbatim from this pack",
   "policyVersion — must be TS_SHARIAH_V1",
   "classification — ELIGIBLE | EXCLUDED | REVIEW",
-  "answers — one factual answer per question in policy.questions (six keys)",
+  "answers — an object with exactly these six keys, one factual answer each, following policy.questions: " +
+    "project, tokenFunction, rightsExposure, coreActivities, prohibitedEvidence, evidenceSufficiency",
   "reason — the decision, in your own words, grounded in the evidence",
   "prohibitedCategories — required and non-empty for EXCLUDED, must be empty for ELIGIBLE",
-  "evidence — array of { url, title, publisher, retrievedAt, note }; required for ELIGIBLE and EXCLUDED",
+  "evidence — array of { url, title, publisher, retrievedAt, note }; required for ELIGIBLE and EXCLUDED; " +
+    "each retrievedAt is an ISO-8601 timestamp that must not be later than now",
   "unresolvedUncertainties — array of strings; anything you could not settle",
+  "researchCompletedAt (top level) — ISO-8601 timestamp when the research finished; must not be later than now",
   "packGeneratedAt (top level, optional) — copied verbatim from this pack's generatedAt",
 ];
 

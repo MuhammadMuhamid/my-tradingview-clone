@@ -102,7 +102,7 @@ test("an empty registry says what it means and what to do about it", async () =>
   const warning = screen.queryByText(/This registry is empty/i);
   assert.ok(warning, "an empty registry rendered no warning");
   const text = warning.textContent ?? "";
-  assert.match(text, /every symbol reads as REVIEW/i);
+  assert.match(text, /every asset counts as REVIEW \(UNSCREENED\) until a decision is published/i);
   assert.match(text, /would refuse every BUY/i);
   assert.match(text, /Sync universe/,
     "the warning must name the control that fixes it");
