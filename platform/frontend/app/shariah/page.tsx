@@ -18,7 +18,7 @@ import {
 } from "@/components/ui";
 import { fmtUtcStamp } from "@/lib/format";
 import { failureReason, ownRefusal } from "@/lib/errorCopy";
-import { useSessionRole } from "@/lib/session";
+import { refreshSession, useSessionRole } from "@/lib/session";
 
 /**
  * The private Shariah review console.
@@ -588,6 +588,14 @@ export default function ShariahPage() {
       )}
 
       <BotFloorPanel state={modeState} unreadable={loaded} />
+
+      {role === "unreadable" && (
+        <Notice tone="warn" role="alert">
+          <span className="mr-2">Your account could not be checked — the server did not answer. The screen stays
+            read-only until it can be read; nothing here is refused.</span>
+          <Button onClick={() => void refreshSession()}>Retry</Button>
+        </Notice>
+      )}
 
       {/*
         The append-only record of who changed enforcement, when, and whether

@@ -92,12 +92,13 @@ const SECTIONS: readonly SectionSpec[] = [
  * information — every step has a full section below — but a competent trader
  * should be able to run the product from these six lines alone.
  */
-const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string }> = [
+const QUICK_START: ReadonlyArray<{ step: string; where: string; href: string; adminOnly?: boolean }> = [
   { step: "Find a market", where: "Chart — press / for symbol search, or add it to the watchlist", href: "/chart" },
   { step: "Inspect it", where: "Chart — timeframe strip, Indicators, drawings; the feed badge says whether prices are live", href: "/chart" },
   { step: "Arm an alert", where: "Chart → Alert, or the bell beside a moving average. Alerts notify only; they never trade", href: "/alerts" },
   { step: "Paper first", where: "Trading → Automations → New automation → Paper. Simulated fills, no orders", href: "/trading" },
-  { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart" },
+  // The chart is everyone's, but its Trade ticket is the administrator's: a Standard account has no Trade button to follow.
+  { step: "Trade by hand when you mean to", where: "Chart → Trade. The ticket stages, you confirm, the execution bot sends", href: "/chart", adminOnly: true },
   { step: "Review", where: "Chart → Positions & Orders for now; Trading → Journal for what accumulated", href: "/journal" },
 ];
 
@@ -233,8 +234,8 @@ function C({ children }: { children: ReactNode }) {
  * A link to the page it names — or, for an account that cannot open an
  * administrator-only page, the name marked "(administrator)" (`ManualLink`).
  */
-function A({ href, children }: { href: string; children: ReactNode }) {
-  return <ManualLink href={href}>{children}</ManualLink>;
+function A({ href, children, adminOnly }: { href: string; children: ReactNode; adminOnly?: boolean }) {
+  return <ManualLink href={href} adminOnly={adminOnly}>{children}</ManualLink>;
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -265,7 +266,7 @@ export default function GettingStarted() {
             <li key={item.step} className="flex gap-2 rounded-md bg-surface-2/50 px-3 py-2">
               <span aria-hidden="true" className="tabular text-sm font-semibold text-accent">{i + 1}</span>
               <span className="min-w-0">
-                <A href={item.href}>{item.step}</A>
+                <A href={item.href} adminOnly={item.adminOnly}>{item.step}</A>
                 <span className="block text-xs leading-5 text-ink-muted">{item.where}</span>
               </span>
             </li>

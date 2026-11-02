@@ -235,7 +235,7 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
                 <td className="px-4 py-2 text-right text-ink-muted">
                   -{fmtNum(window.benchmarkDrawdownPct)}%
                 </td>
-                <td className={`px-4 py-2 text-right ${target ? signClass(target.returnPct) : "text-ink-faint"}`}
+                <td className={`px-4 py-2 text-right ${target ? tone(target.returnPct) : "text-ink-faint"}`}
                   data-stress-target>
                   {target ? fmtPct(target.returnPct) : (
                     <span title={`${traded} has no stored bars for this window yet`}>—</span>
@@ -284,21 +284,40 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
                         className="rounded text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                         open
                       </Link>
-                    ) : <StatusBadge status={backtest.status} />}
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <StatusBadge status={backtest.status} />
+                        {/* A failed window used to show a bare red "Error" while the run said Done; the
+                            engine's reason (e.g. an interior candle gap it refuses to compress) is the
+                            fact the reader needs, so it is on the row, not only in the API. */}
+                        {backtest.status === "error" && backtest.error && (
+                          <span className="max-w-[260px] truncate text-xs text-ink-muted" title={backtest.error}
+                            data-stress-window-error>
+                            {backtest.error}
+                          </span>
+                        )}
+                      </span>
+                    )}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {detail.results.some((r) => r.backtest?.executionTruth?.noEntryReason) && (
-        <div className="border-t border-border px-4 py-2 text-xs text-warn">
-          {detail.results.find((r) => r.backtest?.executionTruth?.noEntryReason)!
-            .backtest!.executionTruth!.noEntryReason}{" "}
-          Every window below therefore shows no trades for that reason, not because
-          the strategy weathered them.
-        </div>
-      )}
+      {(() => {
+        const silent = detail.results.filter((r) => r.backtest?.executionTruth?.noEntryReason);
+        if (silent.length === 0) return null;
+        const reason = silent[0]!.backtest!.executionTruth!.noEntryReason;
+        // "Every window" was printed even when one window carried the reason; say the count.
+        const scope = silent.length === detail.results.length
+          ? "Every window above therefore shows no trades for that reason, not because the strategy weathered them."
+          : `${silent.length} of ${detail.results.length} windows (marked !) show no trades for that reason, not because the strategy weathered them.`;
+        return (
+          <div className="border-t border-border px-4 py-2 text-xs text-warn">
+            {reason}{" "}{scope}
+          </div>
+        );
+      })()}
       <RunNotes detail={detail} />
     </div>
   );

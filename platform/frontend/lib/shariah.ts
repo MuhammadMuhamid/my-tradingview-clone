@@ -496,6 +496,12 @@ export interface ShariahModeResponse {
   /** Whether the two agree. `null` when the Bot's answer is unknown. */
   inSync?: boolean | null;
   /**
+   * Reads: whether a Bot control channel (URL + HMAC key) is configured at
+   * all. `false` is "no Bot to talk to" — not armed — which a reload must not
+   * turn into "unreachable"; absent (older API) is not stated.
+   */
+  botControlChannel?: boolean | null;
+  /**
    * Mutations only: whether a floor was actually pushed to a Bot.
    *
    * `false` means this installation has no Bot control channel configured, so
@@ -512,6 +518,7 @@ export interface ShariahModeState {
   botMode: ShariahMode | null;
   inSync: boolean | null;
   botFloorPushed: boolean | null;
+  botControlChannel: boolean | null;
 }
 
 /**
@@ -525,7 +532,7 @@ export function normalizeShariahMode(
   response: ShariahModeResponse | null | undefined,
   previous: ShariahModeState | null = null
 ): ShariahModeState {
-  if (!response) return previous ?? { mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null };
+  if (!response) return previous ?? { mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null, botControlChannel: null };
   const mode: ShariahMode = response.mode === "enforce" ? "enforce" : "off";
   const botMode = response.botMode === "enforce" || response.botMode === "off"
     ? response.botMode : null;
@@ -535,6 +542,8 @@ export function normalizeShariahMode(
     botMode,
     inSync: typeof response.inSync === "boolean" ? response.inSync : null,
     botFloorPushed: typeof response.botFloorPushed === "boolean" ? response.botFloorPushed : null,
+    botControlChannel: typeof response.botControlChannel === "boolean" ? response.botControlChannel
+      : previous?.botControlChannel ?? null,
   };
 }
 
@@ -564,7 +573,8 @@ export interface ShariahSyncView {
  * The order of the checks is the safety argument:
  *
  *   1. Not enforcing here → nothing to confirm.
- *   2. A mutation that reported `botFloorPushed: false` → no channel, no floor.
+ *   2. A mutation that reported `botFloorPushed: false`, or a read that says no
+ *      control channel is configured → no channel, no floor ("not armed").
  *      This is checked before anything else because it is the one case that
  *      returns 200 with nothing armed, and it must never reach "confirmed".
  *   3. The Bot's answer is missing → unknown. Not off, not confirmed.
@@ -591,7 +601,7 @@ export function describeShariahSync(state: ShariahModeState | null): ShariahSync
     };
   }
 
-  if (state.botFloorPushed === false) {
+  if (state.botFloorPushed === false || state.botControlChannel === false) {
     return {
       level: "unknown",
       label: "Bot floor: not armed",

@@ -330,3 +330,27 @@ test("an ordinary account sees 'No decision yet' for an unpublished asset, not '
   assert.ok(screen.getByText("No decision yet — evidence recorded by the administrator is shown for transparency."));
   assertAbsent(screen.queryByText(/recorded but not enforced/), "a claim that a decision exists");
 });
+
+// ── A reload must tell the same Bot-floor story the toggle told ─────────────
+
+test("on load with Mode ON and no Bot control channel, the Bot floor reads NOT ARMED, not unknown", async () => {
+  // Right after Turn on the PUT's `botFloorPushed:false` produced "not armed";
+  // a reload lost that and the same installation read "unknown — the Bot could
+  // not be reached", as though a Bot existed. The read now states the channel.
+  server.routes.set("GET /api/shariah/mode", () => ({
+    mode: "enforce", policyVersion: "TS_SHARIAH_V1", botControlChannel: false, botMode: null, inSync: null,
+  }));
+  await mount();
+  assert.match(screen.getByText(/^Platform mode:/).textContent ?? "", /ON/);
+  assert.ok(screen.getByText(/Bot floor: not armed/), "no channel configured is 'not armed' on a fresh load");
+  assertAbsent(screen.queryByText(/could not be reached/), "'unreachable' for an installation with no Bot");
+});
+
+test("on load with Mode ON and a configured channel whose Bot did not answer, the Bot floor is UNKNOWN", async () => {
+  server.routes.set("GET /api/shariah/mode", () => ({
+    mode: "enforce", policyVersion: "TS_SHARIAH_V1", botControlChannel: true, botMode: null, inSync: null,
+  }));
+  await mount();
+  assert.ok(screen.getByText(/Bot floor: unknown/), "a Bot that exists but did not answer is unknown");
+  assertAbsent(screen.queryByText(/Bot floor: not armed/), "'not armed' when a channel is configured");
+});

@@ -37,7 +37,7 @@ const PAGE = "app/shariah/page.tsx";
 
 const state = (over: Partial<ShariahModeState> = {}): ShariahModeState => ({
   mode: "enforce", policyVersion: "TS_SHARIAH_V1",
-  botMode: "enforce", inSync: true, botFloorPushed: true, ...over,
+  botMode: "enforce", inSync: true, botFloorPushed: true, botControlChannel: true, ...over,
 });
 
 // ── the four states ────────────────────────────────────────────────────────
@@ -71,6 +71,27 @@ test("an unreachable Bot is UNKNOWN — not off, and never confirmed", () => {
     assert.equal(view.botEnforcing, false);
     assert.match(view.detail, /not the same as off, and not a confirmation/);
   }
+});
+
+test("a READ that says no control channel is configured is NOT ARMED on load, not unknown", () => {
+  // The PUT's `botFloorPushed:false` only exists right after a toggle. A reload
+  // used to lose it and the same installation then read "unknown — the Bot
+  // could not be reached", as if a Bot existed. The read now states the
+  // channel, so a fresh page says what the toggle said.
+  const fresh = normalizeShariahMode({ mode: "enforce", botControlChannel: false, botMode: null, inSync: null });
+  assert.equal(fresh.botControlChannel, false);
+  const view = describeShariahSync(fresh);
+  assert.equal(view.level, "unknown");
+  assert.match(view.label, /not armed/i);
+  assert.match(view.detail, /no execution Bot control channel is configured/);
+  assert.equal(view.botEnforcing, false);
+  // With a channel configured, a Bot that did not answer is still unknown.
+  const configured = normalizeShariahMode({ mode: "enforce", botControlChannel: true, botMode: null, inSync: null });
+  assert.match(describeShariahSync(configured).label, /unknown/i);
+  // An older API that does not state the channel is "not stated", never a claim.
+  assert.equal(normalizeShariahMode({ mode: "enforce" }).botControlChannel, null);
+  // A re-read after a toggle keeps the previously stated channel.
+  assert.equal(normalizeShariahMode({ mode: "enforce" }, fresh).botControlChannel, false);
 });
 
 test("botFloorPushed:false is never rendered as confirmed Bot enforcement", () => {
@@ -151,7 +172,7 @@ test("a malformed or unknown mode is not read as enforcing", () => {
 
 test("normalising nothing is total and safe", () => {
   assert.deepEqual(normalizeShariahMode(null), {
-    mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null,
+    mode: "off", policyVersion: null, botMode: null, inSync: null, botFloorPushed: null, botControlChannel: null,
   });
   const previous = state();
   assert.deepEqual(normalizeShariahMode(undefined, previous), previous);

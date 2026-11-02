@@ -56,6 +56,7 @@ import {
   pushShariahModeToBot, readBotShariahMode, ShariahBotSyncError, ShariahModeDriftError,
   type BotEnforcementDeps,
 } from "../../shariah/botEnforcement";
+import { isManualControlChannelConfigured } from "../../manualTrading/client";
 import type { PoolClient } from "pg";
 
 /**
@@ -581,9 +582,17 @@ export async function shariahRoutes(
    */
   app.get("/api/shariah/mode", async () => {
     const [mode, bot] = await Promise.all([readMode(), readBotShariahMode(botEnforcementDeps)]);
+    /*
+     * Whether a Bot control channel is configured at all is stated on every
+     * read. Without it the console could only tell "no channel" from "Bot
+     * unreachable" right after a mode change (the PUT's `botFloorPushed`), so
+     * a reload turned "Bot floor: not armed — no control channel is configured"
+     * into "unknown — the Bot could not be reached": two accounts of one state.
+     */
     return {
       mode,
       policyVersion: TS_SHARIAH_V1,
+      botControlChannel: botEnforcementDeps.controlChannelConfigured ?? isManualControlChannelConfigured(),
       botMode: bot?.mode ?? null,
       inSync: bot === null ? null : bot.mode === mode,
     };

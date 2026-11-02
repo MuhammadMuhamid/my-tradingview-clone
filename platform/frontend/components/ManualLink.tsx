@@ -21,9 +21,14 @@ import { useIsAdmin } from "@/lib/session";
 
 export const ADMINISTRATOR_MARK = "(administrator)";
 
-export function ManualLink({ href, children }: { href: string; children: ReactNode }) {
+export function ManualLink({ href, children, adminOnly = false }: {
+  href: string;
+  children: ReactNode;
+  /** A step on a shared page that only the administrator can perform (the chart's Trade ticket). */
+  adminOnly?: boolean;
+}) {
   const admin = useIsAdmin();
-  if (!admin && isAdminOnlyPath(href)) {
+  if (!admin && (adminOnly || isAdminOnlyPath(href))) {
     return (
       <span data-admin-only-link={href}>
         {children} <span className="text-ink-faint">{ADMINISTRATOR_MARK}</span>

@@ -1,7 +1,7 @@
 # Trading Scene — Owner's Feature Guide
 
 Written 2026-11-01 during the V2 completion campaign, reconciled 2026-11-02 in the V3 engineering
-closeout, and kept as the one owner-facing guide.
+closeout and again in the V4 experience finish, and kept as the one owner-facing guide.
 For each product area it states **where you find it, who can use it, the exact choices you get,
 what must be configured first, the ordinary workflow, what success and errors look like, and what
 is unsupported or unverified** — then links to the maintained document with the detail. Where this
@@ -13,12 +13,13 @@ a disposable database during the campaign; screenshots in the campaign evidence 
 executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no credentialed exchange call has ever
 been made from this workspace, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 
-Final test runs (2026-11-02, Closeout V3, at platform `f625314` / research `75d7e14`, logs in
-`Trading-Scene-Campaign/Closeout-V3/evidence/final-*.log`): Platform backend 1,483 tests, 0 skipped;
-Platform frontend 1,577 unit + 621 DOM; Research 257 Python (one run under heavy concurrent load hit a
-tear-down race in a queue test, the isolated rerun is 257/257) + 118 node `.mjs` + 24 TypeScript;
-Bot unchanged since the V2 logs (386 backend, 13 dashboard). Two-account isolation and Shariah
-publication ran against a real PostgreSQL 16. `tsc` and `next build` pass at the final commit.
+Final test runs (2026-11-02, Experience-Finish V4, at platform `d925f56` / research `9cb54fa`, logs in
+`Trading-Scene-Campaign/Experience-Finish-V4/evidence/final-*.log`): Platform backend 1,498 tests,
+0 skipped; Platform frontend 1,588 unit + 663 DOM, 0 skipped; Research 262 Python (0 skipped, single
+run, no tear-down race this time) + 127 node `.mjs` + 29 TypeScript; Bot unchanged since the V2 logs
+(386 backend, 13 dashboard). Two-account isolation and Shariah publication ran against a real
+PostgreSQL 16. `tsc` (backend and frontend) and `next build` pass at the final commit. (V3 figures for
+comparison: 1,483 / 1,577 / 621 / 257 / 118 / 24.)
 
 ---
 
@@ -56,9 +57,14 @@ password says nothing about which half was wrong; duplicate email is 409; a user
 sees "This page is for the administrator" with a link to the chart. While the account is still being
 checked (first load, before `/api/auth/me` answers) **no administrator control is drawn**: the chart
 and Shariah screen render their neutral view and admin-only pages say "Checking your account…"; the
-controls appear once the role is known. A session that cannot be read at all (backend down, expired
-cookie) still renders the admin-looking view until the first request is refused — an owner decision
-recorded in §10.
+controls appear once the role is known. A session that **cannot be read** (backend down, a 5xx, the
+network) is a fourth, distinct state since V4: no administrator control is drawn anywhere, the chart
+and Shariah screen stay in their neutral view, the admin-only pages say "Your account could not be
+checked — the server did not answer" with *Retry* and *Open the chart*, and an answered "signed out"
+(expired cookie) sends the browser to sign in and back to the page it was on. An instance with
+accounts disabled is still the administrator's. The navigation never offers an admin-only page to a
+non-administrator: the rail, the product menu, the section tabs (no "Automations · Journal" strip
+above a refusal) and the Manual's step links all follow the role.
 
 Evidence: **TESTED** (`accounts.test.ts`, `accountsDb.test.ts` on real Postgres: watchlists,
 alerts, layouts, scripts, drawings, panes, devices, reach, password change, sign-out-everywhere,
@@ -76,7 +82,8 @@ Market v1 bound in `marketCandleBounds.test.ts` and live against the local backe
 
 ## 3. Shariah screening
 
-**Where:** left rail → *Shariah screening*; tabs *Status* and *Screening & publication*.
+**Where:** left rail → *Shariah screening*; tabs *Status* and *Screening & publication* (a Standard
+account sees *Status* and *Universe & decisions*).
 **Who:** administrator manages; a Standard account sees a read-only view (universe, each asset's
 decision, evidence and BUY-permission line).
 
@@ -93,9 +100,25 @@ Binance Spot **USDT base assets this install tracks**; there is no exchange or c
 
 **Workflow:** *Sync universe* → tick / queue → download pack (`TS_SHARIAH_REVIEW_PACK_V1`: policy
 questions, interpretation rules, fixed categories, per-asset identity, prior decisions, and the
-results template with an example) → research outside Trading Scene → paste or load the results
-JSON → *Check results* → read each decision → *Review publication summary* → *Confirm publication
-of N decisions* → click an asset to see the decision → *Turn on*.
+results template with an example; its `resultContract.required` names the six answer keys and the
+rule that `researchCompletedAt` / `retrievedAt` may not be later than now) → research outside
+Trading Scene by any external reviewer (ChatGPT or a person — the product only validates the file's
+shape and never issues a ruling) → paste or load the results JSON → *Check results* → read each
+decision → *Review publication summary* → *Confirm publication of N decisions* → click an asset to
+see the decision → *Turn on* (which first shows how many assets are ELIGIBLE and that every other BUY
+will be refused, with *Turn on enforcement* / *Cancel*; *Turn off* is one click). On the Status tab
+*Select the N assets needing review* ticks the STALE, UNSCREENED and due assets for a pack;
+downloading a pack keeps the ticks and names the assets; *Create universe snapshot* lives in the
+Snapshots card and is optional (an audit freeze for Research runs, not required to publish). A single
+asset can also be published from its panel (*Publish a decision*); its refusal or success is said
+under that button.
+
+**Fixed in V4 (defect since the accounts change of 2026-10-15):** with authentication on, every
+publication, import and snapshot answered 401 "not authenticated" for a signed-in administrator,
+because the Shariah write routes re-verified the cookie as the pre-accounts admin token while
+sign-in issues account tokens; the mode audit recorded "unknown-operator". The audit identity now
+comes from the session the gate resolved (account email, or the configured admin name). Nothing was
+relaxed: a Standard account is still refused every Shariah write (403) and reads stay read-only.
 
 **Success/errors:** sync notice counts and names what moved; a bad file is refused whole with one
 line per problem ("policyVersion must be TS_SHARIAH_V1", "unrecognised field", "assetId must be
@@ -103,7 +126,9 @@ the numeric id copied from the review pack"…); publications are append-only; t
 "Mode ON: a new BUY of XUSDT is refused (status REVIEW)" or "allowed (ELIGIBLE)", always with
 "Selling or reducing a position is never blocked". Mode ON with a configured but unreachable Bot:
 stays OFF, 502 explained. Mode ON with **no Bot control channel configured:** turns ON and shows
-*Bot floor: not armed* (a direct webhook BUY is not gated by this Platform).
+*Bot floor: not armed* (a direct webhook BUY is not gated by this Platform). **Mode ON is this
+Platform's gate; it is not the Bot being armed** — the Bot floor line is the separate fact, and the
+Status tab says which of *not required / not armed / enforcing / unknown / out of sync* applies.
 
 **Unsupported/unverified:** other asset classes (refused for BUY under enforcement); production
 mode is not visible here; the owner must decide whether a no-channel installation may show ON.
@@ -186,7 +211,9 @@ layouts (single/multi-pane, saved layouts); watchlists with live prices; Bar Rep
 light/dark theme; keyboard shortcuts sheet. Administrator-only on the chart: Trade, Positions &
 Orders, Strategy Tester, Automate, Strategy / Best config, trading Overlays. The toolbar's ⋯ row is
 named for what it holds: "History, overlays & automation" for the administrator, "History depth" for
-a Standard account.
+a Standard account. On an install where manual trading is off the *Trade* panel says so at once
+(V4; it used to show "Loading manual trading…" indefinitely). The product menu indents the Journal,
+Stress and Optimizer entries under their destinations.
 
 **Alerts** (`/alerts` and from the chart): sixteen condition families (`price`, `ma`, `ma_vs_ma`,
 `sr_zone`, `pivot_level`, `rsi`, `macd`, `supertrend`, `bollinger`, `stochastic`, `adx`,
@@ -200,8 +227,10 @@ Standard account), **TESTED** (alert families and frequencies). Reference: [ALER
 [TRADING_SCENE_UI_UX_CONTRACT.md](TRADING_SCENE_UI_UX_CONTRACT.md).
 
 **Screener** (`/screener`): needs the separate Python scanner service (`platform/screener/start.sh`,
-FastAPI :8000, `ccxt`); without it the page shows *Scanner service unavailable* with Retry. **NOT
-RUN** during the campaign (the service calls `api.binance.com`, HTTP 451 from this network).
+FastAPI :8000, `ccxt`); without it the page shows *Scanner service unavailable* as an error notice
+on a card with *Retry* and the provider's reason on hover (V4 aligned it with the other pages'
+feedback). **NOT RUN** during the campaign (the service calls `api.binance.com`, HTTP 451 from this
+network).
 
 ---
 
@@ -209,7 +238,8 @@ RUN** during the campaign (the service calls `api.binance.com`, HTTP 451 from th
 
 **Where:** *Research → Quick backtest* (administrator); also the chart's *Strategy Tester* tab for
 Pine strategies. **Choices:** strategy (`ma_rr_v9` MA + R:R v9, `srtrend_v10` SR+Trend Final v10,
-`mtf_lean` MTF Confluence Lean); tracked Binance Spot symbol; timeframe 1s–1d; start / end date;
+`mtf_lean` MTF Confluence Lean); tracked Binance Spot symbol (listed by ticker, as the chart shows it);
+timeframe 1s–1d; start / end date;
 initial capital; commission % per fill (0–5, default 0.1); slippage ticks (0–1000, default 2);
 validation window last 10–50 % (default 20 %); position size *fixed cash per entry* (default 930 of
 1,000) or *percentage of current equity*; every strategy parameter (defaults apply unless changed).
@@ -220,7 +250,13 @@ validation window last 10–50 % (default 20 %); position size *fixed cash per e
 stored-candle check behind it (`ensureCandles`) still tolerates up to 1.5 % missing bars when deciding
 whether to *download*, but now returns an honest coverage report (expected, present, leading /
 interior / trailing shortfalls, first gap) that *Stress this run* records as `dataCompleteness` in its
-provenance; the Stress page does not yet display that field (source only).
+provenance. Since V4 every Stress window also records its own **data integrity** — bars × interval
+against the time it actually spans, the bars missing inside it and the missing UTC ranges — and the
+Stress page shows it on the row (*Complete*, *Impaired* for one missing bar, *Not comparable* for two
+or more, with the sign colours of a not-comparable window muted), with a warning above the table and
+the searched period's completeness on the provenance line. Windows are still chosen by stored-bar
+count (not re-selected), figures are never adjusted, and a result saved before this was measured reads
+*Not verified*, never *Complete*.
 **Workflow:** fill the form → *Run backtest* → the result page opens when done (seconds).
 **Success:** headline metrics (net profit, profit factor, max drawdown, win rate, entries, average
 entry, commission), development in-sample / out-of-sample / validation table, an affordability
@@ -250,7 +286,7 @@ strategy's auxiliary intervals).
 | **Walk-forward** (`lean_wf_15m_current` current — no folds run yet; `lean_wf_15m`, `lean_wf_fixedsize`, `optimizer1y15m_wf`, `optimizer1y1h_wf_trail`, `wf6m_1h` historical; `regime_wf` not comparable) | coins, folds come from the definition | per-fold out-of-sample performance of the searched space | SOURCE-IMPLEMENTED + UI tests; one ad-hoc offline run on synthetic candles completed end to end (not a committed test, not validation); **at the shipped sizing ($1,000 capital, $1,000 fixed entry) it takes 0 trades**; no fold run on real data |
 | **Replay** (`full3y1h`, `lean3y15m` historical) | coins, candidate replay limit per symbol (topN) | existing candidates over a longer history (still in-sample where it overlaps tuning) | LOCAL UI VERIFIED via the distributed unit (§9) |
 | **Holdout** (`holdout1h` historical) | coins, topN | the leaderboard on history the optimizer never saw | SOURCE-IMPLEMENTED; same ad-hoc synthetic smoke as Walk-forward (0 trades at shipped sizing); no real-data run |
-| **Stress** (from a completed run → *Test candidates in bad periods*) | coin, up to 10 candidates, find periods by largest decline / deepest drawdown / most volatile on daily, 4h or 1h stored candles, period length, count, search range; adjust / add / deselect periods | each frozen candidate's return, drawdown and trades per bad period beside the market's own | LOCAL UI VERIFIED (3/3 periods) |
+| **Stress** (from a completed run → *Test candidates in bad periods*) | coin, up to 10 candidates, find periods by largest decline / deepest drawdown / most volatile on daily, 4h or 1h stored candles, period length, count, search range; adjust / add / deselect periods | each frozen candidate's return, drawdown and trades per bad period beside the market's own; since V4 each period carries its data state (*Complete* / *Impaired* / *Not comparable* / *Not verified* for results saved before it was measured) in the preview and in the saved results table, measured on the market series and on the candidate's own chart feed. V4 also fixed *Find difficult periods*, which had failed with a TypeError since the V3 provenance change | LOCAL UI VERIFIED (3/3 periods, V2); integrity display TESTED (UI + TS tests) |
 | **Tree Definitions** | duplicate a supported preset into an immutable custom version: dates, costs, execution settings, folds, pinned inputs and sizing, searched dimensions (duplicate values refused) | the assumptions a run inherits | SOURCE-IMPLEMENTED + UI tests |
 | **Shariah Mode pin** | Off / On (ELIGIBLE-only from an imported Platform snapshot) | which universe the run used, recorded immutably | SOURCE-IMPLEMENTED + Python tests |
 
@@ -302,9 +338,17 @@ helper and accepted (1/1, attributed to the helper). **Success/errors:** honest 
 ("Paused — Low Power Mode is on"), compatibility shown as compatible/unknown, "Connected — waiting
 for eligible work". The run header of a distributed run now follows the coordinator while the run's
 own lifecycle record is still *created*: "Waiting for a helper · 0/1 accepted", "Running on helpers",
-"All work accepted · 1/1" (never *Completed*: no step merges accepted results into the run, so the
-Distributed panel stays authoritative and the status panel says so). **Unverified:** a second physical
-Mac and the private-network address step. Reference:
+"All work accepted · finalizing". **Since V4 the run completes:** when the last unit is accepted the
+coordinator re-verifies every accepted unit from disk (input id, compatibility hash, attempt manifest,
+artifact bytes and result hash), publishes `artifacts/distributed-results.jsonl` (the accepted metrics
+verbatim) and `artifacts/distributed-result.json`, marks the run *Completed — distributed work
+completed* and appends the two events once; a controller stopped in between repairs it on the next
+read or at start-up. Partial, rejected, expired, stale, duplicate or tampered work never completes a
+run; if re-verification fails the run stays *created* and says *Results blocked* with the reason. A
+run with every unit accepted is no longer offered to helpers or startable locally. The accepted
+scientific artifact is listed with its hash; above the 1 MiB preview cap it previews as bounded text.
+**Unverified:** a second physical Mac and the private-network address step (the completion path is
+proven on one Mac over the real mTLS transport with the 16-trade synthetic unit). Reference:
 [FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md](FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md).
 
 ---
@@ -320,10 +364,10 @@ Mac and the private-network address step. Reference:
 | Second Mac for Compute Helper | not available; loopback pairing and execution verified |
 | Scanner service | not run (network); honest unavailable state verified |
 | Walk-forward of the current 15m space | registered but no folds computed on real data; the shipped sizing takes no trades (see §8) |
-| Finishing a distributed run | no backend step merges accepted helper results and marks the run *Completed*; the header reports "All work accepted" and the Distributed panel stays authoritative |
+| Finishing a distributed run | done in V4 (one-Mac proof); a run whose accepted results fail re-verification stays *created* with *Results blocked* — accepted units are final, so the recovery is to clone the run (an explicit re-open action is an owner decision) |
 | Policy decision | whether Shariah Mode may show ON with no Bot control channel (today: yes, disclosed as *not armed*) |
-| Policy decision | whether a session that cannot be read (backend down, expired cookie) should show a neutral view instead of the admin-looking one it shows today (the backend still refuses every admin action) |
-| Policy decision | whether a backtest or Stress run over stored candles with an interior hole should **refuse** (backtester today) or **disclose** (Stress today records `dataCompleteness`); and whether strict callers should re-download a hole the venue can fill |
+| Decided in V4 | a session that cannot be read shows the neutral view with *Retry*; a signed-out answer goes to sign-in (the backend was and is the authority) |
+| Policy decision | whether a backtest or Stress run over stored candles with an interior hole should **refuse** (backtester today) or **disclose** (Stress today marks each affected window *Impaired* / *Not comparable* and still runs it); and whether strict callers should re-download a hole the venue can fill |
 | Policy decision | the Research preflight derives missing-bar counts from COUNT/MIN/MAX guarded by an on-grid check; accept that, or require a streamed row-by-row check that also names gap locations |
 | Known limit | five chart panes loading over 50,000 source bars at once (5s/25m at default depth, or depth *All*) share four slots per account; the fifth gets a 429 the chart does not yet retry |
 | Known limit | venues paged at 300 bars (Coinbase, OKX, Kraken) cannot serve a 200,000-bar window and answer 502 rather than a truncated window (pre-existing) |
