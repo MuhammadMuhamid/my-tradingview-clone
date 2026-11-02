@@ -147,6 +147,7 @@ import { useTradingOverlays } from "@/lib/useTradingOverlays";
 import {
   manualTradingPollingAllowed, noteManualTradingFailure,
 } from "@/lib/manualTradingPolling";
+import { useIsAdmin } from "@/lib/session";
 
 type Panel = ChartPanel;
 
@@ -449,6 +450,19 @@ export default function TvWorkspace() {
   /** The stored choice has been applied; until then nothing may overwrite it. */
   const [panelRestored, setPanelRestored] = useState(false);
   useLayoutEffect(() => { setPanel(openingPanel()); setPanelRestored(true); }, []);
+  /*
+   * Manual trading, Automations, the Strategy Tester, the strategy list and
+   * the optimizer are the administrator's: the server refuses an ordinary
+   * account every one of them. False only once the account is KNOWN to be an
+   * ordinary one, so an admin on a slow or unread session keeps everything.
+   */
+  const admin = useIsAdmin();
+  /*
+   * The ticket and Automations, whichever route asked for them — a scanner
+   * "Trade" link, a context-menu row, a stored choice. Derived rather than
+   * reset so the ticket never mounts for an account it can only refuse.
+   */
+  const sidePanel = admin || (panel !== "manual" && panel !== "alerts") ? panel : null;
 
   // ── the order ticket's target ──
   /** True while the ticket holds anything an operator typed, chose or attested. */
@@ -501,6 +515,12 @@ export default function TvWorkspace() {
      * asked about. Each branch now says which one it is, because a state this
      * panel will never read is not a state it is still reading.
      */
+    // An ordinary account is refused this read outright: no poll, no failure
+    // recorded, and the bottom panel shows no tab that would need one.
+    if (!admin) {
+      setManualState(null); setManualReadAt(null); setManualUnavailable(null);
+      return;
+    }
     const manualTicker = replayActive ? null : legacyBinanceSpotTicker(tradingSymbol);
     if (manualTicker === null) {
       setManualState(null); setManualReadAt(null);
@@ -527,7 +547,7 @@ export default function TvWorkspace() {
     void refreshManual();
     const timer = window.setInterval(() => void refreshManual(), 30_000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [tradingSymbol, replayActive, recordManualState]);
+  }, [tradingSymbol, replayActive, recordManualState, admin]);
 
   // ── authoritative read-only trading evidence, for the focused instrument ──
   const overlays = useTradingOverlays({
@@ -1362,11 +1382,15 @@ export default function TvWorkspace() {
 
   useEffect(() => {
     refreshSymbols();
+  }, [refreshSymbols]);
+  // The strategies feed the tester alone, which an ordinary account has not got.
+  useEffect(() => {
+    if (!admin) return;
     api.listStrategies().then((s) => {
       setStrategies(s);
       if (s.length > 0 && !s.some((x) => x.key === "ma_rr_v9")) setStrategyKey(s[0].key);
     }).catch(() => {});
-  }, [refreshSymbols]);
+  }, [admin]);
 
   /*
    * ── R4b-05: a letter over the chart opens the symbol search ──────────────
@@ -2931,6 +2955,7 @@ export default function TvWorkspace() {
           onOpenStrategy={() => setSettingsOpen(true)}
           onApplyBest={() => void applyBestConfig()}
           loadingBest={loadingBest}
+          admin={admin}
           loadedBars={visibleCandles.length}
           layouts={savedLayouts.layouts}
           layoutRecents={savedLayouts.recents}
@@ -3024,7 +3049,8 @@ export default function TvWorkspace() {
           explicitly is the point — a user who did not expect either should be
           able to see that before agreeing.
         */}
-        {pendingApply && (
+        {/* An optimizer result is the administrator's to apply; the server refuses anyone else. */}
+        {pendingApply && admin && (
           <div
             role="alertdialog"
             aria-label="Apply an optimizer result from this link"
@@ -3117,11 +3143,12 @@ export default function TvWorkspace() {
           manualUnavailable={manualUnavailable}
           tradingSymbol={tradingSymbol}
           onOpenTicket={() => setPanel("manual")}
+          admin={admin}
         />
       </div>
 
       <ChartSidePanel
-        panel={panel}
+        panel={sidePanel}
         onPanel={setPanel}
         onClosePanel={() => setPanel(null)}
         symbol={symbol}

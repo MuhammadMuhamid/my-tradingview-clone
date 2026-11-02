@@ -542,7 +542,8 @@ export function ProductMenu(
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M3 14h18M8 17h.01M12 17h.01" />
               </Glyph>
-              <span className="flex-1 truncate">Positions, tester and Pine editor</span>
+              {/* An ordinary account's panel is the editor alone (see ChartBottomPanel). */}
+              <span className="flex-1 truncate">{admin ? "Positions, tester and Pine editor" : "Pine editor"}</span>
               {bottomPanelHint && (
                 <span aria-hidden="true" className="shrink-0 text-[13px] text-ink-faint">
                   {bottomPanelHint}

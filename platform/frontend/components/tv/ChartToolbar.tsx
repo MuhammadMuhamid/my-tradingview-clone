@@ -243,6 +243,12 @@ export interface ChartToolbarProps {
   onOpenStrategy: () => void;
   onApplyBest: () => void;
   loadingBest: boolean;
+  /**
+   * False for a KNOWN ordinary account, which the server refuses the ticket,
+   * automation, the tester's strategy and the optimizer: Trade, Automate,
+   * Strategy and Best config are then not drawn. Omitted means shown.
+   */
+  admin?: boolean;
 
   layouts: Layout[];
   /** TVP8 F-07: layout ids most-recently-opened first. */
@@ -900,6 +906,7 @@ function SavedLayoutIdentity(props: ChartToolbarProps & { className: string }) {
  * live exchange.
  */
 function TradeButton(props: ChartToolbarProps & { className: string }) {
+  if (props.admin === false) return null;
   return (
     <button
       {...ctl("trade")}
@@ -1233,39 +1240,42 @@ export function ChartToolbar(props: ChartToolbarProps) {
               items={props.overlayItems} onSelect={props.onSelectOverlay} />
           </div>
 
-          <button
-            {...ctl("automate")}
-            onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
-            data-tooltip={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
-            className={TOOL_BUTTON}>
-            <Glyph size={18}><path d="M15.2 2.3L4.7 16.3h8.2l-1.2 9.3 10.5-14h-8.2z" /></Glyph>
-            Automate
-          </button>
+          {/* The administrator's: the server refuses an ordinary account all three. */}
+          {props.admin !== false && (<>
+            <button
+              {...ctl("automate")}
+              onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
+              data-tooltip={replayActive ? "Exit Replay to invoke Bot automation" : "Run this strategy server-side and send live orders to your bot"}
+              className={TOOL_BUTTON}>
+              <Glyph size={18}><path d="M15.2 2.3L4.7 16.3h8.2l-1.2 9.3 10.5-14h-8.2z" /></Glyph>
+              Automate
+            </button>
 
-          <button
-            {...ctl("strategy")}
-            onClick={props.onOpenStrategy}
-            data-tooltip="Strategy properties for the tester"
-            className={TOOL_BUTTON}>
-            <Glyph size={18}><path d="M3.5 14h4.7l2.3-8.2 4.7 16.3 2.3-8.2h7" /></Glyph>
-            Strategy
-          </button>
+            <button
+              {...ctl("strategy")}
+              onClick={props.onOpenStrategy}
+              data-tooltip="Strategy properties for the tester"
+              className={TOOL_BUTTON}>
+              <Glyph size={18}><path d="M3.5 14h4.7l2.3-8.2 4.7 16.3 2.3-8.2h7" /></Glyph>
+              Strategy
+            </button>
 
-          <button
-            {...ctl("best")}
-            onClick={props.onApplyBest} disabled={props.loadingBest || replayActive}
-            data-tooltip={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
-            /*
-              A toolbar control, not a call to action: 38px, transparent, the
-              inset chip — `warn` is reserved for a state whose outcome is not
-              yet known (§2), not for drawing the eye to a feature.
-            */
-            className={`${TOOL_BUTTON} shrink-0 gap-1.5 disabled:cursor-not-allowed disabled:opacity-40`}>
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-              <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
-            </svg>
-            {props.loadingBest ? "Loading…" : "Best config"}
-          </button>
+            <button
+              {...ctl("best")}
+              onClick={props.onApplyBest} disabled={props.loadingBest || replayActive}
+              data-tooltip={replayActive ? "Exit Replay to apply a full-range optimizer result" : `Apply the local optimizer's best saved config for ${displayTicker(symbol)}`}
+              /*
+                A toolbar control, not a call to action: 38px, transparent, the
+                inset chip — `warn` is reserved for a state whose outcome is not
+                yet known (§2), not for drawing the eye to a feature.
+              */
+              className={`${TOOL_BUTTON} shrink-0 gap-1.5 disabled:cursor-not-allowed disabled:opacity-40`}>
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+                <path d="M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.5 3.3 12.5l.8-4.2L1 5.4l4.2-.5L7 1Z" />
+              </svg>
+              {props.loadingBest ? "Loading…" : "Best config"}
+            </button>
+          </>)}
 
           <button
             type="button"
