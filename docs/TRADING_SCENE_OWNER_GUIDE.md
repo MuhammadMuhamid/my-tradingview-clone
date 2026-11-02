@@ -1,6 +1,7 @@
 # Trading Scene — Owner's Feature Guide
 
-Written 2026-11-01 during the V2 completion campaign and kept as the one owner-facing guide.
+Written 2026-11-01 during the V2 completion campaign, reconciled 2026-11-02 in the V3 engineering
+closeout, and kept as the one owner-facing guide.
 For each product area it states **where you find it, who can use it, the exact choices you get,
 what must be configured first, the ordinary workflow, what success and errors look like, and what
 is unsupported or unverified** — then links to the maintained document with the detail. Where this
@@ -12,10 +13,12 @@ a disposable database during the campaign; screenshots in the campaign evidence 
 executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no credentialed exchange call has ever
 been made from this workspace, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 
-Campaign test runs (2026-11-01): Platform backend 1,453 tests; Platform frontend 1,577 unit +
-605 DOM; Bot backend 386 and dashboard 13; Research 249 Python + 110 node. Two-account isolation
-and Shariah publication ran against a real PostgreSQL 16. Production builds of both Platform halves
-compile.
+Final test runs (2026-11-02, Closeout V3, at platform `f625314` / research `75d7e14`, logs in
+`Trading-Scene-Campaign/Closeout-V3/evidence/final-*.log`): Platform backend 1,483 tests, 0 skipped;
+Platform frontend 1,577 unit + 621 DOM; Research 257 Python (one run under heavy concurrent load hit a
+tear-down race in a queue test, the isolated rerun is 257/257) + 118 node `.mjs` + 24 TypeScript;
+Bot unchanged since the V2 logs (386 backend, 13 dashboard). Two-account isolation and Shariah
+publication ran against a real PostgreSQL 16. `tsc` and `next build` pass at the final commit.
 
 ---
 
@@ -43,19 +46,29 @@ environment's password hash.
 |---|---|---|
 | Chart, Screener (read), alerts, watchlists, layouts, drawings, Pine scripts, push devices, Shariah screen (read-only) | yes | yes — isolated per account |
 | Trading ticket, Automations, Journal, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
-| Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars, 4 in flight (the response says `clamped`); a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
+| Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars, 4 in flight (the response says `clamped`); Market v1 chart/candle reads are clamped the same way **before the venue is asked** (the response says `truncated` with a note naming the limit); reads too wide for the candle cache (over 50,000 source bars) share the same four in-flight slots and a fifth is answered 429 "wait for one to finish"; a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
 
 **Options:** display name, password change, Google link (admin links from Profile; a user whose
 Google email matches a password account joins it and loses the password), sign out everywhere,
 delete account. **Prerequisites for Google:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `PUBLIC_BASE_URL`; the button appears only when all three are set. **Success/errors:** a wrong
 password says nothing about which half was wrong; duplicate email is 409; a user on an admin URL
-sees "This page is for the administrator" with a link to the chart.
+sees "This page is for the administrator" with a link to the chart. While the account is still being
+checked (first load, before `/api/auth/me` answers) **no administrator control is drawn**: the chart
+and Shariah screen render their neutral view and admin-only pages say "Checking your account…"; the
+controls appear once the role is known. A session that cannot be read at all (backend down, expired
+cookie) still renders the admin-looking view until the first request is refused — an owner decision
+recorded in §10.
 
 Evidence: **TESTED** (`accounts.test.ts`, `accountsDb.test.ts` on real Postgres: watchlists,
 alerts, layouts, scripts, drawings, panes, devices, reach, password change, sign-out-everywhere,
 deletion), **LOCAL UI VERIFIED** (sign-up → onboarding → chart, alerts, profile, admin URLs and the
-Shariah screen as a Standard account; admin sign-in restores everything). Google OAuth round trip:
+Shariah screen as a Standard account; admin sign-in restores everything; re-verified 2026-11-02 on the
+production build with a fresh Standard account: `/journal` shows the restriction notice, `/shariah`
+the read-only view — screenshots `Closeout-V3/evidence/ui-*.png`), **TESTED** (unknown→admin and
+unknown→user transitions in `chartRoleTabs`, `shariahReadOnly`, `adminOnlyPages` DOM tests; the
+Market v1 bound in `marketCandleBounds.test.ts` and live against the local backend,
+`Closeout-V3/evidence/a-live-standard-user-candles-demo.log`). Google OAuth round trip:
 **SOURCE-IMPLEMENTED** only (token checks unit-tested; no real Google call). Reference:
 [ACCOUNTS.md](ACCOUNTS.md).
 
@@ -161,14 +174,19 @@ VERIFIED** (empty state, admin and user views). Reference: [OPERATIONS.md](OPERA
 ## 6. Chart workstation and alerts
 
 **Where:** `/chart` (every account). **Choices:** symbol search across Binance Spot pairs (tracked
-pairs first); native intervals 1s / 1m / 3m / 5m / 15m / 30m / 1h / 2h / 4h / 6h / 8h / 12h / 1d (the
+pairs first; opening an untracked pair registers it from Binance's directory with the venue's own
+base/quote — if the directory is unreachable the request fails with "the instrument directory is
+unavailable … try again later" (503) and **nothing is written** to the shared catalog; a pair the
+venue does not list is 404); native intervals 1s / 1m / 3m / 5m / 15m / 30m / 1h / 2h / 4h / 6h / 8h / 12h / 1d (the
 toolbar shows six favourites) plus every derived resolution the venue's bars fold into exactly
 (5s, 30s, 2m, 45m, 23m…); chart styles (candles, Heikin Ashi, Renko and
 more); indicators from the shipped Pine library and your own scripts (Pine editor in the bottom
 panel); 25 drawing tools with magnet, lock, hide, templates; history depth 2K / 10K / 50K / All;
 layouts (single/multi-pane, saved layouts); watchlists with live prices; Bar Replay; Compare;
 light/dark theme; keyboard shortcuts sheet. Administrator-only on the chart: Trade, Positions &
-Orders, Strategy Tester, Automate, Strategy / Best config, trading Overlays.
+Orders, Strategy Tester, Automate, Strategy / Best config, trading Overlays. The toolbar's ⋯ row is
+named for what it holds: "History, overlays & automation" for the administrator, "History depth" for
+a Standard account.
 
 **Alerts** (`/alerts` and from the chart): sixteen condition families (`price`, `ma`, `ma_vs_ma`,
 `sr_zone`, `pivot_level`, `rsi`, `macd`, `supertrend`, `bollinger`, `stochastic`, `adx`,
@@ -197,6 +215,12 @@ validation window last 10–50 % (default 20 %); position size *fixed cash per e
 1,000) or *percentage of current equity*; every strategy parameter (defaults apply unless changed).
 
 **Prerequisites:** candles for the window are fetched automatically through the market-data host.
+**Data integrity:** the backtester refuses to run over an interior hole in the stored candles
+(`assertNoInternalCandleGaps`); partial coverage at the edges is shown as covered-vs-requested. The
+stored-candle check behind it (`ensureCandles`) still tolerates up to 1.5 % missing bars when deciding
+whether to *download*, but now returns an honest coverage report (expected, present, leading /
+interior / trailing shortfalls, first gap) that *Stress this run* records as `dataCompleteness` in its
+provenance; the Stress page does not yet display that field (source only).
 **Workflow:** fill the form → *Run backtest* → the result page opens when done (seconds).
 **Success:** headline metrics (net profit, profit factor, max drawdown, win rate, entries, average
 entry, commission), development in-sample / out-of-sample / validation table, an affordability
@@ -223,15 +247,22 @@ strategy's auxiliary intervals).
 | Stage | What you choose | What it answers | Status |
 |---|---|---|---|
 | **Search** (trees `lean_optimizer15m`, `optimizer1y15m`, `optimizer1y5m`, `optimizer1y5m_ma`; `optimizer1y1h` not comparable) | coins (tick list / paste), evaluation budget per symbol, workers (Low 1 / Balanced half / Maximum all / exact) | candidate parameter sets by the registered genetic algorithm, scored on the in-sample side of the frozen split | LOCAL UI VERIFIED (50/50 evaluations) |
-| **Walk-forward** (`lean_wf_15m_current` current — no folds run yet; `lean_wf_15m`, `lean_wf_fixedsize`, `optimizer1y15m_wf`, `optimizer1y1h_wf_trail`, `wf6m_1h` historical; `regime_wf` not comparable) | coins, folds come from the definition | per-fold out-of-sample performance of the searched space | SOURCE-IMPLEMENTED + UI tests; no fold run here |
+| **Walk-forward** (`lean_wf_15m_current` current — no folds run yet; `lean_wf_15m`, `lean_wf_fixedsize`, `optimizer1y15m_wf`, `optimizer1y1h_wf_trail`, `wf6m_1h` historical; `regime_wf` not comparable) | coins, folds come from the definition | per-fold out-of-sample performance of the searched space | SOURCE-IMPLEMENTED + UI tests; one ad-hoc offline run on synthetic candles completed end to end (not a committed test, not validation); **at the shipped sizing ($1,000 capital, $1,000 fixed entry) it takes 0 trades**; no fold run on real data |
 | **Replay** (`full3y1h`, `lean3y15m` historical) | coins, candidate replay limit per symbol (topN) | existing candidates over a longer history (still in-sample where it overlaps tuning) | LOCAL UI VERIFIED via the distributed unit (§9) |
-| **Holdout** (`holdout1h` historical) | coins, topN | the leaderboard on history the optimizer never saw | SOURCE-IMPLEMENTED |
+| **Holdout** (`holdout1h` historical) | coins, topN | the leaderboard on history the optimizer never saw | SOURCE-IMPLEMENTED; same ad-hoc synthetic smoke as Walk-forward (0 trades at shipped sizing); no real-data run |
 | **Stress** (from a completed run → *Test candidates in bad periods*) | coin, up to 10 candidates, find periods by largest decline / deepest drawdown / most volatile on daily, 4h or 1h stored candles, period length, count, search range; adjust / add / deselect periods | each frozen candidate's return, drawdown and trades per bad period beside the market's own | LOCAL UI VERIFIED (3/3 periods) |
 | **Tree Definitions** | duplicate a supported preset into an immutable custom version: dates, costs, execution settings, folds, pinned inputs and sizing, searched dimensions (duplicate values refused) | the assumptions a run inherits | SOURCE-IMPLEMENTED + UI tests |
 | **Shariah Mode pin** | Off / On (ELIGIBLE-only from an imported Platform snapshot) | which universe the run used, recorded immutably | SOURCE-IMPLEMENTED + Python tests |
 
+**Candidate files:** a Search's best file carries `inputs_to_apply` keyed by the strategy's parameter
+**names** (`lean_optimizer15m`, `optimizer1y5m` and the three lean walk-forward trees used to write a
+single `"undefined"` key; older best files on disk still do — they were not rewritten). Nothing in the
+product reads that field; it is for applying a candidate by hand.
 **Workflow:** New Run → *Review preflight* (what will run, exact frozen dates, read-only stored
-chart-feed coverage check, frozen market assumptions, fingerprints, warnings) → *Create immutable
+chart-feed coverage check — it now reports leading / **interior** / trailing missing bars per feed, and
+says "coverage unverifiable" instead of guessing if any stored row is off the interval grid; a gapped
+feed keeps the status `needs-data` and is named in the summary — frozen market assumptions,
+fingerprints, warnings) → *Create immutable
 run* → *Start local run* (or queue with priority) → run page (status, progress, Events, Logs,
 Manifest, Results & artifacts) → History & Results / Experiments. **Success/errors:** Start refuses
 when tree inputs or the Platform commit changed since creation ("clone a new run"); a run that
@@ -253,6 +284,15 @@ stay on the coordinator. **Choices:** Helping ON/OFF, Drain, profile Light / Bal
 Custom, power and thermal safeguards (AC only, minimum battery, pause in Low Power Mode, thermal
 response), coordinator pairing (block or separate fields).
 
+**Engine compatibility:** the coordinator fingerprints the 14-file canonical engine closure it stages
+(indicator maths `src/ta/core.ts` included); a staged package hashes to that fingerprint, one changed
+byte changes it, and a helper advertising a different fingerprint is refused work with "worker
+canonical Platform engine fingerprint does not match this run's coordinator files" (**TESTED** against
+the real checkout, `research/tests/test_backtester_distributed_production.py`). A Platform commit that
+touches a closure file changes the fingerprint, so an older distributed run then says "clone a new run".
+**Parity:** the same frozen unit replayed locally and through the real helper executor on one Mac
+produces byte-identical results with 16 closed trades on synthetic candles (**TESTED**,
+`test_backtester_full3y1h_parity.py`); real-data, two-machine parity is not demonstrated.
 **Workflow (every step exercised on one Mac):** name the helper → coordinator identity → pairing
 block → approve the helper's certificate (fingerprint shown first) → enable the listener → restart
 the coordinator once → paste the block on the helper and confirm the fingerprint → Helping ON →
@@ -260,9 +300,11 @@ the coordinator once → paste the block on the helper and confirm the fingerpri
 `full3y1h` run with the helper-compatible preset → *Start distributed run* → unit executed by the
 helper and accepted (1/1, attributed to the helper). **Success/errors:** honest capacity reasons
 ("Paused — Low Power Mode is on"), compatibility shown as compatible/unknown, "Connected — waiting
-for eligible work". **Unverified:** a second physical Mac and the private-network address step;
-after acceptance the run header still reads *Ready to start · 0/1* while the authoritative
-Distributed panel reads 100 %. Reference:
+for eligible work". The run header of a distributed run now follows the coordinator while the run's
+own lifecycle record is still *created*: "Waiting for a helper · 0/1 accepted", "Running on helpers",
+"All work accepted · 1/1" (never *Completed*: no step merges accepted results into the run, so the
+Distributed panel stays authoritative and the status panel says so). **Unverified:** a second physical
+Mac and the private-network address step. Reference:
 [FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md](FINAL_SYSTEM_GUIDE_COMPUTE_HELPER_2026-10-11.md).
 
 ---
@@ -277,5 +319,11 @@ Distributed panel reads 100 %. Reference:
 | Google sign-in round trip | needs a real OAuth client |
 | Second Mac for Compute Helper | not available; loopback pairing and execution verified |
 | Scanner service | not run (network); honest unavailable state verified |
-| Walk-forward of the current 15m space | registered but no folds computed (needs data and compute) |
+| Walk-forward of the current 15m space | registered but no folds computed on real data; the shipped sizing takes no trades (see §8) |
+| Finishing a distributed run | no backend step merges accepted helper results and marks the run *Completed*; the header reports "All work accepted" and the Distributed panel stays authoritative |
 | Policy decision | whether Shariah Mode may show ON with no Bot control channel (today: yes, disclosed as *not armed*) |
+| Policy decision | whether a session that cannot be read (backend down, expired cookie) should show a neutral view instead of the admin-looking one it shows today (the backend still refuses every admin action) |
+| Policy decision | whether a backtest or Stress run over stored candles with an interior hole should **refuse** (backtester today) or **disclose** (Stress today records `dataCompleteness`); and whether strict callers should re-download a hole the venue can fill |
+| Policy decision | the Research preflight derives missing-bar counts from COUNT/MIN/MAX guarded by an on-grid check; accept that, or require a streamed row-by-row check that also names gap locations |
+| Known limit | five chart panes loading over 50,000 source bars at once (5s/25m at default depth, or depth *All*) share four slots per account; the fifth gets a 429 the chart does not yet retry |
+| Known limit | venues paged at 300 bars (Coinbase, OKX, Kraken) cannot serve a 200,000-bar window and answer 502 rather than a truncated window (pre-existing) |
