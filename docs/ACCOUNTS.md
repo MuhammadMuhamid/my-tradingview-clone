@@ -37,7 +37,14 @@ but the backend is what enforces it. Since 2026-11-01 the chart workstation
 also hides, for a KNOWN ordinary account, the *Positions & Orders* and
 *Strategy Tester* tabs, the Trade button and the Automate / Strategy / Best
 config controls, and does not poll the manual-trading state
-(`platform/frontend/tests/dom/chartRoleTabs.test.tsx`).
+(`platform/frontend/tests/dom/chartRoleTabs.test.tsx`). Typing the URL of an
+administrator page (`/trading`, `/journal`, `/research`, `/stress`,
+`/optimizers`, `/operations`) as a known ordinary account shows a short notice
+and a link to the chart instead of the page (`components/AdminOnlyPage.tsx`,
+`tests/dom/adminOnlyPages.test.tsx`); the Shariah screen is read-only for such
+an account, with every write control and the first-person operator copy
+removed (`tests/dom/shariahReadOnly.test.tsx`); the Profile page states what a
+Standard account provides.
 
 What an ordinary account may do with market history is bounded
 (`platform/backend/src/api/routes/data.ts`, added 2026-11-01): a backfill or

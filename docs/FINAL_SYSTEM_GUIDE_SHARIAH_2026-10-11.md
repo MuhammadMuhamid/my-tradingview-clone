@@ -335,5 +335,8 @@ sync notice now reads as counts with names (it interpolated the backend's symbol
 were numbers); never-researched assets say *Never researched* instead of "unknown days"; the final
 publication summary says *no prior decision* and pluralises citations; and the single-asset panel
 now states whether a new BUY of that asset is allowed under the current Platform mode, with the
-constant reminder that selling or reducing is never blocked. The owner-facing walkthrough is in
+constant reminder that selling or reducing is never blocked. An ordinary (non-administrator) account sees this screen read-only: the
+universe, each asset's published decision, evidence and BUY-permission line, with
+no write control and no first-person operator copy; every write route is
+administrator-only on the backend. The owner-facing walkthrough is in
 [TRADING_SCENE_OWNER_GUIDE.md](TRADING_SCENE_OWNER_GUIDE.md) §3.
