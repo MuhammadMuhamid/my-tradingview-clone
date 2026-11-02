@@ -367,7 +367,11 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
       const rows = cached.rows;
       const folded = foldBars(rows, plan).filter((row) => row.openTime >= requestedStartMs && row.openTime <= endMs);
       const named = folded.slice(-limit).map((row) => ({ ...row, symbol: canonicalId })) as Candle[];
-      const completeness = { ...candleCompleteness(named, Math.max(requestedStartMs, startMs), endMs, plan.ms,
+      // Completeness is judged over the window the response can hold: `limit`
+      // bars of the requested resolution ending at `to`. A from=0&limit=5
+      // request is not "199,995 bars missing" — those bars were never asked for.
+      const windowStartMs = Math.max(requestedStartMs, startMs, endMs - (limit - 1) * plan.ms);
+      const completeness = { ...candleCompleteness(named, windowStartMs, endMs, plan.ms,
         truncated, provider.candles.pagination.limitation), ...(historyLimit ? { note: historyLimit } : {}) };
       const traditional = mapping.instrument.fx ? { priceBasis: query.priceBasis, marketStructure: "otc_provider_quote",
         spreadIncluded: query.priceBasis === "bid" || query.priceBasis === "ask", providerHours: mapping.instrument.sessions,

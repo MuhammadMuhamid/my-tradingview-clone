@@ -280,3 +280,19 @@ test("the equity path is bounded the same way and says so in marketData", async 
   assert.deepEqual(fetches, [{ interval: "1m", startMs: 0, endMs: T }]);
   assert.equal(admin.json().marketData.historyLimit, undefined);
 });
+
+test("completeness is judged over the `limit` window, not the whole clamped span", async (t) => {
+  // from=0&limit=5 asks for five bars; the 199,995 older bars the clamp still
+  // covered were never requested and must not be reported as missing.
+  const fetches: Fetch[] = [];
+  const app = await server(t, [coinbase], recordingDeps(fetches));
+  const res = await app.inject(get("user", `interval=1m&from=0&to=${T}&limit=5`));
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.completeness.truncated, true);
+  assert.equal(barsIn("1m", fetches[0]!), USER_MAX_HISTORY_BARS);
+  // The fixture answers with the last three bars; two of them had closed by T.
+  assert.equal(body.bars.length, 3);
+  assert.ok(body.completeness.missingBars < 5,
+    `missing bars are counted inside the five-bar window, got ${body.completeness.missingBars}`);
+});
