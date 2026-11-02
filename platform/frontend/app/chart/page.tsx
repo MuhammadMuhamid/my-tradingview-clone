@@ -554,6 +554,8 @@ export default function TvWorkspace() {
     symbol, interval, visibleCandles, replayCutoff: replay?.horizonCloseTime ?? null,
     // R6 T-2: the only positions in this product that prove a P&L.
     manualPositions: manualState?.positions ?? [],
+    // Trading evidence is the administrator's; a user is not asked to wait for it.
+    enabled: admin,
   });
 
   // ── phone chrome: everything optional starts closed so the chart gets the screen ──

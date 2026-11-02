@@ -1233,6 +1233,8 @@ export function ChartToolbar(props: ChartToolbarProps) {
 
           <Separator />
 
+          {/* The administrator's: the server refuses an ordinary account all four. */}
+          {props.admin !== false && (<>
           <div {...ctl("overlays")} className="flex shrink-0 items-center">
             <TradingOverlayMenu open={props.overlayMenuOpen} onOpen={props.onOverlayMenuOpen}
               value={props.overlayPrefs} onChange={props.onOverlayPrefs}
@@ -1240,8 +1242,6 @@ export function ChartToolbar(props: ChartToolbarProps) {
               items={props.overlayItems} onSelect={props.onSelectOverlay} />
           </div>
 
-          {/* The administrator's: the server refuses an ordinary account all three. */}
-          {props.admin !== false && (<>
             <button
               {...ctl("automate")}
               onClick={props.onOpenAutomation} disabled={props.replayBlocksLiveActions}
