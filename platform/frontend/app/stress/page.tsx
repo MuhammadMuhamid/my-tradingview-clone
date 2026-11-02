@@ -17,8 +17,9 @@ import type {
 import { displaySymbol, displayTicker } from "@/lib/instrument";
 import { fmtNum, fmtPct, signClass, UTC_DATE_NOTE } from "@/lib/format";
 import {
-  benchmarkSource, exposureNote, qualifiedBy, shortRunId, startableRunLabel, stressSourceDetail,
-  stressSourceFromBacktest, stressSourceHeadline, type StressSource,
+  benchmarkSource, discoveryCompleteness, exposureNote, integritySummary, qualifiedBy, shortRunId,
+  startableRunLabel, stressSourceDetail, stressSourceFromBacktest, stressSourceHeadline,
+  windowIntegrityView, type StressIntegrityView, type StressSource,
 } from "@/lib/stress";
 
 const INTERVALS: Interval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -97,16 +98,59 @@ function Failure({ failure }: { failure: FailureCopy }) {
 
 const DAY = 86_400_000;
 
+/*
+ * A window's data state, on its row. Complete is said quietly; the other
+ * three are badges, in `warn` for honest degradation (impaired, not
+ * comparable) and neutral for "not verified", which is an absence of
+ * evidence rather than evidence of a fault. Same skin grammar as
+ * `StatusBadge`, whose status map has no words for these.
+ */
+const INTEGRITY_SKIN: Record<Exclude<StressIntegrityView["state"], "complete">, string> = {
+  impaired: "bg-warn/15 text-warn border-warn/30",
+  not_comparable: "bg-warn/15 text-warn border-warn/30",
+  unverified: "bg-ink-faint/15 text-ink-muted border-border",
+};
+
+function IntegrityBadge({ view }: { view: StressIntegrityView }) {
+  if (view.state === "complete") {
+    return <span className="text-xs text-ink-muted" data-stress-integrity="complete">Complete</span>;
+  }
+  return (
+    <span data-stress-integrity={view.state} title={view.detail ?? undefined}
+      className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${INTEGRITY_SKIN[view.state]}`}>
+      {view.label}
+    </span>
+  );
+}
+
+/**
+ * The run-level warning, above the numbers it qualifies — never only in the
+ * provenance line or a tooltip.
+ */
+function IntegrityNotice({ detail }: { detail: StressRunDetail }) {
+  const summary = integritySummary(detail.windows, detail.benchmarkSymbol, detail.benchmarkInterval);
+  if (!summary) return null;
+  return (
+    <div className="px-4 pt-3" data-stress-integrity-summary>
+      <Notice tone={summary.tone} role="status">{summary.text}</Notice>
+    </div>
+  );
+}
+
 function WindowTable({ detail }: { detail: StressRunDetail }) {
   const benchmark = displayTicker(detail.benchmarkSymbol);
   const traded = displayTicker(detail.symbol);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1180px] text-sm tabular">
+      <table className="w-full min-w-[1280px] text-sm tabular">
         <thead>
           <tr className="border-b border-border text-left text-xs text-ink-muted">
             <th className="px-4 py-2 font-medium" title="Severity rank: 1 is the worst window found">Rank</th>
             <th className="px-4 py-2 font-medium" title={UTC_DATE_NOTE}>Window (UTC)</th>
+            <th className="px-4 py-2 font-medium"
+              title={`Whether ${benchmark}'s ${detail.benchmarkInterval} bars are contiguous inside the window: a window across missing bars spans more time than its length says`}>
+              Data
+            </th>
             <th className="px-4 py-2 font-medium"
               title={`The statistic of ${benchmark} this window was ranked on, and its value`}>
               Qualified by
@@ -161,17 +205,31 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
               : short
                 ? `Data covers only ${day(covered.startMs)} to ${day(covered.endMs)} of this window.`
                 : null;
+            /*
+             * A window across missing benchmark bars keeps its numbers — they
+             * are what was computed — but loses the colour that reads as a
+             * verdict, and says on the row what it actually spans.
+             */
+            const integrity = windowIntegrityView(window, detail.benchmarkInterval);
+            const tone = (value: number) => integrity.comparable ? signClass(value) : "text-ink-faint";
             return (
-              <tr key={window.backtestId} className="border-b border-border/50">
-                <td className="px-4 py-2 text-ink-muted">{window.rank}</td>
-                <td className="px-4 py-2 text-ink-muted">
+              <tr key={window.backtestId} className="border-b border-border/50"
+                data-stress-row data-comparable={integrity.comparable ? "true" : "false"}>
+                <td className="px-4 py-2 align-top text-ink-muted">{window.rank}</td>
+                <td className="px-4 py-2 align-top text-ink-muted">
                   {day(window.startMs)} → {day(window.endMs)}
                   {window.label && <span className="ml-1 text-ink-faint">{window.label}</span>}
+                  {integrity.detail && integrity.state !== "unverified" && (
+                    <span className="mt-1 block max-w-[360px] text-xs text-warn" data-stress-integrity-detail>
+                      {integrity.detail}
+                    </span>
+                  )}
                 </td>
+                <td className="px-4 py-2 align-top"><IntegrityBadge view={integrity} /></td>
                 <td className="px-4 py-2 text-ink-muted">
                   {benchmark} {qualifiedBy(window)}
                 </td>
-                <td className={`px-4 py-2 text-right ${signClass(window.benchmarkReturnPct)}`}>
+                <td className={`px-4 py-2 text-right ${tone(window.benchmarkReturnPct)}`}>
                   {fmtPct(window.benchmarkReturnPct)}
                 </td>
                 <td className="px-4 py-2 text-right text-ink-muted">
@@ -189,7 +247,9 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
                     </span>
                   )}
                 </td>
-                <td className={`px-4 py-2 text-right ${m ? signClass(m.netProfitPct) : "text-ink-faint"}`}>
+                <td className={`px-4 py-2 text-right ${m ? tone(m.netProfitPct) : "text-ink-faint"}`}
+                  data-stress-strategy
+                  title={integrity.comparable ? undefined : "Not comparable with this window's benchmark figures — see the window's data note"}>
                   {m ? fmtPct(m.netProfitPct) : "—"}
                 </td>
                 <td className="px-4 py-2 text-right text-ink-muted">
@@ -257,7 +317,10 @@ function WindowTable({ detail }: { detail: StressRunDetail }) {
 function RunNotes({ detail }: { detail: StressRunDetail }) {
   const sizing = detail.results.find((r) => r.backtest?.executionTruth)?.backtest?.executionTruth?.sizing
     ?? null;
+  // The worked example compares a market move with the strategy's sizing; a
+  // window that is not comparable is not used for it.
   const worstTarget = detail.results
+    .filter((r) => windowIntegrityView(r.window, detail.benchmarkInterval).comparable)
     .map((r) => r.target)
     .filter((t): t is NonNullable<typeof t> => !!t && t.complete)
     .sort((a, b) => a.returnPct - b.returnPct)[0] ?? null;
@@ -296,7 +359,8 @@ function DiscoveryLine({ discovery }: { discovery: StressDiscovery }) {
       {discovery.config.method.replace(/_/g, " ")}, keeping{" "}
       {discovery.config.topN} window(s) at least{" "}
       {discovery.config.minSeparationBars} bars apart. Stored with the run, so the
-      same windows can be produced again.
+      same windows can be produced again.{" "}
+      <span data-stress-completeness>{discoveryCompleteness(discovery)}</span>
     </div>
   );
 }
@@ -606,19 +670,26 @@ function StressWorkspace() {
                   interval={preview.discovery.benchmark.interval} path={preview.path}
                   windows={preview.windows} range={preview.discovery.searched} />
               )}
-              {preview.windows.map((w) => (
+              {preview.windows.map((w) => {
+                const integrity = windowIntegrityView(w, preview.discovery.benchmark.interval);
+                return (
                 <div key={w.rank}
                   className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/50 px-3 py-2 text-xs last:border-0">
                   <span className="text-ink-muted">#{w.rank}</span>
                   <span className="text-ink tabular">{day(w.startMs)} → {day(w.endMs)}</span>
+                  <IntegrityBadge view={integrity} />
                   <span className="text-ink-muted">qualified by {qualifiedBy(w)}</span>
-                  <span className={signClass(w.benchmarkReturnPct)}>
+                  <span className={integrity.comparable ? signClass(w.benchmarkReturnPct) : "text-ink-faint"}>
                     return {fmtPct(w.benchmarkReturnPct)}
                   </span>
                   <span className="text-ink-muted">drawdown -{fmtNum(w.benchmarkDrawdownPct)}%</span>
                   <span className="text-ink-faint">volatility {fmtNum(w.benchmarkVolatilityPct)}</span>
+                  {integrity.detail && integrity.state !== "unverified" && (
+                    <span className="basis-full text-warn" data-stress-integrity-detail>{integrity.detail}</span>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -731,6 +802,7 @@ function StressWorkspace() {
               + (open.sourceBacktestId ? ` · settings of run ${shortRunId(open.sourceBacktestId)}` : "")}
             right={<StatusBadge status={open.status} />}
           />
+          <IntegrityNotice detail={open} />
           {staleResult && (
             <div className="px-4 pt-3">
               <Notice tone="warn">

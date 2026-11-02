@@ -571,9 +571,16 @@ test("the bounded discovery returns exactly what the exhaustive one did", () => 
               method, lengthBars, topN,
               ...(minSeparationBars === undefined ? {} : { minSeparationBars }),
             };
-            assert.deepStrictEqual(
-              discoverStressWindows(candles, config), referenceDiscover(candles, config),
-              `${name} · ${method} · L=${lengthBars} · top ${topN} · sep ${minSeparationBars}`);
+            const label = `${name} · ${method} · L=${lengthBars} · top ${topN} · sep ${minSeparationBars}`;
+            const found = discoverStressWindows(candles, config);
+            // Every fixture is contiguous: each window is measured whole, and
+            // apart from that measurement the figures are the reference's.
+            for (const w of found) {
+              assert.equal(w.integrity?.status, "complete", label);
+              assert.equal(w.integrity?.actualMs, w.integrity?.nominalMs, label);
+            }
+            assert.deepStrictEqual(found.map(({ integrity: _, ...rest }) => rest),
+              referenceDiscover(candles, config), label);
             compared += 1;
           }
         }

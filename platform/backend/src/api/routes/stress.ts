@@ -332,6 +332,8 @@ export async function stressRoutes(app: FastifyInstance): Promise<void> {
           params,
           initialCapital, commissionPct, slippageTicks,
         }, runQuery);
+        // The window's measured `integrity` (span, missing bars, status) is
+        // stored with it, so the result can say which windows crossed a gap.
         windows.push({ ...window, backtestId: run.id });
       }
       const created = await stressRepo.attachStressWindows(coordinator.id, windows, runQuery);
