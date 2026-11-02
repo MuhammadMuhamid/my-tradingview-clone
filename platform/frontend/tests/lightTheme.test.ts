@@ -304,4 +304,7 @@ test("THE FIRST-TIME VISITOR'S THEME IS THE SYSTEM'S, AND IT IS SET BEFORE PAINT
   // beforeInteractive, or the page paints dark and then flips.
   assert.match(read("app/layout.tsx"),
     /<Script src="\/theme-init\.js" strategy="beforeInteractive" \/>/);
+  // The sign-in gate must let the script through: the login page loads it
+  // before anyone is signed in, and a redirected script is a syntax error.
+  assert.match(read("proxy.ts"), /theme-init\.js\)\.\*\)/, "the page gate exempts /theme-init.js");
 });

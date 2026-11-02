@@ -30,9 +30,11 @@ export const config = {
   matcher: [
     /*
      * Everything except: the login page, the API (guarded server-side and
-     * needed by the login form itself), Next's own assets, and the PWA files —
-     * the service worker and manifest must load for push to work at all.
+     * needed by the login form itself), Next's own assets, the PWA files —
+     * the service worker and manifest must load for push to work at all —
+     * and the theme bootstrap script, which the login page itself loads before
+     * anyone is signed in (redirecting it served the login HTML as a script).
      */
-    "/((?!login|signup|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest).*)",
+    "/((?!login|signup|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|theme-init.js).*)",
   ],
 };
