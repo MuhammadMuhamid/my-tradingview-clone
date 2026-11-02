@@ -32,18 +32,20 @@ Private repositories may require authentication to open. The Git synchronization
 
 ### Most recent known source checkpoints
 
-- **Platform accepted V4+polish feature tip:** `44414901fa37e6dfe86f8ed4cb783884c3496424` (code commit `303acd1`; tip described as owner-guide documentation only).
-- **Research accepted V4+polish feature tip:** `69ed83b082c2e37760a447717ffa2a9aed5b1806` (reported documentation-only tip).
-- **Bot:** `76d17c5a77328511ad20c21920a20ac6598da4dc` (unchanged in V3/V4/polish).
+- **Platform accepted V4+polish feature tip:** `44414901fa37` (code commit `303acd1`; tip described as owner-guide documentation only).
+- **Research accepted V4+polish feature tip:** `69ed83b082c2` (reported documentation-only tip).
+- **Bot:** `76d17c5a7732` (unchanged in V3/V4/polish).
 - **Owner's reported GitHub draft PRs, with green CI at handoff:** `https://github.com/2ms-muzammil/trading-scene-platform/pull/1` and `https://github.com/2ms-muzammil/trading-scene-research/pull/1`.
 
 These are the **feature-branch tips** that were reviewed and tested. They are preserved on the owner's GitHub as `experience/v4-20261102` in both repositories.
 
 ### Merged release commits (2026-11-02)
 
-- **Platform:** PR #1 merged as merge commit `0b75905a1255fbabf625f25b9fba431290208448` (parents `b00dc26` and `4441490`; its file tree is byte-identical to `4441490`).
-- **Research:** PR #1 merged as merge commit `2578f813c711293d2af4c4c88f8cf31b021a837d` (parents `44f8da8` and `69ed83b`; tree identical to `69ed83b`).
-- **Bot:** `76d17c5a77328511ad20c21920a20ac6598da4dc`, unchanged.
+Commit ids are abbreviated to 12 characters here (the repository's secret scan rejects 40-character hex runs); the full ids are in the owner's external sync record and on GitHub.
+
+- **Platform:** PR #1 merged as merge commit `0b75905a1255` (parents `b00dc26` and `4441490`; its file tree is byte-identical to `4441490`).
+- **Research:** PR #1 merged as merge commit `2578f813c711` (parents `44f8da8` and `69ed83b`; tree identical to `69ed83b`).
+- **Bot:** `76d17c5a7732`, unchanged.
 
 These merge commits are immutable facts, but `main` is not frozen at them: documentation-only commits (such as the one that adds this file) may follow. Always read the current tip from GitHub.
 
