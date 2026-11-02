@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import { fmtUtcStamp } from "@/lib/format";
 import { failureReason, ownRefusal } from "@/lib/errorCopy";
+import { useIsAdmin } from "@/lib/session";
 
 /**
  * The private Shariah review console.
@@ -260,6 +261,14 @@ export default function ShariahPage() {
   /** False until the first universe/mode read has come back, either way. */
   const [loaded, setLoaded] = useState(false);
   const mode: ShariahMode | null = modeState?.mode ?? null;
+  /*
+   * An ordinary account may READ this screen (`GET /api/shariah/*`) and every
+   * write is refused with a 403. Offering it Turn on, Sync, the batch review
+   * and the publish form was a set of controls that appear to work and end in
+   * a refusal; for a known user they are not rendered. An unknown session
+   * keeps them, as the navigation does — the backend is still what refuses.
+   */
+  const canManage = useIsAdmin();
 
   const loadUniverse = useCallback(async () => {
     try {
@@ -451,9 +460,11 @@ export default function ShariahPage() {
         <div className="min-w-0">
           <PageHeader
             title="Shariah"
-            description={`Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`}
+            description={canManage
+              ? `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · every classification is published deliberately by you. Nothing here is decided automatically.`
+              : `Policy ${universe?.policyVersion ?? "TS_SHARIAH_V1"} · Screening decisions and enforcement are managed by the administrator. This screen shows the current universe and, for each asset, the published decision, its evidence and whether a BUY is allowed under the current mode.`}
           />
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">You publish evidence-backed screening decisions; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-ink-muted">{canManage ? "You publish" : "The administrator publishes"} evidence-backed screening decisions; Trading Scene does not issue religious rulings. Mode ON permits new BUY exposure only for ELIGIBLE assets. Mode OFF removes this screening gate. SELL remains available and existing positions are never automatically liquidated.</p>
           <details className="mt-1 text-xs text-ink-muted"><summary className="cursor-pointer">Understand screening statuses</summary>
             <p className="mt-1">ELIGIBLE: approved under a published decision. REVIEW: evidence needs further review. EXCLUDED: excluded under the published policy. UNSCREENED: no decision yet. UNKNOWN: registry identity cannot be established. STALE: a prior decision was invalidated and fresh review is required. All except ELIGIBLE block new BUY when Mode is ON.</p>
             <p>Due for re-review is an advisory reminder: the existing decision still stands. It is different from STALE.</p>
@@ -492,18 +503,20 @@ export default function ShariahPage() {
             Platform mode: {mode !== null ? (mode === "enforce" ? "ON" : "OFF")
               : loaded ? "unknown" : "…"}
           </span>
-          <Button onClick={toggleMode} disabled={busy || mode === null}>
-            {mode === "enforce" ? "Turn off" : "Turn on"}
-          </Button>
-          <Button onClick={syncUniverse} disabled={busy}
-            title="Ask Binance which USDT spot base assets this install tracks, and add any it has not seen. Discovery only — nothing is classified and nothing becomes buyable.">
-            Sync universe
-          </Button>
-          {screeningView && (
-            <Button variant="primary" onClick={createSnapshot} disabled={busy}>
-              Create universe snapshot
+          {canManage && (<>
+            <Button onClick={toggleMode} disabled={busy || mode === null}>
+              {mode === "enforce" ? "Turn off" : "Turn on"}
             </Button>
-          )}
+            <Button onClick={syncUniverse} disabled={busy}
+              title="Ask Binance which USDT spot base assets this install tracks, and add any it has not seen. Discovery only — nothing is classified and nothing becomes buyable.">
+              Sync universe
+            </Button>
+            {screeningView && (
+              <Button variant="primary" onClick={createSnapshot} disabled={busy}>
+                Create universe snapshot
+              </Button>
+            )}
+          </>)}
         </div>
       </div>
 
@@ -595,9 +608,15 @@ export default function ShariahPage() {
           )}
           {universe && universe.counts.active === 0 && (
             <div className="border-b border-border bg-warn/10 px-4 py-2 text-[11px] leading-5 text-warn">
-              This registry is empty, so every symbol reads as REVIEW and turning enforcement on
-              would refuse every BUY. <span className="font-medium">Sync universe</span> discovers the
-              assets this install tracks; it classifies nothing.
+              {canManage ? (<>
+                This registry is empty, so every symbol reads as REVIEW and turning enforcement on
+                would refuse every BUY. <span className="font-medium">Sync universe</span> discovers the
+                assets this install tracks; it classifies nothing.
+              </>) : (
+                // A user has no Sync control, so the warning must not name one.
+                "This registry is empty, so every symbol reads as REVIEW and, with enforcement on, "
+                + "every BUY is refused. Only the administrator can populate it."
+              )}
             </div>
           )}
           {universe && universe.counts.dueForReReview > 0 && (
@@ -611,7 +630,12 @@ export default function ShariahPage() {
           {universe && (
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-[11px] text-ink-muted">
               <span>Re-review a settled decision after</span>
-              <select
+              {/* The horizon is stated to a user, not offered as a control the server refuses. */}
+              {!canManage && (
+                <span className="text-ink">{universe.reviewPolicy.reviewMaxAgeDays
+                  ? `${universe.reviewPolicy.reviewMaxAgeDays} days` : "never (off)"}</span>
+              )}
+              {canManage && <select
                 aria-label="Days after which a settled decision is surfaced as due for re-review"
                 disabled={busy}
                 value={universe.reviewPolicy.reviewMaxAgeDays ?? 0}
@@ -632,7 +656,7 @@ export default function ShariahPage() {
                 <option value={365}>365 days</option>
                 <option value={730}>730 days</option>
                 <option value={0}>never (off)</option>
-              </select>
+              </select>}
               <span className="text-ink-faint">
                 Advisory only — an aged decision still stands and is still enforced.
               </span>
@@ -650,9 +674,10 @@ export default function ShariahPage() {
         <span>Needs attention: {universe.assets.filter((a) => a.lifecycle === "UNSCREENED").length} unscreened · {universe.assets.filter((a) => a.lifecycle === "STALE").length} stale</span>
         <Button onClick={() => { setView("screening"); setFilter("needs-review"); }}>Review unresolved assets</Button>
         <Button onClick={() => { setView("screening"); setFilter("due"); }}>Review today — {universe.counts.dueForReReview} advisory reminders</Button>
-        <Button disabled={!universe.counts.dueForReReview} onClick={() => { setView("screening"); setFilter("due"); setChosen(new Set(universe.assets.filter((a) => a.dueForReReview && a.binanceAvailable).slice(0, MAX_REVIEW_PACK_ASSETS).map((a) => a.assetId))); }}>Select due assets for a pack (up to {MAX_REVIEW_PACK_ASSETS})</Button>
+        {canManage && <Button disabled={!universe.counts.dueForReReview} onClick={() => { setView("screening"); setFilter("due"); setChosen(new Set(universe.assets.filter((a) => a.dueForReReview && a.binanceAvailable).slice(0, MAX_REVIEW_PACK_ASSETS).map((a) => a.assetId))); }}>Select due assets for a pack (up to {MAX_REVIEW_PACK_ASSETS})</Button>}
       </div></Card>}
-      {screeningView && (
+      {/* Every step of the batch review ends in a write: the admin's workflow only. */}
+      {screeningView && canManage && (
       <BatchReviewCard
         currentAssets={universe?.assets ?? []}
         categoryOptions={universe?.prohibitedCategories ?? []}
@@ -690,7 +715,7 @@ export default function ShariahPage() {
                   ))}
               </div>
             )}
-            {universe && (
+            {universe && canManage && (
               /*
                * Choosing what to research. "Select all" adds what this filter
                * shows — so "Stale" then "Select all" is one way to ask for
@@ -729,11 +754,11 @@ export default function ShariahPage() {
                   className={`flex items-center gap-2 border-b border-border pl-3 ${
                     selected === asset.assetId ? "bg-state-active" : "hover:bg-state-hover"
                   }`}>
-                  <Checkbox
+                  {canManage && <Checkbox
                     checked={chosen.has(asset.assetId)}
                     onChange={(on) => toggleChosen(asset.assetId, on)}
                     label={`Choose ${asset.baseAsset} for the next review pack`}
-                  />
+                  />}
                   <button
                     onClick={() => setSelected(asset.assetId)}
                     aria-current={selected === asset.assetId ? "true" : undefined}
@@ -802,11 +827,12 @@ export default function ShariahPage() {
               detail={detail}
               categories={universe?.prohibitedCategories ?? []}
               mode={mode}
+              canManage={canManage}
               onChanged={async () => { await loadDetail(detail.asset.assetId); await loadUniverse(); }}
               onError={setError}
               onNotice={setNotice}
             />
-          : <Card><Empty>Select an asset to review.</Empty></Card>}
+          : <Card><Empty>{canManage ? "Select an asset to review." : "Select an asset to see its published decision."}</Empty></Card>}
       </div>
       )}
     </PageShell>
@@ -1283,10 +1309,12 @@ function PreviewRow({ result: r, notInLastPack, acknowledged, onAcknowledge, onC
   );
 }
 
-function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }: {
+function ReviewPanel({ detail, categories, mode, canManage, onChanged, onError, onNotice }: {
   detail: ShariahAssetDetail;
   categories: string[];
   mode: ShariahMode | null;
+  /** False for a known ordinary user: the decision and its evidence are read, never written. */
+  canManage: boolean;
   onChanged: () => Promise<void>;
   onError: (failure: PageFailure | null) => void;
   onNotice: (message: string | null) => void;
@@ -1369,16 +1397,16 @@ function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }:
       </Card>
 
       <Card>
-        <CardHeader title="Evidence — select citations for the new decision" />
+        <CardHeader title={canManage ? "Evidence — select citations for the new decision" : "Evidence"} />
         {detail.evidence.length === 0 && <Empty>No evidence recorded.</Empty>}
         {detail.evidence.map((e) => (
           <label key={e.id} className="flex items-start gap-2 border-b border-border px-4 py-2 text-xs">
-            <input
+            {canManage && <input
               type="checkbox"
               className="mt-0.5"
               checked={selectedEvidence.includes(e.id)}
               onChange={() => setSelectedEvidence((prev) => toggle(prev, e.id))}
-            />
+            />}
             <span className="min-w-0">
               <span className="font-medium text-ink">{e.title ?? e.url ?? `Evidence #${e.id}`}</span>
               {e.publisher && <span className="text-ink-faint"> · {e.publisher}</span>}
@@ -1389,7 +1417,7 @@ function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }:
             </span>
           </label>
         ))}
-        <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
+        {canManage && <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
           <Field label="URL"><TextInput value={evidenceDraft.url}
             onChange={(ev) => setEvidenceDraft({ ...evidenceDraft, url: ev.target.value })} /></Field>
           <Field label="Title"><TextInput value={evidenceDraft.title}
@@ -1412,10 +1440,10 @@ function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }:
           <div className="sm:col-span-2">
             <Button onClick={addEvidence} disabled={busy}>Record evidence</Button>
           </div>
-        </div>
+        </div>}
       </Card>
 
-      <Card>
+      {canManage && <Card>
         <CardHeader title="Publish a decision" />
         <div className="grid gap-2 px-4 py-3">
           <Field label="Classification"
@@ -1461,7 +1489,7 @@ function ReviewPanel({ detail, categories, mode, onChanged, onError, onNotice }:
             </Button>
           </div>
         </div>
-      </Card>
+      </Card>}
 
       <Card>
         <CardHeader title="Published decision history" />
