@@ -2,6 +2,8 @@
 
 **Owner's feature guide:** [TRADING_SCENE_OWNER_GUIDE.md](TRADING_SCENE_OWNER_GUIDE.md) — what a user can actually do, where, with which options, and how much of it is verified (campaign of 2026-11-01).
 
+**Acceptance handoff for Mahamid:** [MAHAMID_HANDOFF_2026-11-02.md](MAHAMID_HANDOFF_2026-11-02.md) — what V2–V4 and the release polish changed, the verified Git state after the 2026-11-02 synchronization, the hands-on acceptance checklist and the product decisions still open.
+
 Start with [Architecture](ARCHITECTURE.md), [Operations](OPERATIONS.md) and [Security posture](SECURITY-POSTURE.md). The [release guides index](FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md) links the current Backtester, Shariah and Compute Helper guides and their accepted release evidence.
 
 [Webhook contract](WEBHOOK-CONTRACT.md) describes the Platform-to-Bot wire boundary. [Accounts](ACCOUNTS.md), [Alerts](ALERTS.md), [Shariah universe](SHARIAH-UNIVERSE.md) and [Stress analysis](STRESS-ANALYSIS.md) cover their respective operator workflows. [UI contract](TRADING_SCENE_UI_UX_CONTRACT.md) records accepted interface behavior. Historical handoffs live in [archive](archive/); dated audit ledgers describe what was true at their dates rather than override current source and guides.
