@@ -13,13 +13,13 @@ a disposable database during the campaign; screenshots in the campaign evidence 
 executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no credentialed exchange call has ever
 been made from this workspace, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 
-Final test runs (2026-11-02, Experience-Finish V4, at platform `cefef1f` / research `c0c4314`, logs in
-`Trading-Scene-Campaign/Experience-Finish-V4/evidence/final-*.log`): Platform backend 1,499 tests,
-0 skipped; Platform frontend 1,589 unit + 665 DOM, 0 skipped; Research 262 Python (0 skipped, single
-run, no tear-down race this time) + 127 node `.mjs` + 29 TypeScript; Bot unchanged since the V2 logs
-(386 backend, 13 dashboard). Two-account isolation and Shariah publication ran against a real
-PostgreSQL 16. `tsc` (backend and frontend) and `next build` pass at the final commit. (V3 figures for
-comparison: 1,483 / 1,577 / 621 / 257 / 118 / 24.)
+Final test runs (2026-11-02, V4 release polish, at platform `303acd1` / research `69ed83b`, logs in
+`Trading-Scene-Campaign/V4-Release-Polish/evidence/final-*.log`): Platform backend 1,499 tests,
+0 skipped; Platform frontend 1,590 unit + 671 DOM, 0 skipped; Research 262 Python (0 skipped, single
+run) + 127 node `.mjs` + 29 TypeScript; Bot unchanged since the V2 logs (386 backend, 13 dashboard).
+Two-account isolation and Shariah publication ran against a real PostgreSQL 16. `tsc`, `eslint`
+(zero warnings, as CI runs them) for backend and frontend, and `next build` pass at the final commit.
+(V4 figures: 1,499 / 1,589 / 665 / 262 / 127 / 29; V3: 1,483 / 1,577 / 621 / 257 / 118 / 24.)
 
 ---
 
