@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -17,7 +18,7 @@ import { downloadText, tradesCsv, tradesCsvName } from "@/lib/tradeExport";
 import type { Backtest, Candle, Strategy, Trade } from "@/lib/types";
 import { fmtDate, fmtPrice, UTC_DATE_NOTE } from "@/lib/format";
 
-export default function BacktestDetail() {
+function BacktestDetailView() {
   const id = useParams<{ id: string }>().id;
   const router = useRouter();
   const [bt, setBt] = useState<Backtest | null>(null);
@@ -356,4 +357,9 @@ function FailedRun({ raw, id }: { raw: string | null; id: string }) {
       </div>
     </Card>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function BacktestDetail() {
+  return <AdminOnlyPage title="Backtest"><BacktestDetailView /></AdminOnlyPage>;
 }

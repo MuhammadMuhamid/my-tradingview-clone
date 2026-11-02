@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -302,10 +303,13 @@ function DiscoveryLine({ discovery }: { discovery: StressDiscovery }) {
 
 export default function StressPage() {
   // useSearchParams needs a Suspense boundary during static prerendering.
+  // An ordinary account is told this page is the administrator's; the page is not mounted.
   return (
-    <Suspense fallback={null}>
-      <StressWorkspace />
-    </Suspense>
+    <AdminOnlyPage title="Stress analysis">
+      <Suspense fallback={null}>
+        <StressWorkspace />
+      </Suspense>
+    </AdminOnlyPage>
   );
 }
 

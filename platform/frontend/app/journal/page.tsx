@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -145,7 +146,7 @@ function JournalItem({ row }: { row: JournalRow }) {
   );
 }
 
-export default function JournalPage() {
+function JournalView() {
   const defaults = today();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -275,4 +276,9 @@ export default function JournalPage() {
       </>}
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function JournalPage() {
+  return <AdminOnlyPage title="Journal" width="narrow"><JournalView /></AdminOnlyPage>;
 }

@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type OptimizerLeaderboard, type OptimizerTree } from "@/lib/api";
@@ -129,7 +130,7 @@ function Methodology() {
   );
 }
 
-export default function OptimizersPage() {
+function OptimizersView() {
   const [trees, setTrees] = useState<OptimizerTree[] | null>(null);
   const [treesError, setTreesError] = useState("");
   const [selected, setSelected] = useState("");
@@ -386,4 +387,9 @@ export default function OptimizersPage() {
       </Card>
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function OptimizersPage() {
+  return <AdminOnlyPage title="Optimizer results"><OptimizersView /></AdminOnlyPage>;
 }

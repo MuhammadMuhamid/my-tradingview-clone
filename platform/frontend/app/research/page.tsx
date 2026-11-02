@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -23,7 +24,7 @@ const COMPARE_MAX = 2;
 
 const STATUSES = ["done", "error", "running", "queued"] as const;
 
-export default function BacktestsPage() {
+function BacktestsView() {
   const router = useRouter();
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -322,4 +323,9 @@ export default function BacktestsPage() {
       })()}
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function BacktestsPage() {
+  return <AdminOnlyPage title="Quick backtest"><BacktestsView /></AdminOnlyPage>;
 }

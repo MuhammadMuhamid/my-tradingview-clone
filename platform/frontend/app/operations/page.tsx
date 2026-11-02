@@ -1,4 +1,5 @@
 "use client";
+import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type OpsStatus, type UnresolvedIntents } from "@/lib/api";
@@ -273,7 +274,7 @@ function LimitRow(
   );
 }
 
-export default function OperationsPage() {
+function OperationsView() {
   const [status, setStatus] = useState<OpsStatus | null>(null);
   const [intents, setIntents] = useState<UnresolvedIntents | null>(null);
   /** Why the intent read failed, when it did. Null is 'not failed', not 'none'. */
@@ -768,4 +769,9 @@ export default function OperationsPage() {
       </div>
     </PageShell>
   );
+}
+
+/** An ordinary account is told this page is the administrator's; the page is not mounted. */
+export default function OperationsPage() {
+  return <AdminOnlyPage title="Operations"><OperationsView /></AdminOnlyPage>;
 }
