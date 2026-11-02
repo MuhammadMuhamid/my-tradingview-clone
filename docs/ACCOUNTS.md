@@ -50,7 +50,13 @@ What an ordinary account may do with market history is bounded
 (`platform/backend/src/api/routes/data.ts`, added 2026-11-01): a backfill or
 coverage request is clamped to the newest 200,000 source bars — the same amount
 the candles read serves — and the response says so (`clamped`, `coveredFrom`,
-`note`); at most four such requests per account run at once (429 beyond that);
+`note`). Requests over 20,000 source bars count as heavy, including deep candle
+reads and Pine runs: at most two per account and four across all ordinary
+accounts run at once (`platform/backend/src/api/historyAdmission.ts`), which bounds
+their memory however many accounts sign up. Beyond that the server answers 429
+and the browser waits its turn for up to 90 seconds before reporting it;
+requests under the threshold, such as a chart's default depth and tail repairs,
+take no slot.
 a Pine run (`POST /api/pine/run`) that would read more than 200,000 source bars
 including warm-up is refused with a sentence naming the limit. The admin is not
 bounded; an admin backfill deeper than that streams through `backfillRange` in
@@ -102,3 +108,10 @@ account signs in on the same browser.
 `platform/backend/tests/accountsDb.test.ts` (two accounts, real API, own
 database — nothing of one is visible to or changeable by the other),
 `platform/frontend/tests/dom/accountPages.test.tsx`.
+
+## When the session cannot be read
+
+A failed `/api/auth/me` read offers nothing of the administrator's, because the
+account is not known. It retries by itself (after 2, 5, 15, then every 30
+seconds, and at once when the browser comes back online), and the chart says why
+its trading controls are hidden (`SessionCheckBanner`).

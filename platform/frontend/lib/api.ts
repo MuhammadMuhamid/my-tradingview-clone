@@ -771,12 +771,45 @@ async function refusedForThisAccount(path: string): Promise<boolean> {
   return session.authEnabled && session.user?.role === "user";
 }
 
+/**
+ * History reads the server may ask to wait (`api/historyAdmission.ts`): only a
+ * few deep ones run at once, so a 429 here means "your turn is coming", and a
+ * chart pane should wait for it rather than show an error. The wait is bounded,
+ * after which the refusal is reported as any other.
+ */
+const HISTORY_READS =
+  /^\/api\/(data\/(backfill|ensure)$|pine\/run$|symbols\/[^/]+\/candles|market\/v1\/candles\/)/;
+const HISTORY_WAIT_MS = 90_000;
+
+function sleepUnlessAborted(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    if (signal?.aborted) { aborted(); return; }
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(timer); aborted(); };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchWaitingForHistorySlot(path: string, init: RequestInit): Promise<Response> {
+  const deadline = Date.now() + HISTORY_WAIT_MS;
+  for (;;) {
+    const res = await fetch(path, init);
+    if (res.status !== 429 || !HISTORY_READS.test(path) || Date.now() >= deadline) return res;
+    const seconds = Number(res.headers.get("retry-after"));
+    // Jittered, so panes refused together do not all come back together.
+    const waitMs = (Number.isFinite(seconds) && seconds >= 0 ? seconds : 2) * 1000 + Math.random() * 500;
+    await res.body?.cancel();
+    await sleepUnlessAborted(waitMs, init.signal);
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (await refusedForThisAccount(path)) {
     throw new ApiError(403, "This part of the platform is available to the administrator only.");
   }
   const hasBody = init?.body !== undefined && init.body !== null;
-  const res = await fetch(path, {
+  const res = await fetchWaitingForHistorySlot(path, {
     ...init,
     headers: { ...(hasBody ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) },
     cache: "no-store",

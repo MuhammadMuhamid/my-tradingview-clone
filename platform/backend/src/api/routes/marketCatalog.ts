@@ -12,7 +12,7 @@ import type { EquityAdjustmentMode, EquitySessionMode } from "../../market/provi
 import { assertTraditionalResearchSemantics, TraditionalMarketSemanticError } from "../../market/traditionalMarkets";
 import { SCREENER_FIELDS, screenerFieldsFor, workstationCategory, type WorkstationCategory } from "../../market/workstation";
 import { isAdmin } from "../../security/requestUser";
-import { createHistoryAdmission, USER_MAX_HISTORY_BARS } from "../historyAdmission";
+import { admitHistoryRequest, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message.slice(0, 200) : "provider unavailable";
@@ -107,8 +107,6 @@ export async function marketCatalogRoutes(app: FastifyInstance): Promise<void> {
 }
 
 async function registerMarketCatalogRoutes(app: FastifyInstance, registry: ProviderRegistry, clock: () => number = Date.now): Promise<void> {
-  // Ordinary accounts' candle reads too wide for the cache (see the candles route).
-  const admitWideRead = createHistoryAdmission();
   app.get("/api/market/v1/providers", async () => ({
     contractVersion: MARKET_CONTRACT_VERSION,
     venues: venueRegistry.all(),
@@ -320,10 +318,10 @@ async function registerMarketCatalogRoutes(app: FastifyInstance, registry: Provi
         `covered about ${n(asked)} ${plan.source} bars; an account may load at most ${n(USER_MAX_HISTORY_BARS)} ` +
         `${plan.source} bars at a time, so only the most recent were returned.`;
     }
-    // A read that still bypasses the cache holds one of the account's few slots;
+    // A read that still bypasses the cache holds one of the shared history slots;
     // ordinary chart windows (cache-sized) are never gated.
     const admitted = !isAdmin(req) && registry.candleCache.bypasses(startMs, endMs, sourceMs)
-      ? admitWideRead(req, reply) : { ok: true as const, release: () => {} };
+      ? admitHistoryRequest(req, reply) : { ok: true as const, release: () => {} };
     if (!admitted.ok) return reply;
     const controller = new AbortController();
     const abort = () => controller.abort();

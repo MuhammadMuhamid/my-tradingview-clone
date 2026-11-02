@@ -43,6 +43,36 @@ const UNREAD: SessionState = {
   readFailed: true,
 };
 
+/*
+ * A failed read must recover without anyone asking. An administrator whose
+ * chart loaded during a backend restart otherwise lost the Trade ticket and
+ * their positions until they found Retry in a menu, long after the server was
+ * back. The read is repeated, backing off, and at once when the browser comes
+ * back online; a read that answers ends it.
+ */
+const READ_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
+
+function cancelReadRetry(): void {
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = null;
+  if (typeof window !== "undefined") window.removeEventListener("online", retryReadNow);
+}
+
+function retryReadNow(): void {
+  void refreshSession();
+}
+
+function scheduleReadRetry(): void {
+  if (typeof window === "undefined" || retryTimer !== null) return;
+  const delay = READ_RETRY_DELAYS_MS[Math.min(retryAttempt, READ_RETRY_DELAYS_MS.length - 1)]!;
+  retryAttempt += 1;
+  retryTimer = setTimeout(retryReadNow, delay);
+  (retryTimer as { unref?: () => void }).unref?.();
+  window.addEventListener("online", retryReadNow);
+}
+
 let pending: Promise<SessionState> | null = null;
 let current: SessionState | null = null;
 const listeners = new Set<(s: SessionState) => void>();
@@ -90,6 +120,8 @@ export function loadSession(): Promise<SessionState> {
     pending = null;
     forgetOtherAccountsCache(s.user?.id ?? null, s.user?.role === "admin");
     listeners.forEach((fn) => fn(s));
+    if (s.readFailed) scheduleReadRetry();
+    else retryAttempt = 0;
     /*
      * The server ANSWERED, and said nobody is signed in: the cookie the proxy
      * let through no longer verifies (expired, or signed out elsewhere). That
@@ -104,6 +136,7 @@ export function loadSession(): Promise<SessionState> {
 }
 
 export async function refreshSession(): Promise<SessionState> {
+  cancelReadRetry();
   current = null;
   return loadSession();
 }
@@ -171,6 +204,7 @@ export async function signOut(everywhere = false): Promise<void> {
   await fetch(everywhere ? "/api/auth/logout-all" : "/api/auth/logout", {
     method: "POST", credentials: "same-origin",
   }).catch(() => undefined);
+  cancelReadRetry();
   current = null;
   window.location.href = "/login";
 }
@@ -210,6 +244,8 @@ export function initialsOf(name: string | null | undefined): string {
 
 /** Forget the cached session — for tests, which render many accounts in one process. */
 export function resetSessionForTests(): void {
+  cancelReadRetry();
+  retryAttempt = 0;
   current = null;
   pending = null;
 }

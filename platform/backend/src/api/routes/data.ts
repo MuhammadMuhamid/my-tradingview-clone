@@ -13,7 +13,7 @@ import {
 } from "../../data/candleIntegrity";
 import { INTERVAL_MS, type Interval } from "../../types/market";
 import { isAdmin } from "../../security/requestUser";
-import { createHistoryAdmission, USER_MAX_HISTORY_BARS } from "../historyAdmission";
+import { admitHistoryRequest, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 
 // The account bounds live with the admission cap, which the market candles
 // route (`routes/marketCatalog.ts`) applies too.
@@ -73,14 +73,6 @@ export async function dataRoutes(app: FastifyInstance, opts: DataRouteDeps = {})
     countCandles: opts.countCandles ?? candleRepo.countCandles,
     registerInstrument: opts.registerInstrument ?? registerInstrument,
   };
-
-  /*
-   * Ordinary accounts reach backfill/ensure (a chart on an untracked coin starts
-   * tracking it), so each account may run only a few at once (the span itself
-   * is clamped by `clampForAccount`). The admin is exempt. `ok: false` means it
-   * has replied.
-   */
-  const admitHistoryRequest = createHistoryAdmission();
 
   /** Ordered public executions for Range and Volume Footprint charts. */
   app.get("/api/data/trades", async (req, reply) => {
@@ -147,7 +139,7 @@ export async function dataRoutes(app: FastifyInstance, opts: DataRouteDeps = {})
     const clampNote = clamped
       ? { clamped: true, coveredFrom: startMs, note: historyLimitNote(symbol, plan, stored, requestedBars) }
       : {};
-    const admitted = admitHistoryRequest(req, reply);
+    const admitted = admitHistoryRequest(req, reply, bars);
     if (!admitted.ok) return reply;
     try {
       // Registration now asks the venue for the real base and quote assets rather
@@ -216,7 +208,7 @@ export async function dataRoutes(app: FastifyInstance, opts: DataRouteDeps = {})
     // Same ceiling as backfill: coverage reads, and may fetch, the whole span.
     const requestedBars = sourceBarsIn(source, requestedStartMs, endMs);
     const { startMs, clamped } = clampForAccount(req, source, requestedStartMs, endMs, requestedBars);
-    const admitted = admitHistoryRequest(req, reply);
+    const admitted = admitHistoryRequest(req, reply, Math.min(requestedBars, USER_MAX_HISTORY_BARS));
     if (!admitted.ok) return reply;
     try {
       await deps.ensureCoverage(symbol, source, startMs, endMs);

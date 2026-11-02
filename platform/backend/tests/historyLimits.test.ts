@@ -13,6 +13,9 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import {
+  SERVER_MAX_HISTORY_IN_FLIGHT, USER_HEAVY_HISTORY_BARS,
+} from "../src/api/historyAdmission";
+import {
   dataRoutes, USER_MAX_HISTORY_BARS, USER_MAX_HISTORY_IN_FLIGHT, type DataRouteDeps,
 } from "../src/api/routes/data";
 import type { BackfillRangeReport } from "../src/data/binanceRest";
@@ -77,7 +80,7 @@ async function server(t: TestContext, deps: DataRouteDeps) {
   app.addHook("onRequest", async (req) => {
     req.user = req.headers["x-as"] === "admin"
       ? { id: ADMIN_USER_ID, role: "admin", sessionVersion: 1 }
-      : { id: USER, role: "user", sessionVersion: 1 };
+      : { id: String(req.headers["x-user"] ?? USER), role: "user", sessionVersion: 1 };
   });
   await app.register(dataRoutes, deps);
   t.after(() => app.close());
@@ -252,15 +255,15 @@ test("one account may run only a few heavy requests at once, and finished ones f
     },
   });
   const app = await server(t, deps);
-  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", 1_000) };
+  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", USER_HEAVY_HISTORY_BARS + 1) };
   const running = Array.from({ length: USER_MAX_HISTORY_IN_FLIGHT },
     () => app.inject(post("/api/data/backfill", "user", payload)));
   while (gates.length < USER_MAX_HISTORY_IN_FLIGHT) await new Promise((r) => setImmediate(r));
 
-  const fifth = await app.inject(post("/api/data/backfill", "user", payload));
-  assert.equal(fifth.statusCode, 429);
-  assert.ok(Number(fifth.headers["retry-after"]) > 0, "says when to retry");
-  assert.match(fifth.json().error, /wait for one to finish/);
+  const refused = await app.inject(post("/api/data/backfill", "user", payload));
+  assert.equal(refused.statusCode, 429);
+  assert.ok(Number(refused.headers["retry-after"]) > 0, "says when to retry");
+  assert.match(refused.json().error, /wait for one to finish/);
   const ensureToo = await app.inject(post("/api/data/ensure", "user", payload));
   assert.equal(ensureToo.statusCode, 429, "backfill and ensure share the account's slots");
 
@@ -281,9 +284,59 @@ test("one account may run only a few heavy requests at once, and finished ones f
 test("a request that fails still frees its slot", async (t) => {
   const { deps } = fakes({ fetchKlines: async () => { throw new Error("upstream down"); } });
   const app = await server(t, deps);
-  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", 1_000) };
+  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", USER_HEAVY_HISTORY_BARS + 1) };
   for (let i = 0; i < USER_MAX_HISTORY_IN_FLIGHT + 2; i += 1) {
     assert.equal((await app.inject(post("/api/data/backfill", "user", payload))).statusCode, 500,
       "every failure is the upstream's, never this account's slots running out");
   }
+});
+
+test("a request under the heavy threshold takes no slot, so a many-pane chart always loads", async (t) => {
+  const gates: Array<() => void> = [];
+  const { deps } = fakes({
+    fetchKlines: async (symbol, interval, startMs) => {
+      await new Promise<void>((resolve) => gates.push(resolve));
+      return [candle(symbol, interval, startMs)];
+    },
+  });
+  const app = await server(t, deps);
+  // The chart's default depth for sixteen panes, its layout maximum.
+  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", 11_000) };
+  const panes = Array.from({ length: 16 }, () => app.inject(post("/api/data/backfill", "user", payload)));
+  while (gates.length < 16) await new Promise((r) => setImmediate(r));
+  gates.splice(0).forEach((open) => open());
+  for (const res of await Promise.all(panes)) assert.equal(res.statusCode, 200, res.body);
+});
+
+test("heavy requests are capped across all accounts, and the admin is neither capped nor counted", async (t) => {
+  const gates: Array<() => void> = [];
+  const { deps } = fakes({
+    fetchKlines: async (symbol, interval, startMs) => {
+      await new Promise<void>((resolve) => gates.push(resolve));
+      return [candle(symbol, interval, startMs)];
+    },
+  });
+  const app = await server(t, deps);
+  const payload = { symbol: "BTCUSDT", interval: "1m", ...spanOf("1m", USER_HEAVY_HISTORY_BARS + 1) };
+  const as = (user: string) => app.inject({
+    method: "POST", url: "/api/data/backfill", headers: { "x-as": "user", "x-user": user }, payload,
+  });
+  // Each account under its own cap, until the server's is reached.
+  const running = Array.from({ length: SERVER_MAX_HISTORY_IN_FLIGHT }, (_, i) => as(`account-${i}`));
+  while (gates.length < SERVER_MAX_HISTORY_IN_FLIGHT) await new Promise((r) => setImmediate(r));
+
+  const another = await as("account-new");
+  assert.equal(another.statusCode, 429);
+  assert.ok(Number(another.headers["retry-after"]) > 0);
+  assert.match(another.json().error, /busy loading history for other accounts/);
+
+  const admin = app.inject(post("/api/data/backfill", "admin", payload));
+  while (gates.length < SERVER_MAX_HISTORY_IN_FLIGHT + 1) await new Promise((r) => setImmediate(r));
+  gates.splice(0).forEach((open) => open());
+  for (const res of await Promise.all([...running, admin])) assert.equal(res.statusCode, 200, res.body);
+
+  const later = as("account-new");
+  while (gates.length < 1) await new Promise((r) => setImmediate(r));
+  gates.splice(0).forEach((open) => open());
+  assert.equal((await later).statusCode, 200, "every slot came back");
 });

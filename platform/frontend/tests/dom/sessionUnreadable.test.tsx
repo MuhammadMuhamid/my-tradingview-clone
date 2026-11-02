@@ -28,7 +28,9 @@ import ShariahPage from "@/app/shariah/page";
 import { Nav } from "@/components/Nav";
 import { SESSION_UNREADABLE_NOTICE } from "@/components/AdminOnlyPage";
 import { ADMIN_ONLY_HREFS, PRODUCT_NAME } from "@/lib/navigation";
-import { resetSessionForTests, roleOf } from "@/lib/session";
+import { loadSession, refreshSession, resetSessionForTests, roleOf } from "@/lib/session";
+import { CHART_SESSION_NOTICE, SessionCheckBanner } from "@/components/tv/SessionCheckBanner";
+import { api, ApiError } from "@/lib/api";
 
 beforeEach(() => {
   resetBrowser();
@@ -152,4 +154,68 @@ test("roleOf: a failed read and a signed-out answer are unreadable; no accounts 
   assert.equal(roleOf({ ...base, authenticated: false, authEnabled: true, user: null, readFailed: true }), "unreadable");
   assert.equal(roleOf({ ...base, authenticated: false, authEnabled: true, user: null }), "unreadable");
   assert.equal(roleOf({ ...base, authenticated: false, authEnabled: false, user: null }), "admin");
+});
+
+test("a failed read recovers by itself once the server answers, and the chart's notice goes", async () => {
+  server.routes.set("GET /api/auth/me", () => new Response("upstream down", { status: 502 }));
+  render(<SessionCheckBanner />);
+  await settle();
+  screen.getByText(CHART_SESSION_NOTICE);
+
+  // The server comes back; nobody presses anything.
+  server.routes.set("GET /api/auth/me", () => ({
+    authenticated: true, authEnabled: true, providers: { google: false, signups: true },
+    user: { id: "a1", email: "a@example.test", displayName: "Admin", avatarUrl: null, role: "admin" },
+  }));
+  const deadline = Date.now() + 4_000;
+  while (screen.queryByText(CHART_SESSION_NOTICE) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+    await settle();
+  }
+  assertAbsent(screen.queryByText(CHART_SESSION_NOTICE), "the notice ends when the read answers");
+  assert.equal(roleOf(await loadSession()), "admin");
+});
+
+test("the chart's notice offers Retry now, and says nothing for a read that answered", async () => {
+  let answers = false;
+  server.routes.set("GET /api/auth/me", () => answers
+    ? { authenticated: true, authEnabled: false, providers: { google: false, signups: true }, user: null }
+    : new Response("upstream down", { status: 500 }));
+  render(<SessionCheckBanner />);
+  await settle();
+  answers = true;
+  fireEvent.click(screen.getByRole("button", { name: "Retry now" }));
+  await settle();
+  assertAbsent(screen.queryByText(CHART_SESSION_NOTICE), "the notice, after Retry now");
+  await refreshSession();
+});
+
+test("a history request told to wait waits, then succeeds; anything else's 429 is reported at once", async () => {
+  let asked = 0;
+  server.routes.set("POST /api/data/backfill", () => {
+    asked += 1;
+    return asked < 3
+      ? new Response(JSON.stringify({ error: "wait" }), { status: 429, headers: { "retry-after": "0" } })
+      : { fetched: 5, interval: "1m", source: "1m" };
+  });
+  const done = await api.backfill("BTCUSDT", "1m", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z");
+  assert.equal(done.fetched, 5);
+  assert.equal(asked, 3);
+
+  let other = 0;
+  server.routes.set("GET /api/symbols", () => {
+    other += 1;
+    return new Response(JSON.stringify({ error: "slow down" }), { status: 429, headers: { "retry-after": "0" } });
+  });
+  await assert.rejects(api.listSymbols(), (e: unknown) => e instanceof ApiError && e.status === 429);
+  assert.equal(other, 1);
+});
+
+test("an aborted history request stops waiting for its turn", async () => {
+  server.routes.set("POST /api/data/backfill", () =>
+    new Response(JSON.stringify({ error: "wait" }), { status: 429, headers: { "retry-after": "60" } }));
+  const controller = new AbortController();
+  const waiting = api.backfill("BTCUSDT", "1m", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", controller.signal);
+  setTimeout(() => controller.abort(), 20);
+  await assert.rejects(waiting, (e: unknown) => (e as { name?: string }).name === "AbortError");
 });

@@ -35,6 +35,7 @@ import { ChartToolbar } from "@/components/tv/ChartToolbar";
 import { ProductMenu } from "@/components/tv/ProductMenu";
 import { ChartWorkspace } from "@/components/tv/ChartWorkspace";
 import { ChartBottomPanel } from "@/components/tv/ChartBottomPanel";
+import { SessionCheckBanner } from "@/components/tv/SessionCheckBanner";
 import { ChartSidePanel, type ChartPanel } from "@/components/tv/ChartSidePanel";
 import { recall, remember } from "@/lib/browserStorage";
 import { ChartDialogs } from "@/components/tv/ChartDialogs";
@@ -454,8 +455,8 @@ export default function TvWorkspace() {
    * Manual trading, Automations, the Strategy Tester, the strategy list and
    * the optimizer are the administrator's: the server refuses an ordinary
    * account every one of them. False for a known ordinary account and while
-   * the session is still being read (nothing flashes before the answer); an
-   * admin, and a session that could not be read, keep everything.
+   * the session is still being read (nothing flashes before the answer) or
+   * could not be read, which `SessionCheckBanner` says and which retries itself.
    */
   const admin = useIsAdmin();
   /*
@@ -2849,6 +2850,7 @@ export default function TvWorkspace() {
         system never draws one in the middle of the product.
       */}
       <ChromeTooltip />
+      <SessionCheckBanner />
       {/*
         ── row 1: the account cell and the toolbar, full width ──
 

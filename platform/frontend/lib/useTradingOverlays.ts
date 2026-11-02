@@ -56,9 +56,9 @@ export interface TradingOverlaysInput {
    */
   manualPositions?: readonly { id: string; pnlUsdt: number; pnlPct: number }[];
   /**
-   * False for a KNOWN ordinary account: the server refuses them trading
-   * evidence, so nothing is asked for and the menu is not offered. Unknown
-   * sessions and the admin behave as before.
+   * False unless the account is known to be the administrator's: the server
+   * refuses anyone else trading evidence, so nothing is asked for and the menu
+   * is not offered.
    */
   enabled?: boolean;
 }

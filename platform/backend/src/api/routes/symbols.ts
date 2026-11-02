@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import * as symbols from "../../repositories/symbols";
-import { parseResolution } from "../../data/resolution";
+import { parseResolution, sourceBarsNeeded } from "../../data/resolution";
+import { admitHistoryRequest, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 import { IncompleteDerivedCandleError, readResolvedCandles } from "../../data/resolvedCandles";
 import { toCompact } from "../../data/candleWire";
 import {
@@ -249,6 +250,10 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
       if (err instanceof InstrumentIdError) return reply.code(400).send({ error: err.message });
       throw err;
     }
+    // The read holds up to this many source rows in memory, so a deep one takes a slot.
+    const admitted = admitHistoryRequest(req, reply,
+      Math.min(sourceBarsNeeded(plan, limit), USER_MAX_HISTORY_BARS));
+    if (!admitted.ok) return reply;
     let rows;
     try {
       rows = await readResolvedCandles(ticker, plan, {
@@ -268,6 +273,8 @@ async function registerSymbolRoutes(app: FastifyInstance, ctx: {
         });
       }
       throw error;
+    } finally {
+      admitted.release();
     }
     return q.format === "compact" ? toCompact(rows, ticker, plan.id) : rows;
   });

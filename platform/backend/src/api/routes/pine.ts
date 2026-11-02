@@ -25,7 +25,7 @@ import {
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import { parseResolution } from "../../data/resolution";
 import { ensureResolvedCoverage, readResolvedCandles, sourceInterval } from "../../data/resolvedCandles";
-import { USER_MAX_HISTORY_BARS } from "./data";
+import { admitHistoryRequest, USER_MAX_HISTORY_BARS } from "../historyAdmission";
 import { completedAtOrBefore } from "../../pine/horizon";
 import { paramsProblem, runSettingsProblem } from "../backtestRequest";
 import { isAdmin, userIdOf } from "../../security/requestUser";
@@ -193,17 +193,15 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
      * thirty one-second klines per bar), and `ensureCandles` holds the span in
      * memory before one upsert. The admin is not bounded here either.
      */
-    if (!isAdmin(req)) {
-      const stored = sourceInterval(plan);
-      const sourceBars = Math.floor((endMs - (startMs - WARMUP_BARS * stepMs)) / INTERVAL_MS[stored]) + 1;
-      if (sourceBars > USER_MAX_HISTORY_BARS) {
-        return reply.code(400).send({
-          error: `this run would read about ${sourceBars.toLocaleString("en-US")} ${stored} bars ` +
-            `(warm-up included); an account may run a script over at most ` +
-            `${USER_MAX_HISTORY_BARS.toLocaleString("en-US")} ${stored} bars at a time. ` +
-            "Shorten the range or choose a coarser resolution.",
-        });
-      }
+    const stored = sourceInterval(plan);
+    const sourceBars = Math.floor((endMs - (startMs - WARMUP_BARS * stepMs)) / INTERVAL_MS[stored]) + 1;
+    if (!isAdmin(req) && sourceBars > USER_MAX_HISTORY_BARS) {
+      return reply.code(400).send({
+        error: `this run would read about ${sourceBars.toLocaleString("en-US")} ${stored} bars ` +
+          `(warm-up included); an account may run a script over at most ` +
+          `${USER_MAX_HISTORY_BARS.toLocaleString("en-US")} ${stored} bars at a time. ` +
+          "Shorten the range or choose a coarser resolution.",
+      });
     }
 
     // Compile first so syntax errors never trigger a data fetch.
@@ -220,137 +218,144 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
       if (problem) return reply.code(400).send({ error: problem });
     }
 
-    const interval = plan.id;
-    const warmupFrom = startMs - WARMUP_BARS * stepMs;
+    // A deep run holds its bars for the whole run; every return below releases this.
+    const admitted = admitHistoryRequest(req, reply, sourceBars);
+    if (!admitted.ok) return reply;
     try {
-      await ensureResolvedCoverage(symbol, plan, warmupFrom, endMs, () => {});
-    } catch (err) {
-      return reply.code(502).send({ error: `market data unavailable: ${(err as Error).message}` });
-    }
-    const candles = completedAtOrBefore(
-      await readResolvedCandles(symbol, plan, {
-        from: warmupFrom, to: endMs, asOfMs: endMs + 1,
-      }), endMs
-    );
-    if (candles.length === 0) {
-      return reply.code(404).send({ error: `no ${interval} data for ${symbol}` });
-    }
-    const bars = toBars(candles);
-    const startIdx = Math.max(0, bars.time.findIndex((t) => t >= startMs));
-
-    /**
-     * Extra feeds for `request.security`. The declaration pass reports which
-     * timeframes the script asks for, so they are fetched HERE — the run is
-     * synchronous and cannot go and get data itself.
-     *
-     * Each feed is loaded from the same start as the chart, so a coarse
-     * timeframe still has the warmup its own indicators need. A timeframe the
-     * platform does not support is skipped; the run then fails naming it,
-     * which is a better error than a silent wrong number.
-     */
-    const htf: Record<string, Bars> = {};
-    for (const raw of compiled.meta.securityTimeframes) {
-      const tf = normaliseTimeframe(raw);
-      if (!tf || tf === interval) continue;
-      if (INTERVAL_MS[tf] <= stepMs) {
-        // Lower timeframes would need intrabar data this engine does not keep.
-        continue;
-      }
+      const interval = plan.id;
+      const warmupFrom = startMs - WARMUP_BARS * stepMs;
       try {
-        await ensureCandles(symbol, tf, warmupFrom, endMs, () => {});
-      } catch {
-        continue;
+        await ensureResolvedCoverage(symbol, plan, warmupFrom, endMs, () => {});
+      } catch (err) {
+        return reply.code(502).send({ error: `market data unavailable: ${(err as Error).message}` });
       }
-      const rows = completedAtOrBefore(
-        await candleRepo.getCandles(symbol, tf, { from: warmupFrom, to: endMs }), endMs
+      const candles = completedAtOrBefore(
+        await readResolvedCandles(symbol, plan, {
+          from: warmupFrom, to: endMs, asOfMs: endMs + 1,
+        }), endMs
       );
-      if (rows.length > 0) htf[raw] = toBars(rows);
-    }
-
-    const isStrategy = compiled.meta.kind === "strategy";
-    let brokerOptions: BrokerOptions | null = null;
-    if (isStrategy) {
-      let info = await symbolRepo.getSymbol(symbol);
-      if (!info?.priceTick) {
-        await syncExchangeFilters([symbol]);
-        info = await symbolRepo.getSymbol(symbol);
+      if (candles.length === 0) {
+        return reply.code(404).send({ error: `no ${interval} data for ${symbol}` });
       }
-      const tickSize = info?.priceTick;
-      if (!tickSize || tickSize <= 0) {
-        return reply.code(400).send({ error: `no tick size available for ${symbol}` });
+      const bars = toBars(candles);
+      const startIdx = Math.max(0, bars.time.findIndex((t) => t >= startMs));
+
+      /**
+       * Extra feeds for `request.security`. The declaration pass reports which
+       * timeframes the script asks for, so they are fetched HERE — the run is
+       * synchronous and cannot go and get data itself.
+       *
+       * Each feed is loaded from the same start as the chart, so a coarse
+       * timeframe still has the warmup its own indicators need. A timeframe the
+       * platform does not support is skipped; the run then fails naming it,
+       * which is a better error than a silent wrong number.
+       */
+      const htf: Record<string, Bars> = {};
+      for (const raw of compiled.meta.securityTimeframes) {
+        const tf = normaliseTimeframe(raw);
+        if (!tf || tf === interval) continue;
+        if (INTERVAL_MS[tf] <= stepMs) {
+          // Lower timeframes would need intrabar data this engine does not keep.
+          continue;
+        }
+        try {
+          await ensureCandles(symbol, tf, warmupFrom, endMs, () => {});
+        } catch {
+          continue;
+        }
+        const rows = completedAtOrBefore(
+          await candleRepo.getCandles(symbol, tf, { from: warmupFrom, to: endMs }), endMs
+        );
+        if (rows.length > 0) htf[raw] = toBars(rows);
       }
-      brokerOptions = {
-        initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
-        commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
-        slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
-        tickSize,
-        qtyCash: body.qtyCash ?? 930,
-        qtyPctEquity: body.qtyPctEquity ?? 0,
-      };
-    }
 
-    /*
-     * W2D-01: a caller that has gone does not keep its place in the pool.
-     *
-     * The chart cancels the run it superseded whenever it switches symbol or
-     * interval. The response's `close` before it has finished writing is the
-     * connection going away — the browser's abort, carried through the Next
-     * proxy — and the worker pool then drops the run (queued) or terminates
-     * its thread (running), so the run the chart is waiting for is not queued
-     * behind work nobody will read.
-     */
-    const gone = new AbortController();
-    const onClose = (): void => { if (!reply.raw.writableFinished) gone.abort(); };
-    reply.raw.once("close", onClose);
-
-    let outcome;
-    try {
-      outcome = await runPineInWorker({
-        source,
-        bars,
-        startIdx,
-        endIdx: bars.length - 1,
-        params: body.params,
-        broker: brokerOptions,
-        htf,
-        // A chart request has a user waiting on it. It no longer blocks
-        // anything else either, because it runs off this thread — but it is
-        // still bounded, and the thread is terminated if it overruns.
-        timeBudgetMs: EDITOR_TIME_BUDGET_MS,
-      }, gone.signal);
-    } catch (err) {
-      if (err instanceof PineBusyError) {
-        return reply.code(503).send({ error: err.message });
+      const isStrategy = compiled.meta.kind === "strategy";
+      let brokerOptions: BrokerOptions | null = null;
+      if (isStrategy) {
+        let info = await symbolRepo.getSymbol(symbol);
+        if (!info?.priceTick) {
+          await syncExchangeFilters([symbol]);
+          info = await symbolRepo.getSymbol(symbol);
+        }
+        const tickSize = info?.priceTick;
+        if (!tickSize || tickSize <= 0) {
+          return reply.code(400).send({ error: `no tick size available for ${symbol}` });
+        }
+        brokerOptions = {
+          initialCapital: body.initialCapital ?? DEFAULT_INITIAL_CAPITAL,
+          commissionPct: body.commissionPct ?? DEFAULT_COMMISSION_PCT,
+          slippageTicks: body.slippageTicks ?? DEFAULT_SLIPPAGE_TICKS,
+          tickSize,
+          qtyCash: body.qtyCash ?? 930,
+          qtyPctEquity: body.qtyPctEquity ?? 0,
+        };
       }
-      throw err;
-    } finally {
-      reply.raw.off("close", onClose);
-    }
 
-    if (outcome.kind === "aborted") {
-      // Nobody is reading this. 499 is the conventional "client closed" code
-      // for the access log; the socket is already gone.
-      return reply.code(499).send({ error: "the run was cancelled by the client" });
-    }
-    if (outcome.kind === "ok") return { ok: true, errors: [], ...outcome.run };
-    if (outcome.kind === "script-error") {
-      return { ok: false, errors: outcome.errors, meta: compiled.meta };
-    }
-    if (outcome.kind === "timeout") {
+      /*
+       * W2D-01: a caller that has gone does not keep its place in the pool.
+       *
+       * The chart cancels the run it superseded whenever it switches symbol or
+       * interval. The response's `close` before it has finished writing is the
+       * connection going away — the browser's abort, carried through the Next
+       * proxy — and the worker pool then drops the run (queued) or terminates
+       * its thread (running), so the run the chart is waiting for is not queued
+       * behind work nobody will read.
+       */
+      const gone = new AbortController();
+      const onClose = (): void => { if (!reply.raw.writableFinished) gone.abort(); };
+      reply.raw.once("close", onClose);
+
+      let outcome;
+      try {
+        outcome = await runPineInWorker({
+          source,
+          bars,
+          startIdx,
+          endIdx: bars.length - 1,
+          params: body.params,
+          broker: brokerOptions,
+          htf,
+          // A chart request has a user waiting on it. It no longer blocks
+          // anything else either, because it runs off this thread — but it is
+          // still bounded, and the thread is terminated if it overruns.
+          timeBudgetMs: EDITOR_TIME_BUDGET_MS,
+        }, gone.signal);
+      } catch (err) {
+        if (err instanceof PineBusyError) {
+          return reply.code(503).send({ error: err.message });
+        }
+        throw err;
+      } finally {
+        reply.raw.off("close", onClose);
+      }
+
+      if (outcome.kind === "aborted") {
+        // Nobody is reading this. 499 is the conventional "client closed" code
+        // for the access log; the socket is already gone.
+        return reply.code(499).send({ error: "the run was cancelled by the client" });
+      }
+      if (outcome.kind === "ok") return { ok: true, errors: [], ...outcome.run };
+      if (outcome.kind === "script-error") {
+        return { ok: false, errors: outcome.errors, meta: compiled.meta };
+      }
+      if (outcome.kind === "timeout") {
+        return {
+          ok: false,
+          meta: compiled.meta,
+          errors: [{
+            line: 1, col: 1,
+            message: `the script did not finish within ${Math.round(outcome.budgetMs / 1000)}s and was stopped`,
+          }],
+        };
+      }
       return {
         ok: false,
         meta: compiled.meta,
-        errors: [{
-          line: 1, col: 1,
-          message: `the script did not finish within ${Math.round(outcome.budgetMs / 1000)}s and was stopped`,
-        }],
+        errors: [{ line: 1, col: 1, message: outcome.message }],
       };
+    } finally {
+      admitted.release();
     }
-    return {
-      ok: false,
-      meta: compiled.meta,
-      errors: [{ line: 1, col: 1, message: outcome.message }],
-    };
   });
 }
 
