@@ -24,7 +24,8 @@ import {
 } from "./backtests";
 import { INTERVAL_MS, isInterval, type Interval } from "../../types/market";
 import { parseResolution } from "../../data/resolution";
-import { ensureResolvedCoverage, readResolvedCandles } from "../../data/resolvedCandles";
+import { ensureResolvedCoverage, readResolvedCandles, sourceInterval } from "../../data/resolvedCandles";
+import { USER_MAX_HISTORY_BARS } from "./data";
 import { completedAtOrBefore } from "../../pine/horizon";
 import { paramsProblem, runSettingsProblem } from "../backtestRequest";
 import { isAdmin, userIdOf } from "../../security/requestUser";
@@ -184,6 +185,25 @@ export async function pineRoutes(app: FastifyInstance): Promise<void> {
         error: `range is too large: ${Math.round(requestedBars).toLocaleString()} bars ` +
           `exceeds the ${MAX_RUN_BARS.toLocaleString()} limit for one run`,
       });
+    }
+
+    /*
+     * The same ceiling an ordinary account has on /api/data: a run on a derived
+     * resolution fetches factor× more SOURCE bars than chart bars (30s is
+     * thirty one-second klines per bar), and `ensureCandles` holds the span in
+     * memory before one upsert. The admin is not bounded here either.
+     */
+    if (!isAdmin(req)) {
+      const stored = sourceInterval(plan);
+      const sourceBars = Math.floor((endMs - (startMs - WARMUP_BARS * stepMs)) / INTERVAL_MS[stored]) + 1;
+      if (sourceBars > USER_MAX_HISTORY_BARS) {
+        return reply.code(400).send({
+          error: `this run would read about ${sourceBars.toLocaleString("en-US")} ${stored} bars ` +
+            `(warm-up included); an account may run a script over at most ` +
+            `${USER_MAX_HISTORY_BARS.toLocaleString("en-US")} ${stored} bars at a time. ` +
+            "Shorten the range or choose a coarser resolution.",
+        });
+      }
     }
 
     // Compile first so syntax errors never trigger a data fetch.

@@ -5,7 +5,9 @@ import * as candleRepo from "../../repositories/candles";
 import { parseResolution, type ResolutionPlan } from "../../data/resolution";
 import { sourceInterval } from "../../data/resolvedCandles";
 import { InstrumentIdError, storedSymbol } from "../../types/instrument";
-import { registerInstrument, UnknownInstrumentError } from "../../data/instrumentRegistration";
+import {
+  InstrumentDirectoryUnavailableError, registerInstrument, UnknownInstrumentError,
+} from "../../data/instrumentRegistration";
 import {
   inspectCandleIntegrity, type CandleIntegrityIssueCode, type CandleIntegrityReport,
 } from "../../data/candleIntegrity";
@@ -191,6 +193,7 @@ export async function dataRoutes(app: FastifyInstance, opts: DataRouteDeps = {})
       try { await deps.registerInstrument(symbol, req.log.warn.bind(req.log)); }
       catch (err) {
         if (err instanceof UnknownInstrumentError) return reply.code(404).send({ error: err.message });
+        if (err instanceof InstrumentDirectoryUnavailableError) return reply.code(503).send({ error: err.message });
         throw err;
       }
       if (bars > USER_MAX_HISTORY_BARS) {

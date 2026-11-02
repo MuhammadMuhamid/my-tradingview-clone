@@ -48,6 +48,18 @@ export class UnknownInstrumentError extends Error {
   }
 }
 
+/**
+ * The directory is unreachable and the ticker's quote asset cannot even be
+ * inferred, so no row can honestly be written. Try again later.
+ */
+export class InstrumentDirectoryUnavailableError extends Error {
+  readonly statusCode = 503;
+  constructor(readonly ticker: string) {
+    super(`the instrument directory is unavailable and ${ticker} has no recognisable quote asset; try again later`);
+    this.name = "InstrumentDirectoryUnavailableError";
+  }
+}
+
 /** Everything registration reaches outside the process; tests inject fakes. */
 export interface RegistrationDeps {
   getSymbol?: (ticker: string) => Promise<SymbolInfo | null>;
@@ -91,5 +103,8 @@ export async function registerInstrument(
   // pretend to be exchange metadata.
   if (existing) return;
   const assets = assetsBySuffixFallback(ticker);
+  // No recognisable quote suffix means nothing truthful can be written while
+  // the directory is down: refuse rather than register a row with no quote.
+  if (!assets.quoteAsset) throw new InstrumentDirectoryUnavailableError(ticker);
   await addSymbol(ticker, assets.baseAsset, assets.quoteAsset);
 }

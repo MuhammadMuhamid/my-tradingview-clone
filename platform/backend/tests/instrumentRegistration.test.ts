@@ -7,7 +7,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { registerInstrument, UnknownInstrumentError, type RegistrationDeps } from "../src/data/instrumentRegistration";
+import {
+  InstrumentDirectoryUnavailableError, registerInstrument, UnknownInstrumentError, type RegistrationDeps,
+} from "../src/data/instrumentRegistration";
 import type { SymbolInfo } from "../src/types/market";
 
 const row = (symbol: string, priceTick: number | null): SymbolInfo => ({
@@ -71,4 +73,11 @@ test("a row that already has its provider tick is left alone without asking the 
   const h = harness({ existing: row("BTCUSDT", 0.01), ensureMetadata: async (t) => { asked += 1; return t.map((x) => row(x, 0.01)); } });
   await registerInstrument("BTCUSDT", h.log, h.deps);
   assert.equal(asked, 0);
+});
+
+test("a directory that is DOWN and a ticker with no recognisable quote writes nothing (503)", async () => {
+  const h = harness({ ensureMetadata: async () => { throw new Error("fetch failed"); } });
+  await assert.rejects(registerInstrument("FOOBAR", h.log, h.deps), (err: unknown) =>
+    err instanceof InstrumentDirectoryUnavailableError && err.statusCode === 503);
+  assert.deepEqual(h.added, [], "no row with an empty quote asset");
 });
