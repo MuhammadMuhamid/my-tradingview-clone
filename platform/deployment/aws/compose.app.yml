@@ -18,6 +18,11 @@ services:
       LIVE_RUNNER_ENABLED: ${LIVE_RUNNER_ENABLED:-false}
       REALIZATION_INGESTION_ENABLED: ${REALIZATION_INGESTION_ENABLED:-false}
       REALIZATION_HMAC_SECRET: ${REALIZATION_HMAC_SECRET:-}
+      # Manual orders go to the separately deployed execution Bot. Off unless
+      # `bot-stack.sh platform-on` sets these; see BOT-DEPLOY.md.
+      MANUAL_TRADING_ENABLED: ${MANUAL_TRADING_ENABLED:-false}
+      MANUAL_TRADING_BOT_URL: ${MANUAL_TRADING_BOT_URL:-}
+      MANUAL_TRADING_HMAC_SECRET: ${MANUAL_TRADING_HMAC_SECRET:-}
       MA_ALERTS_ENABLED: ${MA_ALERTS_ENABLED:-true}
       # Cookie-session sign-in (replaces the Caddy basic_auth that kept
       # signing the user out). COOKIE_SECURE stays on: Caddy terminates TLS.
