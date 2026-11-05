@@ -8,8 +8,8 @@ in `BOT_SHA`. [OPERATIONS §7](../../../docs/OPERATIONS.md) lists the known pair
 Nothing here enables real-money orders. A first deployment is `DRY_RUN=true`,
 and `MAINNET_MANUAL_TRADING_ENABLED` must stay `false`.
 
-**Status (2026-11-05):** steps 1–9 are done on production. The temporary DNS
-override below may still be active. See [OPERATIONS §10](../../../docs/OPERATIONS.md).
+**Status (2026-11-05):** steps 1–9 are done on production and the temporary DNS
+override below has been removed. See [OPERATIONS §10](../../../docs/OPERATIONS.md).
 
 ## Before you start
 

@@ -1,6 +1,6 @@
 # Trading Scene — brief for writing change prompts
 
-**Snapshot:** 2026-11-05, Platform `d43ee5e`, Bot `76d17c5`, Research `2578f81`.
+**Snapshot:** 2026-11-05, Platform `34a7bca`, Bot `1cce9ba`, Research `2578f81`.
 
 Give this file to Claude chat. It holds enough context to turn a change idea into
 a prompt for Claude Code. Claude chat can't see the code or production, so anything
@@ -49,17 +49,15 @@ Treat this as a dated snapshot. The maintained copy is
 
 | Item | State |
 |---|---|
-| Platform | `d43ee5e` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
-| Bot | `76d17c5` at `bot.alphawebstudioz.com`, on its own server |
+| Platform | `34a7bca` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
+| Bot | `1cce9ba` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
-| Manual trading | On. The Trade panel shows **PAPER SIMULATION** with the testnet account (seen by the user on 2026-11-05) |
-| Orders | No simulated order confirmed yet. No order has ever been placed on testnet or mainnet |
+| Manual trading | On. The Trade panel shows **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 |
+| Orders | One simulated $100 BTCUSDT BUY exists. No order has ever been placed on testnet or mainnet |
 | Release check | `release.sh gate` passed for this Platform and Bot pair on 2026-11-05 |
 
 Temporary conditions to keep in mind:
 
-- **DNS override:** the Platform backend may still run with a temporary pin of the
-  Bot's address. A Platform deploy drops it, so check DNS first ([BOT-DEPLOY](../platform/deployment/aws/BOT-DEPLOY.md)).
 - **Old Bot server:** a stopped server tagged `tradingbot` may hold real Binance keys
   and live settings. It must not be started without an explicit decision.
 - **Bot backups:** none are scheduled yet, so the Bot database and its encrypted keys
@@ -79,7 +77,7 @@ Temporary conditions to keep in mind:
 | Shariah screening: review pack, external research, JSON import, publish, Mode | Admin manages, others read | Walked through locally with fixture data. It validates a file's shape and doesn't issue rulings |
 | Manual trading: Binance Spot, MARKET/LIMIT, optional TP/SL | Admin only | Tested with fakes. Panel seen in production. No exchange order yet |
 | Journal | Admin only | Tested locally |
-| Bot section (`/bot`): read-only bots, open trades and history | Admin only | Tested locally with fixture data. Not in production until both sides are deployed |
+| Bot section (`/bot`): read-only bots, open trades and history | Admin only | Tested, and seen working in production as admin |
 | Automations: strategy signals to the Bot, 3Commas or paper | Admin only | The Holdout gate has never passed. It only guards the `replace_*.mjs` deploy scripts, and the deployments API route doesn't check it |
 | Quick Backtester: `ma_rr_v9`, `srtrend_v10`, `mtf_lean` | Admin only | Tested locally |
 | Research Optimizer | Whoever runs it on that Mac | Search and Replay tested locally. Walk-forward and Holdout took 0 trades in a synthetic run at shipped sizing |
@@ -176,12 +174,11 @@ network unless a test file says otherwise, and must never use a real key.
 
 **Next verification steps, in order:**
 
-1. Place one simulated order from the Trade panel.
-2. Remove the temporary DNS override once DNS has cleared.
-3. Schedule Bot backups.
-4. Test real testnet orders with `DRY_RUN=false`: halts, Shariah refusals, TP/SL and
+1. Find out why a manual trade's current price and open P&L don't update.
+2. Schedule Bot backups.
+3. Test real testnet orders with `DRY_RUN=false`: halts, Shariah refusals, TP/SL and
    a Bot restart.
-5. Decide what happens to the old Bot server.
+4. Decide what happens to the old Bot server.
 
 **Known tooling gap:** the `launch` safety check in `bot-stack.sh` only looks for an
 instance tagged `signal-bot`, so it doesn't catch the old `tradingbot` server.
