@@ -10,6 +10,8 @@ This package deploys the clone as three isolated layers:
 
 Both EC2 servers are administered with AWS Systems Manager Session Manager. Port 22 is never opened. ECR image scanning, CloudWatch logs and an encrypted/versioned S3 backup bucket are included.
 
+The execution Bot runs on a separate instance that this package doesn't create. See [BOT-DEPLOY.md](BOT-DEPLOY.md). For the current production release flow, see [OPERATIONS §9 and §10](../../../docs/OPERATIONS.md).
+
 ## Required user-owned inputs
 
 1. An AWS account with billing enabled and MFA on the root and administrator users.

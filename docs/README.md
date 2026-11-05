@@ -1,5 +1,9 @@
 # Platform documentation
 
+**Writing a change prompt?** Give Claude chat [CLAUDE_CHAT_BRIEF.md](CLAUDE_CHAT_BRIEF.md). It has the system, its current state, the rules and a prompt template.
+
+**Production state:** [Operations §10](OPERATIONS.md) records what runs now. [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) is the execution Bot runbook.
+
 **Owner's feature guide:** [TRADING_SCENE_OWNER_GUIDE.md](TRADING_SCENE_OWNER_GUIDE.md) — what a user can actually do, where, with which options, and how much of it is verified (campaign of 2026-11-01).
 
 **Acceptance handoff for Mahamid:** [MAHAMID_HANDOFF_2026-11-02.md](MAHAMID_HANDOFF_2026-11-02.md) — what V2–V4 and the release polish changed, the verified Git state after the 2026-11-02 synchronization, the hands-on acceptance checklist and the product decisions still open.

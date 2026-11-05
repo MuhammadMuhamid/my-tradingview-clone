@@ -10,8 +10,8 @@ guide and the code disagree, the code wins; fix this page.
 Evidence levels: **LOCAL UI VERIFIED** (exercised in a browser against the real local backend and
 a disposable database during the campaign; screenshots in the campaign evidence folder) ·
 **TESTED** (automated tests actually run during the campaign) · **SOURCE-IMPLEMENTED** (read, not
-executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no credentialed exchange call has ever
-been made from this workspace, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
+executed) · **TESTNET / LIVE VERIFIED** (never claimed here: no order has ever been placed on an
+exchange, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 
 Final test runs (2026-11-02, V4 release polish, at platform `303acd1` / research `69ed83b`, logs in
 `Trading-Scene-Campaign/V4-Release-Polish/evidence/final-*.log`): Platform backend 1,499 tests,
@@ -149,8 +149,11 @@ Postgres; Bot `shariahEnforcement`; 17 first-use DOM tests). Reference:
 
 ## 4. Manual trading — "can I connect an exchange and buy/sell from the website?"
 
-**Yes for the administrator, Binance Spot only, once the Bot is set up — and no real exchange
-(testnet or live) has ever been exercised from this workspace.**
+**Yes for the administrator, Binance Spot only, once the Bot is set up. The ticket offers testnet
+accounts only, and no order has yet been placed on testnet or mainnet.**
+
+**Production (2026-11-05):** the Bot runs in simulation and the Trade panel shows PAPER SIMULATION
+with the testnet account. No simulated order has been confirmed yet ([OPERATIONS §10](OPERATIONS.md)).
 
 **Where:** chart → *Trade* button / order-ticket rail cell / *Positions & Orders* bottom tab.
 Keys are entered on the **Bot dashboard** (Settings → exchange account: API key, secret, testnet
@@ -164,8 +167,9 @@ working / filled / cancelled / rejected / blocked), per-order Timeline.
 
 **Prerequisites:** Platform `MANUAL_TRADING_ENABLED=true`, `MANUAL_TRADING_BOT_URL`,
 `MANUAL_TRADING_HMAC_SECRET`; Bot `MANUAL_TRADING_ENABLED=true`, same secret, an exchange account;
-mainnet additionally `MAINNET_MANUAL_TRADING_ENABLED=true` on the Bot and the exact confirmation
-phrase on every order; `DRY_RUN=true` (Bot default) simulates without calling the exchange.
+`DRY_RUN=true` (Bot default) simulates without placing an exchange order. The Bot supports mainnet
+with `MAINNET_MANUAL_TRADING_ENABLED=true` and the exact confirmation phrase on every order, but
+`ManualTradingPanel.tsx` lists testnet accounts only, so real-money orders also need a code change.
 
 **Gates on every BUY:** Platform halt → Shariah gate (Mode ON) → Bot HMAC → Bot halt/risk → Bot
 Shariah floor → exchange. SELL is never blocked by halt or Shariah. TP/SL are **bot-managed**: a
@@ -181,7 +185,8 @@ no Bot protection, no Journal realization rows.
 Evidence: **TESTED** (Platform `manualTrading`, `manualHalt`, `shariahGate`; Bot `manualTrading`,
 `tpslHalt`, `shariahEnforcement`, `security`), **LOCAL UI VERIFIED** (ticket surface and disabled
 state), **TESTNET / LIVE: never**. Reference: [ARCHITECTURE.md](ARCHITECTURE.md),
-[WEBHOOK-CONTRACT.md](WEBHOOK-CONTRACT.md), Bot `README.md`.
+[WEBHOOK-CONTRACT.md](WEBHOOK-CONTRACT.md), Bot `README.md`,
+[BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
 
 ---
 
@@ -368,7 +373,8 @@ proven on one Mac over the real mTLS transport with the 16-trade synthetic unit)
 
 | Item | Why it is open |
 |---|---|
-| Binance testnet / live manual order | no credentials here; never run; both sides tested with fakes |
+| Binance testnet / live manual order | never run; both sides tested with fakes. Production Bot has testnet keys and `DRY_RUN=true`, so the next steps are one simulated order, then testnet orders with `DRY_RUN=false` |
+| Bot backups | `bot:scripts/backup-db.sh` isn't scheduled, so the Bot database and encrypted keys exist only on that server's disk |
 | Exchange-native stops | adapter exists, no call sites, five testnet checks pending (`bot/backend/src/services/exchangeStops.ts`) |
 | Production Shariah mode, `ALLOW_SIGNUPS`, 3Commas deployments | production database, not visible here |
 | Google sign-in round trip | needs a real OAuth client |

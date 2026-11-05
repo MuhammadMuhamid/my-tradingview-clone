@@ -3,10 +3,13 @@
 This puts the Bot on its own EC2 instance in `ap-south-1` and connects the
 production Platform to it for **paper and testnet** manual trading. Every
 command runs in AWS CloudShell through `bot-stack.sh`. It pairs Platform
-`deploy/execution-bot` with Bot `76d17c5`.
+`d43ee5e` with Bot `76d17c5`.
 
 Nothing here enables real-money orders. A first deployment is `DRY_RUN=true`,
 and `MAINNET_MANUAL_TRADING_ENABLED` must stay `false`.
+
+**Status (2026-11-05):** steps 1–9 are done on production. The temporary DNS
+override below may still be active. See [OPERATIONS §10](../../../docs/OPERATIONS.md).
 
 ## Before you start
 
@@ -26,6 +29,10 @@ and `MAINNET_MANUAL_TRADING_ENABLED` must stay `false`.
    `launch` refuses to continue while a `signal-bot` instance exists, unless
    `ALLOW_OLD_BOT=yes` is set.
 
+   **This check only matches the tag `signal-bot`.** It doesn't catch the old
+   server tagged `tradingbot`, which must stay stopped because it may hold real
+   keys and live settings. Read the `inventory` output yourself.
+
    Repointing the DNS name also redirects any Platform alert or deployment
    that delivers to it. The new Bot has different webhook secrets, so it rejects
    them, but those deliveries will show as failed.
@@ -43,6 +50,39 @@ and `MAINNET_MANUAL_TRADING_ENABLED` must stay `false`.
 | 7 | Bot dashboard | **Settings → Exchange account**: add keys from `testnet.binance.vision` and tick **Use Binance testnet**. |
 | 8 | `bash bot-stack.sh platform-on` | Connects the Platform and restarts its backend. |
 | 9 | `/chart` as admin | Open **Trade**. It should show **PAPER SIMULATION** and the testnet account. |
+
+## If DNS still shows the old address
+
+A changed record can stay cached for hours, and `platform-on` holds back while the
+Platform resolves the wrong address. Check the authoritative answer first. On
+2026-11-04, flushing the server's resolver didn't help.
+
+If you can't wait, pin the address in the Platform backend. In
+`/opt/srtrend/deployment`, create `compose.bot-dns.yml`:
+
+```yaml
+services:
+  backend:
+    extra_hosts:
+      - "bot.alphawebstudioz.com:<bot-elastic-ip>"
+```
+
+Start the backend with `-f compose.app.yml -f compose.bot-dns.yml`.
+
+The pin is lost by a Platform deploy, `platform-on`, `platform-off`, or any compose
+command that names `compose.app.yml` alone. If DNS is still stale by then, Trade says
+"The execution bot could not be reached".
+
+Remove the pin once the server resolves the new address:
+
+```bash
+docker compose --env-file .env -f compose.app.yml up -d backend
+rm compose.bot-dns.yml
+```
+
+CloudShell can also resolve this name wrongly. If only CloudShell disagrees with the
+authoritative answer and both servers, a session-only `/etc/hosts` entry gets `deploy`
+through.
 
 ## Undoing it
 

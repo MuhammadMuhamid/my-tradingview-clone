@@ -40,7 +40,9 @@ merged — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 These are the owner's private canonical repositories. Mahamid's original
 repositories are retained as the `mahamid-upstream` remote for collaboration
-and handoff.
+and handoff. Production is deployed from Mahamid's copies,
+`MuhammadMuhamid/my-tradingview-clone` and `MuhammadMuhamid/3commabotclone`
+([OPERATIONS §10](docs/OPERATIONS.md)).
 
 ## Layout
 
@@ -106,12 +108,14 @@ it reports file and line only, never the value.
 | Document | Subject |
 |---|---|
 | [docs/README.md](docs/README.md) | **Start here.** Current architecture, operations, security and release guides. |
+| [docs/CLAUDE_CHAT_BRIEF.md](docs/CLAUDE_CHAT_BRIEF.md) | One file to give Claude chat when writing change prompts. |
+| [platform/deployment/aws/BOT-DEPLOY.md](platform/deployment/aws/BOT-DEPLOY.md) | Deploying the execution Bot and connecting production to it. |
 | [docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md](docs/FINAL_SYSTEM_GUIDES_INDEX_2026-10-11.md) | Accepted release documents: Backtester, Shariah and Compute Helper system guides, and the release acceptance report. |
 | [docs/TRADING_SCENE_UI_UX_CONTRACT.md](docs/TRADING_SCENE_UI_UX_CONTRACT.md) | The authority on how the product looks and behaves. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What each system owns, and how a signal reaches an order. |
 | [docs/WEBHOOK-CONTRACT.md](docs/WEBHOOK-CONTRACT.md) | The cross-repository payload contract, versioned. |
 | [research/docs/COST-MODELS.md](https://github.com/2ms-muzammil/trading-scene-research/blob/main/docs/COST-MODELS.md) | The cost model each research tree actually ran (research repository). |
-| [docs/ALERTS.md](docs/ALERTS.md) | Notification alerts: all seven condition families, the trend gates, and the four frequency modes. |
+| [docs/ALERTS.md](docs/ALERTS.md) | Notification alerts: all sixteen condition families, the trend gates, and the four frequency modes. |
 | [docs/CANDLE-PERFORMANCE.md](docs/CANDLE-PERFORMANCE.md) | Candle and chart loading: what was measured, and what was not. |
 | [docs/WEB-QA.md](docs/WEB-QA.md) | Desktop and mobile browser QA: what was exercised, and what was not. |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator console, the halt control, paper mode, testnet, and what has never been verified here. |

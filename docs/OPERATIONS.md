@@ -207,8 +207,8 @@ Turning it on is `BINANCE_TESTNET=true` in the bot's `.env`. On the bot side,
 `bot:deploy/remote-deploy.sh` preserves whatever the server already has rather than
 overwriting it (`BOT-030`).
 
-**No credentialed testnet operation has ever been performed from this
-workspace.** The exchange-native stop adapter (`BOT-017`) therefore remains
+**No testnet order has ever been placed.** Production has testnet keys on the
+Bot but runs `DRY_RUN=true` (§10). The exchange-native stop adapter (`BOT-017`) therefore remains
 disabled and unverified. Canonical historical/live reporting uses the truthful
 non-native completed-candle MARKET-exit model and makes no claim of resting
 protection during process/network downtime.
@@ -362,13 +362,14 @@ Binance, Bot, or any webhook.
 Stated because a control that has not been exercised is not a control you can
 count on:
 
-- **No credentialed testnet, TradingView-account or live-order validation has
+- **No testnet order, live order or TradingView-account validation has
   occurred.**
 - **Browser QA covered Chromium only** — not Safari, not Firefox, not a physical
   device, not a screen reader (`docs/WEB-QA.md`).
 - **The holdout deploy gate has never passed**, because no selection artifact
-  carries a holdout block yet. It currently refuses every deployment, which is
-  the designed behaviour (`OPT-01`); producing the clearance needs a tree run.
+  carries a holdout block yet. It refuses every run of the `replace_*.mjs`
+  deploy scripts, which is the designed behaviour (`OPT-01`); producing the
+  clearance needs a tree run. The deployments API route doesn't check it.
 - **No notification alert of the newer families has been observed firing.**
   `sr_zone`, `pivot_level`, `rsi`, `macd` and the trend gates are unit-tested
   and have been armed end to end through the real API, database and browser,
@@ -416,8 +417,9 @@ any failure.
 
 | Pair | Platform | Bot |
 |---|---|---|
-| Previous known-good | `93e7544` | `fda4d1b` |
-| Current accepted | `21bedb1` | `2bc543e` |
+| Earlier known-good | `93e7544` | `fda4d1b` |
+| Earlier accepted | `21bedb1` | `2bc543e` |
+| Current production; `gate` passed 2026-11-05, no exchange order yet | `d43ee5e` | `76d17c5` |
 
 **Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
 the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
@@ -564,3 +566,34 @@ bash cloud-deploy.sh $TAG
 - Accounts need `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`
   and optionally `ALLOW_SIGNUPS` in `/opt/srtrend/deployment/.env` — see
   `docs/ACCOUNTS.md`.
+
+---
+
+## 10. Production status (2026-11-05)
+
+Update this section whenever production changes.
+
+| | |
+|---|---|
+| Platform | `d43ee5e` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-04 from `MuhammadMuhamid/my-tradingview-clone` |
+| Bot | `76d17c5` at `bot.alphawebstudioz.com`, on its own server, deployed with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
+| Bot settings when deployed | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MANUAL_TRADING_ENABLED=true`, `MAINNET_MANUAL_TRADING_ENABLED=false`, `EXCHANGE_STOPS_ENABLED=false` |
+| Platform setting | `MANUAL_TRADING_ENABLED=true` |
+| Observed | The Trade panel shows PAPER SIMULATION with the testnet account (user report, 2026-11-05) |
+| Not yet confirmed | A simulated order. No order has been placed on testnet or mainnet |
+
+Conditions to clear:
+
+- **Temporary DNS override.** The Platform backend was started with a pin of the
+  Bot's address because the server's DNS still held the old one. See
+  [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) before any Platform
+  deploy.
+- **Old Bot server.** A stopped server tagged `tradingbot` may hold real Binance
+  keys and live settings, and its containers may restart on boot. Don't start it
+  without an explicit decision. Whether the real Binance account has open positions
+  or orders hasn't been confirmed.
+- **Bot backups.** `bot:scripts/backup-db.sh` isn't scheduled, so the Bot's database and
+  encrypted keys exist only on that server's disk.
+- **Migration count.** `/readyz` reports 51 expected and 58 applied, with none
+  missing, and returns 200. The source of the extra 7 hasn't been traced. Check it
+  before adding or rolling back migrations.

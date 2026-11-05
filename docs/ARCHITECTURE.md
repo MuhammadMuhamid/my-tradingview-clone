@@ -472,9 +472,9 @@ interchangeable:
 | **Locally implemented, externally unverified** | Code and tests exist; the external system has never been contacted from here. | The exchange-native stop adapter, the holdout deploy gate (no artifact carries a clearance yet), migrations 010 and 011. |
 | **Production fact, unconfirmed** | Nothing in this workspace can check it. | What the AWS deployment is running, whether the exposed webhook secret was rotated, what the production database contains. |
 
-[OPERATIONS.md §4](OPERATIONS.md) lists the third and fourth categories
-explicitly, because a control that has never been exercised is not a control you
-can count on.
+[OPERATIONS.md §6](OPERATIONS.md) lists what has never been exercised, because a
+control that has never been exercised is not a control you can count on. §10
+there records the last known production state.
 
 
 ## Accounts and the page frame (2026-10-16)
