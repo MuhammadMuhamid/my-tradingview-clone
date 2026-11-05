@@ -420,7 +420,8 @@ any failure.
 | Earlier known-good | `93e7544` | `fda4d1b` |
 | Earlier accepted | `21bedb1` | `2bc543e` |
 | Earlier production; `gate` passed 2026-11-05 | `d43ee5e` | `76d17c5` |
-| Current production; `gate` passed 2026-11-05, no exchange order yet | `34a7bca` | `1cce9ba` |
+| Earlier production; `gate` passed 2026-11-05 | `34a7bca` | `1cce9ba` |
+| Current production; `gate` passed 2026-11-05 with Platform `8ef0ae7`, whose only later changes are the deploy script and docs. No exchange order yet | `34a7bca` | `8d70730` |
 
 **Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
 the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
@@ -577,7 +578,7 @@ Update this section whenever production changes.
 | | |
 |---|---|
 | Platform | `34a7bca` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-05 from `MuhammadMuhamid/my-tradingview-clone` |
-| Bot | `1cce9ba` at `bot.alphawebstudioz.com`, on its own server, deployed with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
+| Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server, deployed with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
 | Bot settings when deployed | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MANUAL_TRADING_ENABLED=true`, `MAINNET_MANUAL_TRADING_ENABLED=false`, `EXCHANGE_STOPS_ENABLED=false` |
 | Platform setting | `MANUAL_TRADING_ENABLED=true` |
 | Observed in a browser as admin, 2026-11-05 | The Trade panel shows PAPER SIMULATION with the testnet account. Trading → Bot shows Paper simulation and one simulated $100 BTCUSDT BUY from 2026-11-04 |
@@ -589,12 +590,10 @@ Conditions to clear:
   keys and live settings, and its containers may restart on boot. Don't start it
   without an explicit decision. Whether the real Binance account has open positions
   or orders hasn't been confirmed.
-- **Bot backups.** `bot:scripts/backup-db.sh` isn't scheduled, so the Bot's database and
-  encrypted keys exist only on that server's disk.
-- **Manual trade prices.** The simulated trade's current price still equals its
-  entry a day later, so its open P&L reads $0. `updateSmartTradePnl` finds its
-  exchange client through the trade's bot and a manual trade has none, which is the
-  likely cause. It hasn't been confirmed or fixed.
+- **Bot backups.** Running every 6 hours since 2026-11-05, with the first upload confirmed.
+  Nothing alerts on a failure, no restore has been tested, and `ENCRYPTION_KEY` and
+  `SCRYPT_SALT` have no copy off the server. See
+  [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
 - **Instrument metadata sync.** The backend logged Binance's `Invalid symbol` during
   this sync at startup on 2026-11-05 and carried on. The symbol isn't named in the log.
 - **Migration count.** `/readyz` reports 51 expected and 58 applied, with none

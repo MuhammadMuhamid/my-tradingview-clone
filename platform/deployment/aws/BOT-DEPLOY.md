@@ -16,8 +16,8 @@ override below has been removed. See [OPERATIONS §10](../../../docs/OPERATIONS.
 1. Deploy the Platform release that contains this file, using the normal flow.
    Older releases don't pass the `MANUAL_TRADING_*` settings to the backend.
    This release changes nothing until `platform-on` is run.
-2. Put `bot-stack.sh` in CloudShell beside `env.sh` and the untracked `.env`, which
-   supplies `APP_INSTANCE`.
+2. Put `bot-stack.sh` and `env.sh` in the same CloudShell folder, with an untracked
+   `.env` there containing `APP_INSTANCE=<Platform instance id>`.
 3. Run the read-only check:
 
    ```bash

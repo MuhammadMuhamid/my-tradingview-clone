@@ -153,8 +153,7 @@ Postgres; Bot `shariahEnforcement`; 17 first-use DOM tests). Reference:
 accounts only, and no order has yet been placed on testnet or mainnet.**
 
 **Production (2026-11-05):** the Bot runs in simulation and the Trade panel shows PAPER SIMULATION
-with the testnet account. One simulated BUY exists; its current price and open P&L aren't updating
-([OPERATIONS §10](OPERATIONS.md)).
+with the testnet account, and one simulated BUY exists ([OPERATIONS §10](OPERATIONS.md)).
 
 **Where:** chart → *Trade* button / order-ticket rail cell / *Positions & Orders* bottom tab.
 Keys are entered on the **Bot dashboard** (Settings → exchange account: API key, secret, testnet
@@ -383,7 +382,7 @@ proven on one Mac over the real mTLS transport with the 16-trade synthetic unit)
 | Item | Why it is open |
 |---|---|
 | Binance testnet / live manual order | never run; both sides tested with fakes. Production Bot has testnet keys and `DRY_RUN=true`, and one simulated order exists, so the next step is testnet orders with `DRY_RUN=false` |
-| Bot backups | `bot:scripts/backup-db.sh` isn't scheduled, so the Bot database and encrypted keys exist only on that server's disk |
+| Bot backups | run every 6 hours, but no restore has been tested and the Bot's encryption keys have no copy off the server |
 | Exchange-native stops | adapter exists, no call sites, five testnet checks pending (`bot/backend/src/services/exchangeStops.ts`) |
 | Production Shariah mode, `ALLOW_SIGNUPS`, 3Commas deployments | production database, not visible here |
 | Google sign-in round trip | needs a real OAuth client |

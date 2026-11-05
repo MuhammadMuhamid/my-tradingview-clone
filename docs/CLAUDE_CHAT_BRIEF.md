@@ -1,6 +1,6 @@
 # Trading Scene — brief for writing change prompts
 
-**Snapshot:** 2026-11-05, Platform `34a7bca`, Bot `1cce9ba`, Research `2578f81`.
+**Snapshot:** 2026-11-05, Platform `34a7bca`, Bot `8d70730`, Research `2578f81`.
 
 Give this file to Claude chat. It holds enough context to turn a change idea into
 a prompt for Claude Code. Claude chat can't see the code or production, so anything
@@ -50,7 +50,7 @@ Treat this as a dated snapshot. The maintained copy is
 | Item | State |
 |---|---|
 | Platform | `34a7bca` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
-| Bot | `1cce9ba` at `bot.alphawebstudioz.com`, on its own server |
+| Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
 | Manual trading | On. The Trade panel shows **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 |
 | Orders | One simulated $100 BTCUSDT BUY exists. No order has ever been placed on testnet or mainnet |
@@ -60,8 +60,9 @@ Temporary conditions to keep in mind:
 
 - **Old Bot server:** a stopped server tagged `tradingbot` may hold real Binance keys
   and live settings. It must not be started without an explicit decision.
-- **Bot backups:** none are scheduled yet, so the Bot database and its encrypted keys
-  exist only on that server's disk.
+- **Bot backups:** they run every 6 hours to a private S3 bucket. Nothing alerts on a
+  failure, no restore has been tested, and the Bot's encryption keys have no copy off
+  the server.
 - **Database count:** production `/readyz` reports 58 migrations applied, while this
   commit ships 51. None are missing. Where the extra 7 came from hasn't been traced,
   so any migration work should check this first.
@@ -174,11 +175,10 @@ network unless a test file says otherwise, and must never use a real key.
 
 **Next verification steps, in order:**
 
-1. Find out why a manual trade's current price and open P&L don't update.
-2. Schedule Bot backups.
-3. Test real testnet orders with `DRY_RUN=false`: halts, Shariah refusals, TP/SL and
+1. Test a Bot restore, and keep a separate copy of its encryption keys.
+2. Test real testnet orders with `DRY_RUN=false`: halts, Shariah refusals, TP/SL and
    a Bot restart.
-4. Decide what happens to the old Bot server.
+3. Decide what happens to the old Bot server.
 
 **Known tooling gap:** the `launch` safety check in `bot-stack.sh` only looks for an
 instance tagged `signal-bot`, so it doesn't catch the old `tradingbot` server.
