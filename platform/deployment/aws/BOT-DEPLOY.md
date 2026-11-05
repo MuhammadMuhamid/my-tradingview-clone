@@ -16,7 +16,8 @@ override below has been removed. See [OPERATIONS §10](../../../docs/OPERATIONS.
 1. Deploy the Platform release that contains this file, using the normal flow.
    Older releases don't pass the `MANUAL_TRADING_*` settings to the backend.
    This release changes nothing until `platform-on` is run.
-2. Upload `bot-stack.sh` to CloudShell.
+2. Put `bot-stack.sh` in CloudShell beside `env.sh` and the untracked `.env`, which
+   supplies `APP_INSTANCE`.
 3. Run the read-only check:
 
    ```bash
@@ -99,12 +100,28 @@ Stop-loss and take-profit polling doesn't run while the Bot is stopped. The
 script has no delete command. The instance's disk is kept even if the instance
 is terminated, so remove it in the console when you no longer need it.
 
+## Backups
+
+`bash bot-stack.sh backups-on` creates a separate encrypted S3 bucket and a timer on
+the Bot server that backs up the database every 6 hours. It runs one backup straight
+away, and it's safe to run again. Use `backup-status` to see the last result and
+`backup-now` to run one on demand.
+
+- **Files:** kept for 7 days on the server, and 90 days in the bucket.
+- **Access:** the Bot's role can only add files, so a compromised Bot can't read or
+  delete them. The Platform server has no access.
+- **Failures:** nothing alerts you if a backup fails, so check `backup-status`.
+- **Restoring:** follow "Backup and restore" in the Bot's `README.md`. The files hold
+  webhook secrets and login data, so treat them as sensitive.
+- **What's not included:** `ENCRYPTION_KEY` and `SCRYPT_SALT` stay in `backend.env` on
+  the server. Without them, a restored database can't decrypt its API keys and they
+  must be entered again.
+
 ## Before any real money
 
 - Run testnet orders with `DRY_RUN=false`, then check halts, Shariah refusals,
   TP/SL, and a Bot restart. None of this has been run against an exchange yet.
-- Schedule `scripts/backup-db.sh`. The Bot's database and the encrypted API keys
-  exist only on this instance's disk until you do.
+- Keep a separate copy of `ENCRYPTION_KEY` and `SCRYPT_SALT`, and do a restore test.
 - Note that the Trade ticket currently offers testnet accounts only. Mainnet
   orders need a code change as well as the Bot's mainnet setting.
 

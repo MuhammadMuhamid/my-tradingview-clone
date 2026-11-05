@@ -15,24 +15,30 @@
 #   - There is no terminate command. Deleting a Bot is a decision for the console.
 set -euo pipefail
 
+# The Platform instance id comes from the untracked .env beside this script (X-11).
+. "$(dirname "$0")/env.sh"
+
 REGION=ap-south-1
-APP_INSTANCE=i-09888f3320763000f
 OLD_BOT_REGION=ap-southeast-2
 BOT_NAME=trading-scene-execution-bot
 BOT_DOMAIN=bot.alphawebstudioz.com
 BOT_TYPE="${BOT_TYPE:-t3.micro}"
 # Paired with Platform by `platform/scripts/release.sh gate`. Change them together.
-BOT_SHA=1cce9bae4f41
+BOT_SHA=8d70730c81e2
 BOT_REPO=MuhammadMuhamid/3commabotclone
 HMAC_SECRET=trading-scene/execution-bot/control-plane-hmac
 SETUP_SECRET=trading-scene/execution-bot/setup-token
 ROLE="$BOT_NAME-role"
 SG_NAME="$BOT_NAME-sg"
+BACKUP_UNIT=trading-bot-backup
 
 ec2() { aws ec2 --region "$REGION" "$@"; }
 sm() { aws secretsmanager --region "$REGION" "$@"; }
 say() { printf '\n== %s ==\n' "$*"; }
 die() { printf 'STOPPED: %s\n' "$*" >&2; exit 1; }
+backup_bucket() {
+  printf 'trading-scene-bot-backups-%s' "$(aws sts get-caller-identity --query Account --output text)"
+}
 
 # Instance id of the Bot, or empty.
 bot_instance() {
@@ -236,6 +242,7 @@ cd /opt/tradingbot/shared
 grep -E '^(DRY_RUN|BINANCE_TESTNET|MANUAL_TRADING_ENABLED|MAINNET_MANUAL_TRADING_ENABLED|EXCHANGE_STOPS_ENABLED|PUBLIC_URL)=' backend.env
 grep -q '^SETUP_TOKEN=' backend.env && echo "SETUP_TOKEN still present" || echo "SETUP_TOKEN removed"
 readlink /opt/tradingbot/current
+echo "backup timer: $(systemctl is-active trading-bot-backup.timer 2>/dev/null || true)"
 docker ps --format '{{.Names}}  {{.Status}}'
 free -m | head -3
 EOF
@@ -260,6 +267,86 @@ cd /opt/tradingbot/current
 docker compose -p tradingbot --env-file /opt/tradingbot/shared/compose.env \
   -f docker-compose.yml -f /opt/tradingbot/shared/compose.production.yml stop
 echo "Bot stopped. Its data is kept. TP/SL polling is not running while it is stopped."
+EOF
+}
+
+# Backups run from the server's own timer, so they don't depend on CloudShell.
+remote_backups() {
+  cat <<EOF
+set -euo pipefail
+REGION=$REGION
+BUCKET=$1
+UNIT=$BACKUP_UNIT
+EOF
+  cat <<'EOF'
+command -v sqlite3 >/dev/null 2>&1 || dnf install -y -q sqlite
+umask 022
+cat > /opt/tradingbot/shared/backup.env <<ENV
+REGION=$REGION
+BUCKET=$BUCKET
+ENV
+cat > /opt/tradingbot/shared/backup.sh <<'SCRIPT'
+#!/bin/bash
+# Copies the Bot database consistently, checks it, and uploads it. The role may
+# only add objects, so this server can't delete or read what it already stored.
+set -euo pipefail
+umask 077
+. /opt/tradingbot/shared/backup.env
+DIR=/opt/tradingbot/backups
+install -d -m 700 "$DIR"
+NAME="bot-$(date -u +%Y%m%dT%H%M%SZ).db"
+cd /opt/tradingbot/current
+bash scripts/backup-db.sh --container tradingbot-backend-1 --output "$DIR/$NAME"
+aws s3 cp --region "$REGION" --only-show-errors "$DIR/$NAME" "s3://$BUCKET/db/$NAME"
+find "$DIR" -maxdepth 1 -type f -name 'bot-*.db' -mtime +6 -delete
+echo "uploaded $NAME"
+SCRIPT
+chmod 700 /opt/tradingbot/shared/backup.sh
+cat > "/etc/systemd/system/$UNIT.service" <<SERVICE
+[Unit]
+Description=Back up the Bot database
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/tradingbot/shared/backup.sh
+SERVICE
+cat > "/etc/systemd/system/$UNIT.timer" <<TIMER
+[Unit]
+Description=Back up the Bot database every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:17:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+systemctl daemon-reload
+systemctl enable --now "$UNIT.timer"
+systemctl start "$UNIT.service" || { journalctl -u "$UNIT.service" -n 20 --no-pager; echo "FIRST BACKUP FAILED"; exit 1; }
+journalctl -u "$UNIT.service" -n 6 --no-pager -o cat
+systemctl list-timers "$UNIT.timer" --no-pager
+echo "BACKUPS ON"
+EOF
+}
+
+remote_backup_now() {
+  cat <<EOF
+set -euo pipefail
+systemctl start $BACKUP_UNIT.service || { journalctl -u $BACKUP_UNIT.service -n 20 --no-pager; echo "BACKUP FAILED"; exit 1; }
+journalctl -u $BACKUP_UNIT.service -n 6 --no-pager -o cat
+EOF
+}
+
+remote_backup_status() {
+  cat <<EOF
+systemctl list-timers $BACKUP_UNIT.timer --no-pager | head -2
+echo "last run: \$(systemctl show $BACKUP_UNIT.service -p Result --value), finished \$(systemctl show $BACKUP_UNIT.service -p ExecMainExitTimestamp --value)"
+journalctl -u $BACKUP_UNIT.service -n 3 --no-pager -o cat
+echo "newest on this server:"
+ls -lht /opt/tradingbot/backups 2>/dev/null | sed -n 2,4p
 EOF
 }
 
@@ -445,6 +532,43 @@ cmd_setup_token() {
 cmd_finish_setup() { run_remote "$(require_bot_instance)" "$(remote_finish_setup)"; }
 cmd_stop_bot() { run_remote "$(require_bot_instance)" "$(remote_stop)"; }
 
+# A bucket of its own: the Platform's bucket is readable by the Platform server,
+# and these files hold webhook secrets and login data as well as encrypted keys.
+cmd_backups_on() {
+  local id bucket
+  id="$(require_bot_instance)"
+  bucket="$(backup_bucket)"
+  say "Bucket $bucket"
+  if aws s3api head-bucket --bucket "$bucket" 2>/dev/null; then
+    echo "kept"
+  else
+    aws s3api create-bucket --region "$REGION" --bucket "$bucket" \
+      --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
+    echo "created"
+  fi
+  aws s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+  aws s3api put-bucket-encryption --bucket "$bucket" --server-side-encryption-configuration \
+    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+  aws s3api put-bucket-versioning --bucket "$bucket" --versioning-configuration Status=Enabled
+  aws s3api put-bucket-lifecycle-configuration --bucket "$bucket" --lifecycle-configuration \
+    '{"Rules":[{"ID":"ExpireOldBackups","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":90},"NoncurrentVersionExpiration":{"NoncurrentDays":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+  say "IAM: the Bot may add backups, and nothing else in this bucket"
+  aws iam put-role-policy --role-name "$ROLE" --policy-name write-bot-backups --policy-document \
+    "$(jq -n --arg r "arn:aws:s3:::$bucket/db/*" '{Version:"2012-10-17",Statement:[{Effect:"Allow",Action:"s3:PutObject",Resource:$r}]}')"
+  sleep 10
+  say "Timer and first backup"
+  run_remote "$id" "$(remote_backups "$bucket")"
+  say "In the bucket"
+  aws s3 ls "s3://$bucket/db/" | tail -3
+}
+cmd_backup_now() { run_remote "$(require_bot_instance)" "$(remote_backup_now)"; }
+cmd_backup_status() {
+  run_remote "$(require_bot_instance)" "$(remote_backup_status)"
+  say "Newest in the bucket"
+  aws s3 ls "s3://$(backup_bucket)/db/" | tail -3
+}
+
 cmd_platform_on() {
   [ "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://$BOT_DOMAIN/health")" = 200 ] \
     || die "the Bot is not answering at https://$BOT_DOMAIN/health"
@@ -459,11 +583,16 @@ cmd_print_remote() {
     flags) remote_flags ;;
     finish-setup) remote_finish_setup ;;
     stop) remote_stop ;;
+    backups) remote_backups "${2:-BUCKET_UNSET}" ;;
+    backup-now) remote_backup_now ;;
+    backup-status) remote_backup_status ;;
     platform-on) remote_platform_switch true ;;
     platform-off) remote_platform_switch false ;;
-    *) die "print-remote: deploy|flags|finish-setup|stop|platform-on|platform-off" ;;
+    *) die "print-remote: deploy|flags|finish-setup|stop|backups|backup-now|backup-status|platform-on|platform-off" ;;
   esac
 }
+
+[ "${1:-}" = print-remote ] || aws_env_require APP_INSTANCE
 
 case "${1:-}" in
   inventory) cmd_inventory ;;
@@ -475,6 +604,9 @@ case "${1:-}" in
   platform-on) cmd_platform_on ;;
   platform-off) cmd_platform_off ;;
   stop-bot) cmd_stop_bot ;;
+  backups-on) cmd_backups_on ;;
+  backup-now) cmd_backup_now ;;
+  backup-status) cmd_backup_status ;;
   print-remote) shift; cmd_print_remote "$@" ;;
-  *) die "usage: bot-stack.sh inventory|launch|deploy|verify|setup-token|finish-setup|platform-on|platform-off|stop-bot|print-remote" ;;
+  *) die "usage: bot-stack.sh inventory|launch|deploy|verify|setup-token|finish-setup|platform-on|platform-off|stop-bot|backups-on|backup-now|backup-status|print-remote" ;;
 esac
