@@ -315,6 +315,23 @@ lookup plus the existing bounded state fallback, and
 for one deployment, with Bot reads capped to the newest 10 exact intents.
 Neither endpoint writes, reconciles, submits, or contacts an exchange.
 
+### Bot section read boundary
+
+`/bot` (Trading → Bot, administrator only) shows the Bot's bots, open trades and
+results. The browser only talks to Platform. `platform/backend/src/api/routes/botView.ts`
+serves three GET routes, `/api/bot/summary`, `/api/bot/bots` and `/api/bot/trades`,
+and rebuilds the query from checked values, so it isn't a general proxy. Each one
+calls a matching signed read at `/api/manual-trading/bot-view/*` on the Bot.
+
+The Bot builds these responses field by field in `bot:backend/src/services/botView.ts`,
+so the webhook secret and exchange keys stay out. The reads use local rows only and
+don't contact an exchange. A Bot refusal of the signature reaches the browser as a
+502, because a 401 would send the administrator to the sign-in page for a fault
+sign-in can't fix.
+
+These reads depend on `MANUAL_TRADING_ENABLED` on both sides. With it off, the page
+says the connection is off.
+
 ### Trade Journal read projection
 
 The Journal answers a different question from Timeline: it projects chronological

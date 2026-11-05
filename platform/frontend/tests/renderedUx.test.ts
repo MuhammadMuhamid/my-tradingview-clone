@@ -338,7 +338,7 @@ test("the not-found page and the chart's product menu offer every destination th
 
   const links = allNavLinks().map((l) => l.href);
   for (const route of ["/chart", "/screener", "/alerts", "/optimizers", "/research",
-    "/trading", "/journal", "/operations", "/shariah", "/getting-started"]) {
+    "/trading", "/journal", "/bot", "/operations", "/shariah", "/getting-started"]) {
     assert.ok(links.includes(route), `${route} is no longer reachable from navigation`);
   }
 });

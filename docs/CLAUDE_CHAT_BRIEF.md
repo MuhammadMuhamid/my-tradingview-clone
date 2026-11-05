@@ -79,6 +79,7 @@ Temporary conditions to keep in mind:
 | Shariah screening: review pack, external research, JSON import, publish, Mode | Admin manages, others read | Walked through locally with fixture data. It validates a file's shape and doesn't issue rulings |
 | Manual trading: Binance Spot, MARKET/LIMIT, optional TP/SL | Admin only | Tested with fakes. Panel seen in production. No exchange order yet |
 | Journal | Admin only | Tested locally |
+| Bot section (`/bot`): read-only bots, open trades and history | Admin only | Tested locally with fixture data. Not in production until both sides are deployed |
 | Automations: strategy signals to the Bot, 3Commas or paper | Admin only | The Holdout gate has never passed. It only guards the `replace_*.mjs` deploy scripts, and the deployments API route doesn't check it |
 | Quick Backtester: `ma_rr_v9`, `srtrend_v10`, `mtf_lean` | Admin only | Tested locally |
 | Research Optimizer | Whoever runs it on that Mac | Search and Replay tested locally. Walk-forward and Holdout took 0 trades in a synthetic run at shipped sizing |
@@ -131,6 +132,7 @@ Paths are starting points, relative to each repository.
 | Navigation and role visibility | Platform `platform/frontend/lib/navigation.ts`, `components/AdminOnlyPage.tsx` |
 | API routes | Platform `platform/backend/src/api/routes/` |
 | Platform-to-Bot trading | Platform `platform/backend/src/manualTrading/`, `api/routes/manualTrading.ts`; Bot `backend/src/services/manualTrading.ts` |
+| Bot section | Platform `platform/frontend/app/bot/page.tsx`, `platform/backend/src/api/routes/botView.ts`; Bot `backend/src/services/botView.ts` |
 | Who may reach what | Platform `platform/backend/src/security/requestUser.ts` |
 | Alerts | Platform `platform/backend/src/alerts/`, `api/routes/maAlerts.ts` |
 | Shariah | Platform `platform/backend/src/shariah/`; Bot `backend/src/services/shariah.ts` |

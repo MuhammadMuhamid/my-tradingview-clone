@@ -439,7 +439,7 @@ rather than implying otherwise:
 
 | page | shell | notes |
 |---|---|---|
-| Research, Shariah, Trading, Alerts, Journal | `PageShell` | the five that adopted it; Research uses `PageHeader` |
+| Research, Shariah, Trading, Alerts, Journal, Bot | `PageShell` | the six that adopted it; Research uses `PageHeader` |
 | Screener | its own `.scanner-workspace` | a full-bleed grid with a header of live filters, not a page title; `PageShell` would box it |
 | Optimizer, Operations, Getting started | hand-rolled `max-w-[1400px] px-4 py-6` | the same measurements `PageShell` applies, not yet the same component |
 

@@ -46,7 +46,7 @@ environment's password hash.
 | | Administrator | Standard account |
 |---|---|---|
 | Chart, Screener (read), alerts, watchlists, layouts, drawings, Pine scripts, push devices, Shariah screen (read-only) | yes | yes — isolated per account |
-| Trading ticket, Automations, Journal, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
+| Trading ticket, Automations, Journal, Bot section, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
 | Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars; requests over 20,000 source bars run at most 2 per account and 4 across all ordinary accounts (the response says `clamped`); Market v1 chart/candle reads are clamped the same way **before the venue is asked** (the response says `truncated` with a note naming the limit); reads too wide for the candle cache (over 50,000 source bars) hold one of the same slots, and beyond them the browser waits its turn; a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
 
 **Options:** display name, password change, Google link (admin links from Profile; a user whose
@@ -187,6 +187,13 @@ Evidence: **TESTED** (Platform `manualTrading`, `manualHalt`, `shariahGate`; Bot
 state), **TESTNET / LIVE: never**. Reference: [ARCHITECTURE.md](ARCHITECTURE.md),
 [WEBHOOK-CONTRACT.md](WEBHOOK-CONTRACT.md), Bot `README.md`,
 [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
+
+**Bot section:** *Trading → Bot* (`/bot`, administrator only) reads the Bot's overview, bots with
+their settings, open trades and trade history with order ids. It changes nothing: pausing a bot,
+closing a trade and managing keys stay on the Bot's own dashboard. It doesn't show exchange
+balances, signal logs or partial-close detail. If the Bot is down the page says *Bot unreachable*
+and keeps what it last read. Evidence: **TESTED** (`botView` on both sides, `botPage` DOM tests),
+**LOCAL UI VERIFIED** (a local Bot and Platform with fixture data over the real signed path).
 
 ---
 

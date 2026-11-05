@@ -22,7 +22,7 @@ BOT_NAME=trading-scene-execution-bot
 BOT_DOMAIN=bot.alphawebstudioz.com
 BOT_TYPE="${BOT_TYPE:-t3.micro}"
 # Paired with Platform by `platform/scripts/release.sh gate`. Change them together.
-BOT_SHA=76d17c5a7732
+BOT_SHA=1cce9bae4f41
 BOT_REPO=MuhammadMuhamid/3commabotclone
 HMAC_SECRET=trading-scene/execution-bot/control-plane-hmac
 SETUP_SECRET=trading-scene/execution-bot/setup-token

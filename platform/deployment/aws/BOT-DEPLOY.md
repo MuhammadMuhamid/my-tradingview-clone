@@ -2,8 +2,8 @@
 
 This puts the Bot on its own EC2 instance in `ap-south-1` and connects the
 production Platform to it for **paper and testnet** manual trading. Every
-command runs in AWS CloudShell through `bot-stack.sh`. It pairs Platform
-`d43ee5e` with Bot `76d17c5`.
+command runs in AWS CloudShell through `bot-stack.sh`, which pins the Bot commit
+in `BOT_SHA`. [OPERATIONS §7](../../../docs/OPERATIONS.md) lists the known pairs.
 
 Nothing here enables real-money orders. A first deployment is `DRY_RUN=true`,
 and `MAINNET_MANUAL_TRADING_ENABLED` must stay `false`.
@@ -50,6 +50,12 @@ override below may still be active. See [OPERATIONS §10](../../../docs/OPERATIO
 | 7 | Bot dashboard | **Settings → Exchange account**: add keys from `testnet.binance.vision` and tick **Use Binance testnet**. |
 | 8 | `bash bot-stack.sh platform-on` | Connects the Platform and restarts its backend. |
 | 9 | `/chart` as admin | Open **Trade**. It should show **PAPER SIMULATION** and the testnet account. |
+
+## Updating a running Bot
+
+Push the Bot commit, set `BOT_SHA` in `bot-stack.sh` to it, then run
+`bash bot-stack.sh deploy`. Update the Bot before a Platform release that reads new
+Bot routes. Otherwise those pages show an error until the Bot catches up.
 
 ## If DNS still shows the old address
 

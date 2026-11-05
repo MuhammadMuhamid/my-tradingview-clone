@@ -49,6 +49,7 @@ test("an ordinary account reaches the chart and its own things, nothing that mov
   for (const [method, path] of [
     ["GET", "/api/deployments"], ["POST", "/api/deployments/x/activate"], ["GET", "/api/alerts"],
     ["POST", "/api/manual-trading/orders"], ["GET", "/api/manual-trading/state"],
+    ["GET", "/api/bot/summary"], ["GET", "/api/bot/bots"], ["GET", "/api/bot/trades"],
     ["POST", "/api/spot-execution/v1/orders"], ["POST", "/api/derivative-execution/v1/orders"],
     ["POST", "/api/ops/halt"], ["GET", "/api/ops/status"], ["POST", "/api/backtests"],
     ["GET", "/api/optimizer/leaderboard"], ["POST", "/api/stress/runs"], ["GET", "/api/journal"],

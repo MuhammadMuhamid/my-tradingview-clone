@@ -761,7 +761,7 @@ async function failureText(res: Response): Promise<string> {
  * account the answer is given here, without a request.
  */
 const ADMIN_ONLY_API = [
-  /^\/api\/(ops|manual-trading|strategies|configs|trading-overlays|deployments|alerts|backtests|optimizer|stress|journal|trading-timeline|spot-execution|derivative-execution|equity-execution|traditional-execution)(\/|\?|$)/,
+  /^\/api\/(ops|manual-trading|bot|strategies|configs|trading-overlays|deployments|alerts|backtests|optimizer|stress|journal|trading-timeline|spot-execution|derivative-execution|equity-execution|traditional-execution)(\/|\?|$)/,
   /^\/api\/layouts\/sync-deployments/,
 ];
 
@@ -1417,6 +1417,31 @@ export interface TradingTimeline {
   truncated: boolean;
 }
 
+export interface BotSummary {
+  mode: { dryRun: boolean; binanceTestnet: boolean };
+  stats: {
+    upnl: number; locked: number; activeCount: number; closedCount: number; todayPnl: number;
+    totalRealizedPnl: number; botCount: number; activeBotCount: number; stoppedBotCount: number;
+  };
+}
+export interface BotViewAccount { name: string; testnet: boolean }
+export interface BotViewBot {
+  id: string; name: string; status: string; pairs: string[]; investment: string;
+  entryEnabled: boolean; exitEnabled: boolean;
+  takeProfitPct: number | null; stopLossPct: number | null;
+  maxEntryOrders: number | null; maxActiveSmartTrades: number | null;
+  account: BotViewAccount | null;
+  activeTrades: number; closedTrades: number; realizedPnl: number; signalCount: number;
+  createdAt: string;
+}
+export interface BotViewTrade {
+  id: string; botId: string | null; botName: string | null; source: string; pair: string; status: string;
+  entryPrice: number | null; currentPrice: number | null; quantity: number; quoteSpent: number;
+  pnlUsdt: number; pnlPct: number; exchangeOrderId: string | null; closedReason: string | null;
+  partialCloses: number; account: BotViewAccount | null; createdAt: string; closedAt: string | null;
+}
+export interface BotTradesPage { total: number; page: number; pageSize: number; rows: BotViewTrade[] }
+
 export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
 export interface JournalSummarySlice {
   knownRealizedPnl: number; knownRealizedRows: number; realizationRows: number;
@@ -1627,6 +1652,14 @@ export const api = {
     `/api/trading-timeline/manual-orders/${encodeURIComponent(id)}`),
   deploymentTimeline: (id: string, limit = 50) => req<TradingTimeline>(
     `/api/trading-timeline/deployments/${encodeURIComponent(id)}?limit=${limit}`),
+  botSummary: () => req<BotSummary>("/api/bot/summary"),
+  botList: () => req<BotViewBot[]>("/api/bot/bots"),
+  botTrades: (query: { status: "active" | "closed"; botId?: string; page: number; pageSize?: number }) => {
+    const params = new URLSearchParams({ status: query.status, page: String(query.page) });
+    if (query.botId) params.set("botId", query.botId);
+    if (query.pageSize) params.set("pageSize", String(query.pageSize));
+    return req<BotTradesPage>(`/api/bot/trades?${params.toString()}`);
+  },
   journal: (query: {
     from: string; to: string; source?: JournalSource | ""; symbol?: string;
     deploymentId?: string; strategyId?: string; period: "day" | "week" | "month";
