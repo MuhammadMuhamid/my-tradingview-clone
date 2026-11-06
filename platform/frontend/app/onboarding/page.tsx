@@ -75,6 +75,11 @@ function Onboarding() {
         <span className={`h-1 flex-1 rounded-full ${step >= 2 ? "bg-accent" : "bg-border"}`} />
         <span className="ml-1 tabular">Step {step} of 2</span>
       </div>
+      {session?.user && !session.user.emailVerified && session.providers.email && (
+        <p role="status" className="mb-4 text-[13px] text-ink-muted">
+          We sent a verification link to {session.user.email}. You can keep going and verify it later from your profile.
+        </p>
+      )}
 
       {step === 1 ? (
         <>

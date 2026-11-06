@@ -104,3 +104,9 @@ export function clientKey(
  * Five attempts per minute per client address.
  */
 export const loginLimiter = new FixedWindowLimiter(5, 60_000);
+
+/** Second-factor guesses per account, so changing address buys no more of them. */
+export const twoFactorLimiter = new FixedWindowLimiter(5, 5 * 60_000);
+
+/** Verification emails per account: each one costs money and lands in someone's inbox. */
+export const verificationEmailLimiter = new FixedWindowLimiter(3, 10 * 60_000);

@@ -35,6 +35,6 @@ export const config = {
      * and the theme bootstrap script, which the login page itself loads before
      * anyone is signed in (redirecting it served the login HTML as a script).
      */
-    "/((?!login|signup|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|theme-init.js).*)",
+    "/((?!login|signup|verify-email|api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|theme-init.js).*)",
   ],
 };

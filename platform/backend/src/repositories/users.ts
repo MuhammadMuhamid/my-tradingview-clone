@@ -19,6 +19,9 @@ export interface UserRow {
   avatarUrl: string | null;
   hasPassword: boolean;
   googleLinked: boolean;
+  githubLinked: boolean;
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
   role: UserRole;
   sessionVersion: number;
   onboardedAt: string | null;
@@ -33,6 +36,9 @@ interface DbUser {
   avatar_url: string | null;
   password_hash: string | null;
   google_sub: string | null;
+  github_id: string | null;
+  email_verified_at: Date | null;
+  totp_enabled_at: Date | null;
   role: UserRole;
   session_version: number;
   onboarded_at: Date | null;
@@ -47,6 +53,9 @@ const toRow = (r: DbUser): UserRow => ({
   avatarUrl: r.avatar_url,
   hasPassword: !!r.password_hash,
   googleLinked: !!r.google_sub,
+  githubLinked: !!r.github_id,
+  emailVerified: !!r.email_verified_at,
+  twoFactorEnabled: !!r.totp_enabled_at,
   role: r.role,
   sessionVersion: r.session_version,
   onboardedAt: r.onboarded_at ? r.onboarded_at.toISOString() : null,
@@ -87,6 +96,11 @@ export async function getUserByGoogleSub(sub: string): Promise<UserRow | null> {
   return rows[0] ? toRow(rows[0]) : null;
 }
 
+export async function getUserByGithubId(id: string): Promise<UserRow | null> {
+  const { rows } = await query<DbUser>("SELECT * FROM users WHERE github_id = $1", [id]);
+  return rows[0] ? toRow(rows[0]) : null;
+}
+
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
   const { rows } = await query<DbUser>("SELECT * FROM users WHERE email = $1", [normaliseEmail(email)]);
   return rows[0] ? toRow(rows[0]) : null;
@@ -101,15 +115,19 @@ export async function createUser(input: {
   displayName: string;
   passwordHash?: string | null;
   googleSub?: string | null;
+  githubId?: string | null;
   avatarUrl?: string | null;
+  /** A provider that verified this address vouches for it. */
+  emailVerified?: boolean;
 }): Promise<UserRow> {
   try {
     const { rows } = await query<DbUser>(
-      `INSERT INTO users (email, display_name, password_hash, google_sub, avatar_url, role, last_login_at)
-       VALUES ($1, $2, $3, $4, $5, 'user', now())
+      `INSERT INTO users (email, display_name, password_hash, google_sub, github_id, avatar_url,
+                          email_verified_at, role, last_login_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7::boolean THEN now() END, 'user', now())
        RETURNING *`,
       [normaliseEmail(input.email), input.displayName.slice(0, 80), input.passwordHash ?? null,
-        input.googleSub ?? null, input.avatarUrl ?? null],
+        input.googleSub ?? null, input.githubId ?? null, input.avatarUrl ?? null, input.emailVerified === true],
     );
     return toRow(rows[0]!);
   } catch (err) {
@@ -126,6 +144,20 @@ export async function linkGoogle(id: string, sub: string, avatarUrl: string | nu
     [id, sub, avatarUrl],
   );
   return toRow(rows[0]!);
+}
+
+export async function linkGithub(id: string, githubId: string, avatarUrl: string | null): Promise<UserRow> {
+  const { rows } = await query<DbUser>(
+    `UPDATE users SET github_id = $2, avatar_url = COALESCE(avatar_url, $3)
+     WHERE id = $1 RETURNING *`,
+    [id, githubId, avatarUrl],
+  );
+  return toRow(rows[0]!);
+}
+
+/** The address a provider has just vouched for belongs to this account. */
+export async function markEmailVerified(id: string): Promise<void> {
+  await query("UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1", [id]);
 }
 
 export async function markLogin(id: string): Promise<void> {

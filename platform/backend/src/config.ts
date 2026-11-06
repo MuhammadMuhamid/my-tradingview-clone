@@ -62,6 +62,10 @@ export interface AppConfig {
   googleClientId: string;
   googleClientSecret: string;
   publicBaseUrl: string;
+  githubClientId: string;
+  githubClientSecret: string;
+  emailFrom: string;
+  emailRegion: string;
   /** New accounts may be created. Off: only existing accounts sign in. */
   allowSignups: boolean;
 }
@@ -221,6 +225,10 @@ export const config: AppConfig = {
   googleClientId: (process.env.GOOGLE_CLIENT_ID ?? "").trim(),
   googleClientSecret: (process.env.GOOGLE_CLIENT_SECRET ?? "").trim(),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").trim().replace(/\/$/, ""),
+  githubClientId: (process.env.GITHUB_CLIENT_ID ?? "").trim(),
+  githubClientSecret: (process.env.GITHUB_CLIENT_SECRET ?? "").trim(),
+  emailFrom: (process.env.EMAIL_FROM ?? "").trim(),
+  emailRegion: (process.env.EMAIL_REGION ?? "ap-south-1").trim(),
   allowSignups: process.env.ALLOW_SIGNUPS !== "false",
 };
 

@@ -82,8 +82,8 @@ export function openState(sealed: string | null, secret: string, now = Date.now(
 }
 
 /** The cookie that carries the state across the round trip, scoped to it. */
-export function oauthCookie(value: string, secure: boolean): string {
-  const attrs = [`${OAUTH_COOKIE}=${value}`, "Path=/api/auth/google", "HttpOnly",
+export function oauthCookie(value: string, secure: boolean, path = "/api/auth/google"): string {
+  const attrs = [`${OAUTH_COOKIE}=${value}`, `Path=${path}`, "HttpOnly",
     // Lax: Google sends the user BACK with a top-level GET, which Strict would
     // strip the cookie from.
     "SameSite=Lax", `Max-Age=${Math.floor(OAUTH_TTL_MS / 1000)}`];
@@ -91,8 +91,8 @@ export function oauthCookie(value: string, secure: boolean): string {
   return attrs.join("; ");
 }
 
-export function clearOauthCookie(secure: boolean): string {
-  const attrs = [`${OAUTH_COOKIE}=`, "Path=/api/auth/google", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+export function clearOauthCookie(secure: boolean, path = "/api/auth/google"): string {
+  const attrs = [`${OAUTH_COOKIE}=`, `Path=${path}`, "HttpOnly", "SameSite=Lax", "Max-Age=0"];
   if (secure) attrs.push("Secure");
   return attrs.join("; ");
 }

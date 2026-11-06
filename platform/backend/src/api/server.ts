@@ -13,6 +13,7 @@ import { layoutRoutes } from "./routes/layouts";
 import { pineRoutes } from "./routes/pine";
 import { pushRoutes } from "./routes/push";
 import { authRoutes } from "./routes/auth";
+import { accountSecurityRoutes } from "./routes/accountSecurity";
 import { watchlistRoutes } from "./routes/watchlists";
 import { chartStateRoutes } from "./routes/chartState";
 import { maAlertRoutes } from "./routes/maAlerts";
@@ -39,11 +40,15 @@ import { authenticate } from "./routes/auth";
 const PUBLIC_PATHS = new Set([
   "/health", "/healthz", "/readyz", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
   "/api/auth/signup", "/api/auth/google/start", "/api/auth/google/callback",
+  "/api/auth/github/start", "/api/auth/github/callback",
+  "/api/auth/email/verify", "/api/auth/2fa/login",
   "/api/internal/realization-events/v1",
 ]);
 
 /** Throttled like sign-in: each is a guess at, or a creation of, a credential. */
-const LIMITED_AUTH_PATHS = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/password"]);
+const LIMITED_AUTH_PATHS = new Set([
+  "/api/auth/login", "/api/auth/signup", "/api/auth/password", "/api/auth/2fa/login", "/api/auth/email/verify",
+]);
 
 /**
  * Response headers applied to every reply.
@@ -156,6 +161,8 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   });
 
   app.register(authRoutes);
+
+  app.register(accountSecurityRoutes);
   app.register(healthRoutes);
   app.register(symbolRoutes());
   app.register(strategyRoutes);

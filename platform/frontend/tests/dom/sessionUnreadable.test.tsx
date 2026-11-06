@@ -73,7 +73,7 @@ const standardReader = () => ({
     onboarded: true, hasPassword: true, passwordManagedByServer: false, googleLinked: false,
     createdAt: "2026-01-01T00:00:00Z",
   },
-  providers: { google: false, signups: true },
+  providers: { google: false, github: false, signups: true, email: false },
 });
 
 for (const { name, arrange } of failures) {
@@ -149,7 +149,7 @@ test("an auth-off instance's product menu carries no unreadable notice and no Re
 });
 
 test("roleOf: a failed read and a signed-out answer are unreadable; no accounts is the administrator", () => {
-  const base = { providers: { google: false, signups: true } };
+  const base = { providers: { google: false, github: false, signups: true, email: false } };
   assert.equal(roleOf(null), "unknown");
   assert.equal(roleOf({ ...base, authenticated: false, authEnabled: true, user: null, readFailed: true }), "unreadable");
   assert.equal(roleOf({ ...base, authenticated: false, authEnabled: true, user: null }), "unreadable");
@@ -164,7 +164,7 @@ test("a failed read recovers by itself once the server answers, and the chart's 
 
   // The server comes back; nobody presses anything.
   server.routes.set("GET /api/auth/me", () => ({
-    authenticated: true, authEnabled: true, providers: { google: false, signups: true },
+    authenticated: true, authEnabled: true, providers: { google: false, github: false, signups: true, email: false },
     user: { id: "a1", email: "a@example.test", displayName: "Admin", avatarUrl: null, role: "admin" },
   }));
   const deadline = Date.now() + 4_000;
@@ -179,7 +179,7 @@ test("a failed read recovers by itself once the server answers, and the chart's 
 test("the chart's notice offers Retry now, and says nothing for a read that answered", async () => {
   let answers = false;
   server.routes.set("GET /api/auth/me", () => answers
-    ? { authenticated: true, authEnabled: false, providers: { google: false, signups: true }, user: null }
+    ? { authenticated: true, authEnabled: false, providers: { google: false, github: false, signups: true, email: false }, user: null }
     : new Response("upstream down", { status: 500 }));
   render(<SessionCheckBanner />);
   await settle();

@@ -49,10 +49,13 @@ environment's password hash.
 | Trading ticket, Automations, Journal, Bot section, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
 | Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars; requests over 20,000 source bars run at most 2 per account and 4 across all ordinary accounts (the response says `clamped`); Market v1 chart/candle reads are clamped the same way **before the venue is asked** (the response says `truncated` with a note naming the limit); reads too wide for the candle cache (over 50,000 source bars) hold one of the same slots, and beyond them the browser waits its turn; a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
 
-**Options:** display name, password change, Google link (admin links from Profile; a user whose
-Google email matches a password account joins it and loses the password), sign out everywhere,
-delete account. **Prerequisites for Google:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-`PUBLIC_BASE_URL`; the button appears only when all three are set. **Success/errors:** a wrong
+**Options:** display name, password change, email verification, Google and GitHub links (admin
+links from Profile; a user whose provider email matches an unverified password account joins it and
+loses the password and any two-factor setup), two-factor sign-in with recovery codes, recent
+sign-ins, sign out everywhere, delete account. Nothing requires verification or two-factor until
+packages exist ([ACCOUNTS.md §7](ACCOUNTS.md)). **Prerequisites for Google:** `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`; the button appears only when all three are set. GitHub
+and email have their own settings, listed in §7 there. **Success/errors:** a wrong
 password says nothing about which half was wrong; duplicate email is 409; a user on an admin URL
 sees "This page is for the administrator" with a link to the chart. While the account is still being
 checked (first load, before `/api/auth/me` answers) **no administrator control is drawn**: the chart

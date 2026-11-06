@@ -30,7 +30,7 @@ import { ProductMenu } from "@/components/tv/ProductMenu";
 const HELP_HREF = "/getting-started";
 
 /** Routes that draw their own full frame, or none. */
-export const BARE_ROUTES = new Set(["/chart", "/login", "/signup", "/onboarding", "/profile"]);
+export const BARE_ROUTES = new Set(["/chart", "/login", "/signup", "/verify-email", "/onboarding", "/profile"]);
 
 export function Nav() {
   const path = usePathname() ?? "";

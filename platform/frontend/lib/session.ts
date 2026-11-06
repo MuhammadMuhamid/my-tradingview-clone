@@ -19,6 +19,11 @@ export interface SessionUser {
   hasPassword: boolean;
   passwordManagedByServer: boolean;
   googleLinked: boolean;
+  githubLinked: boolean;
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
+  /** Email verified and two-factor on: what money features will ask for. */
+  moneyFeaturesUnlocked: boolean;
   createdAt: string;
 }
 
@@ -26,7 +31,7 @@ export interface SessionState {
   authenticated: boolean;
   authEnabled: boolean;
   user: SessionUser | null;
-  providers: { google: boolean; signups: boolean };
+  providers: { google: boolean; github: boolean; signups: boolean; email: boolean };
   /**
    * True when `/api/auth/me` did not answer: a network failure or a non-2xx.
    *
@@ -39,7 +44,7 @@ export interface SessionState {
 
 /** What a read that did not answer leaves us with: no account, and that it failed. */
 const UNREAD: SessionState = {
-  authenticated: false, authEnabled: true, user: null, providers: { google: false, signups: true },
+  authenticated: false, authEnabled: true, user: null, providers: { google: false, github: false, signups: true, email: false },
   readFailed: true,
 };
 
@@ -86,7 +91,7 @@ async function fetchSession(): Promise<SessionState> {
       authenticated: !!body.authenticated,
       authEnabled: body.authEnabled !== false,
       user: body.user ?? null,
-      providers: { google: !!body.providers?.google, signups: body.providers?.signups !== false },
+      providers: { google: !!body.providers?.google, github: !!body.providers?.github, signups: body.providers?.signups !== false, email: !!body.providers?.email },
     };
   } catch {
     return UNREAD;

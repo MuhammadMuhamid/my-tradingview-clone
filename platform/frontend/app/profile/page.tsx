@@ -9,7 +9,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { refreshSession, signOut, useSession } from "@/lib/session";
 import { PRODUCT_NAME } from "@/lib/navigation";
-import { Avatar, GoogleMark, ProductMark } from "@/components/AuthShell";
+import { Avatar, GithubMark, GoogleMark, ProductMark } from "@/components/AuthShell";
+import {
+  EmailVerificationCard, LoginHistoryCard, TwoFactorCard, sendAccountRequest as send,
+} from "@/components/AccountSecurity";
 import { Button, Card as Panel, CardHeader, PageHeader, TextInput } from "@/components/ui";
 
 type Section = "profile" | "security" | "account";
@@ -19,17 +22,6 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "security", label: "Password & sign-in" },
   { id: "account", label: "Account" },
 ];
-
-async function send(path: string, method: string, body?: unknown): Promise<{ error?: string }> {
-  const res = await fetch(path, {
-    method, credentials: "same-origin",
-    headers: body === undefined ? {} : { "content-type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const json = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
-  return json;
-}
 
 /**
  * A section, on the shared card: `--ts-surface`, the strong outer line, radius
@@ -186,6 +178,8 @@ export default function ProfilePage() {
 
           {section === "security" && (
             <>
+              {!admin && <EmailVerificationCard user={user} emailConfigured={session.providers.email} />}
+
               <Card title="Password">
                 {user.passwordManagedByServer ? (
                   <p className="text-[13px] text-ink-muted">
@@ -201,7 +195,7 @@ export default function ProfilePage() {
                       </>
                     ) : (
                       <p className="text-[13px] text-ink-muted">
-                        You sign in with Google. Set a password to sign in with your email too.
+                        You sign in with a linked account. Set a password to sign in with your email too.
                       </p>
                     )}
                     <label className="mt-4 block text-[13px] text-ink-muted" htmlFor="new">New password</label>
@@ -235,6 +229,24 @@ export default function ProfilePage() {
                 )}
               </Card>
 
+              {(session.providers.github || user.githubLinked) && (
+                <Card title="GitHub">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <GithubMark />
+                    <span className="text-[14px]">
+                      {user.githubLinked ? "Linked — you can sign in with GitHub." : "Not linked."}
+                    </span>
+                    {!user.githubLinked && (
+                      <a href="/api/auth/github/start?mode=link&next=/profile">
+                        <Button>Link GitHub account</Button>
+                      </a>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              <TwoFactorCard user={user} />
+
               <Card title="Sessions">
                 <p className="text-[13px] text-ink-muted">
                   Signed in on a computer you no longer use? Sign out of every device, this one included.
@@ -243,6 +255,8 @@ export default function ProfilePage() {
                   <Button onClick={() => void signOut(true)}>Sign out everywhere</Button>
                 </div>
               </Card>
+
+              <LoginHistoryCard />
             </>
           )}
 

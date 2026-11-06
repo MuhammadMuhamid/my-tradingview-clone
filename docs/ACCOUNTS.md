@@ -97,17 +97,84 @@ admin by email — the admin links it from Profile while signed in.
 
 ## 5. Pages
 
-`/login` (sign in / create account, `?mode=signup`, `/signup`), `/onboarding`
-(name + starter watchlist), `/profile` (name, password, Google link, sign out
-everywhere, delete account). Browser storage is cleared when a different
+`/login` (sign in / create account, `?mode=signup`, `/signup`, the two-factor
+step), `/verify-email` (where an emailed link lands), `/onboarding` (name + starter
+watchlist), `/profile` (name, password, email verification, Google and GitHub links,
+two-factor sign-in, recent sign-ins, sign out everywhere, delete account). Browser storage is cleared when a different
 account signs in on the same browser.
 
 ## 6. Tests
 
+`platform/backend/tests/accountSecurityDb.test.ts` (verification, two-factor and
+GitHub through the real API and PostgreSQL), `platform/backend/tests/twoFactor.test.ts`
+(RFC 6238 vectors), `platform/frontend/tests/dom/accountSecurity.test.tsx`,
 `platform/backend/tests/accounts.test.ts` (tokens, reach, Google token checks),
 `platform/backend/tests/accountsDb.test.ts` (two accounts, real API, own
 database — nothing of one is visible to or changeable by the other),
 `platform/frontend/tests/dom/accountPages.test.tsx`.
+
+## 7. Email verification, two-factor sign-in and GitHub
+
+Added 2026-11-05 (migration `052_account_security.sql`). **Nothing requires these yet.**
+`/api/auth/me` reports `moneyFeaturesUnlocked` when an account has both a verified
+email and two-factor on, and joining a package will require that. The administrator
+counts as verified, because it has no email.
+
+**Email verification.** Signing up sends a link that works once and expires in 24
+hours. Only its hash is stored, and a new link replaces the old one. A provider's
+verified address counts as verified. If sending fails, the account is still created
+and can ask again from its profile. `/verify-email` uses the token with a POST, so a
+mail scanner opening the link can't use it up.
+
+**Two-factor sign-in.** Standard TOTP from an authenticator app, in
+`platform/backend/src/security/twoFactor.ts`.
+
+- Setup needs a verified email and the account's password, so someone holding an
+  unverified address or a stolen session can't lock out the owner. The secret is
+  encrypted with `ALERT_ENCRYPTION_KEY`.
+- A correct password or provider sign-in then gives a 5-minute proof cookie, not a
+  session. The code or a recovery code turns it into a session.
+- Each code works once. Guesses are limited to 5 per 5 minutes per account.
+- Ten recovery codes are shown once and stored hashed.
+- Turning it off needs the password and a code, and ends every other session.
+
+**Joining by email.** If an unverified account's address signs in through Google or
+GitHub, the provider has proved who owns it. The password, two-factor setup and sessions
+on that account are removed, in case someone else registered it first. A verified
+account keeps them and must still pass its second factor.
+
+**GitHub.** OAuth with PKCE in `platform/backend/src/security/github.ts`. It only accepts
+a primary, verified address, and a GitHub account without one is refused.
+
+**Sign-in history.** The newest 50 sign-ins per account, with method, address and browser,
+shown on the profile. Deleting an account deletes them.
+
+**Locked out of the administrator account.** Use a recovery code. If those are lost too,
+someone with database access must clear `totp_secret_enc` and `totp_enabled_at` on the
+admin row. There is no way to do this from the app.
+
+### Not built
+
+Password reset by email and changing an account's email address. Failed sign-ins aren't
+recorded in the history. Rate limits are per process, as `security/rateLimit.ts` states.
+
+### Turning it on in production
+
+Everything stays off until these are set in `/opt/srtrend/deployment/.env`:
+
+1. **Email.** Verify the sending domain in Amazon SES (`ap-south-1`) and add its DNS
+   records in Hostinger. Request production access, because until then SES only delivers
+   to verified addresses. Set `EMAIL_FROM`, for example `no-reply@alphawebstudioz.com`.
+2. **Email permission.** Allow `ses:SendEmail` for that identity on the instance role.
+   Containers may not be able to reach that role, depending on the instance's metadata
+   hop limit. If sending fails with a credentials error, don't raise the hop limit, which
+   would give every container the role. Create an IAM user limited to `ses:SendEmail`,
+   and set `SES_ACCESS_KEY_ID` and `SES_SECRET_ACCESS_KEY`.
+3. **GitHub.** Create an OAuth App with the callback
+   `<PUBLIC_BASE_URL>/api/auth/github/callback`, and set `GITHUB_CLIENT_ID` and
+   `GITHUB_CLIENT_SECRET`.
+4. **Deploy check.** Production has migrations this repository doesn't ship
+   ([OPERATIONS §10](OPERATIONS.md)), so check the dry run applies `052` cleanly.
 
 ## When the session cannot be read
 

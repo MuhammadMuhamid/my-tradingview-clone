@@ -809,6 +809,7 @@ test("CONTRACT — monospace is for code and machine identifiers, nothing else",
     "components/TradeOrderTimeline.tsx",       // exchange order identifiers
     "components/tv/TradingOverlays.tsx",       // exchange order identifiers
     "components/scanner/CalibrationPanel.tsx", // fingerprint
+    "components/AccountSecurity.tsx",          // two-factor key and recovery codes
   ]);
   const offenders: string[] = [];
   for (const file of [...sourceFiles("app"), ...sourceFiles("components")]) {

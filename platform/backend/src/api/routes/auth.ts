@@ -20,6 +20,10 @@
  * The admin is never joined by email: linking Google to it takes an explicit
  * "Link Google" from a signed-in admin session.
  *
+ * GitHub follows the same rules. An account whose email is ALREADY verified has
+ * no squatter to remove, so it keeps its password and its two-factor setup, and
+ * still has to pass that second factor.
+ *
  * ── Sessions ───────────────────────────────────────────────────────────────
  *
  * A 90-day signed cookie naming the account and its session version
@@ -27,16 +31,24 @@
  * actively used browser is never signed out; "sign out everywhere" bumps the
  * version and every other session ends at its next request.
  */
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../../config";
 import { clientKey, loginLimiter } from "../../security/rateLimit";
+import {
+  GithubSignInError, exchangeGithubCode, githubAuthorizeUrl, type GithubIdentity,
+} from "../../security/github";
+import {
+  clearPendingCookie, pendingCookie, sealPendingSignIn, type SignInMethod,
+} from "../../security/twoFactor";
+import * as accountSecurity from "../../repositories/accountSecurity";
+import { isEmailConfigured, sendVerificationEmail } from "../../email/mailer";
 import {
   clearCookie, hashPassword, readCookie, safeEqual, sessionCookie,
   signUserSession, verifyPassword, verifySession, verifyUserSession,
 } from "../../security/session";
 import {
   GoogleSignInError, OAUTH_COOKIE, authorizeUrl, clearOauthCookie, exchangeCode,
-  newOAuthState, oauthCookie, openState, safeNext, sealState,
+  newOAuthState, oauthCookie, openState, safeNext, sealState, type OAuthState,
 } from "../../security/google";
 import {
   forgetUser, loadRequestUser, userIdOf, type RequestUser,
@@ -85,18 +97,19 @@ export async function authenticate(
  * it — so a sign-in, a password change or a sign-out must remove that first,
  * or the response would carry both.
  */
-function setSessionCookies(reply: FastifyReply, cookies: string | string[]): void {
+export function setSessionCookies(reply: FastifyReply, cookies: string | string[]): void {
   reply.removeHeader("set-cookie");
   reply.header("set-cookie", cookies);
 }
 
-function startSession(reply: FastifyReply, user: { id: string; sessionVersion: number }): void {
+export function startSession(reply: FastifyReply, user: { id: string; sessionVersion: number }): void {
   setSessionCookies(reply,
     sessionCookie(signUserSession(user.id, user.sessionVersion, config.sessionSecret), config.cookieSecure));
 }
 
 /** What the browser is told about an account — never the hash, never the Google id. */
-function publicUser(u: users.UserRow) {
+export function publicUser(u: users.UserRow) {
+  const emailVerified = u.role === "admin" || u.emailVerified;
   return {
     id: u.id,
     email: u.email,
@@ -108,6 +121,11 @@ function publicUser(u: users.UserRow) {
     hasPassword: u.role === "admin" || u.hasPassword,
     passwordManagedByServer: u.role === "admin",
     googleLinked: u.googleLinked,
+    githubLinked: u.githubLinked,
+    emailVerified,
+    twoFactorEnabled: u.twoFactorEnabled,
+    // What money features will ask for. Nothing checks it until packages exist.
+    moneyFeaturesUnlocked: emailVerified && u.twoFactorEnabled,
     createdAt: u.createdAt,
   };
 }
@@ -122,7 +140,8 @@ async function adminAccount(): Promise<users.UserRow> {
   const row = await users.getUser(users.ADMIN_USER_ID).catch(() => null);
   return row ?? {
     id: users.ADMIN_USER_ID, email: null, displayName: "Admin", avatarUrl: null,
-    hasPassword: false, googleLinked: false, role: "admin", sessionVersion: 1,
+    hasPassword: false, googleLinked: false, githubLinked: false, emailVerified: false,
+    twoFactorEnabled: false, role: "admin", sessionVersion: 1,
     onboardedAt: new Date(0).toISOString(), createdAt: new Date(0).toISOString(), lastLoginAt: null,
   };
 }
@@ -132,6 +151,26 @@ const googleEnabled = (): boolean =>
 
 const redirectUri = (): string => `${config.publicBaseUrl}/api/auth/google/callback`;
 
+const githubEnabled = (): boolean =>
+  !!config.githubClientId && !!config.githubClientSecret && !!config.publicBaseUrl;
+
+const githubRedirectUri = (): string => `${config.publicBaseUrl}/api/auth/github/callback`;
+const GITHUB_COOKIE_PATH = "/api/auth/github";
+
+export const requestAddress = (req: FastifyRequest): string =>
+  clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy);
+
+/** History must never be why a correct sign-in fails. */
+export async function noteSignIn(
+  req: FastifyRequest, userId: string, method: SignInMethod, twoFactor: boolean,
+): Promise<void> {
+  await users.markLogin(userId).catch(() => undefined);
+  const agent = req.headers["user-agent"];
+  await accountSecurity.recordLogin({
+    userId, method, twoFactor, ip: requestAddress(req), userAgent: typeof agent === "string" ? agent : null,
+  }).catch((err: Error) => req.log.warn({ err: err.message }, "could not record sign-in"));
+}
+
 function cleanDisplayName(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const v = raw.replace(/\s+/g, " ").trim();
@@ -139,7 +178,7 @@ function cleanDisplayName(raw: unknown): string | null {
   return v;
 }
 
-async function checkPassword(password: string, hash: string): Promise<boolean | "busy"> {
+export async function checkPassword(password: string, hash: string): Promise<boolean | "busy"> {
   if (activePasswordChecks >= MAX_PASSWORD_CHECKS) return "busy";
   activePasswordChecks++;
   try { return await verifyPassword(password, hash); }
@@ -149,7 +188,8 @@ async function checkPassword(password: string, hash: string): Promise<boolean | 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   /** Who is signed in, and which ways in this instance offers. */
   app.get("/api/auth/me", async (req) => {
-    const providers = { google: googleEnabled(), signups: config.allowSignups };
+    const providers = { google: googleEnabled(), github: githubEnabled(), signups: config.allowSignups,
+      email: isEmailConfigured() };
     if (!config.authEnabled) {
       const admin = await users.getUser(users.ADMIN_USER_ID).catch(() => null);
       return {
@@ -202,7 +242,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     // A user who signs in correctly should not be locked out by earlier typos.
     loginLimiter.reset(clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy));
-    await users.markLogin(account.id).catch(() => undefined);
+    if (account.twoFactorEnabled) {
+      // The password was right, but this isn't a session yet.
+      setSessionCookies(reply, pendingCookie(sealPendingSignIn(
+        { userId: account.id, version: account.sessionVersion, method: "password" }, config.sessionSecret,
+      ), config.cookieSecure));
+      return { ok: true, twoFactorRequired: true };
+    }
+    await noteSignIn(req, account.id, "password", false);
     startSession(reply, account);
     return { ok: true, user: publicUser(account) };
   });
@@ -225,8 +272,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const account = await users.createUser({
         email: body.email, displayName, passwordHash: hashPassword(body.password),
       });
+      await noteSignIn(req, account.id, "password", false);
       startSession(reply, account);
-      return reply.code(201).send({ ok: true, user: publicUser(account) });
+      // Failing to send never loses the account: it can ask again from its profile.
+      let verificationEmail: "sent" | "unavailable" = "unavailable";
+      if (isEmailConfigured() && account.email) {
+        try {
+          await sendVerificationEmail(account.email, await accountSecurity.issueEmailToken(account.id, account.email));
+          verificationEmail = "sent";
+        } catch (err) {
+          req.log.warn({ err: (err as Error).name }, "could not send the verification email");
+        }
+      }
+      return reply.code(201).send({ ok: true, user: publicUser(account), verificationEmail });
     } catch (err) {
       if (err instanceof users.EmailTakenError) {
         return reply.code(409).send({ error: "An account with this email already exists. Sign in instead." });
@@ -379,40 +437,116 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return fail(err instanceof GoogleSignInError ? "google_failed" : "google_unavailable");
     }
 
-    let account = await users.getUserByGoogleSub(identity.sub);
-
-    if (state.linkUserId) {
-      // Explicit linking from a signed-in session.
-      if (account && account.id !== state.linkUserId) return fail("google_in_use");
-      if (!account) account = await users.linkGoogle(state.linkUserId, identity.sub, identity.picture);
-      forgetUser(account.id);
-    } else if (!account) {
-      const byEmail = await users.getUserByEmail(identity.email);
-      if (byEmail && byEmail.role === "admin") return fail("google_link_admin");
-      if (byEmail) {
-        // See "Linking Google" at the top: the unverified password goes.
-        await users.setPasswordHash(byEmail.id, null);
-        await users.bumpSessionVersion(byEmail.id);
-        account = await users.linkGoogle(byEmail.id, identity.sub, identity.picture);
-        forgetUser(account.id);
-      } else {
-        if (!config.allowSignups) return fail("signups_closed");
-        account = await users.createUser({
-          email: identity.email, displayName: identity.name || identity.email.split("@")[0]!,
-          googleSub: identity.sub, avatarUrl: identity.picture,
-        });
-      }
-    }
-
-    await users.markLogin(account.id);
-    const fresh = await users.getUser(account.id);
-    if (!fresh) return fail("google_failed");
-    setSessionCookies(reply, [
-      clearOauthCookie(config.cookieSecure),
-      sessionCookie(signUserSession(fresh.id, fresh.sessionVersion, config.sessionSecret), config.cookieSecure),
-    ]);
-    return reply.redirect(fresh.onboardedAt ? state.next : `/onboarding?next=${encodeURIComponent(state.next)}`);
+    return finishProviderSignIn(req, reply, "google", {
+      id: identity.sub, email: identity.email, name: identity.name, picture: identity.picture,
+    }, state);
   });
+
+  // ── GitHub ───────────────────────────────────────────────────────────────
+
+  app.get("/api/auth/github/start", async (req, reply) => {
+    if (!githubEnabled()) return reply.code(404).send({ error: "GitHub sign-in is not configured" });
+    const q = req.query as { next?: string; mode?: string };
+    const linkUserId = q.mode === "link" ? req.user?.id ?? null : null;
+    if (q.mode === "link" && !linkUserId) return reply.redirect("/login?error=signin_required");
+    const state = newOAuthState(safeNext(q.next, linkUserId ? "/profile" : "/chart"), linkUserId);
+    reply.header("set-cookie", oauthCookie(sealState(state, config.sessionSecret), config.cookieSecure, GITHUB_COOKIE_PATH));
+    return reply.redirect(githubAuthorizeUrl({ clientId: config.githubClientId, redirectUri: githubRedirectUri(), state }));
+  });
+
+  app.get("/api/auth/github/callback", async (req, reply) => {
+    const fail = (code: string) => {
+      reply.header("set-cookie", clearOauthCookie(config.cookieSecure, GITHUB_COOKIE_PATH));
+      return reply.redirect(`/login?error=${encodeURIComponent(code)}`);
+    };
+    if (!githubEnabled()) return fail("github_disabled");
+    const q = req.query as { code?: string; state?: string; error?: string };
+    if (q.error) return fail(q.error === "access_denied" ? "github_cancelled" : "github_failed");
+    const state = openState(readCookie(req.headers.cookie, OAUTH_COOKIE), config.sessionSecret);
+    if (!state || typeof q.state !== "string" || !safeEqual(q.state, state.state) || typeof q.code !== "string") {
+      return fail("github_expired");
+    }
+    let identity: GithubIdentity;
+    try {
+      identity = await exchangeGithubCode({
+        code: q.code, verifier: state.verifier, clientId: config.githubClientId,
+        clientSecret: config.githubClientSecret, redirectUri: githubRedirectUri(),
+      });
+    } catch (err) {
+      req.log.warn({ err: (err as Error).message }, "github sign-in failed");
+      return fail(err instanceof GithubSignInError ? "github_failed" : "github_unavailable");
+    }
+    return finishProviderSignIn(req, reply, "github", identity, state);
+  });
+}
+
+/**
+ * Who a provider's identity is, by its id, then by email. The email is one the
+ * provider has verified, which is the only reason joining by it is safe.
+ */
+async function finishProviderSignIn(
+  req: FastifyRequest, reply: FastifyReply, kind: "google" | "github",
+  identity: { id: string; email: string; name: string; picture: string | null }, state: OAuthState,
+) {
+  const cookiePath = `/api/auth/${kind}`;
+  const fail = (code: string) => {
+    reply.header("set-cookie", clearOauthCookie(config.cookieSecure, cookiePath));
+    return reply.redirect(`/login?error=${encodeURIComponent(code)}`);
+  };
+  const link = (id: string) => kind === "google"
+    ? users.linkGoogle(id, identity.id, identity.picture)
+    : users.linkGithub(id, identity.id, identity.picture);
+
+  let account = kind === "google"
+    ? await users.getUserByGoogleSub(identity.id) : await users.getUserByGithubId(identity.id);
+
+  if (state.linkUserId) {
+    // Explicit linking from a signed-in session.
+    if (account && account.id !== state.linkUserId) return fail(`${kind}_in_use`);
+    if (!account) account = await link(state.linkUserId);
+    forgetUser(account.id);
+  } else if (!account) {
+    const byEmail = await users.getUserByEmail(identity.email);
+    if (byEmail && byEmail.role === "admin") return fail(`${kind}_link_admin`);
+    if (byEmail) {
+      if (!byEmail.emailVerified) {
+        // See "Linking Google" at the top: whoever registered this address never
+        // proved it, so nothing they set up survives, a two-factor secret included.
+        await users.setPasswordHash(byEmail.id, null);
+        await accountSecurity.clearTotp(byEmail.id);
+        await users.bumpSessionVersion(byEmail.id);
+      }
+      await users.markEmailVerified(byEmail.id);
+      account = await link(byEmail.id);
+      forgetUser(account.id);
+    } else {
+      if (!config.allowSignups) return fail("signups_closed");
+      account = await users.createUser({
+        email: identity.email, displayName: identity.name || identity.email.split("@")[0]!,
+        ...(kind === "google" ? { googleSub: identity.id } : { githubId: identity.id }),
+        avatarUrl: identity.picture, emailVerified: true,
+      });
+    }
+  }
+
+  const fresh = await users.getUser(account.id);
+  if (!fresh) return fail(`${kind}_failed`);
+  if (fresh.twoFactorEnabled && !state.linkUserId) {
+    setSessionCookies(reply, [
+      clearOauthCookie(config.cookieSecure, cookiePath),
+      pendingCookie(sealPendingSignIn(
+        { userId: fresh.id, version: fresh.sessionVersion, method: kind }, config.sessionSecret,
+      ), config.cookieSecure),
+    ]);
+    return reply.redirect(`/login?step=2fa&next=${encodeURIComponent(state.next)}`);
+  }
+  await noteSignIn(req, fresh.id, kind, false);
+  setSessionCookies(reply, [
+    clearOauthCookie(config.cookieSecure, cookiePath),
+    clearPendingCookie(config.cookieSecure),
+    sessionCookie(signUserSession(fresh.id, fresh.sessionVersion, config.sessionSecret), config.cookieSecure),
+  ]);
+  return reply.redirect(fresh.onboardedAt ? state.next : `/onboarding?next=${encodeURIComponent(state.next)}`);
 }
 
 /** For tests: the shape `/api/auth/me` returns for an account. */

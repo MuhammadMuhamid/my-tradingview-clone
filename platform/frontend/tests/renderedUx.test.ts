@@ -400,7 +400,7 @@ test("EVERY PAGE NAMES ITSELF THROUGH THE SHARED HEADER", () => {
    */
   // The account screens (sign-in, onboarding) are centred cards in `AuthShell`.
   const CENTRED_CARDS = ["app/error.tsx", "app/not-found.tsx", "app/login/page.tsx",
-    "app/onboarding/page.tsx"];
+    "app/onboarding/page.tsx", "app/verify-email/page.tsx"];
   const TOOLBAR_HEADING = ["app/screener/page.tsx"];
   const exempt = new Set([...CENTRED_CARDS, ...TOOLBAR_HEADING, "app/global-error.tsx"]);
 

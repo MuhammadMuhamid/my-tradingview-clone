@@ -74,7 +74,7 @@ Temporary conditions to keep in mind:
 | Chart: symbols, intervals, styles, 25 drawing tools, indicators, Pine editor, layouts, watchlists, Bar Replay, Compare | Everyone | Tested locally |
 | Alerts: sixteen condition families, four frequency modes, web push. They never place orders | Everyone | Tested. Newer families haven't been seen firing on a live market event |
 | Screener: needs a separate Python service | Read for everyone | Not run in the campaign (Binance HTTP 451 from that network) |
-| Accounts: email or Google sign-in, per-user data, default-deny routes | Everyone | Tested. Google round trip not proven |
+| Accounts: email, Google or GitHub sign-in, email verification, two-factor sign-in, per-user data, default-deny routes | Everyone | Tested. Verification and two-factor aren't required until packages exist. Real email and the Google and GitHub round trips aren't proven |
 | Shariah screening: review pack, external research, JSON import, publish, Mode | Admin manages, others read | Walked through locally with fixture data. It validates a file's shape and doesn't issue rulings |
 | Manual trading: Binance Spot, MARKET/LIMIT, optional TP/SL | Admin only | Tested with fakes. Panel seen in production. No exchange order yet |
 | Journal | Admin only | Tested locally |
@@ -132,6 +132,7 @@ Paths are starting points, relative to each repository.
 | API routes | Platform `platform/backend/src/api/routes/` |
 | Platform-to-Bot trading | Platform `platform/backend/src/manualTrading/`, `api/routes/manualTrading.ts`; Bot `backend/src/services/manualTrading.ts` |
 | Bot section | Platform `platform/frontend/app/bot/page.tsx`, `platform/backend/src/api/routes/botView.ts`; Bot `backend/src/services/botView.ts` |
+| Email, two-factor and GitHub | Platform `platform/backend/src/api/routes/accountSecurity.ts`, `security/twoFactor.ts`, `security/github.ts`, `email/mailer.ts`, `platform/frontend/components/AccountSecurity.tsx` |
 | Who may reach what | Platform `platform/backend/src/security/requestUser.ts` |
 | Alerts | Platform `platform/backend/src/alerts/`, `api/routes/maAlerts.ts` |
 | Shariah | Platform `platform/backend/src/shariah/`; Bot `backend/src/services/shariah.ts` |

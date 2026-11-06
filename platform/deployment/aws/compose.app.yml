@@ -36,6 +36,14 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # GitHub sign-in; its callback URL is <PUBLIC_BASE_URL>/api/auth/github/callback.
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      # Account email through Amazon SES. Unset sends nothing, and the app says so.
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_REGION: ${EMAIL_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${SES_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${SES_SECRET_ACCESS_KEY:-}
       ALLOW_SIGNUPS: ${ALLOW_SIGNUPS:-true}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:alerts@example.com}
     expose:
