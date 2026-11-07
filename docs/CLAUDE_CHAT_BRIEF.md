@@ -1,6 +1,6 @@
 # Trading Scene — brief for writing change prompts
 
-**Snapshot:** 2026-11-05, Platform `34a7bca`, Bot `8d70730`, Research `2578f81`.
+**Snapshot:** 2026-11-07, Platform `72ea65f`, Bot `8d70730`, Research `2578f81`.
 
 Give this file to Claude chat. It holds enough context to turn a change idea into
 a prompt for Claude Code. Claude chat can't see the code or production, so anything
@@ -49,7 +49,7 @@ Treat this as a dated snapshot. The maintained copy is
 
 | Item | State |
 |---|---|
-| Platform | `34a7bca` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
+| Platform | `72ea65f` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
 | Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
 | Manual trading | On. The Trade panel shows **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 |
@@ -63,8 +63,8 @@ Temporary conditions to keep in mind:
 - **Bot backups:** they run every 6 hours to a private S3 bucket. Nothing alerts on a
   failure, no restore has been tested, and the Bot's encryption keys have no copy off
   the server.
-- **Database count:** production `/readyz` reports 58 migrations applied, while this
-  commit ships 51. None are missing. Where the extra 7 came from hasn't been traced,
+- **Database count:** production `/readyz` reports 59 migrations applied, while this
+  commit ships 52. None are missing. Where the extra 7 came from hasn't been traced,
   so any migration work should check this first.
 
 ## 4. What exists, and how far it is proven
@@ -74,7 +74,7 @@ Temporary conditions to keep in mind:
 | Chart: symbols, intervals, styles, 25 drawing tools, indicators, Pine editor, layouts, watchlists, Bar Replay, Compare | Everyone | Tested locally |
 | Alerts: sixteen condition families, four frequency modes, web push. They never place orders | Everyone | Tested. Newer families haven't been seen firing on a live market event |
 | Screener: needs a separate Python service | Read for everyone | Not run in the campaign (Binance HTTP 451 from that network) |
-| Accounts: email, Google or GitHub sign-in, email verification, two-factor sign-in, per-user data, default-deny routes | Everyone | Tested. Verification and two-factor aren't required until packages exist. Real email and the Google and GitHub round trips aren't proven |
+| Accounts: email, Google or GitHub sign-in, email verification, two-factor sign-in, per-user data, default-deny routes | Everyone | Tested and live. Admin two-factor works in production. Verification emails wait on SES production access. Neither is required until packages exist |
 | Shariah screening: review pack, external research, JSON import, publish, Mode | Admin manages, others read | Walked through locally with fixture data. It validates a file's shape and doesn't issue rulings |
 | Manual trading: Binance Spot, MARKET/LIMIT, optional TP/SL | Admin only | Tested with fakes. Panel seen in production. No exchange order yet |
 | Journal | Admin only | Tested locally |

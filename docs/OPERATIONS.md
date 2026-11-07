@@ -421,7 +421,8 @@ any failure.
 | Earlier accepted | `21bedb1` | `2bc543e` |
 | Earlier production; `gate` passed 2026-11-05 | `d43ee5e` | `76d17c5` |
 | Earlier production; `gate` passed 2026-11-05 | `34a7bca` | `1cce9ba` |
-| Current production; `gate` passed 2026-11-05 with Platform `8ef0ae7`, whose only later changes are the deploy script and docs. No exchange order yet | `34a7bca` | `8d70730` |
+| Earlier production; `gate` passed 2026-11-05 with Platform `8ef0ae7` | `34a7bca` | `8d70730` |
+| Current production; Platform changes since `8ef0ae7` don't touch the Bot boundary. No exchange order yet | `72ea65f` | `8d70730` |
 
 **Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
 the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
@@ -571,16 +572,18 @@ bash cloud-deploy.sh $TAG
 
 ---
 
-## 10. Production status (2026-11-05)
+## 10. Production status (2026-11-07)
 
 Update this section whenever production changes.
 
 | | |
 |---|---|
-| Platform | `34a7bca` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-05 from `MuhammadMuhamid/my-tradingview-clone` |
+| Platform | `72ea65f` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-06 (tag `20261106172520`) from `MuhammadMuhamid/my-tradingview-clone` |
 | Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server, deployed with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
 | Bot settings when deployed | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MANUAL_TRADING_ENABLED=true`, `MAINNET_MANUAL_TRADING_ENABLED=false`, `EXCHANGE_STOPS_ENABLED=false` |
-| Platform setting | `MANUAL_TRADING_ENABLED=true` |
+| Platform settings | `MANUAL_TRADING_ENABLED=true`; GitHub sign-in and `EMAIL_FROM` set ([ACCOUNTS §7](ACCOUNTS.md)) |
+| Account email | SES domain `alphawebstudioz.com` verified with DKIM. Production access requested 2026-11-06 and under review, so until it's approved mail only reaches verified addresses |
+| Admin account | Two-factor sign-in on since 2026-11-07 |
 | Observed in a browser as admin, 2026-11-05 | The Trade panel shows PAPER SIMULATION with the testnet account. Trading → Bot shows Paper simulation and one simulated $100 BTCUSDT BUY from 2026-11-04 |
 | Not yet done | No order has been placed on testnet or mainnet |
 
@@ -596,6 +599,6 @@ Conditions to clear:
   [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
 - **Instrument metadata sync.** The backend logged Binance's `Invalid symbol` during
   this sync at startup on 2026-11-05 and carried on. The symbol isn't named in the log.
-- **Migration count.** `/readyz` reports 51 expected and 58 applied, with none
-  missing, and returns 200. The source of the extra 7 hasn't been traced. Check it
+- **Migration count.** `/readyz` reports 52 expected and 59 applied, with none
+  missing, and returns 200. Migration `052` applied cleanly over them. The source of the extra 7 hasn't been traced. Check it
   before adding or rolling back migrations.
