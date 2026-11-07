@@ -375,3 +375,145 @@ export async function statementFor(userId: string) {
     client.release();
   }
 }
+
+// ── reading it back ─────────────────────────────────────────────────────────
+
+export async function setPackageStatus(packageId: string, status: "active" | "paused" | "closed", actor: string): Promise<void> {
+  await inTransaction(async (client) => {
+    const { rowCount } = await client.query("UPDATE packages SET status = $2 WHERE id = $1", [packageId, status]);
+    if (!rowCount) throw new PackageRuleError("package not found", 404);
+    await audit(client, actor, "package.status", packageId, { status });
+  });
+}
+
+/** The administrator adds someone directly: requested and approved in one step. */
+export async function addMember(userId: string, cohortId: string, actor: string, now = new Date()): Promise<string> {
+  return inTransaction(async (client) => {
+    const cohort = await lockCohort(client, cohortId);
+    if (cohort.status !== "open") throw new PackageRuleError("This cohort has already started.");
+    const { rows } = await client.query<{ id: string; status: string }>(
+      `INSERT INTO memberships (cohort_id, user_id, status, decided_at, decided_by) VALUES ($1, $2, 'approved', $3, $4)
+       ON CONFLICT (cohort_id, user_id) DO UPDATE SET cohort_id = EXCLUDED.cohort_id RETURNING id, status`,
+      [cohortId, userId, now, actor]);
+    if (rows[0]!.status === "requested") {
+      await client.query("UPDATE memberships SET status = 'approved', decided_at = $2, decided_by = $3 WHERE id = $1",
+        [rows[0]!.id, now, actor]);
+    } else if (rows[0]!.status !== "approved") {
+      throw new PackageRuleError(`This person's request was ${rows[0]!.status}.`);
+    }
+    await audit(client, actor, "membership.add", rows[0]!.id, { userId, cohortId });
+    return rows[0]!.id;
+  });
+}
+
+const PACKAGE_COLUMNS = `p.id, p.name, p.description, p.term, p.min_amount::text AS min_amount,
+  p.trade_percent::text AS trade_percent, p.join_instructions, p.status, p.created_at`;
+
+export async function listPackages() {
+  const { rows } = await query<{
+    id: string; name: string; description: string; term: Term; min_amount: string; trade_percent: string;
+    join_instructions: string; status: string; created_at: Date; deployments: { id: string; symbol: string }[] | null;
+  }>(`SELECT ${PACKAGE_COLUMNS},
+        (SELECT json_agg(json_build_object('id', d.id, 'symbol', d.symbol) ORDER BY d.symbol)
+           FROM package_deployments pd JOIN deployments d ON d.id = pd.deployment_id
+          WHERE pd.package_id = p.id) AS deployments
+      FROM packages p ORDER BY p.created_at DESC`);
+  const cohorts = await query<{
+    id: string; package_id: string; starts_at: Date; ends_at: Date; deposit_cutoff_at: Date; status: CohortStatus;
+    opening_capital: string | null; closing_value: string | null; members: number; requests: number;
+  }>(`SELECT c.id, c.package_id, c.starts_at, c.ends_at, c.deposit_cutoff_at, c.status,
+             c.opening_capital::text AS opening_capital, c.closing_value::text AS closing_value,
+             count(m.id) FILTER (WHERE m.status = 'approved')::int AS members,
+             count(m.id) FILTER (WHERE m.status = 'requested')::int AS requests
+        FROM cohorts c LEFT JOIN memberships m ON m.cohort_id = c.id
+       GROUP BY c.id ORDER BY c.starts_at DESC`);
+  return rows.map((p) => ({
+    id: p.id, name: p.name, description: p.description, term: p.term, minAmount: p.min_amount,
+    tradePercent: p.trade_percent, joinInstructions: p.join_instructions, status: p.status,
+    createdAt: p.created_at.toISOString(), deployments: p.deployments ?? [],
+    cohorts: cohorts.rows.filter((c) => c.package_id === p.id).map((c) => ({
+      id: c.id, status: c.status, startsAt: c.starts_at.toISOString(), endsAt: c.ends_at.toISOString(),
+      depositCutoffAt: c.deposit_cutoff_at.toISOString(), openingCapital: c.opening_capital,
+      closingValue: c.closing_value, members: c.members, requests: c.requests,
+    })),
+  }));
+}
+
+/** One cohort as the administrator sees it: every member, their value, and every entry. */
+export async function cohortDetail(cohortId: string) {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query<CohortRow>(`SELECT ${COHORT_COLUMNS} FROM cohorts WHERE id = $1`, [cohortId]);
+    const cohort = rows[0];
+    if (!cohort) throw new PackageRuleError("cohort not found", 404);
+    const values = await valuesOf(client, cohort);
+    const people = await client.query<{ id: string; user_id: string; status: string; requested_at: Date; email: string | null; display_name: string }>(
+      `SELECT m.id, m.user_id, m.status, m.requested_at, u.email, u.display_name FROM memberships m
+         JOIN users u ON u.id = m.user_id WHERE m.cohort_id = $1 ORDER BY m.requested_at, m.id`, [cohortId]);
+    const entries = await client.query<{ id: string; membership_id: string | null; kind: string; amount: string;
+      source_type: string | null; source_id: string | null; note: string; recorded_at: Date }>(
+      `SELECT id, membership_id, kind, amount::text AS amount, source_type, source_id, note, recorded_at
+         FROM ledger_entries WHERE cohort_id = $1 ORDER BY recorded_at, id`, [cohortId]);
+    const trades = await client.query<{ id: string; symbol: string; quote_spent: string; status: string; opened_at: Date; closed_at: Date | null }>(
+      `SELECT id, symbol, quote_spent::text AS quote_spent, status, opened_at, closed_at
+         FROM cohort_trades WHERE cohort_id = $1 ORDER BY opened_at`, [cohortId]);
+    return {
+      id: cohort.id, packageId: cohort.package_id, status: cohort.status,
+      startsAt: cohort.starts_at.toISOString(), endsAt: cohort.ends_at.toISOString(),
+      depositCutoffAt: cohort.deposit_cutoff_at.toISOString(),
+      openingCapital: cohort.opening_capital, closingValue: cohort.closing_value,
+      equity: formatMoney(await cohortEquity(client, cohortId)),
+      members: people.rows.map((p) => {
+        const v = values.find((x) => x.membershipId === p.id);
+        return { membershipId: p.id, userId: p.user_id, email: p.email, displayName: p.display_name, status: p.status,
+          requestedAt: p.requested_at.toISOString(), capitalIn: formatMoney(v?.capitalIn ?? 0n),
+          value: formatMoney(v?.value ?? 0n), paidOut: formatMoney(v?.paidOut ?? 0n) };
+      }),
+      entries: entries.rows.map((e) => ({ id: e.id, membershipId: e.membership_id, kind: e.kind, amount: e.amount,
+        sourceType: e.source_type, sourceId: e.source_id, note: e.note, recordedAt: e.recorded_at.toISOString() })),
+      trades: trades.rows.map((t) => ({ id: t.id, symbol: t.symbol, quoteSpent: t.quote_spent, status: t.status,
+        openedAt: t.opened_at.toISOString(), closedAt: t.closed_at?.toISOString() ?? null })),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function listAudit(limit = 100) {
+  const { rows } = await query<{ id: string; actor: string | null; action: string; target: string; detail: unknown; at: Date }>(
+    "SELECT id, actor, action, target, detail, at FROM admin_audit ORDER BY at DESC, id DESC LIMIT $1", [limit]);
+  return rows.map((r) => ({ ...r, at: r.at.toISOString() }));
+}
+
+/** What an ordinary account may browse: active packages and the cohort they'd join. */
+export async function offeredPackages(now = new Date()) {
+  const { rows } = await query<{ id: string; name: string; description: string; term: Term; min_amount: string;
+    join_instructions: string; cohort_id: string | null; starts_at: Date | null; ends_at: Date | null; cutoff: Date | null }>(
+    `SELECT p.id, p.name, p.description, p.term, p.min_amount::text AS min_amount, p.join_instructions,
+            c.id AS cohort_id, c.starts_at, c.ends_at, c.deposit_cutoff_at AS cutoff
+       FROM packages p LEFT JOIN LATERAL (
+         SELECT * FROM cohorts c WHERE c.package_id = p.id AND c.status = 'open' AND c.deposit_cutoff_at > $1
+          ORDER BY c.starts_at LIMIT 1) c ON true
+      WHERE p.status = 'active' ORDER BY p.name`, [now]);
+  return rows.map((r) => ({ id: r.id, name: r.name, description: r.description, term: r.term, minAmount: r.min_amount,
+    joinInstructions: r.join_instructions,
+    nextCohort: r.cohort_id ? { id: r.cohort_id, startsAt: r.starts_at!.toISOString(), endsAt: r.ends_at!.toISOString(),
+      depositCutoffAt: r.cutoff!.toISOString() } : null }));
+}
+
+/** A member's own requests and memberships, with their figures. */
+export async function myMemberships(userId: string) {
+  const { rows } = await query<{ id: string; status: string; cohort_id: string; package_name: string }>(
+    `SELECT m.id, m.status, m.cohort_id, p.name AS package_name FROM memberships m
+       JOIN cohorts c ON c.id = m.cohort_id JOIN packages p ON p.id = c.package_id
+      WHERE m.user_id = $1 AND m.status IN ('requested', 'rejected') ORDER BY m.requested_at DESC`, [userId]);
+  return { pending: rows.map((r) => ({ membershipId: r.id, status: r.status, cohortId: r.cohort_id, packageName: r.package_name })),
+    holdings: await statementFor(userId) };
+}
+
+/** Joining needs an open, active package's cohort. */
+export async function cohortIsJoinable(cohortId: string): Promise<boolean> {
+  const { rows } = await query<{ ok: boolean }>(
+    `SELECT (p.status = 'active') AS ok FROM cohorts c JOIN packages p ON p.id = c.package_id WHERE c.id = $1`, [cohortId]);
+  return rows[0]?.ok === true;
+}

@@ -1,8 +1,8 @@
 # Packages and cohorts
 
-**Status:** the ledger, calendar and rules exist and are tested. Nothing calls them yet:
-there are no routes or pages, and live trading doesn't use them. Wiring them into
-order sizing is a separate change.
+**Status:** the ledger, calendar, rules and API exist and are tested. There are no pages
+yet, and live trading doesn't use any of it. Wiring it into order sizing is a separate
+change.
 
 Plan: `MULTIUSER_BOT_MASTER_PROMPT_v2.md` (kept outside this repository), with the
 owner's decisions of 2026-11-05 and 2026-11-07.
@@ -64,6 +64,27 @@ should have its own Bot "bot", with its own webhook, on that account, so its pos
 stay separate in the Bot. Balances can only be checked against the exchange as a total
 across all packages.
 
+## API
+
+`platform/backend/src/api/routes/packages.ts`.
+
+**Administrator only,** under `/api/admin`:
+- create packages, attach deployments, and schedule the next cohort;
+- approve or reject requests, or add a member by email;
+- record deposits and withdrawals;
+- read a cohort's members, entries and trades, and the audit log.
+
+Recording money and changing a package's status ask for the administrator's code from
+their authenticator app, or their password if two-factor is off. Guesses count against
+the same per-account limit as sign-in.
+
+**Members** can use three routes:
+- `GET /api/packages` lists active packages and the cohort each is taking members for. It
+  shows the deposit instructions but not the sizing.
+- `POST /api/packages/cohorts/:id/join` asks to join, and needs a verified email and
+  two-factor sign-in.
+- `GET /api/portfolio` shows only the member's own requests and holdings.
+
 ## Not built yet
 
 - Sending the planned quote amount on live orders, and skipping BUYs the carry rule
@@ -71,6 +92,6 @@ across all packages.
 - Recording trade results from the Bot. Realization events are off by default, and their
   fees are estimated at 0.1%, not read from the exchange, so members' values would be
   estimates until that changes.
-- The admin panel, the members' portfolio page, the scheduler that creates and advances
-  cohorts, and reconciliation against the exchange.
+- The admin panel and the members' portfolio page, the scheduler that creates and
+  advances cohorts, and reconciliation against the exchange.
 - Force-closing a settling cohort's trade.

@@ -52,6 +52,21 @@ async function passPassword(account: users.UserRow, raw: unknown): Promise<"ok" 
   return result ? "ok" : "wrong";
 }
 
+/**
+ * Re-entering a credential before a sensitive action: the code from the app when
+ * two-factor is on, otherwise the password. Guesses count against the account.
+ */
+export async function confirmIdentity(account: users.UserRow, body: { password?: unknown; code?: unknown }):
+  Promise<"ok" | "wrong" | "busy" | { retryAfterSec: number }> {
+  const decision = twoFactorLimiter.hit(account.id);
+  if (!decision.allowed) return { retryAfterSec: decision.retryAfterSec };
+  const result = account.twoFactorEnabled
+    ? (await passSecondFactor(account.id, { code: body.code }, false) ? "ok" : "wrong")
+    : await passPassword(account, body.password);
+  if (result === "ok") twoFactorLimiter.reset(account.id);
+  return result;
+}
+
 async function currentAccount(req: FastifyRequest, reply: FastifyReply): Promise<users.UserRow | null> {
   const account = await users.getUser(userIdOf(req));
   if (!account) reply.code(404).send({ error: "account not found" });
@@ -129,9 +144,12 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     if (account.role !== "admin" && !account.emailVerified) {
       return reply.code(403).send({ error: "Verify your email address first." });
     }
+    const guesses = twoFactorLimiter.hit(account.id);
+    if (!guesses.allowed) return tooManyGuesses(reply, guesses.retryAfterSec);
     const password = await passPassword(account, (req.body as { password?: unknown } | null)?.password);
     if (password === "busy") return reply.code(429).send({ error: "Busy. Try again shortly." });
     if (password === "wrong") return reply.code(400).send({ error: "Your password isn't correct." });
+    twoFactorLimiter.reset(account.id);
     const secret = generateTotpSecret();
     await accountSecurity.startTotpSetup(account.id, secret);
     const url = totpUrl(secret, account.email ?? config.adminUsername, "Trading Scene");
@@ -160,11 +178,11 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     if (!account) return reply;
     if (!account.twoFactorEnabled) return { ok: true };
     const body = (req.body ?? {}) as SecondFactor & { password?: unknown };
+    const decision = twoFactorLimiter.hit(account.id);
+    if (!decision.allowed) return tooManyGuesses(reply, decision.retryAfterSec);
     const password = await passPassword(account, body.password);
     if (password === "busy") return reply.code(429).send({ error: "Busy. Try again shortly." });
     if (password === "wrong") return reply.code(400).send({ error: "Your password isn't correct." });
-    const decision = twoFactorLimiter.hit(account.id);
-    if (!decision.allowed) return tooManyGuesses(reply, decision.retryAfterSec);
     if (!await passSecondFactor(account.id, body)) return reply.code(400).send({ error: "That code isn't correct." });
     twoFactorLimiter.reset(account.id);
     await accountSecurity.clearTotp(account.id);

@@ -123,6 +123,10 @@ const USER_ROUTES: readonly [Method, RegExp][] = [
   ["POST", /^\/api\/scanner\/(patterns|classical-patterns)\/analyze$/],
   // The Shariah screen, read-only.
   ["GET", /^\/api\/shariah\//],
+  // Packages: browse, ask to join, and see only their own holdings.
+  ["GET", /^\/api\/packages$/],
+  ["POST", /^\/api\/packages\/cohorts\/[0-9a-f-]{36}\/join$/],
+  ["GET", /^\/api\/portfolio$/],
 ];
 
 /** Admin-only paths that a broader user pattern above would otherwise match. */
