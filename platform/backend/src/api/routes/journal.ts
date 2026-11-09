@@ -5,6 +5,7 @@ import {
   automatedActivityRows, automatedRealizationRows, manualActivityRows, paperFillRows,
   summarizeJournal, type ManualActivityEvidence,
 } from "../../journal/projection";
+import type { ManualAccountEnvironmentEvidence } from "../../journal/environment";
 import type { JournalPeriod, JournalResponse, JournalSource } from "../../journal/types";
 import * as journalRepo from "../../repositories/journal";
 
@@ -98,14 +99,30 @@ export function parseJournalQuery(query: JournalQuery, now = new Date()): ParseR
   } };
 }
 
+/*
+ * The subset of the Bot's `/api/manual-trading/state` this route reads. D3:
+ * `accounts` and each order's `exchangeAccountId` used to be dropped here,
+ * which left the Journal nothing to tell a testnet or dry-run order from a
+ * real one, so it called them all REAL. The Bot's current `dryRun` is
+ * deliberately NOT read: it cannot say what held when a past order was placed.
+ */
 interface ManualState {
+  accounts?: unknown;
   orders?: Array<{
     id: string; requestId?: string | null; clientOrderId?: string | null;
-    exchangeOrderId?: string | null; symbol: string; side: "BUY" | "SELL";
+    exchangeOrderId?: string | null; exchangeAccountId?: string | null;
+    symbol: string; side: "BUY" | "SELL";
     status: string; createdAt: string; submittedAt?: string | null;
     completedAt?: string | null; updatedAt: string; filledBaseQty?: number;
     averageFillPrice?: number | null;
   }>;
+}
+
+function manualAccounts(state: ManualState): ManualAccountEnvironmentEvidence[] {
+  if (!Array.isArray(state.accounts)) return [];
+  return state.accounts.filter((account): account is ManualAccountEnvironmentEvidence =>
+    typeof account === "object" && account !== null
+      && typeof (account as { id?: unknown }).id === "string");
 }
 
 const time = (value: string | null | undefined): number | null => {
@@ -123,6 +140,7 @@ function manualEvidence(state: ManualState, query: ParsedJournalQuery): ManualAc
     const row: ManualActivityEvidence = {
       id: order.id, requestId: order.requestId ?? null,
       clientOrderId: order.clientOrderId ?? null, exchangeOrderId: order.exchangeOrderId ?? null,
+      exchangeAccountId: typeof order.exchangeAccountId === "string" ? order.exchangeAccountId : null,
       symbol: order.symbol.toUpperCase(), side: order.side, status: order.status,
       createdAt, submittedAt: time(order.submittedAt), completedAt: time(order.completedAt),
       updatedAt, filledBaseQty: Number(order.filledBaseQty ?? 0),
@@ -146,17 +164,33 @@ export const MANUAL_DISABLED_LIMITATION =
  * made every Journal page end with "the ManualOrder state read failed", which
  * told the operator a feature they had switched off was broken.
  */
-function readManualState(symbol: string | null): Promise<ManualRead> {
+function readManualState(
+  symbol: string | null, stateRequest: typeof manualBotRequest
+): Promise<ManualRead> {
   if (!config.manualTradingEnabled) {
     return Promise.resolve({ state: {}, unavailable: false, disabled: true });
   }
-  return manualBotRequest<ManualState>({ method: "GET", path:
+  return stateRequest<ManualState>({ method: "GET", path:
     `/api/manual-trading/state${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}` })
     .then((state) => ({ state, unavailable: false, disabled: false }))
     .catch(() => ({ state: {}, unavailable: true, disabled: false }));
 }
 
-export async function journalRoutes(app: FastifyInstance): Promise<void> {
+/** How every row's environment is decided; shown with the Journal's evidence limits. */
+export const ENVIRONMENT_LIMITATION =
+  "Each row's environment comes from that row's own evidence. A manual row is REAL only when its own Bot account is explicitly mainnet and the exchange acknowledged it with a non-simulated order id; a dry- order id is DRY RUN and a testnet account is TESTNET. Automated rows store no environment today, so they are UNKNOWN unless a dry- order id marks a dry run. The Bot's current mode is never applied to past rows. TESTNET, DRY RUN and UNKNOWN rows are never counted as real money.";
+
+/*
+ * `stateRequest` is a test seam for the one READ this route makes. It is
+ * deliberately not named like the order transport seam of the manual-trading
+ * route: shariahGate.test.ts treats a route file that names an order side and
+ * that seam as one that can emit an order, and this route never writes.
+ */
+export async function journalRoutes(
+  app: FastifyInstance,
+  dependencies: { stateRequest?: typeof manualBotRequest } = {}
+): Promise<void> {
+  const stateRequest = dependencies.stateRequest ?? manualBotRequest;
   app.get<{ Querystring: JournalQuery }>("/api/journal", async (req, reply) => {
     const parsed = parseJournalQuery(req.query);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
@@ -169,7 +203,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       q.sources.includes("AUTOMATED") ? journalRepo.listAutomatedActivity(filter) : Promise.resolve([]),
       q.sources.includes("PAPER") ? journalRepo.listPaperFills(filter) : Promise.resolve([]),
       q.sources.includes("MANUAL") && !q.deploymentId && q.strategyId === null
-        ? readManualState(q.symbol)
+        ? readManualState(q.symbol, stateRequest)
         : Promise.resolve<ManualRead>({ state: {}, unavailable: false, disabled: false }),
     ]);
     const sourceTruncated = realizations.length > JOURNAL_SUMMARY_SCAN_LIMIT
@@ -180,7 +214,7 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       ...automatedRealizationRows(realizations.slice(0, JOURNAL_SUMMARY_SCAN_LIMIT)),
       ...automatedActivityRows(activity.slice(0, JOURNAL_SUMMARY_SCAN_LIMIT)),
       ...paperFillRows(paper.slice(0, JOURNAL_SUMMARY_SCAN_LIMIT)),
-      ...manualActivityRows(manualRows.slice(0, JOURNAL_SUMMARY_SCAN_LIMIT)),
+      ...manualActivityRows(manualRows.slice(0, JOURNAL_SUMMARY_SCAN_LIMIT), manualAccounts(manual.state)),
     ].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id));
     const offset = (q.page - 1) * q.limit;
     const pageRows = allRows.slice(offset, offset + q.limit);
@@ -191,7 +225,8 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
       range: { from: q.from.toISOString(), toExclusive: q.toExclusive.toISOString(), period: q.period },
       summary: summarizeJournal(allRows, q.period, truncated),
       limitations: [
-        "Real automated summaries use Platform-owned persisted realization rows only; the Journal makes no per-intent Bot history calls.",
+        "Automated summaries use Platform-owned persisted realization rows only; the Journal makes no per-intent Bot history calls.",
+        ENVIRONMENT_LIMITATION,
         "Manual rows come from one current bounded state read and remain activity with unknown economics; manual BUY and SELL orders are never paired.",
         "Exchange fill and commission history that is not persisted remains unavailable rather than estimated.",
         ...(manual.disabled ? [MANUAL_DISABLED_LIMITATION] : []),

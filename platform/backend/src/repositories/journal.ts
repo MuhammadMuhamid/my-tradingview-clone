@@ -49,12 +49,13 @@ export async function listAutomatedRealizations(
     source_event_id: string | null; realization_kind: "partial" | "final" | null;
     source_strategy_order_intent_id: string | null; source_exchange_order_id: string | null;
     source_platform_order_intent_id: string | number | null;
-    accounting_basis: string | null; fee_model: string | null;
+    accounting_basis: string | null; fee_model: string | null; source_system: string | null;
   }>(
     `SELECT rp.id, rp.closed_at, rp.pnl_quote, rp.entry_price, rp.exit_price,
             rp.quantity, rp.reason, rp.source_event_id, rp.realization_kind,
             rp.source_strategy_order_intent_id, rp.source_exchange_order_id,
             rp.source_platform_order_intent_id, rp.accounting_basis, rp.fee_model,
+            rp.source_system,
             d.id AS deployment_id, d.strategy_id,
             s.key AS strategy_key, s.name AS strategy_name, d.config_id,
             sc.name AS config_name, d.symbol
@@ -79,6 +80,7 @@ export async function listAutomatedRealizations(
     platformOrderIntentId: row.source_platform_order_intent_id === null
       ? null : String(row.source_platform_order_intent_id),
     accountingBasis: row.accounting_basis, feeModel: row.fee_model,
+    sourceSystem: row.source_system,
   }));
 }
 
@@ -90,7 +92,7 @@ export async function listAutomatedActivity(
     kind: "INTENT" | "EXECUTION_SNAPSHOT"; id: number; occurred_at: Date;
     side: "BUY" | "SELL"; state: string | null; quantity: string | number | null;
     price: string | number | null; intent_id: number | null; execution_id: number | null;
-    exchange_order_id: string | null;
+    exchange_order_id: string | null; delivery: string;
   }>(
     `SELECT evidence.* FROM (
        SELECT 'INTENT'::text AS kind, oi.id, oi.created_at AS occurred_at,
@@ -98,7 +100,7 @@ export async function listAutomatedActivity(
               NULL::numeric AS price, oi.id AS intent_id, NULL::bigint AS execution_id,
               NULL::text AS exchange_order_id, d.id AS deployment_id, d.strategy_id,
               s.key AS strategy_key, s.name AS strategy_name, d.config_id,
-              sc.name AS config_name, d.symbol
+              sc.name AS config_name, d.symbol, d.delivery
          FROM order_intents oi
          JOIN deployments d ON d.id = oi.deployment_id
          JOIN strategies s ON s.id = d.strategy_id
@@ -109,7 +111,8 @@ export async function listAutomatedActivity(
               e.side, e.status AS state, e.qty AS quantity, e.price,
               NULL::bigint AS intent_id, e.id AS execution_id, e.exchange_order_id,
               d.id AS deployment_id, d.strategy_id, s.key AS strategy_key,
-              s.name AS strategy_name, d.config_id, sc.name AS config_name, d.symbol
+              s.name AS strategy_name, d.config_id, sc.name AS config_name, d.symbol,
+              d.delivery
          FROM executions e
          LEFT JOIN alerts a ON a.id = e.alert_id
          JOIN deployments d ON d.id = COALESCE(e.deployment_id, a.deployment_id)
@@ -128,7 +131,7 @@ export async function listAutomatedActivity(
     ...provenance(row), kind: row.kind, id: row.id, occurredAt: row.occurred_at.getTime(),
     side: row.side, state: row.state, quantity: num(row.quantity), price: num(row.price),
     intentId: row.intent_id, executionId: row.execution_id,
-    exchangeOrderId: row.exchange_order_id,
+    exchangeOrderId: row.exchange_order_id, delivery: row.delivery,
   }));
 }
 

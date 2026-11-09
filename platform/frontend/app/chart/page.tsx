@@ -149,6 +149,7 @@ import {
   manualTradingPollingAllowed, noteManualTradingFailure,
 } from "@/lib/manualTradingPolling";
 import { useIsAdmin } from "@/lib/session";
+import { manualProtectionLines } from "@/components/tv/positionProtection";
 
 type Panel = ChartPanel;
 
@@ -1697,18 +1698,18 @@ export default function TvWorkspace() {
         kind: "alert" as const,
       })), [maAlerts]);
 
-  /** Server-authoritative manual entry and bot-managed TP/SL levels. */
-  const manualPriceLines = useMemo<ChartPriceLine[]>(() => {
-    const lines: ChartPriceLine[] = [];
-    for (const position of manualState?.positions.filter((p) => p.pair === tradingSymbol && p.status === "active") ?? []) {
-      const tag = position.id.slice(0, 4);
-      // Entry is rendered by the normalized explicit ManualPosition overlay;
-      // these remain the separate Bot-managed protection levels.
-      if (position.manualTpPrice != null) lines.push({ price: position.manualTpPrice, color: "#2ebd85", title: `MANUAL TP · BOT · ${tag}`, dashed: true });
-      if (position.manualSlPrice != null) lines.push({ price: position.manualSlPrice, color: "#f6465d", title: `MANUAL SL · BOT · ${tag}`, dashed: true });
-    }
-    return lines;
-  }, [manualState, tradingSymbol]);
+  /**
+   * Bot-managed TP/SL levels — drawn ONLY for a position the bot is known to be
+   * checking (`positionProtection(...).kind === "protected"`); see
+   * `manualProtectionLines`. A level labelled as enforced that nothing
+   * enforces is the one thing this chart must not draw.
+   */
+  // After a failed read the retained state says nothing about whether the bot
+  // is checking anything NOW: protection is unknown and no BOT line is drawn.
+  const manualPriceLines = useMemo<ChartPriceLine[]>(() => manualProtectionLines(
+    manualUnavailable ? null : manualState,
+    manualState?.positions.filter((p) => p.pair === tradingSymbol && p.status === "active") ?? []),
+  [manualState, manualUnavailable, tradingSymbol]);
 
   /**
    * What each pane draws that came from outside it.

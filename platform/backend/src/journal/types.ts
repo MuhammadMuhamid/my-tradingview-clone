@@ -1,3 +1,6 @@
+import type { ExecutionEnvironment } from "./environment";
+
+export type { ExecutionEnvironment } from "./environment";
 export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
 export type JournalKind = "ACTIVITY" | "REALIZATION" | "CLOSED_TRADE";
 export type JournalPeriod = "day" | "week" | "month";
@@ -23,7 +26,8 @@ export interface JournalRow {
   id: string;
   kind: JournalKind;
   source: JournalSource;
-  environment: "REAL" | "PAPER";
+  /** Per-row evidence only; see `./environment`. Never REAL by default. */
+  environment: ExecutionEnvironment;
   symbol: string;
   side: "BUY" | "SELL" | null;
   title: string;
@@ -65,12 +69,28 @@ export interface JournalSummarySlice {
   averageDurationMs: number | null;
 }
 
+/**
+ * The root slice spans EVERY environment. Its counts (incomplete rows, rows
+ * scanned) are meaningful; its P&L figures are not a real-money total and the
+ * page does not render them as one. Money is read from the per-environment
+ * slices, and every grouping is keyed by environment as well as source, so a
+ * testnet, dry-run, paper or unknown result is never added to a real one.
+ */
 export interface JournalSummary extends JournalSummarySlice {
+  /** REAL rows only — the "Real money evidence" card. */
   real: JournalSummarySlice;
   paper: JournalSummarySlice;
-  bySource: Array<{ source: JournalSource; summary: JournalSummarySlice }>;
-  bySymbol: Array<{ symbol: string; source: JournalSource; summary: JournalSummarySlice }>;
-  byPeriod: Array<{ bucket: string; source: JournalSource; summary: JournalSummarySlice }>;
+  testnet: JournalSummarySlice;
+  dryRun: JournalSummarySlice;
+  /** Rows whose environment nothing proves. Never part of `real`. */
+  unknownEnvironment: JournalSummarySlice;
+  bySource: Array<{ source: JournalSource; environment: ExecutionEnvironment; summary: JournalSummarySlice }>;
+  bySymbol: Array<{
+    symbol: string; source: JournalSource; environment: ExecutionEnvironment; summary: JournalSummarySlice;
+  }>;
+  byPeriod: Array<{
+    bucket: string; source: JournalSource; environment: ExecutionEnvironment; summary: JournalSummarySlice;
+  }>;
   evidenceRowsScanned: number;
   truncated: boolean;
 }

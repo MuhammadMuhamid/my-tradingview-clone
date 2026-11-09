@@ -27,6 +27,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { StatusBadge } from "@/components/ui";
+import { positionProtection, protectionContextFor, ProtectionBadge } from "@/components/tv/positionProtection";
+import {
+  EXECUTION_ENVIRONMENT_LABEL, EXECUTION_ENVIRONMENT_TONE, WARN_TONE,
+  type ExecutionEnvironmentWord,
+} from "@/lib/executionEnvironment";
 import type { ManualOrder, ManualPosition, ManualTradingState } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 import { REFUSAL_TONE, toTradeEvent } from "@/lib/tradeEvents";
@@ -97,8 +102,22 @@ export function tradingStateFreshness(
  * missing distinctions: `enabled` separates a report from a placeholder, and
  * `mixed` is the case where the accounts do not agree with each other and a
  * single global chip is a lie whichever way it points.
+ *
+ * D3: "not dry-run" is not "real money". The chip said LIVE ("orders are real
+ * Spot orders") whenever dry-run was off and the accounts agreed — including
+ * when every account was TESTNET. It now names where orders go in the same
+ * words the Journal and the chart overlay use: DRY RUN, TESTNET, REAL, and
+ * UNKNOWN when no account's testnet flag says. (The dry-run chip used to read
+ * PAPER, which is the Platform's own paper engine, a different thing.) This
+ * chip is about the bot's CURRENT state — what an order placed now would do —
+ * so current flags are the right source here, unlike for a past row.
  */
-export type ExecutionMode = "disconnected" | "paper" | "live" | "mixed";
+export type ExecutionMode = "disconnected" | "dry_run" | "testnet" | "real" | "unknown" | "mixed";
+
+/** The environment word each connected mode is, so the chip shares the Journal's label and colour. */
+const MODE_ENVIRONMENT: Partial<Record<ExecutionMode, ExecutionEnvironmentWord>> = {
+  dry_run: "DRY_RUN", testnet: "TESTNET", real: "REAL", unknown: "UNKNOWN",
+};
 
 export interface ExecutionModeBadge {
   mode: ExecutionMode;
@@ -127,17 +146,53 @@ export function executionMode(state: ManualTradingState): ExecutionModeBadge {
   }
   if (state.dryRun) {
     return {
-      mode: "paper",
-      label: "PAPER",
+      mode: "dry_run",
+      label: EXECUTION_ENVIRONMENT_LABEL.DRY_RUN,
       title: "The execution bot reports dry-run: orders are simulated and nothing reaches "
         + "the exchange.",
     };
   }
+  const accounts = Array.isArray(state.accounts) ? state.accounts : [];
+  if (accounts.length > 0 && accounts.every((account) => account.testnet === true)) {
+    return {
+      mode: "testnet",
+      label: EXECUTION_ENVIRONMENT_LABEL.TESTNET,
+      title: "The execution bot reports live on testnet accounts only: orders go to the "
+        + "exchange's test network, not real funds.",
+    };
+  }
+  if (accounts.length > 0 && accounts.every((account) => account.testnet === false)) {
+    return {
+      mode: "real",
+      label: EXECUTION_ENVIRONMENT_LABEL.REAL,
+      title: "The execution bot reports live on mainnet accounts: orders are real Spot orders "
+        + "on the exchange.",
+    };
+  }
   return {
-    mode: "live",
-    label: "LIVE",
-    title: "The execution bot reports live: orders are real Spot orders on the exchange.",
+    mode: "unknown",
+    label: EXECUTION_ENVIRONMENT_LABEL.UNKNOWN,
+    title: "The execution bot reports live, but lists no account whose testnet flag says where "
+      + "orders go, so whether they would be real money is unknown.",
   };
+}
+
+/**
+ * The TP / SL cell. Levels are shown only when the bot is checking them, or
+ * when there are none; a late fill, a halted or non-polling bot, an unchecked
+ * mainnet account or an unrecognised protection state shows its warning
+ * instead, so no level is implied that nothing is enforcing.
+ */
+function ProtectionCell({ position, state }: {
+  position: ManualPosition;
+  /** null after a failed read: the retained rows prove nothing about protection now. */
+  state: ManualTradingState | null;
+}) {
+  const protection = positionProtection(position, protectionContextFor(state, position));
+  if (protection.kind !== "protected" && protection.kind !== "none") {
+    return <ProtectionBadge protection={protection} />;
+  }
+  return <>{position.manualTpPrice === null ? "—" : fmtPrice(position.manualTpPrice)} / {position.manualSlPrice === null ? "—" : fmtPrice(position.manualSlPrice)}</>;
 }
 
 /** A wall-clock time as HH:MM:SS in the viewer's zone — the "read at" stamp. */
@@ -182,6 +237,7 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
     .sort((a, b) => Number(b.symbol === symbol) - Number(a.symbol === symbol));
   const history = recentHistory(state.orders);
   const execution = executionMode(state);
+  const executionEnvironment = MODE_ENVIRONMENT[execution.mode];
   /*
    * "No open position on any account" is a claim ABOUT accounts, and with no
    * bot contacted there are none to have made it about — the sentence turned a
@@ -211,14 +267,15 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
         ))}
         <span
           data-execution-mode={execution.mode}
-          // accent-is-meaning: PAPER is categorically ours. LIVE and MIXED are
-          // warnings. NOT CONNECTED is neither — it is the ABSENCE of a report,
-          // and dressing absence in either colour is how this chip came to
-          // assert something nothing had told it.
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-            execution.mode === "paper" ? "bg-accent/15 text-accent"
-              : execution.mode === "disconnected" ? "border border-border bg-surface-2 text-ink-muted"
-                : "border border-warn/40 bg-warn/15 text-warn"
+          // The Journal's colours for the same words (lib/executionEnvironment):
+          // REAL and UNKNOWN warn — an order placed now may be real money —
+          // DRY RUN and TESTNET are neutral. MIXED warns too. NOT CONNECTED is
+          // the ABSENCE of a report, drawn muted: dressing absence in a colour
+          // is how this chip came to assert something nothing had told it.
+          className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+            executionEnvironment ? EXECUTION_ENVIRONMENT_TONE[executionEnvironment]
+              : execution.mode === "disconnected" ? "border-border bg-surface-2 text-ink-muted"
+                : WARN_TONE
           }`}
           title={execution.title}
         >
@@ -271,7 +328,7 @@ export function TradingStateStrip({ state, readAt = null, symbol, onOpenTicket, 
                       {signed(p.pnlUsdt)} USDT · {signed(p.pnlPct)}%
                     </td>
                     <td className="px-2 py-1 text-right text-ink-muted">
-                      {p.manualTpPrice === null ? "—" : fmtPrice(p.manualTpPrice)} / {p.manualSlPrice === null ? "—" : fmtPrice(p.manualSlPrice)}
+                      <ProtectionCell position={p} state={stale ? null : state} />
                     </td>
                     <td className="px-3 py-1 text-ink-faint">{accountName(state, p.exchangeAccountId)}</td>
                   </tr>

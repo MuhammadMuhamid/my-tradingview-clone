@@ -1,8 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseJournalQuery, MAX_JOURNAL_PAGE_SIZE } from "../src/api/routes/journal";
+import Fastify from "fastify";
+import {
+  parseJournalQuery, MAX_JOURNAL_PAGE_SIZE, ENVIRONMENT_LIMITATION, journalRoutes,
+} from "../src/api/routes/journal";
 import { buildServer } from "../src/api/server";
 import { config } from "../src/config";
+import { signUserSession, SESSION_COOKIE } from "../src/security/session";
+import { useUserLoaderForTests } from "../src/security/requestUser";
+import { ADMIN_USER_ID } from "../src/repositories/users";
+import type { LiveRunner } from "../src/engine/liveRunner";
+import type { JournalResponse } from "../src/journal/types";
 import {
   automatedActivityRows, automatedRealizationRows, botPartialCloseRows,
   manualActivityRows, paperFillRows, summarizeJournal,
@@ -49,15 +57,24 @@ test("automated persisted realization keeps authoritative provenance and P&L wit
   assert.equal(row?.config?.id, "cfg-7");
 });
 
-test("Bot realization is one REAL/AUTOMATED realization and labels modeled fees conservatively", () => {
+test("Bot realization is one UNKNOWN-environment AUTOMATED realization and labels modeled fees conservatively", () => {
   const [row] = automatedRealizationRows([{ ...provenance, id: 10, closedAt: T0,
     pnlQuote: 4.945, entryPrice: null, exitPrice: 120, quantity: 0.4, reason: "tp1",
     sourceEventId: "bot-realization-v1:partial:partial-1", realizationKind: "partial",
     strategyOrderIntentId: "bot-intent-1", exchangeOrderId: "exchange-1",
     platformOrderIntentId: "41", accountingBasis: "modeled_fee_adjusted",
-    feeModel: "fixed_0.1pct_each_side_not_exchange_observed" }]);
+    feeModel: "fixed_0.1pct_each_side_not_exchange_observed", sourceSystem: "BOT_CUSTOM_V1" }]);
   assert.equal(row?.kind, "REALIZATION");
-  assert.equal(row?.environment, "REAL");
+  /*
+   * This line used to assert "REAL", and that pin WAS the defect (D3b). A Bot
+   * realization event says nothing about which exchange the sell reached —
+   * simulated closes never emit one, but testnet closes do — and the Journal
+   * hard-coded REAL for every one of them, so a testnet profit was summed into
+   * "Real money evidence". With no per-row environment stored, it is UNKNOWN;
+   * an event that declares its environment is labelled from that
+   * (tests/journalEnvironment.test.ts).
+   */
+  assert.equal(row?.environment, "UNKNOWN");
   assert.equal(row?.source, "AUTOMATED");
   assert.equal(row?.realizedPnl, 4.945);
   assert.equal(row?.netRealizedPnl, null);
@@ -160,8 +177,10 @@ test("activity without a realization timestamp is excluded from realized date bu
 });
 
 test("real and paper summaries cannot be numerically conflated", () => {
+  // REAL now needs per-row evidence: a Bot realization that declares MAINNET.
   const real = automatedRealizationRows([{ ...provenance, id: 1, closedAt: T0,
-    pnlQuote: 10, entryPrice: null, exitPrice: null, quantity: null, reason: null }]);
+    pnlQuote: 10, entryPrice: null, exitPrice: null, quantity: null, reason: null,
+    sourceSystem: "BOT_CUSTOM_V1", exchangeOrderId: "exchange-1", declaredEnvironment: "MAINNET" }]);
   const paper = paperFillRows([{ ...provenance, id: 2, occurredAt: T0, action: "sell",
     price: 101, quantity: 1, commission: 0.101, realizedPnl: -3,
     positionQtyAfter: 0, reason: "sl",
@@ -169,7 +188,8 @@ test("real and paper summaries cannot be numerically conflated", () => {
   const summary = summarizeJournal([...real, ...paper], "day");
   assert.equal(summary.real.knownRealizedPnl, 10);
   assert.equal(summary.paper.knownRealizedPnl, -3);
-  assert.deepEqual(summary.bySource.map((x) => x.source).sort(), ["AUTOMATED", "PAPER"]);
+  assert.deepEqual(summary.bySource.map((x) => `${x.source}/${x.environment}`).sort(),
+    ["AUTOMATED/REAL", "PAPER/PAPER"]);
 });
 
 test("query filters and pagination are validated and hard bounded", () => {
@@ -205,4 +225,82 @@ test("Journal read API is protected by the Platform session gate", async () => {
     config.sessionSecret = previous.secret;
     config.adminUsername = previous.username;
   }
+});
+
+/*
+ * The route is where D3 actually happened: it read the Bot's state and threw
+ * away `accounts` and each order's `exchangeAccountId` before projecting. This
+ * drives the real route with a Bot state whose CURRENT flag is dry-run, and
+ * checks every manual row is labelled from its own evidence.
+ */
+test("the Journal route labels manual rows from their own account and order id", async (t) => {
+  const previous = config.manualTradingEnabled;
+  config.manualTradingEnabled = true;
+  t.after(() => { config.manualTradingEnabled = previous; });
+  const at = (minutes: number) => new Date(Date.UTC(2026, 9, 10, 12, minutes)).toISOString();
+  const manualOrder = (id: string, exchangeOrderId: string | null, exchangeAccountId: string | null, minute: number) => ({
+    id, requestId: `req-${id}`, clientOrderId: `cid-${id}`, exchangeOrderId, exchangeAccountId,
+    symbol: "BTCUSDT", side: "BUY", status: "filled", createdAt: at(minute), submittedAt: at(minute),
+    completedAt: at(minute), updatedAt: at(minute), filledBaseQty: 0.001, averageFillPrice: 70000,
+  });
+  const paths: string[] = [];
+  const app = Fastify({ logger: false });
+  await journalRoutes(app, { stateRequest: (async (input: { path: string }) => {
+    paths.push(input.path);
+    return {
+      dryRun: true, // the Bot's CURRENT flag: must label nothing
+      accounts: [{ id: "acct-test", testnet: true, mode: "testnet" },
+        { id: "acct-main", testnet: false, mode: "mainnet" }, "not-an-account", null],
+      orders: [
+        manualOrder("dry", "dry-cid-dry", "acct-test", 1),
+        manualOrder("testnet", "1001", "acct-test", 2),
+        manualOrder("mainnet", "2002", "acct-main", 3),
+        manualOrder("orphan", "3003", "acct-deleted", 4),
+        manualOrder("unacknowledged", null, "acct-main", 5),
+      ],
+    };
+  }) as never });
+  t.after(() => app.close());
+  const res = await app.inject({ method: "GET", url: "/api/journal?source=MANUAL&from=2026-10-10&to=2026-10-10" });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(paths, ["/api/manual-trading/state"]);
+  const body = res.json() as JournalResponse;
+  assert.deepEqual(Object.fromEntries(body.rows.map((row) => [row.identifiers.manualOrderId, row.environment])), {
+    dry: "DRY_RUN", testnet: "TESTNET", mainnet: "REAL", orphan: "UNKNOWN", unacknowledged: "UNKNOWN",
+  });
+  // Only the one REAL row is in the real slice, and as unknown economics.
+  assert.equal(body.summary.real.unknownEconomicRows, 1);
+  assert.equal(body.summary.real.knownRealizedRows, 0);
+  assert.equal(body.summary.testnet.unknownEconomicRows, 1);
+  assert.equal(body.summary.dryRun.unknownEconomicRows, 1);
+  assert.equal(body.summary.unknownEnvironment.unknownEconomicRows, 2);
+  assert.ok(body.limitations.includes(ENVIRONMENT_LIMITATION));
+});
+
+test("the Journal stays the administrator's: a Standard account gets 403", async (t) => {
+  const SECRET = "journal-gate-test-secret-000000000000000000";
+  const USER = "22222222-2222-4222-8222-222222222222";
+  const previous = { authEnabled: config.authEnabled, sessionSecret: config.sessionSecret,
+    manualTradingEnabled: config.manualTradingEnabled };
+  config.authEnabled = true;
+  config.sessionSecret = SECRET;
+  // No Bot is contacted: the admin's request below reads manual rows only, and
+  // with manual trading off the route answers without any outbound call.
+  config.manualTradingEnabled = false;
+  t.after(() => Object.assign(config, previous));
+  useUserLoaderForTests(async (id) => id === USER ? { id, role: "user", sessionVersion: 1 }
+    : id === ADMIN_USER_ID ? { id, role: "admin", sessionVersion: 1 } : null);
+  t.after(() => useUserLoaderForTests(null));
+  const app = buildServer(() => ({} as LiveRunner));
+  t.after(() => app.close());
+  const as = (id: string) => ({ cookie: `${SESSION_COOKIE}=${signUserSession(id, 1, SECRET)}` });
+  const url = "/api/journal?from=2026-09-01&to=2026-09-01";
+  const user = await app.inject({ method: "GET", url, headers: as(USER) });
+  assert.equal(user.statusCode, 403);
+  assert.match(user.json().error, /administrator/);
+  // The administrator passes the gate (whatever the route then answers).
+  const admin = await app.inject({ method: "GET", url: "/api/journal?source=MANUAL&from=2026-09-01&to=2026-09-01",
+    headers: as(ADMIN_USER_ID) });
+  assert.notEqual(admin.statusCode, 401);
+  assert.notEqual(admin.statusCode, 403);
 });
