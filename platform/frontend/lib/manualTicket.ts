@@ -27,7 +27,7 @@
  * that position's quantity under this chart's symbol; it never hides a position
  * that belongs to this instrument, and it never disables selling.
  */
-import type { ManualPosition } from "./api";
+import type { ManualOrder, ManualPosition } from "./api";
 
 /** The parts of a ticket that are only meaningful for one instrument. */
 export interface StagedTicket {
@@ -155,6 +155,42 @@ export function ticketSubmitBlocker(input: {
     return `That position is not open on ${input.currentSymbol} for this account.`;
   }
   return null;
+}
+
+/** Durable notes the Bot writes on a manual order (OD-1), by prefix; FAILED ones are the operator's to act on. */
+const ORDER_NOTE_PREFIXES: readonly { prefix: string; danger: boolean }[] = [
+  { prefix: "ENTRY CANCEL FAILED", danger: true },
+  { prefix: "SWEEP FAILED", danger: true },
+  { prefix: "ENTRY CANCEL PENDING", danger: false },
+  { prefix: "ENTRY CANCELED AFTER EXIT", danger: false },
+  { prefix: "ENTRY STILL WORKING", danger: false },
+  { prefix: "RACE FILL", danger: false },
+];
+
+/** A Bot note on an order (`error` carries it), split into its prefix and the rest; null for anything else. */
+export function orderNote(error: string | null | undefined): { label: string; detail: string; danger: boolean } | null {
+  if (!error) return null;
+  const found = ORDER_NOTE_PREFIXES.find((n) => error.startsWith(n.prefix));
+  if (!found) return null;
+  return { label: found.prefix, detail: error.slice(found.prefix.length).replace(/^[:\s—-]+/, ""), danger: found.danger };
+}
+
+/** OD-1: the entry-cancel line for an order, or null. */
+export function exitCancelLine(order: Pick<ManualOrder, "exitCancelState">): { text: string; danger: boolean } | null {
+  if (order.exitCancelState === "pending" || order.exitCancelState === "unknown") {
+    return { text: "Entry cancel in progress", danger: false };
+  }
+  if (order.exitCancelState === "failed") return { text: "ENTRY CANCEL FAILED — cancel on Binance", danger: true };
+  return null;
+}
+
+/**
+ * OD-1/OD-7: a partial SELL of a position whose entry order is still working
+ * leaves that entry working (only a full exit cancels it first).
+ */
+export function entryStillWorkingFor(positionId: string, orders: readonly ManualOrder[] | undefined): boolean {
+  return (orders ?? []).some((o) => o.linkedPositionId === positionId && o.side === "BUY"
+    && (o.status === "open" || o.status === "partially_filled"));
 }
 
 /**

@@ -202,3 +202,36 @@ test("a BUY the server wants confirmed opens the step-up dialog; the retry carri
   assert.deepEqual(attempts[1]!.credential, { code: "123456" });
   assert.match(document.body.textContent ?? "", /Order accepted by the execution bot/);
 });
+
+test("OD-1: a partial SELL of a position whose entry still works says so; the Bot's cancel state and notes show; an over-sell is explained", async () => {
+  const entry = { id: "entry-1", requestId: "r-entry", exchangeAccountId: "acct-test", linkedPositionId: "pos-a", symbol: "SOLUSDT",
+    side: "BUY", orderType: "LIMIT", quantityType: "quote", requestedBaseQty: null, requestedQuoteQty: 60, limitPrice: 150,
+    takeProfitPrice: null, stopLossPrice: null, protectionType: null, protectionState: null, status: "partially_filled",
+    exchangeOrderId: "e1", clientOrderId: "c1", filledBaseQty: 0.375, filledQuoteQty: 56, averageFillPrice: 150,
+    error: null, submittedAt: null, completedAt: null, createdAt: "2026-11-09T10:00:00.000Z", updatedAt: "2026-11-09T10:00:00.000Z" };
+  const failedCancel = { ...entry, id: "entry-2", requestId: "r2", linkedPositionId: "pos-z", status: "open",
+    exitCancelState: "failed", error: "ENTRY CANCEL FAILED: the exchange refused the cancel; cancel it on Binance" };
+  const swept = position("pos-swept", 0.02, { protectionState: "race_fill_sweep" });
+  routes([position("pos-a", 0.375), swept]);
+  server.routes.set("GET /api/manual-trading/state", () => ({ ...state([position("pos-a", 0.375), swept]),
+    orders: [entry, failedCancel] }));
+  server.routes.set("POST /api/manual-trading/orders", () => new Response(JSON.stringify({ code: "sell_exceeds_position",
+    error: "baseQuantity exceeds the remaining position" }), { status: 409, headers: { "content-type": "application/json" } }));
+  await open();
+  fireEvent.click(sellTab());
+  await settle(4);
+  fireEvent.change(screen.getByLabelText(/Position to sell/), { target: { value: "pos-a" } });
+  await settle(2);
+  assert.equal(screen.queryByTestId("manual-partial-entry-note"), null, "the whole position cancels the entry first");
+  fireEvent.click(screen.getByTestId("manual-quickfill-50"));
+  await settle(2);
+  assert.equal(screen.getByTestId("manual-partial-entry-note").textContent, "Partial sell: the entry order keeps working.");
+  await confirmOrder();
+  assert.match(screen.getByRole("alert").textContent ?? "", /more than this position still holds/);
+  fireEvent.click(screen.getByRole("tab", { name: /^Orders/ }));
+  await settle(4);
+  assert.match(document.body.textContent ?? "", /ENTRY CANCEL FAILED — cancel on Binance/);
+  assert.match(screen.getByTestId("manual-order-note").textContent ?? "", /^ENTRY CANCEL FAILED: the exchange refused/);
+  const sweptRow = assertPresent(document.querySelector('[data-position-id="pos-swept"]'), "race-fill position");
+  assert.equal(sweptRow.querySelector("[data-protection]")?.textContent, "Race fill — being sold automatically");
+});

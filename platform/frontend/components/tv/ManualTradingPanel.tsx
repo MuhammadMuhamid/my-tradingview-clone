@@ -18,6 +18,7 @@ import { REFUSAL_TONE, toTradeEvent } from "../../lib/tradeEvents";
 import {
   baseAssetOf, isTicketStaged, positionsForSymbol, resetForAccountChange,
   resetForSymbolChange, sameSymbol, sellPositionRequirement, sellTabPosition, ticketSubmitBlocker,
+  entryStillWorkingFor, exitCancelLine, orderNote,
 } from "../../lib/manualTicket";
 import {
   manualTradingPollingAllowed, noteManualTradingFailure,
@@ -407,6 +408,9 @@ export function ManualTradingPanel({
   /** The largest order this account can place right now, on this side (a SELL: for the selected position). */
   const maximum = maximumOrder(accountState, side, selectedPosition);
   const dust = selectedPosition ? sellDust(accountState, selectedPosition) : null;
+  /** OD-1: a partial SELL leaves this position's still-working entry order working. */
+  const partialSellKeepsEntry = selectedPosition !== null && !wholePosition && Number(amount) > 0
+    && entryStillWorkingFor(selectedPosition.id, state?.orders);
   /** The whole selected position as an amount: floored onto the lot step, capped by the free balance. */
   const wholeAmountOf = (p: ManualPosition): string => {
     const max = maximumOrder(accountState, "SELL", p);
@@ -506,6 +510,12 @@ export function ManualTradingPanel({
       if (e instanceof ApiError && e.code !== null && STEP_UP_REFUSALS.has(e.code) && side === "BUY") {
         lastStepUpRefusal.current = e;
         return "step_up";
+      }
+      // B-OD7: the Bot refuses to sell more than the position holds.
+      if (e instanceof ApiError && e.code === "sell_exceeds_position") {
+        setError(said("That is more than this position still holds, so nothing was sold. Choose 100% to sell "
+          + "what remains of it, or refresh: part of it may already have been sold."));
+        return "failed";
       }
       setError(describeAction(e, "place the order"));
       return "failed";
@@ -866,6 +876,8 @@ export function ManualTradingPanel({
             {sellRequirement}</p>}
           {dust !== null && <p data-testid="manual-sell-dust" className="text-[11px] text-ink-muted">
             {fmtQty(dust)} {base} below the lot step cannot be sold and stays in the wallet.</p>}
+          {partialSellKeepsEntry && <p role="status" data-testid="manual-partial-entry-note" className="text-[11px] text-warn">
+            Partial sell: the entry order keeps working.</p>}
         </div>
       )}
       {orderType === "LIMIT" && (
@@ -1057,7 +1069,17 @@ export function ManualTradingPanel({
             {o.averageFillPrice ? ` @ ${fmtPrice(o.averageFillPrice)}` : ""}
             {accountLabel(o.exchangeAccountId)}</div>
           {(() => {
+            const cancel = exitCancelLine(o);
+            return cancel ? <div data-testid="manual-exit-cancel" className={`mt-1 font-medium ${cancel.danger ? "text-down" : "text-warn"}`}>
+              {cancel.text}</div> : null;
+          })()}
+          {(() => {
             const refusal = toTradeEvent(o).refusal;
+            const note = refusal ? null : orderNote(o.error);
+            if (note) {
+              return <div data-testid="manual-order-note" className={`mt-1 ${note.danger ? "text-down" : "text-warn"}`}>
+                <span className="font-semibold">{note.label}</span>{note.detail ? `: ${note.detail}` : ""}</div>;
+            }
             if (!refusal) return o.error ? <div className="mt-1 text-down">{o.error}</div> : null;
             return <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
               <span data-testid="manual-refusal-class"

@@ -258,3 +258,31 @@ test("OD-7: with positions open a SELL must name one, unless the wallet sell is 
   assert.doesNotMatch(panel(), /Unassociated wallet sell/);
   assert.match(panel(), /Sell from wallet \(not tied to a position\)/);
 });
+
+test("OD-1: the Bot's durable order notes, the entry-cancel state, and a partial SELL's working entry", async () => {
+  const { orderNote, exitCancelLine, entryStillWorkingFor } = await import("../lib/manualTicket");
+  for (const [error, label, danger] of [
+    ["RACE FILL: 0.01 SOL of this BUY filled after the exit", "RACE FILL", false],
+    ["ENTRY CANCEL PENDING: position x was closed", "ENTRY CANCEL PENDING", false],
+    ["ENTRY CANCEL FAILED: cancel it on Binance", "ENTRY CANCEL FAILED", true],
+    ["ENTRY CANCELED AFTER EXIT: done", "ENTRY CANCELED AFTER EXIT", false],
+    ["SWEEP FAILED: sell it by hand", "SWEEP FAILED", true],
+  ] as const) {
+    const note = orderNote(error);
+    assert.deepEqual([note?.label, note?.danger], [label, danger], error);
+    assert.ok(note && !note.detail.startsWith(":"));
+  }
+  assert.equal(orderNote("Insufficient balance"), null);
+  assert.equal(orderNote(null), null);
+  assert.equal(exitCancelLine({ exitCancelState: "pending" })?.text, "Entry cancel in progress");
+  assert.equal(exitCancelLine({ exitCancelState: "unknown" })?.text, "Entry cancel in progress");
+  assert.deepEqual(exitCancelLine({ exitCancelState: "failed" }), { text: "ENTRY CANCEL FAILED — cancel on Binance", danger: true });
+  assert.equal(exitCancelLine({ exitCancelState: "done" }), null);
+  assert.equal(exitCancelLine({}), null);
+  const order = (status: string, side: "BUY" | "SELL" = "BUY") => ({ linkedPositionId: "pos-1", side, status }) as never;
+  assert.equal(entryStillWorkingFor("pos-1", [order("open")]), true);
+  assert.equal(entryStillWorkingFor("pos-1", [order("partially_filled")]), true);
+  assert.equal(entryStillWorkingFor("pos-1", [order("filled")]), false);
+  assert.equal(entryStillWorkingFor("pos-1", [order("open", "SELL")]), false);
+  assert.equal(entryStillWorkingFor("pos-2", [order("open")]), false);
+});

@@ -1362,6 +1362,8 @@ export interface ManualOrder {
   filledBaseQty: number; filledQuoteQty: number;
   averageFillPrice: number | null; error: string | null; submittedAt: string | null;
   completedAt: string | null; createdAt: string; updatedAt: string;
+  /** OD-1: cancelling this entry because its position was exited. Absent from an older Bot. */
+  exitCancelState?: "pending" | "unknown" | "done" | "failed" | null;
 }
 export interface ManualPosition {
   id: string; exchangeAccountId: string; pair: string; status: string;

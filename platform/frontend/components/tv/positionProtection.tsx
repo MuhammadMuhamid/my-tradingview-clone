@@ -17,7 +17,7 @@ import type { ManualPosition, ManualTradingState } from "@/lib/api";
  * watches it.
  */
 export type ProtectionKind =
-  | "protected" | "not_checked" | "none" | "triggered" | "late_fill_unprotected" | "unknown";
+  | "protected" | "not_checked" | "none" | "triggered" | "late_fill_unprotected" | "race_fill_sweep" | "unknown";
 
 export interface PositionProtection {
   kind: ProtectionKind;
@@ -71,6 +71,8 @@ export function protectionContextFor(
 
 /** The bot's own value for a late fill kept as its own, unwatched position. */
 export const LATE_FILL_UNPROTECTED = "late_fill_unprotected";
+/** OD-1: an entry that filled while its exit was cancelling it; the Bot sells it (sweeps) on its own. */
+export const RACE_FILL_SWEEP = "race_fill_sweep";
 
 const DANGER = "border-down/40 bg-down/15 text-down";
 const WARN = "border-warn/40 bg-warn/15 text-warn";
@@ -101,6 +103,16 @@ export function positionProtection(
       title: "A fill that arrived after this trade had closed. The bot keeps it as its own position "
         + "with NO take-profit and NO stop-loss, and does not watch it. Set TP/SL or sell it.",
     };
+  }
+  if (state === RACE_FILL_SWEEP) {
+    // The sweep is the Bot's automation, and a halted Bot does not run it.
+    return context.halted === true
+      ? { kind: "race_fill_sweep", label: "Race fill — awaiting sweep — Bot halted; sell it here", tone: DANGER,
+        title: "Coins that filled while this position's exit was cancelling the entry. The Bot sells them "
+          + "automatically, but not while it is halted: sell them from this panel." }
+      : { kind: "race_fill_sweep", label: "Race fill — being sold automatically", tone: WARN,
+        title: "Coins that filled while this position's exit was cancelling the entry. The Bot is selling "
+          + "them on its own; no TP/SL applies." };
   }
   if (state === "active" && levels) {
     const reason = notCheckedReason(context);
