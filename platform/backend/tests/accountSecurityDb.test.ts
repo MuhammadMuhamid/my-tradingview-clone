@@ -308,9 +308,12 @@ test("account security", async (t) => {
   await t.test("deleting an account deletes its security rows", async () => {
     let { cookie } = await signUp("gone@example.com");
     await verify("gone@example.com");
-    cookie = (await enable2fa(cookie)).cookie;
+    const enabled = await enable2fa(cookie);
+    cookie = enabled.cookie;
     const id = (await me(cookie)).id as string;
-    assert.equal((await call(cookie, "DELETE", "/api/auth/account", { confirm: "DELETE" })).statusCode, 200);
+    // OD-6: two-factor is on, so the code confirms the deletion.
+    assert.equal((await call(cookie, "DELETE", "/api/auth/account",
+      { confirm: "DELETE", credential: { code: nextCode(enabled.secret) } })).statusCode, 200);
     for (const table of ["email_verification_tokens", "totp_recovery_codes", "login_events"]) {
       const { rows } = await query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE user_id = $1`, [id]);
       assert.equal(Number(rows[0]!.n), 0, table);

@@ -326,7 +326,8 @@ export async function recordTradeClose(input: {
 // ── what each member is worth ───────────────────────────────────────────────
 
 async function membersOf(client: PoolClient, cohortId: string) {
-  const { rows } = await client.query<{ membership_id: string; user_id: string; capital_in: string; paid_out: string }>(
+  // user_id is NULL for a former member whose account was deleted (migration 054).
+  const { rows } = await client.query<{ membership_id: string; user_id: string | null; capital_in: string; paid_out: string }>(
     `SELECT m.id AS membership_id, m.user_id,
             COALESCE(sum(e.amount) FILTER (WHERE e.kind = 'CAPITAL_IN'), 0)::text AS capital_in,
             COALESCE(-sum(e.amount) FILTER (WHERE e.kind = 'CAPITAL_OUT'), 0)::text AS paid_out
@@ -379,6 +380,35 @@ export async function recordWithdrawal(input: {
     }
     return { entryId: result.id, created: result.created };
   });
+}
+
+/**
+ * Whether this account must not be deleted yet (OD-6): an approved seat in a
+ * cohort that is open, running or settling, or money not yet settled to zero
+ * anywhere (a settled or cancelled cohort's value not fully paid out, or
+ * ledger rows on a membership that was never approved). Settle or withdraw
+ * first. Run inside the deletion transaction, after the membership rows are
+ * locked.
+ */
+export async function membershipBlocksDeletion(client: PoolClient, userId: string): Promise<boolean> {
+  const live = await client.query(
+    `SELECT 1 FROM memberships m JOIN cohorts c ON c.id = m.cohort_id
+      WHERE m.user_id = $1 AND m.status = 'approved' AND c.status IN ('open', 'running', 'settling') LIMIT 1`, [userId]);
+  if ((live.rowCount ?? 0) > 0) return true;
+  const loose = await client.query<{ n: string }>(
+    `SELECT COALESCE(sum(e.amount), 0)::text AS n FROM ledger_entries e JOIN memberships m ON m.id = e.membership_id
+      WHERE m.user_id = $1 AND m.status <> 'approved'`, [userId]);
+  if (parseMoney(loose.rows[0]!.n) !== 0n) return true;
+  const { rows } = await client.query<CohortRow>(
+    `SELECT c.id, c.package_id, c.starts_at, c.ends_at, c.deposit_cutoff_at, c.status,
+            c.opening_capital::text AS opening_capital, c.closing_value::text AS closing_value
+       FROM memberships m JOIN cohorts c ON c.id = m.cohort_id
+      WHERE m.user_id = $1 AND m.status = 'approved'`, [userId]);
+  for (const cohort of rows) {
+    const mine = (await valuesOf(client, cohort)).find((v) => v.userId === userId);
+    if (mine && mine.value - mine.paidOut !== 0n) return true;
+  }
+  return false;
 }
 
 /** One member's own memberships and values. Never anyone else's. */
@@ -476,9 +506,12 @@ export async function cohortDetail(cohortId: string) {
     const cohort = rows[0];
     if (!cohort) throw new PackageRuleError("cohort not found", 404);
     const values = await valuesOf(client, cohort);
-    const people = await client.query<{ id: string; user_id: string; status: string; requested_at: Date; email: string | null; display_name: string }>(
-      `SELECT m.id, m.user_id, m.status, m.requested_at, u.email, u.display_name FROM memberships m
-         JOIN users u ON u.id = m.user_id WHERE m.cohort_id = $1 ORDER BY m.requested_at, m.id`, [cohortId]);
+    // LEFT JOIN: a member who deleted their account (migration 054) keeps their
+    // membership and ledger, shown by its opaque reference, never a name.
+    const people = await client.query<{ id: string; user_id: string | null; status: string; requested_at: Date;
+      email: string | null; display_name: string | null; former_member_ref: string | null }>(
+      `SELECT m.id, m.user_id, m.status, m.requested_at, u.email, u.display_name, m.former_member_ref FROM memberships m
+         LEFT JOIN users u ON u.id = m.user_id WHERE m.cohort_id = $1 ORDER BY m.requested_at, m.id`, [cohortId]);
     const entries = await client.query<{ id: string; membership_id: string | null; kind: string; amount: string;
       source_type: string | null; source_id: string | null; note: string; recorded_at: Date }>(
       `SELECT id, membership_id, kind, amount::text AS amount, source_type, source_id, note, recorded_at
@@ -494,7 +527,9 @@ export async function cohortDetail(cohortId: string) {
       equity: formatMoney(await cohortEquity(client, cohortId)),
       members: people.rows.map((p) => {
         const v = values.find((x) => x.membershipId === p.id);
-        return { membershipId: p.id, userId: p.user_id, email: p.email, displayName: p.display_name, status: p.status,
+        return { membershipId: p.id, userId: p.user_id, email: p.email,
+          displayName: p.display_name ?? `Former member ${p.former_member_ref ?? ""}`.trim(),
+          formerMemberRef: p.user_id === null ? p.former_member_ref : null, status: p.status,
           requestedAt: p.requested_at.toISOString(), capitalIn: formatMoney(v?.capitalIn ?? 0n),
           value: formatMoney(v?.value ?? 0n), paidOut: formatMoney(v?.paidOut ?? 0n) };
       }),

@@ -240,6 +240,24 @@ function forgetOtherAccountsCache(userId: string | null, isAdmin: boolean): void
   } catch { /* storage unavailable — nothing cached to leak */ }
 }
 
+/**
+ * After this account is deleted (OD-6): everything the app cached in this
+ * browser for it goes too, the owner marker included, so nothing of it is left
+ * for whoever uses the browser next. Display preferences (theme) are kept,
+ * as when another account signs in.
+ */
+export function forgetAccountStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key === OWNER_KEY || (!KEEP.has(key) && !key.toLowerCase().includes("theme"))) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch { /* storage unavailable: nothing cached */ }
+  try { window.sessionStorage.clear(); } catch { /* storage unavailable */ }
+}
+
 /** Initials for an avatar without a picture. */
 export function initialsOf(name: string | null | undefined): string {
   const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);

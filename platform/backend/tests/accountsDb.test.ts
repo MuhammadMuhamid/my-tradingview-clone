@@ -199,7 +199,9 @@ test("two accounts never see or touch each other's data", async (t) => {
   assert.equal(out.statusCode, 200);
   assert.equal((await call(alice2, "GET", "/api/watchlists")).statusCode, 401);
 
-  const gone = await call(bob, "DELETE", "/api/auth/account", { confirm: "DELETE" });
+  // OD-6: a fresh credential, the password here (two-factor is off).
+  const gone = await call(bob, "DELETE", "/api/auth/account",
+    { confirm: "DELETE", credential: { password: "correct horse battery" } });
   assert.equal(gone.statusCode, 200);
   const { rows: bobRows } = await query<{ n: number }>(
     `SELECT (SELECT count(*) FROM ma_alerts a JOIN users u ON u.id = a.user_id WHERE u.email = 'bob@example.com')::int

@@ -84,10 +84,9 @@ export async function confirmIdentity(account: users.UserRow, body: { password?:
  * needed has already succeeded by then.
  *
  * Administrator accounts only. They are the accounts whose second factor
- * guards the Bot, and they are the only ones `admin_audit` may name:
- * `admin_audit.actor` is `ON DELETE SET NULL`, and the table's append-only
- * trigger refuses that UPDATE, so a row naming an ordinary account would make
- * that account impossible to delete. `deleteUser` never deletes an admin.
+ * guards the Bot. (Since migration 054 a row naming an ordinary account would
+ * no longer block its deletion, `admin_audit.actor` simply becomes NULL, but
+ * there is still no reason to record ordinary accounts here.)
  */
 async function auditTwoFactor(req: FastifyRequest, account: users.UserRow,
   action: "auth.2fa.setup_started" | "auth.2fa.enabled" | "auth.2fa.disabled"): Promise<void> {

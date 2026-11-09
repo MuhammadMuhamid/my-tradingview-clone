@@ -139,7 +139,8 @@ export async function credentialMethodFor(account: users.UserRow, allowsPassword
   return "password";
 }
 
-async function hasPassword(account: users.UserRow): Promise<boolean> {
+/** Whether a password check would mean anything for this account (the server's hash for the administrator). */
+export async function hasPassword(account: users.UserRow): Promise<boolean> {
   const hash = account.role === "admin" ? config.adminPasswordHash : await users.getPasswordHash(account.id);
   return !!hash;
 }

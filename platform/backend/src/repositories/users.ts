@@ -297,26 +297,4 @@ export async function bumpSessionVersion(id: string): Promise<number> {
   return rows[0]?.session_version ?? 1;
 }
 
-/**
- * The account still has rows that must outlive it: a package membership, whose
- * ledger is append-only. The foreign key is ON DELETE RESTRICT on purpose.
- */
-export class AccountHasRecordsError extends Error {
-  constructor() {
-    super("This account has package records that must be kept, so it can't be deleted here. Ask the administrator.");
-    this.name = "AccountHasRecordsError";
-  }
-}
-
-/** Delete an account and, by cascade, everything it owns. Never the admin. */
-export async function deleteUser(id: string): Promise<boolean> {
-  if (id === ADMIN_USER_ID) return false;
-  try {
-    const { rowCount } = await query("DELETE FROM users WHERE id = $1 AND role <> 'admin'", [id]);
-    return (rowCount ?? 0) > 0;
-  } catch (error) {
-    // 23503: a RESTRICT foreign key (memberships.user_id) refused; nothing was deleted.
-    if ((error as { code?: string }).code === "23503") throw new AccountHasRecordsError();
-    throw error;
-  }
-}
+// Deleting an account: `repositories/accountDeletion.ts` (OD-6).

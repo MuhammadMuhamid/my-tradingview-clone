@@ -290,7 +290,9 @@ test("bot control", async (t) => {
     assert.equal((await listAdminAudit("auth.2fa.", 50)).filter((r) => r.target === `user:${me.id}`).length, 0);
     // admin_audit.actor is ON DELETE SET NULL under an append-only trigger: a row naming
     // this account would turn the delete below into a 500.
-    const gone = await call(standard, "DELETE", "/api/auth/account", { confirm: "DELETE" });
+    // OD-6: two-factor is on, so the code confirms the deletion (the next step, since enabling used this one).
+    const gone = await call(standard, "DELETE", "/api/auth/account",
+      { confirm: "DELETE", credential: { code: totpCode(userSecret, totpStepAt(Date.now()) + 1) } });
     assert.equal(gone.statusCode, 200, gone.body);
   });
 

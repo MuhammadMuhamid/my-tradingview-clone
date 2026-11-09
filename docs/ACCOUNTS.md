@@ -21,10 +21,45 @@ had one sign-in and every row was that person's.
   `CONFLICT_TARGET` begins with `user_id`, so one user's upsert can never
   update another user's identical alert.
 - An alert notifies its owner's devices only (`sendPush(…, { userId })`).
-- Deleting an account deletes everything it owns (`ON DELETE CASCADE`), except
-  that an account with a package membership can't be deleted: the membership and
-  its append-only ledger must be kept, so `DELETE /api/auth/account` answers 409
-  and nothing is deleted.
+- Deleting an account deletes everything it owns (`ON DELETE CASCADE`). See
+  "Deleting an account" below for what is kept (anonymous package ledger rows,
+  audit rows naming only a uuid) and when it is refused.
+
+### Deleting an account (updated 2026-11-09, OD-6, migration `054_account_deletion.sql`)
+
+`DELETE /api/auth/account` with `{confirm: "DELETE", credential?}` from the profile's
+Account section. Refused for the administrator and while `AUTH_ENABLED=false`. The
+credential is asked fresh every time: the authenticator code when two-factor is on,
+otherwise the password when the account has one. An account with neither (it only ever
+signed in through Google or GitHub) confirms by typing DELETE alone; the signed-in
+provider session is then the only factor there is, a documented limitation.
+
+It is refused (409 `membership_active`, before any credential is asked, and again under
+the row lock) while the account has an approved seat in a cohort that is open, running
+or settling, or money not settled to zero (a settled or cancelled cohort not fully paid
+out, or ledger rows on a membership that was never approved). Settle or withdraw first.
+
+In one transaction it then deletes memberships that have no ledger rows (a join
+request, a rejection), gives the remaining ones an opaque `former_member_ref` (random,
+not derived from the account), and deletes the `users` row. Foreign keys delete
+watchlists, layouts, scripts, drawings, pane studies, push devices, alerts with their
+events and delivery outbox, verification links, recovery codes, sign-in history and
+step-up grants, and set `memberships.user_id`, `memberships.decided_by`,
+`packages.created_by`, `ledger_entries.recorded_by` and `admin_audit.actor` to NULL.
+`tests/accountDeletionDb.test.ts` holds every foreign key to `users` to its rule, so a
+new table cannot silently block or survive a deletion.
+
+The append-only triggers on `admin_audit` and `ledger_entries` still refuse every
+DELETE and TRUNCATE and every UPDATE except that one column (`actor`,
+`recorded_by`) becoming NULL with every other column unchanged.
+
+Kept afterwards: audit rows that name the account only by its uuid in `target` (no
+email or name is stored there, though an administrator's free-text deposit reference
+could hold one), and the anonymous membership and ledger rows for settled money,
+shown to the administrator as "Former member <ref>". Signing in again with the same
+Google or GitHub account creates a new, empty account. The browser forgets the
+account's cached chart state (theme kept). There is no route for an administrator to
+delete another account.
 
 ## 2. What an ordinary account may reach
 
@@ -184,8 +219,7 @@ Turn two-factor on for the administrator before relying on Bot controls in
 Trading Scene. On an administrator account, starting setup, turning two-factor
 on and turning it off each append an `admin_audit` row
 (`auth.2fa.setup_started`, `auth.2fa.enabled`, `auth.2fa.disabled`). Ordinary
-accounts are not recorded there. `admin_audit` is append-only, and a row naming
-an account would stop that account from being deleted.
+accounts are not recorded there.
 
 **Email verification.** Signing up sends a link that works once and expires in 24
 hours. Only its hash is stored, and a new link replaces the old one. A provider's

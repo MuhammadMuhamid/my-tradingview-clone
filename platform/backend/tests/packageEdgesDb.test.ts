@@ -46,7 +46,8 @@ test("package money edge cases", async (t) => {
   const { config } = await import("../src/config");
   const { buildServer } = await import("../src/api/server");
   const { hashPassword } = await import("../src/security/session");
-  const { loginLimiter, twoFactorLimiter } = await import("../src/security/rateLimit");
+  const { loginLimiter, twoFactorLimiter, stepUpLimiter } = await import("../src/security/rateLimit");
+  const { totpCode, totpStepAt } = await import("../src/security/twoFactor");
   const { startTotpSetup, enableTotp } = await import("../src/repositories/accountSecurity");
   const { forgetUser } = await import("../src/security/requestUser");
   const { ADMIN_USER_ID } = await import("../src/repositories/users");
@@ -82,7 +83,7 @@ test("package money edge cases", async (t) => {
     Number((await query<{ n: string }>("SELECT count(*) AS n FROM ledger_entries WHERE idempotency_key = $1", [key])).rows[0]!.n);
 
   const alice = await signUp("alice@example.com");
-  await signUp("bob@example.com");
+  const bob = await signUp("bob@example.com");
   const carol = await signUp("carol@example.com");
   const dave = await signUp("dave@example.com");
   const strategyId = (await query<{ id: number }>("SELECT id FROM strategies ORDER BY id LIMIT 1")).rows[0]!.id;
@@ -165,18 +166,41 @@ test("package money edge cases", async (t) => {
     assert.deepEqual(out, ["-200.00000000", "-300.00000000"]);
   });
 
-  await t.test("P2: an account with package records can't be deleted, says so, and loses nothing", async () => {
+  await t.test("P2 (OD-6): money not yet paid out blocks deletion; a paid-out member and a join request can leave", async () => {
     const entries = Number((await query<{ n: string }>("SELECT count(*) AS n FROM ledger_entries")).rows[0]!.n);
-    for (const who of [alice, carol]) {
-      const res = await call(who.cookie, "DELETE", "/api/auth/account", { confirm: "DELETE" });
-      assert.equal(res.statusCode, 409, res.body);
-      assert.match((res.json() as { error: string }).error, /package/i);
-      assert.equal((await query("SELECT 1 FROM users WHERE id = $1", [who.id])).rowCount, 1, "the account is kept");
-      assert.equal((await query("SELECT 1 FROM memberships WHERE user_id = $1", [who.id])).rowCount, 1, "the membership is kept");
-      assert.equal((await call(who.cookie, "GET", "/api/portfolio")).statusCode, 200, "still signed in");
-    }
+    const sum = async () => (await query<{ s: string }>("SELECT COALESCE(sum(amount), 0)::text AS s FROM ledger_entries")).rows[0]!.s;
+    const total = await sum();
+    const del = (who: { cookie: string; id: string }, credential: object) => {
+      stepUpLimiter.reset(who.id);
+      return call(who.cookie, "DELETE", "/api/auth/account", { confirm: "DELETE", credential });
+    };
+
+    // Bob deposited 300 and was never paid out: refused, nothing changes, still signed in.
+    const refused = await del(bob, { password: "correct horse battery" });
+    assert.equal(refused.statusCode, 409, refused.body);
+    assert.equal(refused.json().code, "membership_active");
+    assert.match((refused.json() as { error: string }).error, /package/i);
+    assert.equal((await query("SELECT 1 FROM users WHERE id = $1", [bob.id])).rowCount, 1, "the account is kept");
+    assert.equal((await query("SELECT 1 FROM memberships WHERE user_id = $1", [bob.id])).rowCount, 1, "the membership is kept");
+    assert.equal((await call(bob.cookie, "GET", "/api/portfolio")).statusCode, 200, "still signed in");
+
+    // Alice's cohort settled and she was paid out in full: she can leave; her
+    // membership and ledger stay, anonymous.
+    const aliceGone = await del(alice, { password: "correct horse battery" });
+    assert.equal(aliceGone.statusCode, 200, aliceGone.body);
+    const kept = await query<{ user_id: string | null; former_member_ref: string | null }>(
+      "SELECT user_id, former_member_ref FROM memberships WHERE id = $1", [aliceM]);
+    assert.equal(kept.rows[0]!.user_id, null);
+    assert.ok(kept.rows[0]!.former_member_ref, "a former-member reference stands in for her");
+
+    // Carol only asked to join (and has two-factor on): the code confirms, the request goes.
+    const carolGone = await del(carol, { code: totpCode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", totpStepAt(Date.now())) });
+    assert.equal(carolGone.statusCode, 200, carolGone.body);
+    assert.equal((await query("SELECT 1 FROM memberships WHERE user_id = $1", [carol.id])).rowCount, 0);
+
     assert.equal(Number((await query<{ n: string }>("SELECT count(*) AS n FROM ledger_entries")).rows[0]!.n), entries, "no ledger row lost");
+    assert.equal(await sum(), total, "no amount changed");
     // An account without any is deleted as before.
-    assert.equal((await call(dave.cookie, "DELETE", "/api/auth/account", { confirm: "DELETE" })).statusCode, 200);
+    assert.equal((await del(dave, { password: "correct horse battery" })).statusCode, 200);
   });
 });

@@ -7,13 +7,14 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { refreshSession, signOut, useSession } from "@/lib/session";
+import { forgetAccountStorage, refreshSession, signOut, useSession } from "@/lib/session";
 import { PRODUCT_NAME } from "@/lib/navigation";
 import { Avatar, GithubMark, GoogleMark, ProductMark } from "@/components/AuthShell";
 import {
   EmailVerificationCard, LoginHistoryCard, TwoFactorCard, sendAccountRequest as send,
 } from "@/components/AccountSecurity";
 import { Button, Card as Panel, CardHeader, PageHeader, TextInput } from "@/components/ui";
+import { OneTimeCodeInput } from "@/components/OneTimeCodeInput";
 
 type Section = "profile" | "security" | "account";
 
@@ -55,6 +56,8 @@ export default function ProfilePage() {
   const [fresh, setFresh] = useState("");
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirm, setConfirm] = useState("");
+  const [delCode, setDelCode] = useState("");
+  const [delPassword, setDelPassword] = useState("");
   const [delMsg, setDelMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -91,12 +94,31 @@ export default function ProfilePage() {
     setBusy(false);
   };
 
-  const deleteAccount = async (): Promise<void> => {
+  /*
+   * OD-6: a fresh credential every time. The code when two-factor is on, else
+   * the password when there is one; an account that only signs in through
+   * Google or GitHub has neither, and typing DELETE is then all there is.
+   */
+  const deleteWith: "code" | "password" | "none" = user.twoFactorEnabled ? "code" : user.hasPassword ? "password" : "none";
+  const deleteReady = confirm === "DELETE"
+    && (deleteWith === "none" || (deleteWith === "code" ? delCode.length === 6 : delPassword.length > 0));
+  const deleteAccount = async (code = delCode): Promise<void> => {
+    if (busy) return;
     setBusy(true); setDelMsg(null);
     try {
-      await send("/api/auth/account", "DELETE", { confirm });
+      await send("/api/auth/account", "DELETE", {
+        confirm,
+        ...(deleteWith === "code" ? { credential: { code } } : deleteWith === "password" ? { credential: { password: delPassword } } : {}),
+      });
+      setDelCode(""); setDelPassword("");
+      // Nothing of this account stays in this browser.
+      forgetAccountStorage();
       window.location.href = "/login";
-    } catch (e) { setDelMsg((e as Error).message); setBusy(false); }
+    } catch (e) {
+      setDelMsg((e as Error).message);
+      setDelCode("");
+      setBusy(false);
+    }
   };
 
   const admin = user.role === "admin";
@@ -278,15 +300,40 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <p className="text-[13px] text-ink-muted">
-                    Deletes your account and everything in it — alerts, watchlists, layouts, drawings and scripts.
-                    This cannot be undone.
+                    Deletes your account and everything in it — alerts, watchlists, layouts, drawings, scripts,
+                    devices and sign-in history — and signs this browser out. This cannot be undone.
+                  </p>
+                  <p className="mt-2 text-[12px] text-ink-faint">
+                    If you were in a package, a cohort that has finished and paid you out keeps its ledger under an
+                    anonymous reference, never your name or email. While a cohort is still running or owes you money,
+                    the account can&apos;t be deleted yet.
                   </p>
                   <label className="mt-4 block text-[13px] text-ink-muted" htmlFor="confirm">Type DELETE to confirm</label>
                   <TextInput id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)}
-                    className="mt-1.5 block w-full max-w-xs" />
+                    autoComplete="off" className="mt-1.5 block w-full max-w-xs" />
+                  <div className="mt-3">
+                    {deleteWith === "code" && (
+                      <OneTimeCodeInput id="delete-code" label="6-digit code from your authenticator app" value={delCode}
+                        onChange={setDelCode} disabled={busy}
+                        onComplete={(code) => { if (confirm === "DELETE") void deleteAccount(code); }} />
+                    )}
+                    {deleteWith === "password" && (
+                      <>
+                        <label className="block text-[13px] text-ink-muted" htmlFor="delete-password">Your password</label>
+                        <TextInput id="delete-password" type="password" autoComplete="current-password" value={delPassword}
+                          onChange={(e) => setDelPassword(e.target.value)} className="mt-1.5 block w-full max-w-xs" />
+                      </>
+                    )}
+                    {deleteWith === "none" && (
+                      <p className="text-[12px] text-ink-faint">
+                        This account signs in only through Google or GitHub and has no password or two-factor, so typing
+                        DELETE while signed in is the only confirmation.
+                      </p>
+                    )}
+                  </div>
                   <div className="mt-4">
-                    <Button variant="danger" disabled={busy || confirm !== "DELETE"} onClick={() => void deleteAccount()}>
-                      Delete my account
+                    <Button variant="danger" disabled={busy || !deleteReady} onClick={() => void deleteAccount()}>
+                      {busy ? "Deleting…" : "Delete my account"}
                     </Button>
                   </div>
                   {delMsg && <Notice ok={false}>{delMsg}</Notice>}
