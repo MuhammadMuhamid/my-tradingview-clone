@@ -331,7 +331,9 @@ function commandAnswer(outcome: BotControlOutcome, requestId: string): Answer {
   }
   const answer = refusalAnswer(outcome);
   // `request_id_reused` is about the id, not the command: a corrected retry must reach the Bot.
-  return outcome.fault === "business" && outcome.code !== "request_id_reused" ? { ...answer, fromBot: true } : answer;
+  // `bot_busy_retry` (contract v2.0, C12-C14) asks for exactly that retry, so it is never replayed from here.
+  return outcome.fault === "business" && outcome.code !== "request_id_reused" && outcome.code !== "bot_busy_retry"
+    ? { ...answer, fromBot: true } : answer;
 }
 
 function refusalAnswer(outcome: Extract<BotControlOutcome, { outcome: "refused" }>): Answer {

@@ -436,6 +436,16 @@ test("bot management", async (t) => {
       stopLossEnabled: false, stopLossPct: null });
     assert.equal(unsafe.json().code, "invalid_request");
 
+    // `bot_busy_retry` is a definitive refusal (not uncertain) that the Platform never replays.
+    const busyId = rid("busy");
+    // The edit first reads the current bot (C11, to judge weakening): let that read through.
+    bot.replies.push({}, { status: 409, json: { error: "The Bot is busy; try again.", code: "bot_busy_retry" }, skipExecution: true });
+    const busy = await call(admin, "PATCH", url, { requestId: busyId, name: "Busy", credential: { code: await freshCode() } });
+    assert.deepEqual([busy.statusCode, busy.json().code], [409, "bot_busy_retry"]);
+    const retried = await call(admin, "PATCH", url, { requestId: busyId, name: "Busy", credential: { code: await freshCode() } });
+    assert.equal(retried.statusCode, 200, retried.body);
+    assert.equal(retried.json().replayed, undefined, "the retry reached the Bot");
+
     // The Bot's X5 refusal passes through with its code.
     bot.manage.bots.get(managed.id)!.activeTrades = 1;
     const x5 = await call(admin, "PATCH", url, { requestId: rid("x5"), exchangeAccountId: other.id, credential: { code: await freshCode() } });
