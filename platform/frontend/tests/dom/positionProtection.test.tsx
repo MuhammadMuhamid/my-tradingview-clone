@@ -7,7 +7,7 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
-import { assertPresent, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
+import { assertAbsent, assertPresent, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
 import { mountChart } from "./harness/chart";
 import { TradingStateStrip } from "@/components/tv/TradingStateStrip";
 import { loadSession, resetSessionForTests } from "@/lib/session";
@@ -148,4 +148,35 @@ test("the Trade panel says the bot is NOT checking TP/SL while it is halted", as
   const watched = assertPresent(document.querySelector('[data-position-id="watched"]'), "watched position");
   assert.equal(assertPresent(watched.querySelector("[data-protection]"), "panel halted badge").textContent,
     "TP/SL NOT BEING CHECKED · Bot halted");
+});
+
+test("a PLATFORM halt names its own scope and leaves the bot's protection protected", async () => {
+  /*
+   * This Platform's halt refuses automated emissions and new manual exposure
+   * here; it never reaches the bot, whose TP/SL poller keeps running. Feeding
+   * it into protection said "TP/SL NOT BEING CHECKED · Bot halted" — the wrong
+   * cause, and an understatement of real protection.
+   */
+  await loadSession();
+  server.routes.set("GET /api/ops/status", () => ({ mode: "DISABLED", feeds: { worst: "live", rows: [] },
+    risk: { tradingHalted: true, haltedReason: "operator halt" } }));
+  server.routes.set("GET /api/manual-trading/state", () => ({ ...STATE, positions: [
+    position("watched", { pair: "SOLUSDT", protectionType: "bot-managed", protectionState: "active",
+      manualTpPrice: 250, manualSlPrice: 150 }),
+  ] }));
+  const chart = await mountChart();
+  await settle(6);
+  fireEvent.click(assertPresent(chart.container.querySelector<HTMLElement>('[data-toolbar-control="trade"]'), "Trade control"));
+  await settle(6);
+  const notice = assertPresent(document.querySelector('[data-halt-notice="true"]'), "Platform halt notice");
+  assert.match(notice.textContent ?? "", /Platform halted: operator halt\. New exposure is refused here\./);
+  assert.match(notice.textContent ?? "", /TP\/SL checks continue unless the bot itself is halted/);
+  assert.equal(notice.textContent?.includes("NOT checking"), false, "the Platform halt blamed on the bot");
+  assertAbsent(document.querySelector('[data-protection-notice="true"]'), "a bot-halt notice while the bot is polling");
+  fireEvent.click(screen.getByRole("tab", { name: /^Orders/ }));
+  await settle(4);
+  const watched = assertPresent(document.querySelector('[data-position-id="watched"]'), "watched position");
+  const badge = assertPresent(watched.querySelector("[data-protection]"), "badge");
+  assert.equal(badge.getAttribute("data-protection"), "protected");
+  assert.equal(badge.textContent, "TP/SL bot-managed");
 });

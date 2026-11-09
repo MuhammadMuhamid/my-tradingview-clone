@@ -31,7 +31,11 @@ export interface PositionProtection {
 export interface ProtectionContext {
   /** `protection.polling`; undefined from an older bot. */
   polling: boolean | undefined;
-  /** The bot's halt latch (or this Platform's halt read); undefined when unknown. */
+  /**
+   * The BOT's halt latch (`tradingHalted`); undefined from an older bot. Never
+   * this Platform's own halt: that refuses automated emissions and new manual
+   * exposure here, but never reaches the bot, whose TP/SL poller keeps running.
+   */
   halted: boolean | undefined;
   /** Whether manual trading is enabled on the bot. */
   manualEnabled: boolean | undefined;
@@ -47,17 +51,18 @@ export const UNKNOWN_PROTECTION_CONTEXT: ProtectionContext = {
   accountTestnet: undefined, mainnetPositionsChecked: undefined,
 };
 
-/** The context for one position, from the bot's manual state. */
+/**
+ * The context for one position, from the BOT's manual state only — bot-reported
+ * facts are the only authority on whether the bot's poller is checking.
+ */
 export function protectionContextFor(
   state: Pick<ManualTradingState, "enabled" | "tradingHalted" | "accounts" | "protection"> | null | undefined,
   position: Pick<ManualPosition, "exchangeAccountId">,
-  platformHalted?: boolean,
 ): ProtectionContext {
   const account = state?.accounts?.find((candidate) => candidate.id === position.exchangeAccountId);
   return {
     polling: state?.protection?.polling,
-    // Either authority saying "halted" is enough to say "not checked".
-    halted: platformHalted === true || state?.tradingHalted === true ? true : state?.tradingHalted,
+    halted: state?.tradingHalted,
     manualEnabled: state?.enabled,
     accountTestnet: typeof account?.testnet === "boolean" ? account.testnet : undefined,
     mainnetPositionsChecked: state?.protection?.mainnetPositionsChecked,

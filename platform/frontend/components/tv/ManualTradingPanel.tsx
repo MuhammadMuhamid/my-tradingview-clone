@@ -784,19 +784,21 @@ export function ManualTradingPanel({
         the way the reference does. Nothing is sent from here — the review
         dialog is still the only place an order can be confirmed.
       */}
+      {/* THIS Platform's halt: it refuses new exposure here and never reaches
+          the bot, whose TP/SL checks carry on. Naming the bot's protection as
+          stopped would give the wrong cause and understate real protection. */}
       {halted && (
         <p role="status" data-halt-notice="true"
           className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
-          Trading is halted{halted.reason ? `: ${halted.reason}` : ""}. New positions are
-          refused, and the bot is NOT checking take-profit / stop-loss while halted.{" "}
-          <span className="text-ink-muted">Closing and cancelling still work; TP/SL you set is
-          saved but not enforced until the bot is resumed.</span>
+          Platform halted{halted.reason ? `: ${halted.reason}` : ""}. New exposure is refused
+          here.{" "}<span className="text-ink-muted">Closing and cancelling still work. The bot&apos;s
+          TP/SL checks continue unless the bot itself is halted (see Trading → Bot).</span>
         </p>
       )}
-      {/* The bot's own report that its TP/SL poller is off (halted, or manual
-          trading disabled on the bot) — even when this Platform's halt read
-          did not say so. Never imply protection that nothing enforces. */}
-      {!halted && state?.protection.polling === false && (
+      {/* The BOT's own report that its TP/SL poller is off (the bot is halted,
+          or manual trading is disabled on the bot). Never imply protection
+          that nothing enforces. */}
+      {(state?.protection.polling === false || state?.tradingHalted === true) && (
         <p role="status" data-protection-notice="true"
           className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
           The bot is NOT checking take-profit / stop-loss right now
@@ -838,7 +840,7 @@ export function ManualTradingPanel({
         // The bot's protection state, read strictly: only a watched TP/SL is
         // protected; a late fill or an unrecognised state says so loudly.
         const protectionStatus = positionProtection(p, stateReadFailed
-          ? UNKNOWN_PROTECTION_CONTEXT : protectionContextFor(state, p, halted !== null));
+          ? UNKNOWN_PROTECTION_CONTEXT : protectionContextFor(state, p));
         return <div key={p.id} data-position-id={p.id} className="space-y-2 border-b border-border bg-surface-2/30 p-3 text-xs">
           <div className="flex items-center justify-between gap-2">
             <strong className="text-ink">{p.pair} · <span className="tabular">{p.quantity}</span></strong>
