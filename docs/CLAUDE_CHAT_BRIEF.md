@@ -52,7 +52,7 @@ Treat this as a dated snapshot. The maintained copy is
 | Platform | `72ea65f` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
 | Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
-| Manual trading | On. The Trade panel shows **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 |
+| Manual trading | On. The Trade panel showed **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 (current code says **DRY RUN (simulated)** for the Bot's dry run) |
 | Orders | One simulated $100 BTCUSDT BUY exists. No order has ever been placed on testnet or mainnet |
 | Release check | `release.sh gate` passed for this Platform and Bot pair on 2026-11-05 |
 
@@ -63,8 +63,8 @@ Temporary conditions to keep in mind:
 - **Bot backups:** they run every 6 hours to a private S3 bucket. Nothing alerts on a
   failure, no restore has been tested, and the Bot's encryption keys have no copy off
   the server.
-- **Database count:** production `/readyz` reports 59 migrations applied, while this
-  commit ships 52. None are missing. Where the extra 7 came from hasn't been traced,
+- **Database count:** production `/readyz` reports 59 migrations applied and 52 expected
+  for the deployed commit; this commit ships 53 (`053` needs `btree_gist`). None are missing. Where the extra 7 came from hasn't been traced,
   so any migration work should check this first.
 
 ## 4. What exists, and how far it is proven
@@ -74,11 +74,11 @@ Temporary conditions to keep in mind:
 | Chart: symbols, intervals, styles, 25 drawing tools, indicators, Pine editor, layouts, watchlists, Bar Replay, Compare | Everyone | Tested locally |
 | Alerts: sixteen condition families, four frequency modes, web push. They never place orders | Everyone | Tested. Newer families haven't been seen firing on a live market event |
 | Screener: needs a separate Python service | Read for everyone | Not run in the campaign (Binance HTTP 451 from that network) |
-| Accounts: email, Google or GitHub sign-in, email verification, two-factor sign-in, per-user data, default-deny routes | Everyone | Tested and live. Admin two-factor works in production. Verification emails wait on SES production access. Neither is required until packages exist |
+| Accounts: email, Google or GitHub sign-in, email verification, two-factor sign-in, per-user data, default-deny routes | Everyone | Tested and live. Admin two-factor works in production. Verification emails wait on SES production access. Joining a package cohort needs both; Bot commands on `/bot` need the admin's two-factor (Halt alone also takes the password). Ten-user isolation and the canonical-path gate (G1) tested against PostgreSQL (2026-11-09) |
 | Shariah screening: review pack, external research, JSON import, publish, Mode | Admin manages, others read | Walked through locally with fixture data. It validates a file's shape and doesn't issue rulings |
 | Manual trading: Binance Spot, MARKET/LIMIT, optional TP/SL | Admin only | Tested with fakes. Panel seen in production. No exchange order yet |
-| Journal | Admin only | Tested locally |
-| Bot section (`/bot`): read-only bots, open trades and history | Admin only | Tested, and seen working in production as admin |
+| Journal: one environment badge per row (REAL, TESTNET, DRY RUN, PAPER, UNKNOWN) and five separate summary cards | Admin only | Tested locally. Automated Bot results read UNKNOWN until the Bot's event carries an environment |
+| Bot page (`/bot`): status, Bot halt/resume, risk limits, start/stop, Close/Partial for strategy trades, outcome-unknown checking (2026-11-09); bots, open trades and history | Admin only | Controls tested against a fake Bot; not yet run against the production Bot. Read-only views seen working in production as admin |
 | Automations: strategy signals to the Bot, 3Commas or paper | Admin only | The Holdout gate has never passed. It only guards the `replace_*.mjs` deploy scripts, and the deployments API route doesn't check it |
 | Quick Backtester: `ma_rr_v9`, `srtrend_v10`, `mtf_lean` | Admin only | Tested locally |
 | Research Optimizer | Whoever runs it on that Mac | Search and Replay tested locally. Walk-forward and Holdout took 0 trades in a synthetic run at shipped sizing |
@@ -89,7 +89,9 @@ Limits that surprise people:
 - The ticket offers **testnet accounts only**. Real-money orders need a code change
   as well as the Bot's mainnet setting.
 - TP/SL is a 30-second Bot poll that sells at market. Nothing rests on the exchange,
-  so positions are unprotected while the Bot is down.
+  so positions are unprotected while the Bot is down or halted.
+- The Platform halt and the Bot halt are separate switches. A Bot halt also stops
+  TP/SL and refuses TradingView exits; your own SELL / Close / Partial still work.
 - With `DRY_RUN=true`, orders are simulated and don't reach Binance, even testnet.
 - Trading is for the administrator. Each user connecting their own exchange account
   would be a new product feature.
@@ -131,7 +133,7 @@ Paths are starting points, relative to each repository.
 | Navigation and role visibility | Platform `platform/frontend/lib/navigation.ts`, `components/AdminOnlyPage.tsx` |
 | API routes | Platform `platform/backend/src/api/routes/` |
 | Platform-to-Bot trading | Platform `platform/backend/src/manualTrading/`, `api/routes/manualTrading.ts`; Bot `backend/src/services/manualTrading.ts` |
-| Bot section | Platform `platform/frontend/app/bot/page.tsx`, `platform/backend/src/api/routes/botView.ts`; Bot `backend/src/services/botView.ts` |
+| Bot page and controls | Platform `platform/frontend/app/bot/page.tsx`, `platform/frontend/components/bot/`, `platform/backend/src/api/routes/botView.ts`, `api/routes/botControl.ts`, `operations/botStatus.ts`; Bot `backend/src/services/botView.ts`, `backend/src/routes/manualControl.ts`, `backend/src/services/tradeExit.ts` |
 | Email, two-factor and GitHub | Platform `platform/backend/src/api/routes/accountSecurity.ts`, `security/twoFactor.ts`, `security/github.ts`, `email/mailer.ts`, `platform/frontend/components/AccountSecurity.tsx` |
 | Who may reach what | Platform `platform/backend/src/security/requestUser.ts` |
 | Alerts | Platform `platform/backend/src/alerts/`, `api/routes/maAlerts.ts` |

@@ -30,10 +30,50 @@ had one sign-in and every row was that person's.
 
 Default-deny. `userMayReach` in `platform/backend/src/security/requestUser.ts`
 lists the user routes: the chart and its data, their own things, the
-screener (read + pattern analysis) and the Shariah screen (read-only).
-Trading, deployments/webhooks, operations, research, optimizer, stress,
-journal, execution and scanner configuration are admin-only — they act on the
-owner's exchange account. A route added later is admin-only until listed.
+screener (read + pattern analysis), the Shariah screen (read-only) and packages
+(browse, ask to join a cohort, their own portfolio).
+Trading, deployments/webhooks, operations, the Bot page and its controls
+(`/api/bot/*`), research, optimizer, stress, journal, execution and scanner
+configuration are admin-only — they act on the owner's exchange account. A
+route added later is admin-only until listed. A Standard account has no
+exchange keys and cannot trade. That is an owner decision, and per-user keys or
+trading are not implemented.
+
+**The gate checks the path the router dispatches on** (added 2026-11-09, G1).
+`canonicalRequestPath` mirrors the router:
+
+- it strips an absolute-form `http://host`;
+- it cuts at the first `?` or `#`;
+- it percent-decodes as `decodeURI` does.
+
+The session gate, `PUBLIC_PATHS` and the sign-in rate limit all use that one
+path. An encoded slash (`%2F`), a malformed escape, or a target without a
+leading `/` is refused with 400. `userMayReachRoute` also refuses the
+admin-only exceptions by the route pattern the router actually matched. Before
+this, a Standard account reached `POST /api/layouts/sync-deployments` as
+`sync%2Ddeployments`, and encoded sign-in paths escaped the rate limit.
+
+**Shared on purpose, read-only:**
+
+- candles and the symbol/instrument catalog;
+- Screener reads and pattern analysis;
+- published Shariah decisions;
+- the shipped Pine library.
+
+Everything else a Standard account reaches is its own, scoped by `user_id`.
+`platform/backend/tests/tenUserIsolationDb.test.ts` proves this against
+PostgreSQL. It signs in ten Standard accounts, the administrator, and
+signed-out, stale-session and unverified sessions. It covers:
+
+- own create, read, update and delete;
+- reading, changing and deleting another owner's rows by real and guessed ids;
+- creates and updates whose body names another owner;
+- paged alert events;
+- switching accounts and parallel use;
+- 28 administrator-only routes.
+
+`platform/backend/tests/sessionGatePathDb.test.ts` holds the gate to the real
+router over real HTTP.
 The frontend mirrors this (`ADMIN_ONLY_HREFS` in `platform/frontend/lib/navigation.ts`,
 and the API client refuses admin-only endpoints for a known ordinary account),
 but the backend is what enforces it. Since 2026-11-01 the chart workstation
@@ -114,6 +154,8 @@ account signs in on the same browser.
 
 ## 6. Tests
 
+`platform/backend/tests/tenUserIsolationDb.test.ts` and
+`platform/backend/tests/sessionGatePathDb.test.ts` (§2),
 `platform/backend/tests/accountSecurityDb.test.ts` (verification, two-factor and
 GitHub through the real API and PostgreSQL), `platform/backend/tests/accountProviderLinkDb.test.ts`
 (taking back an unverified account, linking from the profile, replayed round trips and
@@ -131,6 +173,19 @@ Added 2026-11-05 (migration `052_account_security.sql`). `/api/auth/me` reports
 Joining a package cohort requires both (`platform/backend/src/api/routes/packages.ts`);
 linking a provider from the profile requires a verified email (see below). The
 administrator counts as verified, because it has no email.
+
+**Bot commands need the administrator's two-factor** (added 2026-11-09). Every
+command on `/bot` that changes something asks for the authenticator code again,
+whether the session came from a password, Google or GitHub. With two-factor off,
+only Halt is accepted, with the password, so a halt is never blocked. An account
+with neither a password nor two-factor cannot confirm a Bot command
+(`platform/backend/src/api/routes/botControl.ts`; [OPERATIONS §1](OPERATIONS.md)).
+Turn two-factor on for the administrator before relying on Bot controls in
+Trading Scene. On an administrator account, starting setup, turning two-factor
+on and turning it off each append an `admin_audit` row
+(`auth.2fa.setup_started`, `auth.2fa.enabled`, `auth.2fa.disabled`). Ordinary
+accounts are not recorded there. `admin_audit` is append-only, and a row naming
+an account would stop that account from being deleted.
 
 **Email verification.** Signing up sends a link that works once and expires in 24
 hours. Only its hash is stored, and a new link replaces the old one. A provider's

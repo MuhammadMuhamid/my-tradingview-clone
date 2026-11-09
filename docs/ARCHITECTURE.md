@@ -315,13 +315,42 @@ lookup plus the existing bounded state fallback, and
 for one deployment, with Bot reads capped to the newest 10 exact intents.
 Neither endpoint writes, reconciles, submits, or contacts an exchange.
 
-### Bot section read boundary
+### Bot page: read and control boundary
 
 `/bot` (Trading → Bot, administrator only) shows the Bot's bots, open trades and
-results. The browser only talks to Platform. `platform/backend/src/api/routes/botView.ts`
+results, and since 2026-11-09 operates the Bot. The browser only talks to Platform.
+`platform/backend/src/api/routes/botView.ts`
 serves three GET routes, `/api/bot/summary`, `/api/bot/bots` and `/api/bot/trades`,
 and rebuilds the query from checked values, so it isn't a general proxy. Each one
 calls a matching signed read at `/api/manual-trading/bot-view/*` on the Bot.
+
+**Control** (`platform/backend/src/api/routes/botControl.ts`): there is one Platform
+route under `/api/bot/control/*` per Bot command:
+
+- status;
+- halt and resume;
+- risk limits, read and change;
+- start or stop one bot;
+- close and partial-close a strategy trade;
+- the status of one command.
+
+Each route maps to one signed route under `/api/manual-trading/control/*` on the
+Bot (`bot:backend/src/routes/manualControl.ts`). The rules are:
+
+- Path ids are validated as UUIDs before they enter the signed path.
+- Bodies are rebuilt from validated fields.
+- The browser's request id is required and never minted here.
+- Every changing command re-checks a credential in the same request (step-up).
+  That credential is never forwarded to the Bot.
+- Every command writes `admin_audit` rows before and after it is sent.
+- An answer that is not a Bot-authored definitive one is reported as "outcome
+  unknown" and settled by the command-status route.
+
+On the Bot, `BotControlCommand` claims each request id once and never runs a
+command twice. Close and Partial call the same `bot:backend/src/services/tradeExit.ts`
+functions as the Bot dashboard. Money paths are reused, not re-implemented. The
+control prefix is control plane on the Bot, so it works with manual trading
+disabled. Workflow and rules: [OPERATIONS §1](OPERATIONS.md).
 
 The Bot builds these responses field by field in `bot:backend/src/services/botView.ts`,
 so the webhook secret and exchange keys stay out. The reads use local rows only and
@@ -330,7 +359,7 @@ don't contact an exchange. A Bot refusal of the signature reaches the browser as
 sign-in can't fix.
 
 These reads depend on `MANUAL_TRADING_ENABLED` on both sides. With it off, the page
-says the connection is off.
+says the read-only views are off; status, halt and limits still work.
 
 ### Trade Journal read projection
 
@@ -367,7 +396,14 @@ once through the existing signed state contract, never once per row, and remains
 activity unless a future authoritative cost-basis/disposition relationship exists.
 Manual BUY and SELL orders are never paired.
 
-Real and PAPER summaries are returned and rendered separately. Only rows with a
+Each row carries an execution environment: REAL, TESTNET, DRY_RUN, PAPER or
+UNKNOWN. It comes from per-row evidence only, through one rule shared with the
+chart overlay and the manual Timeline (the `journal/environment` module). REAL
+needs positive evidence, and nothing defaults to it. The summary is returned
+and rendered as five separate slices, one per environment, never added together.
+The period and symbol groupings are split by environment too. Bot realizations
+read UNKNOWN until the event carries a declared environment, which is a deferred
+cross-repository change. Only rows with a
 known persisted realized result enter known totals or win/loss counts. Date
 buckets use the realization time; activity and any outcome without such a time
 cannot enter a fabricated bucket. The Journal performs no automated Bot history
@@ -414,8 +450,12 @@ loaded candle whose actual open/close interval contains it. Events in gaps or
 outside the loaded range are omitted rather than moved to a nearest or future
 bar. Active LIMIT and position lines are current-state observations with their
 observation timestamp, not proof of every lifecycle transition or a timeless
-exchange guarantee. Real, testnet/dry-run and PAPER labels remain explicit;
-PAPER also uses label/shape text so color is not the only distinction.
+exchange guarantee. Real, testnet, dry-run, unknown and PAPER labels remain
+explicit. They come from the same per-row rule as the Journal, never from the
+Bot's current mode. PAPER also uses label/shape text so color is not the only
+distinction. The chart draws the Bot-managed manual TP/SL lines only for a
+position the Bot reports it is checking: not for a late fill, a halted or
+non-polling Bot, or an unchecked mainnet account.
 
 The browser settles visible-range changes for 300 ms, requests only the buffered
 loaded range, caches historical responses by symbol/range/Replay cutoff, aborts
