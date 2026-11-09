@@ -93,16 +93,46 @@ export function manualOrderEnvironment(input: {
   return "UNKNOWN";
 }
 
+/** A Bot-owned ManualPosition (a manual SmartTrade) as the state read lists it. */
+export interface ManualPositionEnvironmentEvidence {
+  exchangeAccountId: string | null | undefined;
+  /** The entry's exchange order id, when the Bot sends it. */
+  exchangeOrderId?: string | null;
+  clientOrderId?: string | null;
+  /** The entry ManualOrder's id, when the Bot sends it. */
+  manualOrderId?: string | null;
+}
+
 /**
- * A Bot-owned ManualPosition carries an account but no exchange order id of
- * its own, and in dry-run it is built from simulated fills. So it is TESTNET on
- * a testnet account and otherwise UNKNOWN — never REAL.
+ * A manual position, by the same rule as its entry order, so the chart's
+ * position line can never say TESTNET where the order's own marker, the strip,
+ * the ticket and the Journal say DRY RUN (walkthrough D-4).
+ *
+ * 1. The position's own exchange/client id, or its entry order's exchange id
+ *    (found by `manualOrderId` in the same state read), is `dry-` → DRY_RUN.
+ * 2. Otherwise the order rule on the position's account with that exchange id:
+ *    TESTNET on a testnet account; REAL only on an explicit mainnet account
+ *    with a non-simulated exchange id; otherwise UNKNOWN.
+ *
+ * Today's Bot lists positions WITHOUT any of those ids, so a position is still
+ * decided by its account alone: TESTNET on a testnet account (true — not real
+ * funds — but not as precise as DRY_RUN), UNKNOWN otherwise, never REAL. The
+ * Bot must add `manualOrderId`/`exchangeOrderId` to its position read for
+ * rule 1 to apply; nothing here guesses the entry from prices or times.
  */
 export function manualPositionEnvironment(
-  exchangeAccountId: string | null | undefined,
-  accounts: readonly ManualAccountEnvironmentEvidence[] | null | undefined
+  position: ManualPositionEnvironmentEvidence,
+  accounts: readonly ManualAccountEnvironmentEvidence[] | null | undefined,
+  orders: readonly { id: string; exchangeOrderId?: string | null }[] = [],
 ): ExecutionEnvironment {
-  return manualOrderEnvironment({ exchangeOrderId: null, exchangeAccountId, accounts });
+  const entryId = text(position.manualOrderId);
+  const entry = entryId === null ? undefined : orders.find((order) => order.id === entryId);
+  if (isDryRunExchangeOrderId(position.exchangeOrderId) || isDryRunExchangeOrderId(position.clientOrderId)
+      || isDryRunExchangeOrderId(entry?.exchangeOrderId)) return "DRY_RUN";
+  return manualOrderEnvironment({
+    exchangeOrderId: text(position.exchangeOrderId) ?? entry?.exchangeOrderId ?? null,
+    exchangeAccountId: position.exchangeAccountId, accounts,
+  });
 }
 
 /**

@@ -119,14 +119,24 @@ function manualState(raw: ManualStateWire, symbol: string, observedAt: number): 
     const updatedAtValue = time(position.updatedAt);
     const updatedAt = Number.isFinite(updatedAtValue) ? updatedAtValue : observedAt;
     if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) return [];
+    // Keep the entry's identity when the Bot sends it: the position's environment
+    // follows its entry order (D-4), and dropping fields here is how D3 began.
+    const optionalId = (value: unknown): string | null => typeof value === "string" && value !== "" ? value : null;
     return [{ id: String(position.id), exchangeAccountId: String(position.exchangeAccountId ?? ""),
+      exchangeOrderId: optionalId(position.exchangeOrderId), clientOrderId: optionalId(position.clientOrderId),
+      manualOrderId: optionalId(position.manualOrderId),
       pair: symbol, status: String(position.status ?? "unknown"), entryPrice: number(position.entryPrice),
       quantity: number(position.quantity) ?? 0, createdAt, updatedAt }];
   });
   return { dryRun: Boolean(raw.dryRun), accounts: raw.accounts ?? [], orders, positions };
 }
 
-export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> {
+/** `stateRequest` is a test seam for the one Bot READ this route makes; it never writes. */
+export async function tradingOverlayRoutes(
+  app: FastifyInstance,
+  dependencies: { stateRequest?: typeof manualBotRequest } = {}
+): Promise<void> {
+  const stateRequest = dependencies.stateRequest ?? manualBotRequest;
   app.get<{ Querystring: TradingOverlayQuery }>("/api/trading-overlays", async (req, reply) => {
     const parsed = parseTradingOverlayQuery(req.query);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
@@ -151,7 +161,7 @@ export async function tradingOverlayRoutes(app: FastifyInstance): Promise<void> 
       wantsHistorical ? journalRepo.listAutomatedActivity(filter) : Promise.resolve([]),
       wantsHistorical ? journalRepo.listPaperFills(filter) : Promise.resolve([]),
       !wantsManual ? Promise.resolve({ state: undefined, unavailable: false })
-        : manualBotRequest<ManualStateWire>({ method: "GET",
+        : stateRequest<ManualStateWire>({ method: "GET",
           path: `/api/manual-trading/state?symbol=${encodeURIComponent(q.storedSymbol)}` })
           .then((state) => ({ state, unavailable: false }))
           .catch(() => ({ state: undefined, unavailable: true })),
