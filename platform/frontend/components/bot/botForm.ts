@@ -201,6 +201,17 @@ export function buildBotPayload(form: BotFormState): Record<string, unknown> {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
+ * The fields the operator actually changed, for the "Changed:" summary. The
+ * payload (`changedFields`) also re-sends a changed field's partner (an
+ * amount travels with its unit), which must not be reported as a change.
+ */
+export function changedFieldNames(before: BotFormState, after: BotFormState): string[] {
+  const a = buildBotPayload(before);
+  const b = buildBotPayload(after);
+  return Object.keys(b).filter((key) => key !== "direction" && !same(a[key], b[key]));
+}
+
+/**
  * What an edit sends: only the fields that changed. A switch and its value
  * travel together, so the Bot judges the pair as one.
  */

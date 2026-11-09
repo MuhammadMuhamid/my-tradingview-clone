@@ -113,7 +113,7 @@ test("Close gating: only an older Bot refuses stopped, delisted and twin trades"
 
 // ── the bot form (port of bot/frontend/src/lib/botForm.ts, §5 fixes) ─────────
 import {
-  buildBotPayload, changedFields, defaultBotForm, formFromBot, investmentEstimate, unsafeConfigReason, validateBotForm,
+  buildBotPayload, changedFieldNames, changedFields, defaultBotForm, formFromBot, investmentEstimate, unsafeConfigReason, validateBotForm,
   weakensProtection,
 } from "../components/bot/botForm";
 import type { BotConfigView } from "../lib/botManageApi";
@@ -159,6 +159,9 @@ test("payload, round trip, and an edit sends only what changed (a switch travels
   assert.deepEqual(changedFields(form, { ...form, name: "New" }), { name: "New" });
   assert.deepEqual(changedFields(form, { ...form, stopLossEnabled: false }), { stopLossEnabled: false, stopLossPct: null });
   assert.deepEqual(changedFields(form, { ...form, maxInvestmentPct: "4" }), { maxInvestmentPct: 4, maxInvestmentUnit: "pct_bot" });
+  // The summary names only what changed; the unit still travels in the payload (browser defect V3-1).
+  assert.deepEqual(changedFieldNames(form, { ...form, maxInvestmentPct: "4" }), ["maxInvestmentPct"]);
+  assert.deepEqual(changedFieldNames(form, form), []);
 });
 
 test("the client's weakening rule matches the server's list", () => {

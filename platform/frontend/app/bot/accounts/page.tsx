@@ -195,7 +195,7 @@ function AccountsView() {
         tier="grant" autoSubmit onCancel={close}
         intro={<><p>The Bot deletes this account and its encrypted keys. It refuses while any bot, order or open trade still uses
           the account, so nothing is left without credentials.</p>
-          {dialog.account.botsUsing > 0 && <p className="text-warn">{dialog.account.botsUsing} bot{dialog.account.botsUsing === 1 ? "" : "s"} use it: the Bot will refuse.</p>}</>}
+          {dialog.account.botsUsing > 0 && <p className="text-warn">{dialog.account.botsUsing === 1 ? "1 bot uses it" : `${dialog.account.botsUsing} bots use it`}: the Bot will refuse.</p>}</>}
         onConfirm={(credential) => commands.run({
           intent: `account_delete:${dialog.account.id}`, label: `Remove ${dialog.account.name}`,
           send: (requestId) => botManageApi.deleteAccount(requestId, dialog.account.id, credential),

@@ -29,7 +29,7 @@ import { useBotCommands } from "@/components/bot/commandRunner";
 import { openBotPage } from "@/components/bot/navigate";
 import { capability, capabilityNote } from "@/components/bot/botLogic";
 import {
-  changedFields, formFromBot, validateBotForm, weakensProtection, type BotFormState,
+  changedFieldNames, changedFields, formFromBot, validateBotForm, weakensProtection, type BotFormState,
 } from "@/components/bot/botForm";
 import { useAccountBalance, useExchangeAccounts } from "@/components/bot/useAccounts";
 
@@ -88,7 +88,8 @@ function BotDetailView() {
   const bot = detail?.bot ?? null;
   const errors = form ? validateBotForm(form, bot?.pairs ?? []) : {};
   const changed = useMemo(() => (initial && form ? changedFields(initial, form) : {}), [initial, form]);
-  const changedNames = Object.keys(changed).map((k) => FIELD_NAMES[k] ?? k);
+  const changedNames = useMemo(() => (initial && form ? changedFieldNames(initial, form) : []), [initial, form])
+    .map((k) => FIELD_NAMES[k] ?? k);
   const weakening = bot ? weakensProtection(changed, bot) : true;
   const valid = Object.keys(errors).length === 0;
 
