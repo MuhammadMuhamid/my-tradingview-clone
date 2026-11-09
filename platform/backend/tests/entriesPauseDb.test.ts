@@ -264,6 +264,27 @@ test("pause new entries", async (t) => {
     assert.equal((await listAdminAudit("platform.entries_", 1))[0]!.action, "platform.entries_resumed");
   });
 
+  await t.test("resume is recorded before it takes effect: audit down → 503, still paused, nothing sent (review R1)", async () => {
+    await liveSafety.setEntriesPaused(true, { reason: "audit-first probe", by: ADMIN_USER_ID });
+    bot.reset();
+    await query(`CREATE FUNCTION r1_refuse_audit() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'r1: audit down'; END; $$ LANGUAGE plpgsql`);
+    await query("CREATE TRIGGER r1_block BEFORE INSERT ON admin_audit FOR EACH ROW EXECUTE FUNCTION r1_refuse_audit()");
+    try {
+      const res = await entries(admin, { requestId: rid("r1"), paused: false, credential: { code: await freshCode() } });
+      assert.deepEqual([res.statusCode, res.json().code], [503, "audit_unavailable"], res.body);
+      assert.equal(await platformState(), true);
+      assert.equal(bot.commandRequests().length, 0);
+    } finally {
+      await query("DROP TRIGGER r1_block ON admin_audit");
+      await query("DROP FUNCTION r1_refuse_audit()");
+    }
+    const ok = await entries(admin, { requestId: rid("r1ok"), paused: false, credential: { code: await freshCode() } });
+    assert.equal(ok.statusCode, 200, ok.body);
+    assert.equal(await platformState(), false);
+    const actions = (await listAdminAudit("platform.entries_", 2)).map((r) => r.action).sort();
+    assert.deepEqual(actions, ["platform.entries_resume.requested", "platform.entries_resumed"]);
+  });
+
   await t.test("cancelWorkingEntries is an explicit opt-in, passed through, and the Bot's report comes back", async () => {
     bot.reset();
     bot.workingEntries = [{ orderId: "o-9", symbol: "BTCUSDT" }];

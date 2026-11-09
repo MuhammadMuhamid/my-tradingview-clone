@@ -245,6 +245,19 @@ function entriesSpec(body: Record<string, unknown>): CommandSpec {
     kind: "entries", method: "POST", botPath: `${BOT_BASE}/entries`, target: "bot", params,
     accept: botControlReplies.entries, long: true, allowsPassword: paused, tier: "grant",
     platformHalf: async ({ actor, requestId, proof }) => {
+      if (!paused) {
+        // Resuming increases exposure: like every other risk-increasing command, it is
+        // recorded before it takes effect, and refused when it cannot be recorded
+        // (Fable review R1). Pausing stays set-first: it reduces risk.
+        try {
+          await appendAdminAudit(actor, "platform.entries_resume.requested", "platform", {
+            requestId, stepUpMethod: proof.method, ...(proof.grantId ? { grantId: proof.grantId } : {}),
+          });
+        } catch {
+          throw new Refusal(503, "audit_unavailable",
+            "New entries were not resumed because the change could not be recorded. Try again.");
+        }
+      }
       const state = await liveSafety.setEntriesPaused(paused,
         { reason: paused ? params.reason as string : null, by: actor });
       try {
