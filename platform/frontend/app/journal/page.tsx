@@ -61,8 +61,11 @@ const ENVIRONMENT_MEANING: Record<JournalEnvironment, string> = {
 
 function EnvironmentBadge({ environment }: { environment: JournalEnvironment }) {
   return (
+    // `relative` contains the absolutely positioned sr-only label: without a
+    // positioned ancestor it escaped the scroll container and lengthened the
+    // document, so scrolling past the list moved the whole app (walkthrough D-5).
     <span data-environment={environment} title={ENVIRONMENT_MEANING[environment]}
-      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ENVIRONMENT_STYLE[environment]}`}>
+      className={`relative rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ENVIRONMENT_STYLE[environment]}`}>
       <span className="sr-only">Environment: </span>{ENVIRONMENT_LABEL[environment]}
     </span>
   );

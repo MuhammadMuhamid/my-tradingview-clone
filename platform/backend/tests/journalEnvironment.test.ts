@@ -362,3 +362,32 @@ test("history without provenance is UNKNOWN and leaves Real money evidence empty
   assert.equal(summary.real.unknownEconomicRows, 0);
   assert.equal(summary.real.realizationRows, 0);
 });
+
+// ── Positions (walkthrough D-4) ─────────────────────────────────────────────
+
+test("a dry-run position on a testnet account is DRY_RUN, like its order — never TESTNET", () => {
+  const entry = order({ id: "entry-dry", exchangeOrderId: "dry-cid-entry", exchangeAccountId: "acct-testnet" });
+  const position = (id: string, over: Record<string, unknown>) => ({ id, exchangeAccountId: "acct-testnet",
+    pair: "BTCUSDT", status: "active", entryPrice: 70000, quantity: 0.001, createdAt: T0, updatedAt: T0, ...over });
+  const items = projectCurrentOverlays({ symbol: "BTCUSDT", automatedOrders: [], positions: [], manual: {
+    dryRun: false, accounts: ACCOUNTS as never, orders: [entry],
+    positions: [
+      position("by-entry", { manualOrderId: "entry-dry" }),
+      position("by-own-id", { exchangeOrderId: "dry-cid-other" }),
+      position("no-ids", {}),
+      position("real-entry", { exchangeAccountId: "acct-main", exchangeOrderId: "8812399" }),
+      position("main-no-ids", { exchangeAccountId: "acct-main" }),
+    ] } });
+  const env = (id: string) => items.find((item) => item.id === `manual-position:${id}`)?.environment;
+  // The position and its entry order's own marker say the same thing.
+  const marker = projectHistoricalOverlays({ symbol: "BTCUSDT", automatedActivity: [], automatedRealizations: [],
+    paperFills: [], limit: 10, manual: { dryRun: false, accounts: ACCOUNTS as never, orders: [entry], positions: [] } })
+    .items[0]?.environment;
+  assert.equal(marker, "DRY_RUN");
+  assert.equal(env("by-entry"), marker);
+  assert.equal(env("by-own-id"), "DRY_RUN");
+  // Without the entry's identity, only the account speaks: TESTNET, never REAL.
+  assert.equal(env("no-ids"), "TESTNET");
+  assert.equal(env("real-entry"), "REAL", "an acknowledged mainnet entry is real exposure");
+  assert.equal(env("main-no-ids"), "UNKNOWN");
+});

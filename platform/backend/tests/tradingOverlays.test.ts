@@ -226,7 +226,8 @@ test("overlay route is session protected and has no per-marker Bot evidence fan-
   } finally { config.authEnabled = previous; await app.close(); }
   const source = readFileSync("src/api/routes/tradingOverlays.ts", "utf8");
   assert.doesNotMatch(source, /readStrategyExecutionEvidence|readManualExecutionEvidence/);
-  assert.equal((source.match(/manualBotRequest</g) ?? []).length, 1);
+  // Exactly one Bot read (through the injectable `stateRequest` seam).
+  assert.equal((source.match(/(?:manualBotRequest|stateRequest)</g) ?? []).length, 1);
 });
 
 test("large fixture is newest-first bounded with truthful truncation", () => {

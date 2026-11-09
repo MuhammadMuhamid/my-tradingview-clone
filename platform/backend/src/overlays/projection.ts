@@ -18,6 +18,10 @@ export interface ManualOverlayOrderEvidence extends ManualActivityEvidence {
 export interface ManualOverlayPositionEvidence {
   id: string;
   exchangeAccountId: string;
+  /** The entry's identity, when the Bot sends it (see `manualPositionEnvironment`). */
+  exchangeOrderId?: string | null;
+  clientOrderId?: string | null;
+  manualOrderId?: string | null;
   pair: string;
   status: string;
   entryPrice: number | null;
@@ -270,7 +274,8 @@ export function projectCurrentOverlays(input: {
     output.push({
       id: `manual-position:${position.id}`, kind: "POSITION_LINE",
       evidenceClass: "CURRENT_AUTHORITATIVE_STATE", evidenceKind: "EXPLICIT_MANUAL_POSITION_SNAPSHOT",
-      source: "MANUAL", environment: manualPositionEnvironment(position.exchangeAccountId, input.manual!.accounts),
+      source: "MANUAL",
+      environment: manualPositionEnvironment(position, input.manual!.accounts, input.manual!.orders),
       symbol: position.pair, side: "BUY", eventTime: null, observedAt: iso(position.updatedAt),
       price: position.entryPrice, quantity: position.quantity, state: position.status,
       orderType: null, completeness: "INCOMPLETE",

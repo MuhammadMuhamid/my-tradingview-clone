@@ -38,6 +38,9 @@ async function prepare(): Promise<string | null> {
 }
 
 const CLOSED = "2026-10-10T12:00:00.000Z";
+/** Closed once, after every test in this file: the second test reuses the database. */
+let closeDatabase: (() => Promise<void>) | null = null;
+after(async () => { await closeDatabase?.(); });
 const SHA = "a".repeat(64);
 
 test("saved rows are labelled from their own provenance, identically on the Journal and the chart", async (t) => {
@@ -50,7 +53,7 @@ test("saved rows are labelled from their own provenance, identically on the Jour
   const { journalRoutes } = await import("../src/api/routes/journal");
   const { tradingOverlayRoutes } = await import("../src/api/routes/tradingOverlays");
   const Fastify = (await import("fastify")).default;
-  after(() => closePool());
+  closeDatabase = closePool;
   await migrate();
   // No Bot is asked anything: manual trading is off, and neither route may
   // read the Bot's current mode any more.
@@ -145,4 +148,41 @@ test("saved rows are labelled from their own provenance, identically on the Jour
     [`automated-execution:${ids.executionCustom}`]: journalEnv[`execution-snapshot:${ids.executionCustom}`],
     [`automated-execution:${ids.executionDryThreeCommas}`]: journalEnv[`execution-snapshot:${ids.executionDryThreeCommas}`],
   });
+});
+
+test("the overlay route keeps a position's entry identity, so a dry-run position is DRY_RUN on the chart", async (t) => {
+  // Runs after the test above, in the database it prepared and migrated.
+  if (closeDatabase === null) { t.skip("the database test above did not run"); return; }
+  const { config } = await import("../src/config");
+  const { tradingOverlayRoutes } = await import("../src/api/routes/tradingOverlays");
+  const Fastify = (await import("fastify")).default;
+  const previous = config.manualTradingEnabled;
+  config.manualTradingEnabled = true;
+  t.after(() => { config.manualTradingEnabled = previous; });
+  const at = "2026-10-10T12:00:00.000Z";
+  const state = {
+    enabled: true, mainnetEnabled: false, dryRun: true, mixed: false,
+    accounts: [{ id: "acct-test", testnet: true, mode: "testnet" }],
+    orders: [{ id: "entry-1", requestId: "r1", clientOrderId: "cid-1", exchangeOrderId: "dry-cid-1",
+      exchangeAccountId: "acct-test", symbol: "BTCUSDT", side: "BUY", status: "filled", orderType: "MARKET",
+      createdAt: at, submittedAt: at, completedAt: at, updatedAt: at, filledBaseQty: 0.001, averageFillPrice: 70000 }],
+    positions: [
+      { id: "pos-entry", exchangeAccountId: "acct-test", manualOrderId: "entry-1", pair: "BTCUSDT",
+        status: "active", entryPrice: 70000, quantity: 0.001, createdAt: at, updatedAt: at },
+      { id: "pos-plain", exchangeAccountId: "acct-test", pair: "BTCUSDT",
+        status: "active", entryPrice: 70000, quantity: 0.001, createdAt: at, updatedAt: at },
+    ],
+  };
+  const app = Fastify({ logger: false });
+  await tradingOverlayRoutes(app, { stateRequest: (async () => state) as never });
+  t.after(() => app.close());
+  const res = await app.inject({ method: "GET", url:
+    `/api/trading-overlays?symbol=BTCUSDT&from=${Date.parse("2026-10-10T00:00:00Z")}&to=${Date.parse("2026-10-10T23:59:59Z")}` });
+  assert.equal(res.statusCode, 200, res.body);
+  const items = (res.json() as import("../src/overlays/types").TradingOverlayResponse).items;
+  const env = (id: string) => items.find((item) => item.id === id)?.environment;
+  assert.equal(env("manual-order:entry-1:completion"), "DRY_RUN");
+  assert.equal(env("manual-position:pos-entry"), "DRY_RUN", "the route dropped the position's entry identity");
+  // Today's Bot sends no entry identity on positions: the account alone speaks.
+  assert.equal(env("manual-position:pos-plain"), "TESTNET");
 });

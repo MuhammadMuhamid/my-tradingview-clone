@@ -125,6 +125,10 @@ test("every row carries its own environment badge", async () => {
     assert.equal(badge.getAttribute("data-environment"), environment, name);
     assert.equal(badge.textContent, `Environment: ${label}`, name);
     assert.ok((badge.getAttribute("title") ?? "").length > 0, `${name} badge explains itself`);
+    // D-5: the absolutely positioned sr-only label needs a positioned parent,
+    // or it escapes the scroll container and lengthens the whole document.
+    const srLabel = assertPresent(badge.querySelector(".sr-only"), `${name} screen-reader label`);
+    assert.match((srLabel.parentElement as HTMLElement).className, /(^|\s)relative(\s|$)/, `${name} sr-only escapes`);
     // The chart chip's colour for the same word.
     if (environment !== "PAPER") {
       assert.ok(badge.className.includes(EXECUTION_ENVIRONMENT_TONE[environment]), `${name} badge colour`);
