@@ -1580,6 +1580,20 @@ async function botControlSend(method: "POST" | "PATCH", path: string,
   return { kind: "uncertain", requestId: body.requestId };
 }
 
+/**
+ * OD-2 step-up grants: whether this browser holds one, and "Lock now". Neither
+ * call carries or returns a secret; the grant itself is an HttpOnly cookie.
+ */
+export interface StepUpStatus {
+  twoFactorEnabled: boolean;
+  method: "totp" | "password" | null;
+  grant: { valid: boolean; expiresAt?: string };
+}
+export const stepUpApi = {
+  status: () => req<StepUpStatus>("/api/auth/step-up/status"),
+  revoke: () => req<{ ok: true }>("/api/auth/step-up/revoke", { method: "POST" }),
+};
+
 /** The Bot's controls. Every mutating call carries the browser's request id and a credential. */
 export const botControlApi = {
   status: () => req<BotControlPanel>("/api/bot/control/status"),
@@ -1820,20 +1834,25 @@ export const api = {
   opsStatus: () => req<OpsStatus>(`/api/ops/status`),
   strategyRunnerStatus: () => req<StrategyRunnerStatus>(`/api/ops/runner`),
   opsUnresolvedIntents: () => req<UnresolvedIntents>(`/api/ops/unresolved-intents`),
-  opsHalt: (reason: string) =>
+  /*
+   * OD-2: Platform halt/resume/limits are confirmed by step-up. The credential
+   * (`{code}` or, for a halt with two-factor off, `{password}`) is sent once and
+   * never kept; a recent code's grant cookie stands in for it at the grant tier.
+   */
+  opsHalt: (reason: string, credential?: BotCredential) =>
     req<{ halted: true; reason: string }>(`/api/ops/halt`, {
       method: "POST",
-      body: JSON.stringify({ confirmation: "HALT_TRADING", reason }),
+      body: JSON.stringify({ confirmation: "HALT_TRADING", reason, ...(credential ? { credential } : {}) }),
     }),
-  opsResume: () =>
+  opsResume: (credential?: BotCredential) =>
     req<{ halted: false; previousReason?: string | null; note?: string }>(`/api/ops/resume`, {
       method: "POST",
-      body: JSON.stringify({ confirmation: "RESUME_TRADING" }),
+      body: JSON.stringify({ confirmation: "RESUME_TRADING", ...(credential ? { credential } : {}) }),
     }),
-  opsSetRiskLimits: (patch: Record<string, number | null>) =>
+  opsSetRiskLimits: (patch: Record<string, number | null>, credential?: BotCredential) =>
     req<OpsStatus["risk"]>(`/api/ops/risk-limits`, {
       method: "PATCH",
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, ...(credential ? { credential } : {}) }),
     }),
 
   // Manual Binance Spot commands (platform session -> HMAC service channel -> bot).

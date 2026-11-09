@@ -3,8 +3,10 @@ import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type OpsStatus, type OpsStatusBotControl, type UnresolvedIntents } from "@/lib/api";
+import { ApiError, api, type BotCredential, type OpsStatus, type OpsStatusBotControl, type UnresolvedIntents } from "@/lib/api";
 import { BotStatusStrip } from "@/components/bot/BotStatusStrip";
+import { StepUpDialog } from "@/components/bot/StepUpDialog";
+import type { DialogResult } from "@/components/bot/commandRunner";
 import { HALT_SCOPE_TEXT } from "@/components/bot/botCopy";
 import { api as scannerApi } from "@/lib/scanner/api";
 import { describeAction, said, shortReason, type FailureCopy } from "@/lib/errorCopy";
@@ -200,6 +202,28 @@ function BotPanel({ status }: { status: OpsStatus }) {
  * Empty means OFF, and says so, because "no limit" and "a limit of zero" are
  * opposite instructions and an empty box must not be read as the second.
  */
+/** Refusals that belong inside the confirm dialog (OD-2): the operator can fix them there. */
+const OPS_STEP_UP_CODES = new Set(["step_up_required", "step_up_failed", "step_up_rate_limited", "step_up_busy",
+  "two_factor_required", "step_up_unavailable", "auth_disabled"]);
+
+/**
+ * Run one confirmed Operations command for the step-up dialog: a step-up
+ * refusal keeps the dialog open with the server's words (and the credential it
+ * names); anything else closes it and is reported on the page by `onFailure`.
+ */
+async function confirmedOps(run: () => Promise<unknown>, onFailure: (e: unknown) => void): Promise<DialogResult> {
+  try {
+    await run();
+    return { close: true };
+  } catch (e) {
+    if (e instanceof ApiError && e.code !== null && OPS_STEP_UP_CODES.has(e.code)) {
+      return { close: false, error: e.detail, ...(e.method ? { method: e.method } : {}) };
+    }
+    onFailure(e);
+    return { close: true };
+  }
+}
+
 function RiskLimitEditor(
   { risk, onSaved }:
   { risk: OpsStatus["risk"]; onSaved: (next: OpsStatus["risk"]) => void }
@@ -209,6 +233,8 @@ function RiskLimitEditor(
   const [positions, setPositions] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<FailureCopy | null>(null);
+  /** OD-2: the validated patch waiting for its fresh credential. */
+  const [pendingPatch, setPendingPatch] = useState<Record<string, number | null> | null>(null);
 
   // Refill from the live values each time it is opened, so a limit changed
   // elsewhere is what the operator edits rather than a stale draft.
@@ -240,20 +266,21 @@ function RiskLimitEditor(
       ));
       return;
     }
-    setBusy(true);
     setErr(null);
+    // Changing a limit is fresh-tier step-up (OD-2): the dialog asks for a credential every time.
+    setPendingPatch({ maxTotalExposureQuote, maxConcurrentPositions });
+  };
+
+  const confirmSave = (credential: BotCredential) => confirmedOps(async () => {
+    setBusy(true);
     try {
-      const next = await api.opsSetRiskLimits({
-        maxTotalExposureQuote, maxConcurrentPositions,
-      });
+      const next = await api.opsSetRiskLimits(pendingPatch ?? {}, credential);
       onSaved(next);
       setOpen(false);
-    } catch (e) {
-      setErr(describeAction(e, "save the risk limits"));
     } finally {
       setBusy(false);
     }
-  };
+  }, (e) => setErr(describeAction(e, "save the risk limits")));
 
   if (!open) {
     return (
@@ -301,6 +328,9 @@ function RiskLimitEditor(
         </Button>
         <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
       </div>
+      <StepUpDialog open={pendingPatch !== null} title="Change the Platform's risk limits" confirmLabel="Save limits"
+        tier="fresh" autoSubmit onCancel={() => setPendingPatch(null)} onConfirm={confirmSave}
+        intro={<p>Changing a risk limit is confirmed with the code from your authenticator app, every time.</p>} />
     </div>
   );
 }
@@ -351,6 +381,8 @@ function OperationsView() {
   const [notice, setNotice] = useState("");
   const [haltReason, setHaltReason] = useState("");
   const [confirmResume, setConfirmResume] = useState(false);
+  /** OD-2: the Platform halt waiting for its step-up (grant tier; the password works while two-factor is off). */
+  const [confirmHalt, setConfirmHalt] = useState(false);
   const [scanner, setScanner] = useState<ScannerEvidence>({ loading: true });
 
   const refresh = useCallback(() => {
@@ -378,7 +410,8 @@ function OperationsView() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  const act = async (fn: () => Promise<unknown>, done: string): Promise<void> => {
+  /** A confirmed Platform halt or resume, from its step-up dialog (OD-2). */
+  const confirmed = (fn: () => Promise<unknown>, done: string) => confirmedOps(async () => {
     setBusy(true);
     setNotice("");
     setActionError("");
@@ -387,13 +420,13 @@ function OperationsView() {
       setNotice(done);
       setHaltReason("");
       setConfirmResume(false);
+      setConfirmHalt(false);
       refresh();
-    } catch (e) {
-      setActionError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  };
+  }, (e) => setActionError((e as Error).message));
+
 
   // The heading belongs to the ROUTE, not to a successful load: a page that
   // renders only an error message has no heading for a screen reader to
@@ -514,20 +547,12 @@ function OperationsView() {
                 {risk.haltedAt ? ` at ${when(risk.haltedAt)}` : ""}.
                 {risk.haltedReason ? ` Reason: ${risk.haltedReason}` : ""}
               </Notice>
-              {confirmResume ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-ink">
-                    Resuming re-arms real order flow. Is the reason for the halt gone?
-                  </span>
-                  <Button variant="danger" disabled={busy}
-                    onClick={() => void act(() => api.opsResume(), "Trading resumed.")}>
-                    Yes, resume trading
-                  </Button>
-                  <Button variant="ghost" onClick={() => setConfirmResume(false)}>Cancel</Button>
-                </div>
-              ) : (
-                <Button variant="default" onClick={() => setConfirmResume(true)}>Resume trading…</Button>
-              )}
+              <Button variant="default" onClick={() => setConfirmResume(true)}>Resume trading…</Button>
+              {/* OD-2: resuming re-arms real order flow, so it is confirmed (a recent code's grant suffices). */}
+              <StepUpDialog open={confirmResume} title="Resume trading" confirmLabel="Yes, resume trading" danger
+                tier="grant" autoSubmit onCancel={() => setConfirmResume(false)}
+                onConfirm={(credential) => confirmed(() => api.opsResume(credential), "Trading resumed.")}
+                intro={<p>Resuming re-arms real order flow. Is the reason for the halt gone?</p>} />
             </>
           ) : (
             <div className="flex flex-wrap items-end gap-2">
@@ -545,10 +570,16 @@ function OperationsView() {
               <Button
                 variant="danger"
                 disabled={busy || haltReason.trim().length < 3}
-                onClick={() => void act(() => api.opsHalt(haltReason.trim()), "Trading halted.")}
+                onClick={() => setConfirmHalt(true)}
               >
                 Halt all trading
               </Button>
+              {/* OD-2: confirmed like the Bot's halt: a code (or a recent code's grant), or the password while two-factor is off. */}
+              <StepUpDialog open={confirmHalt} title="Halt all trading" confirmLabel="Halt all trading" danger
+                tier="grant" allowsPassword autoSubmit onCancel={() => setConfirmHalt(false)}
+                onConfirm={(credential) => confirmed(() => api.opsHalt(haltReason.trim(), credential), "Trading halted.")}
+                intro={<p>Halting refuses every automated emission, and any new exposure from the manual ticket and
+                  the live test signal. Reason: {haltReason.trim()}</p>} />
             </div>
           )}
           <p className="text-xs text-ink-faint">

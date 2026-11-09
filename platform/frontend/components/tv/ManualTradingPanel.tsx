@@ -1119,7 +1119,7 @@ export function ManualTradingPanel({
       </dl>
     </Modal>
     {/* OD-2/OD-7: a manual BUY opens new exposure, so the server may ask for the code (a recent one suffices). */}
-    <StepUpDialog open={stepUpOpen} title="Confirm this BUY" confirmLabel="Confirm BUY"
+    <StepUpDialog open={stepUpOpen} title="Confirm this BUY" confirmLabel="Confirm BUY" tier="grant" autoSubmit
       initialMethod={lastStepUpRefusal.current?.method ?? null}
       onCancel={() => setStepUpOpen(false)} onConfirm={confirmWithCredential}
       intro={<p>A manual BUY opens new exposure, so it is confirmed with the code from your authenticator app.

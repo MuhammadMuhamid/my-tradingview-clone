@@ -193,9 +193,8 @@ test("a BUY the server wants confirmed opens the step-up dialog; the retry carri
   assert.equal(attempts.length, 1);
   const dialog = assertPresent(screen.queryByRole("dialog", { name: "Confirm this BUY" }), "step-up dialog");
   const code = dialog.querySelector("input") as HTMLInputElement;
+  // The shared six-digit field confirms on the sixth digit (OD-2).
   fireEvent.change(code, { target: { value: "123456" } });
-  await settle(2);
-  fireEvent.click(screen.getByRole("button", { name: "Confirm BUY" }));
   await settle(6);
   assert.equal(attempts.length, 2);
   assert.equal(attempts[1]!.requestId, attempts[0]!.requestId, "one order, one request id");
