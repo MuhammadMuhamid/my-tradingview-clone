@@ -1452,6 +1452,8 @@ export interface BotRiskView {
   summary: string;
   /** The daily-loss halt is latched: resuming re-checks the loss. */
   latched: boolean;
+  /** The loss is at or past the limit right now (Bot OD-3 and later; absent on an older Bot). */
+  dailyLossBreached?: boolean;
 }
 /** C0, as the Bot reports it. `dryRun` and `halt` are independent facts. */
 export interface BotControlStatus {
@@ -1467,6 +1469,11 @@ export interface BotControlStatus {
   manual: { enabled: boolean; mainnetEnabled: boolean };
   version: string | null;
   time: string;
+  /** The Bot half of "pause new entries" (OD-3, C9). Absent on an older Bot: show unknown. */
+  entries?: { paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null;
+    workingEntryLimits?: number; unresolvedBuyIntents?: number };
+  /** What this Bot supports (B-CAP). Absent = an older Bot: hide or disable with an explanation. */
+  capabilities?: string[];
 }
 /** Every Bot fact under its own name. `facts` null means "could not read", never "off". */
 export interface BotControlPanel {
@@ -1478,6 +1485,8 @@ export interface BotControlPanel {
   readAt: string;
   /** Only on `/api/bot/control/status`: the Platform's own, separate halt switch. */
   platformHalt?: { halted: boolean; haltedBy: string | null; haltedReason: string | null } | null;
+  /** Only on `/api/bot/control/status`: the Platform half of "pause new entries" (null: could not read). */
+  platformEntries?: { paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null } | null;
 }
 /** `/api/ops/status` carries the panel beside `bot`. */
 export type OpsStatusBotControl = { botControl?: BotControlPanel };
@@ -1519,7 +1528,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
  * into an `Error`, and a failed `fetch` into "could not". A request that may
  * have reached the Platform is uncertain, so a network failure here is too.
  */
-async function botControlSend(method: "POST" | "PATCH", path: string,
+export async function botControlSend(method: "POST" | "PATCH", path: string,
   body: Record<string, unknown> & { requestId: string }): Promise<BotCommandAnswer> {
   if (await refusedForThisAccount(path)) {
     return { kind: "refused", status: 403, code: "admin_only",
@@ -1607,6 +1616,10 @@ export interface BotViewTrade {
   entryPrice: number | null; currentPrice: number | null; quantity: number; quoteSpent: number;
   pnlUsdt: number; pnlPct: number; exchangeOrderId: string | null; closedReason: string | null;
   partialCloses: number; account: BotViewAccount | null; createdAt: string; closedAt: string | null;
+  /** Summed P&L of this trade's partial closes, when the Bot sends it (it does not yet). */
+  partialPnlUsdt?: number | null;
+  /** A manual position's protection state; `race_fill_sweep` = a late entry fill being sold (OD-1). */
+  protectionState?: string | null;
 }
 export interface BotTradesPage { total: number; page: number; pageSize: number; rows: BotViewTrade[] }
 

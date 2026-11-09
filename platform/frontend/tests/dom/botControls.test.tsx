@@ -267,7 +267,8 @@ test("Start confirms the target state and shows the unresolved-intent count", as
   });
   render(<AppRoute path="/bot"><BotPage /></AppRoute>);
   await settle(6);
-  fireEvent.click(screen.getByRole("button", { name: "Start Trend bot" }));
+  // The bots are a table and phone cards, both in the document.
+  fireEvent.click(screen.getAllByRole("button", { name: "Start Trend bot" })[0]!);
   await settle(2);
   const dialog = screen.getByRole("dialog", { name: "Start Trend bot" });
   assert.match(dialog.textContent ?? "", /unresolved intents/);

@@ -19,14 +19,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 import {
-  Button, Card, CardHeader, Checkbox, Empty, Field, Loading, Notice, PageHeader, PageShell, Select, StatusBadge, TextInput,
+  Button, Card, CardHeader, Checkbox, Empty, Field, Loading, Notice, Select, TextInput,
 } from "@/components/ui";
 import {
   api, ApiError, botControlApi,
   type BotControlPanel, type BotSummary, type BotTradesPage, type BotViewBot, type BotViewTrade,
 } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { LOCAL_TIME_NOTE, signClass } from "@/lib/format";
+import { signClass } from "@/lib/format";
 import { BotStatusStrip } from "@/components/bot/BotStatusStrip";
 import { TradeCards, TradesTable, dollars, money, type TradeActions, type TradeTab } from "@/components/bot/BotTrades";
 import { RiskLimitsCard } from "@/components/bot/RiskLimitsCard";
@@ -36,6 +36,14 @@ import { useClassicBotAppearance, useLightTheme } from "@/components/bot/classic
 import {
   BOT_HALT_BLOCKS, HALT_SCOPE_TEXT, PLATFORM_HALT_BLOCKS, RECOVERY_NOTE, routingLabel, tradePanelHref,
 } from "@/components/bot/botCopy";
+import { BotShell } from "@/components/bot/BotShell";
+import { BotsCard } from "@/components/bot/BotsCard";
+import { EntriesCard } from "@/components/bot/EntriesCard";
+import { HistorySummary } from "@/components/bot/HistorySummary";
+import { PartialCloseFields } from "@/components/bot/PartialCloseFields";
+import { TwoFactorBanner } from "@/components/bot/TwoFactorBanner";
+import { capability, capabilityNote, closeBlockReason, startSummary } from "@/components/bot/botLogic";
+import { useVisiblePolling } from "@/components/bot/polling";
 
 const PAGE_SIZE = 50;
 
@@ -45,7 +53,7 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : S
 const connectionIsOff = (error: unknown) =>
   error instanceof ApiError && error.status === 404 && /manual trading is disabled/i.test(error.message);
 
-function Figure({ label, value, className = "text-ink" }: { label: string; value: string; className?: string }) {
+export function Figure({ label, value, className = "text-ink" }: { label: string; value: string; className?: string }) {
   return (
     <div className="min-w-0 px-4 py-3">
       <div className="text-xs text-ink-muted">{label}</div>
@@ -58,17 +66,6 @@ function Pill({ children, tone }: { children: string; tone: "warn" | "down" | "n
   const skin = tone === "warn" ? "border-warn/30 bg-warn/10 text-warn"
     : tone === "down" ? "border-down/30 bg-down/10 text-down" : "border-border bg-surface-2 text-ink-muted";
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${skin}`}>{children}</span>;
-}
-
-function botSettings(bot: BotViewBot): string {
-  const parts = [bot.investment];
-  parts.push(bot.takeProfitPct === null ? "No take profit" : `Take profit ${bot.takeProfitPct}%`);
-  parts.push(bot.stopLossPct === null ? "No stop loss" : `Stop loss ${bot.stopLossPct}%`);
-  if (!bot.entryEnabled) parts.push("Entries off");
-  if (!bot.exitEnabled) parts.push("Exits off");
-  if (bot.maxEntryOrders !== null) parts.push(`Max ${bot.maxEntryOrders} per pair`);
-  if (bot.maxActiveSmartTrades !== null) parts.push(`Max ${bot.maxActiveSmartTrades} open`);
-  return parts.join(" · ");
 }
 
 type Dialog =
@@ -131,7 +128,7 @@ function BotView() {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [reason, setReason] = useState("");
-  const [pct, setPct] = useState("25");
+  const [pct, setPct] = useState(50);
   // A slower older answer must not replace what the newest request asked for.
   const latestTrades = useRef(0);
   const view = useRef({ tab, botId, page });
@@ -158,8 +155,9 @@ function BotView() {
     }
   }, []);
 
-  const loadAll = useCallback(async (next: { tab: TradeTab; botId: string; page: number }) => {
-    setLoading(true);
+  /** `silent`: the 15 s auto-refresh, which never shows "Loading…" or clears what is shown. */
+  const loadAll = useCallback(async (next: { tab: TradeTab; botId: string; page: number }, silent = false) => {
+    if (!silent) setLoading(true);
     const [overview] = await Promise.all([
       Promise.all([api.botSummary(), api.botList()]).then(
         ([nextSummary, nextBots]) => ({ nextSummary, nextBots, error: null as unknown }),
@@ -171,13 +169,15 @@ function BotView() {
     setOverviewError(overview.error);
     if (overview.nextSummary) setSummary(overview.nextSummary);
     if (overview.nextBots) setBots(overview.nextBots);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [loadTrades, loadPanel]);
 
   useEffect(() => { void loadAll({ tab: "active", botId: "", page: 1 }); }, [loadAll]);
 
   const refreshAfterCommand = useCallback(() => { void loadAll(view.current); }, [loadAll]);
   const commands = useBotCommands(refreshAfterCommand);
+  // P-21: silent, every 15 s, only while the tab is visible.
+  useVisiblePolling(() => { void loadAll(view.current, true); }, session !== null);
 
   const showTrades = (next: { tab?: TradeTab; botId?: string; page?: number }) => {
     const target = { tab: next.tab ?? tab, botId: next.botId ?? botId, page: next.page ?? 1 };
@@ -201,14 +201,17 @@ function BotView() {
   const lastPage = trades ? Math.max(1, Math.ceil(trades.total / trades.pageSize)) : 1;
   const close = () => setDialog(null);
 
+  const operatorExit = capability(panel, "operatorExit.v1");
+  const manageBots = capability(panel, "bots.v1");
+  const twoFactorOff = session?.user ? !session.user.twoFactorEnabled : false;
   const tradeActions: TradeActions = {
     enabled: canCommand, disabledReason: commandsBlocked ?? undefined,
     close: (trade) => setDialog({ type: "close", trade }),
-    partial: (trade) => { setPct("25"); setDialog({ type: "partial", trade }); },
+    partial: (trade) => { setPct(50); setDialog({ type: "partial", trade }); },
+    closeBlocked: (trade) => closeBlockReason(trade, bots, trades?.rows ?? [], operatorExit),
   };
 
-  const pctValue = Number(pct);
-  const pctValid = Number.isInteger(pctValue) && pctValue >= 1 && pctValue <= 99;
+  const pctValid = Number.isInteger(pct) && pct >= 1 && pct <= 99;
 
   return (
     /*
@@ -216,22 +219,12 @@ function BotView() {
      * Nav keeps the Platform skin, and an account that is not the
      * administrator never mounts it.
      */
-    <div data-bot-appearance={classic ? "classic" : undefined} className="min-h-full bg-bg">
-    <PageShell width="narrow">
-      <header>
-        <PageHeader
-          title="Bot"
-          description="Operate the execution Bot: its halt, risk limits, bots and strategy trades. Exchange keys stay on the Bot."
-          actions={<Button onClick={() => void loadAll({ tab, botId, page })} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </Button>}
-        />
-        <nav aria-label="Related pages" className="mt-1 flex flex-wrap items-center gap-x-4 text-sm">
-          <Link href="/journal" className="inline-flex min-h-11 items-center text-ink-muted underline hover:text-ink sm:min-h-0">Journal</Link>
-          <Link href="/operations" className="inline-flex min-h-11 items-center text-ink-muted underline hover:text-ink sm:min-h-0">Operations</Link>
-          <span className="text-xs text-ink-faint">{LOCAL_TIME_NOTE}</span>
-        </nav>
-      </header>
+    <BotShell section="overview" classic={classic} title="Bot"
+      description="Operate the execution Bot: its halt, new entries, risk limits, bots and strategy trades. Exchange keys stay on the Bot. Refreshes every 15 seconds while this tab is open."
+      actions={<Button onClick={() => void loadAll({ tab, botId, page })} disabled={loading}>
+        {loading ? "Loading…" : "Refresh"}
+      </Button>}>
+      {isAdmin && twoFactorOff && !authOff && <TwoFactorBanner />}
 
       <OutcomeList outcomes={commands.outcomes} onRecheck={commands.recheck} onDismiss={commands.dismiss} />
 
@@ -276,6 +269,9 @@ function BotView() {
         </div>
       </Card>
 
+      <EntriesCard panel={panel} isAdmin={isAdmin} canCommand={canCommand} commandsBlocked={commandsBlocked}
+        twoFactorEnabled={!twoFactorOff} onChanged={refreshAfterCommand} />
+
       <RiskLimitsCard risk={facts?.risk ?? null} disabled={!canCommand} disabledReason={commandsBlocked ?? undefined}
         onSubmit={(patch, credential) => commands.run({
           intent: `risk_limits:bot:${JSON.stringify(patch)}`, label: "Risk limits",
@@ -311,36 +307,9 @@ function BotView() {
         </div>
       </Card>}
 
-      {bots && <Card>
-        <CardHeader title="Bots" />
-        {bots.length === 0 ? <Empty>No bots yet. Bots are created on the Bot&apos;s own dashboard.</Empty> : (
-          <div className="divide-y divide-border">
-            {bots.map((bot) => (
-              <div key={bot.id} className="px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-ink">{bot.name}</span>
-                    <StatusBadge status={bot.status} />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm tabular ${signClass(bot.realizedPnl)}`}>{money(bot.realizedPnl)}</span>
-                    {isAdmin && <Button disabled={!canCommand} title={commandsBlocked ?? undefined}
-                      label={`${bot.status === "active" ? "Stop" : "Start"} ${bot.name}`}
-                      onClick={() => setDialog({ type: "bot", bot, target: bot.status === "active" ? "paused" : "active" })}>
-                      {bot.status === "active" ? "Stop…" : "Start…"}
-                    </Button>}
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-ink-muted">
-                  {bot.pairs.join(", ") || "No pairs"} · {bot.activeTrades} open · {bot.closedTrades} closed · {bot.signalCount} signals
-                  {" · "}{bot.account ? `${bot.account.name}${bot.account.testnet ? " (testnet)" : " (mainnet)"}` : "No account"}
-                </p>
-                <p className="mt-0.5 text-xs text-ink-faint">{botSettings(bot)}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>}
+      {bots && <BotsCard bots={bots} isAdmin={isAdmin} canCommand={canCommand} commandsBlocked={commandsBlocked}
+        canManage={manageBots === "yes"} manageNote={capabilityNote(manageBots, "Creating and editing bots from Trading Scene")}
+        onToggle={(bot) => setDialog({ type: "bot", bot, target: bot.status === "active" ? "paused" : "active" })} />}
 
       {!off && <Card>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -367,6 +336,7 @@ function BotView() {
         {trades && (trades.rows.length === 0
           ? <Empty>{tab === "active" ? "No open trades." : "No closed trades yet."}</Empty>
           : <>
+            {tab === "closed" && <HistorySummary rows={trades.rows} total={trades.total} />}
             <TradesTable tab={tab} rows={trades.rows} actions={tradeActions} />
             <TradeCards tab={tab} rows={trades.rows} actions={tradeActions} />
           </>)}
@@ -386,6 +356,8 @@ function BotView() {
           </span>
         </label>
         <p>{RECOVERY_NOTE}</p>
+        {trades && trades.rows.length > 0 && <p>{trades.total} {tab === "active" ? "open" : "closed"} trade{trades.total === 1 ? "" : "s"} ·
+          P&amp;L is net of the fees the Bot recorded from the fills · refreshed every 15 seconds while this tab is open.</p>}
       </footer>
 
       {/* ── dialogs ──────────────────────────────────────────────────────── */}
@@ -416,8 +388,10 @@ function BotView() {
       {dialog?.type === "bot" && <StepUpDialog open title={`${dialog.target === "active" ? "Start" : "Stop"} ${dialog.bot.name}`}
         confirmLabel={dialog.target === "active" ? "Start bot" : "Stop bot"} danger={dialog.target === "paused"} onCancel={close}
         intro={dialog.target === "active"
-          ? <p>The bot acts on signals again. Signals queued while it was stopped (unresolved intents) may run once it starts; the Bot reports how many.</p>
-          : <p>The bot stops acting on signals. Its open trades keep their TP/SL. Closing one of its trades from here needs the bot running; Partial still works.</p>}
+          ? <StartIntro bot={dialog.bot} dryRun={facts?.dryRun ?? null} />
+          : <p>The bot stops acting on signals. Its open trades keep their TP/SL. {operatorExit === "yes"
+            ? "Close and Partial still work on its trades from here."
+            : "Closing one of its trades from here needs the bot running; Partial still works."}</p>}
         onConfirm={(credential) => commands.run({
           intent: `bot_status:${dialog.bot.id}:${dialog.target}`, label: `${dialog.target === "active" ? "Start" : "Stop"} ${dialog.bot.name}`,
           send: (requestId) => botControlApi.setBotStatus(requestId, dialog.bot.id, dialog.target, credential),
@@ -442,25 +416,44 @@ function BotView() {
             : "The close went through the Bot's exit path.",
         })} />}
 
-      {dialog?.type === "partial" && <StepUpDialog open title={`Partial close ${dialog.trade.pair}`} confirmLabel="Sell part" danger
+      {dialog?.type === "partial" && <StepUpDialog open title={`Partial close ${dialog.trade.pair}`} confirmLabel={`Sell ${pct}%`} danger
         canConfirm={pctValid} onCancel={close}
         intro={<p>Sells part of this strategy trade at market through the Bot&apos;s partial-close path. It works while the Bot is halted.</p>}
         onConfirm={(credential) => commands.run({
-          intent: `trade_partial_close:${dialog.trade.id}:${pctValue}`, label: `Partial close ${dialog.trade.pair}`,
+          intent: `trade_partial_close:${dialog.trade.id}:${pct}`, label: `Partial close ${dialog.trade.pair}`,
           chartHref: tradePanelHref(dialog.trade.pair),
-          send: (requestId) => botControlApi.partialCloseTrade(requestId, dialog.trade.id, pctValue, credential),
+          send: (requestId) => botControlApi.partialCloseTrade(requestId, dialog.trade.id, pct, credential),
           describe: (result) => {
             const executed = num(result.executedQty);
             const requested = num(result.requestedQty);
             return executed !== null && requested !== null ? `Sold ${executed} of the ${requested} requested.` : "The partial close went through.";
           },
         })}>
-        <Field label="Percentage to sell (%)" help="A whole number from 1 to 99.">
-          <TextInput type="number" min={1} max={99} step={1} value={pct} onChange={(e) => setPct(e.target.value)} className="w-28 tabular" />
-        </Field>
+        <PartialCloseFields trade={dialog.trade} pct={pct} onChange={setPct} />
       </StepUpDialog>}
-    </PageShell>
-    </div>
+    </BotShell>
+  );
+}
+
+/** What starting a bot arms (the Classic confirmation's summary, without `window.confirm`). */
+function StartIntro({ bot, dryRun }: { bot: BotViewBot; dryRun: boolean | null }) {
+  const summary = startSummary(bot);
+  return (
+    <>
+      <p>The bot acts on signals again. Signals queued while it was stopped (unresolved intents) may run once it starts; the Bot reports how many.</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-xs" aria-label="What starting arms">
+        <dt className="text-ink-muted">Pairs</dt><dd className="text-ink">{summary.pairs}</dd>
+        <dt className="text-ink-muted">Size</dt><dd className="text-ink">{summary.size}</dd>
+        <dt className="text-ink-muted">Guards</dt>
+        <dd className="text-ink">{summary.guards.map((g, i) => <span key={g.text} className={g.missing ? "font-semibold text-down" : undefined}>
+          {i > 0 ? ", " : ""}{g.text}</span>)}</dd>
+      </dl>
+      <p className={dryRun === false ? "text-warn" : "text-ink-muted"}>
+        {dryRun === true ? "The Bot is in dry run: signals are simulated, no exchange order is placed."
+          : dryRun === false ? "Once started, an incoming signal places a real Binance Spot order."
+            : "The Bot's mode could not be read: assume an incoming signal places a real Binance Spot order."}
+      </p>
+    </>
   );
 }
 

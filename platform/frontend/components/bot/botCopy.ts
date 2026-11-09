@@ -128,6 +128,40 @@ export function explainRefusal(code: string, message: string): { text: string; c
       return { profile: true, text: message };
     case "audit_unavailable":
       return { text: "The command was not sent because it could not be recorded. Try again." };
+    // ── bots, accounts, enrollment (contract v2.0, C10-C19) ──────────────────
+    case "bot_busy_retry":
+      return { text: "The Bot is busy; try again. The Bot did not run this." };
+    case "bot_has_open_trades":
+      return { text: `${message} The Bot did not run this.` };
+    case "bot_has_unresolved_intents":
+      return { text: `${message} The Bot did not run this.` };
+    case "pair_has_open_trades":
+      return { text: `${message} The Bot did not run this.` };
+    case "realizations_pending":
+      return { text: `${message} The Bot did not run this.` };
+    case "rotation_conflict":
+      return { text: "The secret changed while this rotation ran. Reload the bot and try again." };
+    case "account_in_use":
+      return { text: `This exchange account is still in use (by a bot, an order or an open trade), so the Bot refused to remove it. ${message}` };
+    case "account_not_found":
+      return { text: "The Bot no longer has this exchange account. Refresh the page." };
+    case "exchange_unavailable":
+      return { text: "The exchange could not be reached, or refused this account's keys." };
+    case "enrollment_not_configured":
+      return { text: "Key enrollment is not set up on this Platform (BOT_PUBLIC_ORIGIN). Nothing was sent." };
+    case "enrollment_disabled":
+      return { text: "Key enrollment is turned off on the Bot (ENROLLMENT_ENABLED). Nothing was issued." };
+    case "enrollment_origin_mismatch":
+      return { text: message };
+    case "network_mismatch":
+      return { text: "A key replacement keeps the account's network. Add a new account for the other network." };
+    case "mainnet_confirmation_required":
+      return { text: "Type MAINNET to confirm a mainnet (real money) account." };
+    case "bot_secret_unknown":
+      return { text: "This Platform does not hold that bot's webhook secret. Rotate the secret on the bot's page; the new one is stored here." };
+    case "delivery_not_custom":
+    case "deployment_not_found":
+      return { text: message };
     default:
       return { text: `The Bot refused this: ${message}` };
   }
@@ -137,6 +171,7 @@ export function explainRefusal(code: string, message: string): { text: string; c
 export const STEP_UP_CODES = new Set([
   "step_up_required", "step_up_failed", "step_up_rate_limited", "step_up_busy",
   "two_factor_required", "step_up_unavailable", "invalid_request", "invalid_request_id", "invalid_target_id",
+  "mainnet_confirmation_required",
 ]);
 
 /** The chart, with this symbol and the manual Trade panel open (the Screener's existing deep link). */

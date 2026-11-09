@@ -57,8 +57,10 @@ test("the page offers exactly these controls, and opening it sends only reads", 
   botFixtures({ panel: panel({}, { halted: true }) });
   render(<AppRoute path="/bot"><BotPage /></AppRoute>);
   await settle(6);
+  // P-32 filter chips and OD-3 pause/resume joined the list (2026-11-09 parity); still no command on open.
   const allowed = ["Refresh", "Open trades", "Trade history", "Halt Bot…", "Resume Bot…", "Edit limits…",
-    "Stop…", "Start…", "Partial…", "Close…"];
+    "Stop…", "Start…", "Partial…", "Close…", "Pause new entries…", "Resume new entries…",
+    "All (1)", "Active (1)", "Stopped (0)"];
   const names = screen.getAllByRole("button").map((b) => b.textContent ?? "");
   for (const name of names) assert.ok(allowed.includes(name), `unexpected control: ${name}`);
   for (const name of ["Halt Bot…", "Resume Bot…", "Edit limits…", "Stop…", "Close…", "Partial…"]) {

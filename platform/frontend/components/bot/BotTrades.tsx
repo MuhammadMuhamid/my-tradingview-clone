@@ -17,6 +17,7 @@ import { Button } from "@/components/ui";
 import type { BotViewTrade } from "@/lib/api";
 import { fmtDateTime, fmtPct, fmtPrice, fmtQty, signClass } from "@/lib/format";
 import { tradePanelHref } from "./botCopy";
+import { closedReasonLabel, fmtDuration } from "./botLogic";
 
 export type TradeTab = "active" | "closed";
 
@@ -38,6 +39,42 @@ export interface TradeActions {
   disabledReason?: string;
   close: (trade: BotViewTrade) => void;
   partial: (trade: BotViewTrade) => void;
+  /** Why Close cannot be offered for this trade on this Bot version (`closeBlockReason`), or null. */
+  closeBlocked?: (trade: BotViewTrade) => string | null;
+}
+
+/** The trade's account: "Testnet account (testnet)". */
+const accountText = (trade: BotViewTrade) =>
+  trade.account ? `${trade.account.name} (${trade.account.testnet ? "testnet" : "mainnet"})` : "No account";
+
+/** How long it has been open, or how long it was open. */
+const ageText = (trade: BotViewTrade) =>
+  trade.closedAt ? `held ${fmtDuration(trade.createdAt, new Date(trade.closedAt).getTime())}` : `open ${fmtDuration(trade.createdAt)}`;
+
+/** "2 partial closes · +1.25 USDT" (the sum only when the Bot sends it). */
+function partialText(trade: BotViewTrade): string | null {
+  if (!trade.partialCloses) return null;
+  const count = `${trade.partialCloses} partial close${trade.partialCloses === 1 ? "" : "s"}`;
+  return typeof trade.partialPnlUsdt === "number" ? `${count} · ${money(trade.partialPnlUsdt)}` : count;
+}
+
+/** OD-1: a late entry fill on a manual position that the Bot is selling on its own. */
+export const RACE_FILL_LABEL = "Race fill — being sold automatically";
+
+function ReasonBadge({ reason }: { reason: string | null }) {
+  const label = closedReasonLabel(reason);
+  if (!label) return <>—</>;
+  const skin = label.tone === "up" ? "border-up/30 bg-up/10 text-up" : label.tone === "down" ? "border-down/30 bg-down/10 text-down"
+    : label.tone === "warn" ? "border-warn/30 bg-warn/10 text-warn" : "border-border bg-surface-2 text-ink-muted";
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${skin}`}>{label.label}</span>;
+}
+
+function TradeNotes({ trade }: { trade: BotViewTrade }) {
+  const partial = partialText(trade);
+  return <>
+    {trade.protectionState === "race_fill_sweep" && <span className="block text-xs text-warn">{RACE_FILL_LABEL}</span>}
+    {partial && <span className="block text-xs text-ink-faint">{partial}</span>}
+  </>;
 }
 
 function Actions({ trade, actions }: { trade: BotViewTrade; actions: TradeActions }) {
@@ -51,12 +88,15 @@ function Actions({ trade, actions }: { trade: BotViewTrade; actions: TradeAction
     ) : <span className="text-xs text-ink-faint">Close from the Trade panel</span>;
   }
   if (!trade.botId) return <span className="text-xs text-ink-faint">Bot deleted: not closable here</span>;
+  const blocked = actions.closeBlocked?.(trade) ?? null;
   return (
-    <span className="inline-flex flex-wrap gap-2">
+    <span className="inline-flex flex-wrap items-center justify-end gap-2">
       <Button disabled={!actions.enabled} title={actions.enabled ? undefined : actions.disabledReason}
         label={`Partial close ${trade.pair}`} onClick={() => actions.partial(trade)}>Partial…</Button>
-      <Button variant="danger" disabled={!actions.enabled} title={actions.enabled ? undefined : actions.disabledReason}
+      <Button variant="danger" disabled={!actions.enabled || blocked !== null}
+        title={!actions.enabled ? actions.disabledReason : blocked ?? undefined}
         label={`Close ${trade.pair}`} onClick={() => actions.close(trade)}>Close…</Button>
+      {blocked && actions.enabled && <span className="basis-full text-left text-xs text-ink-faint sm:text-right">{blocked}</span>}
     </span>
   );
 }
@@ -75,7 +115,7 @@ export function TradesTable({ tab, rows, actions }: { tab: TradeTab; rows: BotVi
         <thead>
           <tr className="border-b border-border text-xs text-ink-muted">
             <th className="px-3 py-1.5 text-left">Pair</th>
-            <th className="px-3 py-1.5 text-left">Bot</th>
+            <th className="px-3 py-1.5 text-left">Bot · account</th>
             <th className="px-3 py-1.5 text-right">Entry</th>
             {tab === "active" && <th className="px-3 py-1.5 text-right">Current</th>}
             <th className="px-3 py-1.5 text-right">Quantity</th>
@@ -89,16 +129,17 @@ export function TradesTable({ tab, rows, actions }: { tab: TradeTab; rows: BotVi
         <tbody>
           {rows.map((trade) => (
             <tr key={trade.id} className="border-b border-border last:border-b-0">
-              <td className="px-3 py-1.5 font-medium text-ink">{trade.pair}</td>
-              <td className="px-3 py-1.5 text-ink-muted">{tradeOwner(trade)}</td>
+              <td className="px-3 py-1.5 font-medium text-ink">{trade.pair}<TradeNotes trade={trade} /></td>
+              <td className="px-3 py-1.5 text-ink-muted">{tradeOwner(trade)}<span className="block text-xs text-ink-faint">{accountText(trade)}</span></td>
               <td className="px-3 py-1.5 text-right">{fmtPrice(trade.entryPrice)}</td>
               {tab === "active" && <td className="px-3 py-1.5 text-right">{fmtPrice(trade.currentPrice)}</td>}
               <td className="px-3 py-1.5 text-right">{fmtQty(trade.quantity)}<span className="block text-xs text-ink-faint">{dollars(trade.quoteSpent)}</span></td>
               <td className={`px-3 py-1.5 text-right ${signClass(trade.pnlUsdt)}`}>
                 {money(trade.pnlUsdt)} ({fmtPct(trade.pnlPct)})
               </td>
-              <td className="px-3 py-1.5 text-ink-muted">{fmtDateTime(tab === "active" ? trade.createdAt : trade.closedAt)}</td>
-              {tab === "closed" && <td className="px-3 py-1.5 text-ink-muted">{trade.closedReason ?? "—"}</td>}
+              <td className="px-3 py-1.5 text-ink-muted">{fmtDateTime(tab === "active" ? trade.createdAt : trade.closedAt)}
+                <span className="block text-xs text-ink-faint">{ageText(trade)}</span></td>
+              {tab === "closed" && <td className="px-3 py-1.5 text-ink-muted"><ReasonBadge reason={trade.closedReason} /></td>}
               <td className="px-3 py-1.5 text-ink-muted">{trade.exchangeOrderId ?? "—"}</td>
               {tab === "active" && <td className="px-3 py-1.5 text-right"><Actions trade={trade} actions={actions} /></td>}
             </tr>
@@ -117,7 +158,8 @@ export function TradeCards({ tab, rows, actions }: { tab: TradeTab; rows: BotVie
         <li key={trade.id} className="space-y-1.5 px-4 py-3" data-trade-card={trade.id}>
           <div className="flex items-baseline justify-between gap-3">
             <span className="min-w-0 truncate text-sm font-medium text-ink">{trade.pair}
-              <span className="ml-2 text-xs font-normal text-ink-muted">{tradeOwner(trade)}</span></span>
+              <span className="ml-2 text-xs font-normal text-ink-muted">{tradeOwner(trade)}</span>
+              <TradeNotes trade={trade} /></span>
             <span className={`shrink-0 text-sm font-semibold tabular ${signClass(trade.pnlUsdt)}`}>
               {money(trade.pnlUsdt)} ({fmtPct(trade.pnlPct)})
             </span>
@@ -128,7 +170,9 @@ export function TradeCards({ tab, rows, actions }: { tab: TradeTab; rows: BotVie
             <dt className="text-ink-muted">Quantity</dt><dd className="text-right text-ink">{fmtQty(trade.quantity)} · {dollars(trade.quoteSpent)}</dd>
             <dt className="text-ink-muted">{tab === "active" ? "Opened" : "Closed"}</dt>
             <dd className="text-right text-ink">{fmtDateTime(tab === "active" ? trade.createdAt : trade.closedAt)}</dd>
-            {tab === "closed" && <><dt className="text-ink-muted">Reason</dt><dd className="text-right text-ink">{trade.closedReason ?? "—"}</dd></>}
+            <dt className="text-ink-muted">Age</dt><dd className="text-right text-ink">{ageText(trade)}</dd>
+            <dt className="text-ink-muted">Account</dt><dd className="truncate text-right text-ink">{accountText(trade)}</dd>
+            {tab === "closed" && <><dt className="text-ink-muted">Reason</dt><dd className="text-right text-ink"><ReasonBadge reason={trade.closedReason} /></dd></>}
             <dt className="text-ink-muted">Order id</dt><dd className="truncate text-right text-ink">{trade.exchangeOrderId ?? "—"}</dd>
           </dl>
           {tab === "active" && <div><Actions trade={trade} actions={actions} /></div>}
