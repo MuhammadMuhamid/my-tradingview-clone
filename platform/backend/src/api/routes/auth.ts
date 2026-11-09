@@ -70,6 +70,7 @@ import {
 import * as users from "../../repositories/users";
 import * as watchlists from "../../repositories/watchlists";
 import { cleanSymbols } from "./watchlists";
+import { clearStepUpCookie, revokeAllGrants, revokeThisGrant } from "../../security/stepUp";
 
 // Bound expensive checks across all client IPs without queueing passwords.
 let activePasswordChecks = 0;
@@ -307,17 +308,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post("/api/auth/logout", async (_req, reply) => {
-    setSessionCookies(reply, clearCookie(config.cookieSecure));
+  /** This browser only: its session cookie and its step-up grant (OD-2). */
+  app.post("/api/auth/logout", async (req, reply) => {
+    await revokeThisGrant(req);
+    setSessionCookies(reply, [clearCookie(config.cookieSecure), clearStepUpCookie()]);
     return { ok: true };
   });
 
-  /** End every session of this account, this one included. */
+  /** End every session of this account, this one included, and every step-up grant. */
   app.post("/api/auth/logout-all", async (req, reply) => {
     const id = userIdOf(req);
     await users.bumpSessionVersion(id);
+    await revokeAllGrants(id);
     forgetUser(id);
-    setSessionCookies(reply, clearCookie(config.cookieSecure));
+    setSessionCookies(reply, [clearCookie(config.cookieSecure), clearStepUpCookie()]);
     return { ok: true };
   });
 
@@ -380,8 +384,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       setSessionCookies(reply, clearCookie(config.cookieSecure));
       return reply.code(401).send({ error: "Your account changed while this was being saved. Sign in again." });
     }
-    // Every other session ends; this one is re-issued under the new version.
-    startSession(reply, { id, sessionVersion: version });
+    // Every other session ends, and every step-up grant; this session is
+    // re-issued under the new version.
+    await revokeAllGrants(id);
+    setSessionCookies(reply, [
+      sessionCookie(signUserSession(id, version, config.sessionSecret), config.cookieSecure),
+      clearStepUpCookie(),
+    ]);
     return { ok: true };
   });
 

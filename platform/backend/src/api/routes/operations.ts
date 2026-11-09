@@ -7,11 +7,16 @@
  * X-06). Every route here is behind the same session gate as the rest of the
  * API — the guard hook in `api/server.ts` runs before all of them.
  *
- * Read routes are safe. The two write routes change what the live runner will
- * do, so both require an explicit confirmation string, the same convention the
- * real-order test endpoint already uses.
+ * Read routes are safe. The write routes change what the live runner will do,
+ * so they require an explicit confirmation string (halt, resume), the same
+ * convention the real-order test endpoint already uses, AND step-up (OD-2):
+ * halt at the grant tier (the password is accepted when two-factor is off,
+ * because halting is the safe direction), resume at the grant tier, the risk
+ * limits fresh every time. Each writes `platform.<kind>.requested` to
+ * `admin_audit` before it acts (and does not act if that row cannot be
+ * written), then `.succeeded` or `.refused`.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as liveSafety from "../../repositories/liveSafety";
 import * as deploymentRepo from "../../repositories/deployments";
 import {
@@ -28,10 +33,59 @@ import * as maAlertRepo from "../../repositories/maAlerts";
 import { readReadiness } from "./health";
 import type { MaAlertRow } from "../../types/maAlerts";
 import { alertEvaluation, ALERT_EVALUATOR_DISABLED_REASON } from "../../alerts/evaluationGate";
+import * as users from "../../repositories/users";
+import { appendAdminAudit } from "../../repositories/adminAudit";
+import { userIdOf } from "../../security/requestUser";
+import { Refusal, resolveStepUp, type StepUpOptions } from "../../security/stepUp";
 
 /** The word an operator must send to arm or disarm trading. */
 const HALT_CONFIRMATION = "HALT_TRADING";
 const RESUME_CONFIRMATION = "RESUME_TRADING";
+
+type OperatorCommandKind = "halt" | "resume" | "risk_limits";
+
+/**
+ * Step-up, audit, act, audit (OD-2). `act` answers `{status, body}`; a status
+ * of 400 or more is audited as refused. Never sends a credential anywhere and
+ * never records one (`appendAdminAudit` also scrubs).
+ */
+async function operatorCommand(req: FastifyRequest, reply: FastifyReply, kind: OperatorCommandKind,
+  options: StepUpOptions, params: Record<string, unknown>,
+  act: () => Promise<{ status?: number; body: Record<string, unknown> }>): Promise<FastifyReply> {
+  try {
+    if (!config.authEnabled) {
+      throw new Refusal(403, "auth_disabled",
+        "Operations commands need sign-in to be on (AUTH_ENABLED). Reads still work.");
+    }
+    const actor = userIdOf(req);
+    const account = await users.getUser(actor);
+    if (!account) throw new Refusal(401, "not_authenticated", "not authenticated");
+    const proof = await resolveStepUp(req, reply, account, options);
+    try {
+      await appendAdminAudit(actor, `platform.${kind}.requested`, "platform", {
+        stepUpMethod: proof.method, ...(proof.grantId ? { grantId: proof.grantId } : {}), params,
+      });
+    } catch (err) {
+      req.log.error({ err: (err as Error).name, kind }, "operator command not applied: the audit row could not be written");
+      throw new Refusal(503, "audit_unavailable", "Nothing was changed because it could not be recorded. Try again.");
+    }
+    const result = await act();
+    const status = result.status ?? 200;
+    try {
+      await appendAdminAudit(actor, `platform.${kind}.${status < 400 ? "succeeded" : "refused"}`, "platform",
+        { status, ...(typeof result.body.code === "string" ? { code: result.body.code } : {}) });
+    } catch (err) {
+      // It has happened; the operator must still be told.
+      req.log.error({ err: (err as Error).name, kind }, "could not record an operator command outcome");
+    }
+    return reply.code(status).send(result.body);
+  } catch (error) {
+    if (error instanceof Refusal) {
+      return reply.code(error.status).send({ code: error.code, error: error.message, ...error.extra });
+    }
+    throw error;
+  }
+}
 
 interface FeedIntegrityStatusInput {
   symbol: string;
@@ -485,13 +539,15 @@ export function operationsRoutes(
           error: `confirmation must be exactly "${HALT_CONFIRMATION}"`,
         });
       }
-      const reason = (body.reason ?? "").trim();
+      const reason = (typeof body.reason === "string" ? body.reason : "").trim();
       if (reason.length < 3) {
         return reply.code(400).send({ error: "a reason is required, so the halt is explicable later" });
       }
-      await liveSafety.setTradingHalted(true, { reason, by: "operator" });
-      req.log.error({ reason, by: "operator" }, "TRADING HALTED by operator");
-      return { halted: true, reason };
+      return operatorCommand(req, reply, "halt", { tier: "grant", allowsPassword: true }, { reason }, async () => {
+        await liveSafety.setTradingHalted(true, { reason, by: "operator" });
+        req.log.error({ reason, by: "operator" }, "TRADING HALTED by operator");
+        return { body: { halted: true, reason } };
+      });
     });
 
     /**
@@ -505,35 +561,41 @@ export function operationsRoutes(
           error: `confirmation must be exactly "${RESUME_CONFIRMATION}"`,
         });
       }
-      const before = await liveSafety.getRiskLimits();
-      if (!before.tradingHalted) return { halted: false, note: "trading was not halted" };
+      return operatorCommand(req, reply, "resume", { tier: "grant" }, {}, async () => {
+        const before = await liveSafety.getRiskLimits();
+        if (!before.tradingHalted) return { body: { halted: false, note: "trading was not halted" } };
 
-      // A latched daily-loss halt is re-checked against live numbers: resuming
-      // straight back into a breached limit would trip again on the next signal.
-      if (before.haltedBy === "daily_loss" && before.maxDailyLossQuote !== null) {
-        const rows = await liveSafety.listRealisedPnl(before.dailyLossWindowHours);
-        const loss = -Math.min(0, realisedPnlInWindow(rows, before.dailyLossWindowHours));
-        if (loss >= before.maxDailyLossQuote) {
-          return reply.code(409).send({
-            error:
-              `refusing to resume: the rolling ${before.dailyLossWindowHours}h loss ` +
-              `${loss.toFixed(2)} still meets the limit ${before.maxDailyLossQuote.toFixed(2)}. ` +
-              "Raise the limit deliberately, or wait for the window to roll.",
-          });
+        // A latched daily-loss halt is re-checked against live numbers: resuming
+        // straight back into a breached limit would trip again on the next signal.
+        if (before.haltedBy === "daily_loss" && before.maxDailyLossQuote !== null) {
+          const rows = await liveSafety.listRealisedPnl(before.dailyLossWindowHours);
+          const loss = -Math.min(0, realisedPnlInWindow(rows, before.dailyLossWindowHours));
+          if (loss >= before.maxDailyLossQuote) {
+            return { status: 409, body: {
+              code: "still_breached",
+              error:
+                `refusing to resume: the rolling ${before.dailyLossWindowHours}h loss ` +
+                `${loss.toFixed(2)} still meets the limit ${before.maxDailyLossQuote.toFixed(2)}. ` +
+                "Raise the limit deliberately, or wait for the window to roll.",
+            } };
+          }
         }
-      }
 
-      await liveSafety.setTradingHalted(false);
-      req.log.warn({ previousReason: before.haltedReason }, "trading RESUMED by operator");
-      return { halted: false, previousReason: before.haltedReason };
+        await liveSafety.setTradingHalted(false);
+        req.log.warn({ previousReason: before.haltedReason }, "trading RESUMED by operator");
+        return { body: { halted: false, previousReason: before.haltedReason } };
+      });
     });
 
     /** Adjust the numeric limits. `null` turns a limit off. */
     app.patch("/api/ops/risk-limits", async (req, reply) => {
-      const read = readRiskLimitPatch((req.body ?? {}) as Record<string, unknown>);
+      const { credential: _credential, ...fields } = (req.body ?? {}) as Record<string, unknown>;
+      const read = readRiskLimitPatch(fields);
       if ("status" in read) return reply.code(read.status).send({ error: read.error });
-      await liveSafety.updateRiskLimits(read.patch);
-      return liveSafety.getRiskLimits();
+      return operatorCommand(req, reply, "risk_limits", { tier: "fresh" }, { ...read.patch }, async () => {
+        await liveSafety.updateRiskLimits(read.patch);
+        return { body: { ...await liveSafety.getRiskLimits() } };
+      });
     });
 
     /**

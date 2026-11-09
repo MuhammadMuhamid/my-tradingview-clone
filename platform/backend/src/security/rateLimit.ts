@@ -105,8 +105,20 @@ export function clientKey(
  */
 export const loginLimiter = new FixedWindowLimiter(5, 60_000);
 
-/** Second-factor guesses per account, so changing address buys no more of them. */
+/**
+ * Second-factor guesses per account, so changing address buys no more of them:
+ * the second step of a sign-in, and setting up, turning on or off, and
+ * regenerating recovery codes for two-factor.
+ */
 export const twoFactorLimiter = new FixedWindowLimiter(5, 5 * 60_000);
+
+/**
+ * Confirming a command (step-up, which is also what mints a step-up grant),
+ * per account, in its OWN bucket (OD-2): five wrong codes typed into a Bot or
+ * Operations dialog must not also lock the administrator out of the second
+ * step of signing in, and the reverse.
+ */
+export const stepUpLimiter = new FixedWindowLimiter(5, 5 * 60_000);
 
 /** Verification emails per account: each one costs money and lands in someone's inbox. */
 export const verificationEmailLimiter = new FixedWindowLimiter(3, 10 * 60_000);

@@ -61,6 +61,17 @@ export async function enableTotp(userId: string): Promise<void> {
   await query("UPDATE users SET totp_enabled_at = now() WHERE id = $1", [userId]);
 }
 
+/**
+ * Two-factor on AND every existing session ended, in one statement (OD-2).
+ * Returns the new session version, for re-issuing the caller's own session.
+ */
+export async function enableTotpAndRotateSessions(userId: string): Promise<number> {
+  const { rows } = await query<{ session_version: number }>(
+    `UPDATE users SET totp_enabled_at = now(), session_version = session_version + 1
+      WHERE id = $1 RETURNING session_version`, [userId]);
+  return rows[0]?.session_version ?? 1;
+}
+
 export async function clearTotp(userId: string): Promise<void> {
   await query("UPDATE users SET totp_secret_enc = NULL, totp_enabled_at = NULL, totp_last_step = 0 WHERE id = $1", [userId]);
   await query("DELETE FROM totp_recovery_codes WHERE user_id = $1", [userId]);

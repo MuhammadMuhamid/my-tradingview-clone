@@ -177,7 +177,8 @@ const lockUser = async (client: PoolClient, id: string): Promise<DbUser | null> 
  *   provider just did, so the account is taken back for the provider's user and
  *   nothing the registrant set up survives: password, two-factor secret and
  *   recovery codes, BOTH provider links (a squatter may have linked their own),
- *   push devices, the avatar, outstanding verification links and every session.
+ *   push devices, the avatar, outstanding verification links, every session and
+ *   every step-up grant.
  *   The provider in use is then the only way in, and the email counts as verified.
  *
  * `null` when the account is gone, is the admin (never joined by email), or no
@@ -198,6 +199,9 @@ export async function joinProviderByEmail(id: string, input: {
       return { user: toRow(rows[0]!), reclaimed: false };
     }
     await client.query("DELETE FROM totp_recovery_codes WHERE user_id = $1", [id]);
+    // The squatter's step-up grants too (OD-2); the version bump below would
+    // also end them, this makes it explicit.
+    await client.query("DELETE FROM step_up_grants WHERE user_id = $1", [id]);
     await client.query("DELETE FROM push_subscriptions WHERE user_id = $1", [id]);
     await client.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [id]);
     const { rows } = await client.query<DbUser>(

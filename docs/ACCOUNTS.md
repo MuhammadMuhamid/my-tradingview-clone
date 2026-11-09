@@ -206,7 +206,32 @@ one of them verify an account for whoever registered the address.
   session. The code or a recovery code turns it into a session.
 - Each code works once. Guesses are limited to 5 per 5 minutes per account.
 - Ten recovery codes are shown once and stored hashed.
+- Turning it ON ends every other session and re-issues this one (added 2026-11-09,
+  OD-2): someone holding a stolen session and the password could otherwise enrol
+  their own authenticator and keep every session the owner already had.
 - Turning it off needs the password and a code, and ends every other session.
+
+**Step-up grants** (added 2026-11-09, OD-2, migration `055_step_up_grants.sql`,
+`platform/backend/src/security/stepUp.ts`). A correct authenticator code before a Bot
+or Operations command leaves a grant for five minutes, fixed from the moment the code
+was entered and never extended by use. The browser holds only an opaque random handle
+in the cookie `srtrend_stepup` (HttpOnly, SameSite=Strict, Path=/api); the database
+stores its SHA-256. While it is valid, grant-tier commands (Bot halt, resume, pause or
+start a bot, close or partly close a trade, pause or resume new entries, Platform halt
+and resume, a Platform manual BUY) need no new code. Fresh-tier commands (Bot and
+Platform risk limits, account deletion, and the existing two-factor changes) ask for a
+credential every time; a correct code there also mints a grant. Only a code mints a
+grant, never a password. A grant stops working when it expires, when "Lock now" is
+pressed (`POST /api/auth/step-up/revoke`), on sign-out in that browser, and, for every
+browser of the account, on sign-out everywhere, a password change, two-factor turned
+on or off, new recovery codes, a reclaim, an administrator's two-factor reset or the
+account's deletion. It is also refused if the account's session version or role is no
+longer what it was when it was minted. `GET /api/auth/step-up/status` tells the dialogs
+whether a code is needed (`{twoFactorEnabled, method, grant: {valid, expiresAt?}}`, no
+secret). Step-up guesses have their own limit (5 per 5 minutes per account), separate
+from the sign-in second step, so wrong codes in a dialog cannot lock the administrator
+out of signing in. Platform halt, resume and risk limits append
+`platform.<kind>.requested|succeeded|refused` rows to `admin_audit`.
 
 **Joining by email.** If an unverified account's address signs in through Google or
 GitHub, the provider has proved who owns it, and the account is taken back for that
@@ -236,8 +261,17 @@ a primary, verified address, and a GitHub account without one is refused.
 shown on the profile. Deleting an account deletes them.
 
 **Locked out of the administrator account.** Use a recovery code. If those are lost too,
-someone with database access must clear `totp_secret_enc` and `totp_enabled_at` on the
-admin row. There is no way to do this from the app.
+someone with access to the server runs the reset script (added 2026-11-09):
+
+    cd platform/backend && npm run reset-admin-2fa -- --admin          # local
+    docker exec -i <backend> node dist/scripts/resetAdmin2fa.js --admin  # deployed
+
+(`--admin` or any account's id.) In one transaction it clears the TOTP secret, its
+enabled time and last step, deletes the recovery codes and every step-up grant, bumps
+the session version so every session ends, and appends an `admin_audit` row
+`auth.2fa.reset` with no actor. Sign in with the password, then turn two-factor on
+again from the profile. A running server may keep its cached view of the account for
+up to 15 seconds. There is no way to do this from the app.
 
 ### Not built
 

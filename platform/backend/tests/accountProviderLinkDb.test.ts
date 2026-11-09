@@ -172,7 +172,8 @@ test("provider links and the unverified-account reclaim", async (t) => {
     const { secret } = setup.json() as { secret: string };
     const enabled = await call(cookie, "POST", "/api/auth/2fa/enable", { code: totpCode(secret, totpStepAt(Date.now())) });
     assert.equal(enabled.statusCode, 200, enabled.body);
-    return secret;
+    // OD-2: turning it on ends every other session and re-issues this one.
+    return { secret, cookie: session(enabled)! };
   };
 
   // ── 1. A1 exactly, and its mirror ──────────────────────────────────────────
@@ -431,7 +432,8 @@ test("provider links and the unverified-account reclaim", async (t) => {
 
   await t.test("a provider sign-in to a 2FA account still asks for the code; linking mints no session", async () => {
     const f = await verifiedUser("factor8@example.com");
-    const secret = await enable2fa(f.cookie, f.id);
+    const { secret, cookie: renewed } = await enable2fa(f.cookie, f.id);
+    f.cookie = renewed;
 
     github = { id: 800, email: "factor8-gh@example.com" };
     const logins = await count("login_events", f.id);

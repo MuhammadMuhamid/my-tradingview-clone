@@ -102,7 +102,11 @@ test("account security", async (t) => {
     assert.match(qrDataUrl, /^data:image\/png;base64,/);
     const enabled = await call(cookie, "POST", "/api/auth/2fa/enable", { code: totpCode(secret, totpStepAt(Date.now())) });
     assert.equal(enabled.statusCode, 200, enabled.body);
-    return { secret, recoveryCodes: (enabled.json() as { recoveryCodes: string[] }).recoveryCodes };
+    // OD-2: turning it on ends every other session and re-issues this one.
+    const renewed = session(enabled);
+    assert.ok(renewed, "enabling two-factor re-issues this session");
+    assert.equal((await call(cookie, "GET", "/api/watchlists")).statusCode, 401, "the session from before is over");
+    return { secret, recoveryCodes: (enabled.json() as { recoveryCodes: string[] }).recoveryCodes, cookie: renewed };
   };
 
   await t.test("signing up sends a link, and using it verifies the account once", async () => {
@@ -174,9 +178,10 @@ test("account security", async (t) => {
   });
 
   await t.test("with 2FA on, a correct password gives no session until the code", async () => {
-    const { cookie } = await signUp("two@example.com");
+    let { cookie } = await signUp("two@example.com");
     await verify("two@example.com");
-    const { secret, recoveryCodes } = await enable2fa(cookie);
+    const { secret, recoveryCodes, cookie: renewed } = await enable2fa(cookie);
+    cookie = renewed;
     assert.equal(recoveryCodes.length, 10);
     const id = (await me(cookie)).id as string;
     assert.equal((await me(cookie)).moneyFeaturesUnlocked, true);
@@ -206,9 +211,10 @@ test("account security", async (t) => {
   });
 
   await t.test("guessing is limited per account, whatever the address", async () => {
-    const { cookie } = await signUp("guess@example.com");
+    let { cookie } = await signUp("guess@example.com");
     await verify("guess@example.com");
-    const { secret } = await enable2fa(cookie);
+    const { secret, cookie: renewed } = await enable2fa(cookie);
+    cookie = renewed;
     const id = (await me(cookie)).id as string;
     twoFactorLimiter.reset(id);
     const proof = pending(await call(null, "POST", "/api/auth/login", { email: "guess@example.com", password: "correct horse battery" }))!;
@@ -241,9 +247,10 @@ test("account security", async (t) => {
   });
 
   await t.test("turning 2FA off takes both factors and ends other sessions", async () => {
-    const { cookie } = await signUp("off@example.com");
+    let { cookie } = await signUp("off@example.com");
     await verify("off@example.com");
-    const { secret } = await enable2fa(cookie);
+    const { secret, cookie: renewed } = await enable2fa(cookie);
+    cookie = renewed;
     const code = () => nextCode(secret);
     assert.equal((await call(cookie, "POST", "/api/auth/2fa/disable", { password: "wrong", code: code() })).statusCode, 400);
     assert.equal((await call(cookie, "POST", "/api/auth/2fa/disable", { password: "correct horse battery", code: "000000" })).statusCode, 400);
@@ -256,9 +263,10 @@ test("account security", async (t) => {
   });
 
   await t.test("a sign-out-everywhere voids a proof already issued", async () => {
-    const { cookie } = await signUp("void@example.com");
+    let { cookie } = await signUp("void@example.com");
     await verify("void@example.com");
-    const { secret } = await enable2fa(cookie);
+    const { secret, cookie: renewed } = await enable2fa(cookie);
+    cookie = renewed;
     const proof = pending(await call(null, "POST", "/api/auth/login", { email: "void@example.com", password: "correct horse battery" }));
     await call(cookie, "POST", "/api/auth/logout-all");
     const res = await call(proof, "POST", "/api/auth/2fa/login", { code: nextCode(secret) });
@@ -298,9 +306,9 @@ test("account security", async (t) => {
   });
 
   await t.test("deleting an account deletes its security rows", async () => {
-    const { cookie } = await signUp("gone@example.com");
+    let { cookie } = await signUp("gone@example.com");
     await verify("gone@example.com");
-    await enable2fa(cookie);
+    cookie = (await enable2fa(cookie)).cookie;
     const id = (await me(cookie)).id as string;
     assert.equal((await call(cookie, "DELETE", "/api/auth/account", { confirm: "DELETE" })).statusCode, 200);
     for (const table of ["email_verification_tokens", "totp_recovery_codes", "login_events"]) {
