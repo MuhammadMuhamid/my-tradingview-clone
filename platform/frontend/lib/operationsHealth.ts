@@ -344,7 +344,11 @@ function overviewFromItems(status: OpsStatus, items: HealthItem[]): OperationsOv
     const attention = items.filter((item) => item.impact === "attention").length;
     return {
       status: "Halted", tone: "halted",
-      summary: `Trading is intentionally blocked${degraded + attention > (botHalted ? 1 : 0) ? `; ${degraded + attention - (botHalted ? 1 : 0)} other subsystem${degraded + attention - (botHalted ? 1 : 0) === 1 ? " also needs" : "s also need"} attention` : "; available evidence is otherwise healthy"}.`,
+      // Name the switch: the Platform halt and the Bot halt are separate, and
+      // only the Bot halt stops the Bot's TP/SL checks.
+      summary: `${status.risk.tradingHalted && botHalted ? "The Platform and the Bot are halted"
+        : status.risk.tradingHalted ? "The Platform is halted (the Bot is not)"
+          : "The Bot is halted (the Platform is not)"}: trading is intentionally blocked${degraded + attention > (botHalted ? 1 : 0) ? `; ${degraded + attention - (botHalted ? 1 : 0)} other subsystem${degraded + attention - (botHalted ? 1 : 0) === 1 ? " also needs" : "s also need"} attention` : "; available evidence is otherwise healthy"}.`,
       items,
     };
   }

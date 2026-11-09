@@ -110,6 +110,7 @@ test("operator halt is an intentional top-level state, not a subsystem crash", (
   value.risk.haltedAt = NOW;
   const result = buildOperationsOverview(value, scannerHealthy);
   assert.equal(result.status, "Halted");
+  assert.match(result.summary, /^The Platform is halted \(the Bot is not\)/);
   assert.equal(item(result, "trading-mode").status, "Operator halted");
   assert.match(item(result, "trading-mode").summary, /not a system crash/);
   assert.equal(item(result, "live-runner").status, "Healthy");
@@ -193,3 +194,20 @@ test("AN UNKNOWN OPERATING MODE IS SHOWN, NOT CRASHED ON", () => {
   // The feed-state lookup beside it already had the guard; keep it.
   assert.match(page, /FEED_STYLE\[status\.feeds\.worst\] \?\? ""/);
 });
+
+test("a Bot-only halt names the Bot, not the Platform, in the overall summary", () => {
+  const value = status();
+  value.bot = { state: "CONNECTED", configuredEndpoints: 1, status: {
+    service: { reachable: true, name: "bot", version: null },
+    execution: { mode: "HALTED", dryRun: true, halted: true, haltedBy: "operator", haltedReason: "maintenance" },
+    exchange: { mode: "TESTNET", processDefault: "TESTNET", configuredAccounts: { total: 1, testnet: 1, mainnet: 0 } },
+    realisedPnl: { currency: "USDT", today: 0, dayStart: NOW, timezone: "UTC", rollingWindowHours: 24, rolling: 0 },
+    openTrades: { count: 0, exposureQuote: 0, currency: "USDT" },
+    dailyLossProtection: { authority: "BOT", limitQuote: null, windowHours: 24, realisedPnlInWindow: 0, enabled: false },
+    time: NOW,
+  } };
+  const result = buildOperationsOverview(value, scannerHealthy);
+  assert.equal(result.status, "Halted");
+  assert.match(result.summary, /^The Bot is halted \(the Platform is not\)/);
+});
+
