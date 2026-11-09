@@ -5,6 +5,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Card, CardHeader, Empty, Loading, TextInput } from "@/components/ui";
+import { OneTimeCodeInput } from "@/components/OneTimeCodeInput";
 import { ApiError } from "@/lib/api";
 import { failureReason } from "@/lib/errorCopy";
 import { fmtDateTime } from "@/lib/format";
@@ -64,6 +65,50 @@ export function EmailVerificationCard({ user, emailConfigured }: { user: Session
   );
 }
 
+/** "ABCD EFGH IJKL …": the setup key in groups of four, as authenticator apps print it. */
+export function groupSetupKey(secret: string): string {
+  return (secret.replace(/\s/g, "").match(/.{1,4}/g) ?? []).join(" ");
+}
+
+/** Copies to the clipboard and says so; says so too when the browser refuses. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+  };
+  return (
+    <Button onClick={() => void copy()}>
+      {state === "copied" ? "Copied" : state === "failed" ? "Copy failed — select it instead" : label}
+    </Button>
+  );
+}
+
+/**
+ * The recovery codes as a text file, made in this browser and handed straight
+ * to the download (OD-2). Nothing is sent anywhere; the object URL is revoked
+ * as soon as the download has started.
+ */
+export function recoveryCodesFile(codes: string[], now = new Date()): string {
+  return ["Trading Scene recovery codes", `Saved ${now.toISOString().slice(0, 10)}. Each code works once.`, "",
+    ...codes, ""].join("\n");
+}
+
+function downloadRecoveryCodes(codes: string[]): void {
+  const url = URL.createObjectURL(new Blob([recoveryCodesFile(codes)], { type: "text/plain" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "trading-scene-recovery-codes.txt";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   return (
     <>
@@ -73,14 +118,18 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
       <ul aria-label="Recovery codes" className="mt-3 grid max-w-sm grid-cols-2 gap-x-6 gap-y-1 font-mono text-[13px] text-ink">
         {codes.map((code) => <li key={code}>{code}</li>)}
       </ul>
-      <div className="mt-4"><Button variant="primary" onClick={onDone}>I&apos;ve saved them</Button></div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <CopyButton text={codes.join("\n")} label="Copy codes" />
+        <Button onClick={() => downloadRecoveryCodes(codes)}>Download .txt</Button>
+        <Button variant="primary" onClick={onDone}>I&apos;ve saved them</Button>
+      </div>
     </>
   );
 }
 
 export function TwoFactorCard({ user }: { user: SessionUser }) {
   const needsPassword = user.hasPassword;
-  const [setup, setSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; qrDataUrl: string; otpauthUrl: string } | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [left, setLeft] = useState<number | null>(null);
   const [password, setPassword] = useState("");
@@ -105,21 +154,23 @@ export function TwoFactorCard({ user }: { user: SessionUser }) {
   };
 
   const start = () => run(async () => {
-    const result = await sendAccountRequest<{ secret: string; qrDataUrl: string }>("/api/auth/2fa/setup", "POST", { password });
+    const result = await sendAccountRequest<{ secret: string; qrDataUrl: string; otpauthUrl: string }>(
+      "/api/auth/2fa/setup", "POST", { password });
     setSetup(result);
   });
-  const enable = () => run(async () => {
-    const result = await sendAccountRequest<{ recoveryCodes: string[] }>("/api/auth/2fa/enable", "POST", { code });
+  // `typed`: the code as the sixth digit completed it, before React has re-rendered.
+  const enable = (typed = code) => run(async () => {
+    const result = await sendAccountRequest<{ recoveryCodes: string[] }>("/api/auth/2fa/enable", "POST", { code: typed });
     setCodes(result.recoveryCodes);
     setSetup(null);
   });
-  const disable = () => run(async () => {
-    await sendAccountRequest("/api/auth/2fa/disable", "POST", { password, code: code.trim() });
+  const disable = (typed = code) => run(async () => {
+    await sendAccountRequest("/api/auth/2fa/disable", "POST", { password, code: typed.trim() });
     setMode("idle");
     await refreshSession();
   });
-  const regenerate = () => run(async () => {
-    const result = await sendAccountRequest<{ recoveryCodes: string[] }>("/api/auth/2fa/recovery-codes", "POST", { code });
+  const regenerate = (typed = code) => run(async () => {
+    const result = await sendAccountRequest<{ recoveryCodes: string[] }>("/api/auth/2fa/recovery-codes", "POST", { code: typed });
     setCodes(result.recoveryCodes);
     setMode("idle");
   });
@@ -136,12 +187,10 @@ export function TwoFactorCard({ user }: { user: SessionUser }) {
         onChange={(e) => setPassword(e.target.value)} className="mb-3 mt-1.5 block w-full max-w-sm" />
     </>
   );
-  const codeField = (
-    <>
-      <label className="block text-[13px] text-ink-muted" htmlFor="tf-code">6-digit code from your app</label>
-      <TextInput id="tf-code" inputMode="numeric" autoComplete="one-time-code" value={code}
-        onChange={(e) => setCode(e.target.value)} className="mt-1.5 block w-full max-w-sm" />
-    </>
+  /** The shared six-digit field; the sixth digit does what the button beside it would. */
+  const codeField = (onComplete: (typed: string) => void) => (
+    <OneTimeCodeInput id="tf-code" label="6-digit code from your app" value={code} onChange={setCode}
+      disabled={busy} onComplete={(typed) => { if (!busy) onComplete(typed); }} />
   );
 
   let body: ReactNode;
@@ -150,14 +199,30 @@ export function TwoFactorCard({ user }: { user: SessionUser }) {
   } else if (setup) {
     body = (
       <>
-        <p className="text-[13px] text-ink-muted">Scan this with an authenticator app, then enter the code it shows.</p>
-        <img src={setup.qrDataUrl} alt="QR code for your authenticator app" width={180} height={180} className="my-3 rounded bg-white" />
-        <p className="mb-3 text-[12px] text-ink-faint">
-          Can&apos;t scan it? Enter this key: <span className="break-all font-mono text-ink-muted">{setup.secret}</span>
+        <p className="text-[13px] text-ink-muted">
+          Use Apple Passwords (iCloud Keychain): scan this QR code with your iPhone camera or Passwords app, or paste
+          the setup key into Passwords on your Mac. Codes can then autofill in supported browsers. Google
+          Authenticator, Microsoft Authenticator, 1Password and any RFC 6238 app also work.
         </p>
-        {codeField}
+        <img src={setup.qrDataUrl} alt="QR code for your authenticator app" width={180} height={180} className="my-3 rounded bg-white" />
+        <div className="mb-3 space-y-2">
+          {/* On the phone itself, one tap hands the account to Passwords or the authenticator app. */}
+          <a href={setup.otpauthUrl} className="inline-flex min-h-9 items-center rounded-md border border-control-border px-3 text-[13px] text-ink hover:bg-state-hover">
+            Open in Passwords / authenticator app
+          </a>
+          <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
+            <span>Setup key:</span>
+            <span data-testid="tf-setup-key" className="break-all font-mono text-[13px] text-ink">{groupSetupKey(setup.secret)}</span>
+            <CopyButton text={setup.secret} label="Copy key" />
+          </div>
+          <p className="text-[12px] text-ink-faint">
+            If your password and codes are both in Apple Passwords, sign-in is more convenient but the two factors are
+            less separated than an authenticator on a different device.
+          </p>
+        </div>
+        {codeField((typed) => void enable(typed))}
         <div className="mt-4 flex gap-2">
-          <Button variant="primary" disabled={busy || !code.trim()} onClick={() => void enable()}>Turn on</Button>
+          <Button variant="primary" disabled={busy || code.length !== 6} onClick={() => void enable()}>Turn on</Button>
           <Button variant="ghost" onClick={() => { setSetup(null); setCode(""); setErr(null); }}>Cancel</Button>
         </div>
       </>
@@ -178,11 +243,14 @@ export function TwoFactorCard({ user }: { user: SessionUser }) {
         {mode !== "idle" && (
           <div className="mt-4">
             {mode === "disable" && passwordField}
-            {codeField}
+            {codeField((typed) => {
+              if (mode === "regenerate") void regenerate(typed);
+              else if (!needsPassword || password) void disable(typed);
+            })}
             <div className="mt-4 flex gap-2">
               {mode === "disable"
-                ? <Button variant="danger" disabled={busy || !code.trim() || (needsPassword && !password)} onClick={() => void disable()}>Turn off two-factor</Button>
-                : <Button variant="primary" disabled={busy || !code.trim()} onClick={() => void regenerate()}>Replace my recovery codes</Button>}
+                ? <Button variant="danger" disabled={busy || code.length !== 6 || (needsPassword && !password)} onClick={() => void disable()}>Turn off two-factor</Button>
+                : <Button variant="primary" disabled={busy || code.length !== 6} onClick={() => void regenerate()}>Replace my recovery codes</Button>}
               <Button variant="ghost" onClick={() => { setMode("idle"); setCode(""); setPassword(""); setErr(null); }}>Cancel</Button>
             </div>
           </div>

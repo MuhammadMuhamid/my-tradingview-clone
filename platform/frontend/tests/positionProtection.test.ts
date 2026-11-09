@@ -181,3 +181,12 @@ test("RR3: after a failed or stale read, protection is unknown and no BOT line i
     assert.equal(result.label, "TP/SL NOT BEING CHECKED · status unknown");
   }
 });
+
+test("OD-1: a race fill being swept says so; while the Bot is halted it says to sell it here", () => {
+  const swept = p("race_fill_sweep");
+  assert.deepEqual([swept.kind, swept.label], ["race_fill_sweep", "Race fill — being sold automatically"]);
+  const halted = p("race_fill_sweep", null, null, { ...TESTNET_POLLING, halted: true });
+  assert.equal(halted.label, "Race fill — awaiting sweep — Bot halted; sell it here");
+  assert.match(halted.tone, /text-down/);
+  assert.notEqual(swept.kind, "protected");
+});

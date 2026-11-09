@@ -236,6 +236,17 @@ one of them verify an account for whoever registered the address.
 - Setup needs a verified email and the account's password, so someone holding an
   unverified address or a stolen session can't lock out the owner. The secret is
   encrypted with `ALERT_ENCRYPTION_KEY`.
+- The setup card (updated 2026-11-09, OD-2) puts Apple Passwords first: the QR code,
+  an "Open in Passwords / authenticator app" `otpauth://` link, and the setup key in
+  groups of four with Copy. It says plainly that any RFC 6238 app works and that keeping
+  the password and the codes in the same Apple Passwords store is more convenient but
+  separates the two factors less. It does not claim autofill works everywhere. Every
+  code field (sign-in, setup, the step-up dialog, account deletion) is one shared
+  six-digit input with the numeric keypad and `autocomplete="one-time-code"`; a pasted
+  "123 456" or "123-456" is normalised and the sixth digit submits. Recovery codes can
+  be copied or downloaded as a `.txt` made in the browser (never sent anywhere). The
+  step-up dialog says "Confirmed — no code needed until HH:MM" while this browser holds
+  a grant, with "Lock now".
 - A correct password or provider sign-in then gives a 5-minute proof cookie, not a
   session. The code or a recovery code turns it into a session.
 - Each code works once. Guesses are limited to 5 per 5 minutes per account.

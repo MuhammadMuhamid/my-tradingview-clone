@@ -35,6 +35,8 @@ for (const failAt of ["readMode", "lookupBaseAsset"] as const) {
         lookupBaseAsset: async () => { throw new Error("Shariah registry unavailable"); },
       };
       await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
         // Exits must remain available during a halt, too; BUY reaches the
         // failing Shariah read so this test checks its fail-closed behavior.
         riskLimits: async () => ({ tradingHalted: side === "SELL", haltedReason: "operator" }),
@@ -115,6 +117,8 @@ test("a healthy manual SELL preserves its actual Shariah provenance", async (t) 
   const app = Fastify({ logger: false });
   t.after(() => app.close());
   await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
     riskLimits: async () => ({ tradingHalted: true, haltedReason: "operator" }),
     shariah: {
       readMode: async () => "enforce",

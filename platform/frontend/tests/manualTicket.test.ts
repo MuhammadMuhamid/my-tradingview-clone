@@ -210,8 +210,13 @@ test("submit refuses a stale ticket even if the disabled state were wrong", () =
   const body = submit.slice(0, submit.indexOf("\n  };"));
   assert.match(body, /if \(staleTicket\)/,
     "submit must re-check staleness itself, not trust the button");
-  assert.ok(body.indexOf("if (staleTicket)") < body.indexOf("api.submitManualOrder"),
+  assert.ok(body.indexOf("if (staleTicket)") < body.indexOf("placeOrder("),
     "the check must precede the request");
+  // The request itself (also reached from the step-up dialog's retry, OD-2/OD-7) checks again first.
+  const place = src.slice(src.indexOf("const placeOrder = async"));
+  const placeBody = place.slice(0, place.indexOf("\n  };"));
+  assert.ok(placeBody.includes("if (staleTicket)") && placeBody.indexOf("if (staleTicket)") < placeBody.indexOf("api.submitManualOrder"),
+    "the retry path re-checks staleness before the request");
 });
 
 test("the ticket's target instrument is stated in the panel itself", () => {
@@ -226,4 +231,58 @@ test("nothing in these rules can disable selling", () => {
   assert.doesNotMatch(src, /side === "SELL"[^\n]*return (false|null);\s*\n\s*.*block/i);
   assert.match(src, /must not make an exit harder/,
     "the invariant is stated in the module, so a later edit has to confront it");
+});
+
+// ── OD-7: which coins a SELL sells ──────────────────────────────────────────
+
+test("OD-7: the SELL tab preselects the only position, none of several, none of none", async () => {
+  const { sellTabPosition } = await import("../lib/manualTicket");
+  assert.equal(sellTabPosition([position()])?.id, "pos-1");
+  assert.equal(sellTabPosition([position(), position({ id: "pos-2" })]), null);
+  assert.equal(sellTabPosition([]), null);
+});
+
+test("OD-7: with positions open a SELL must name one, unless the wallet sell is explicitly ticked", async () => {
+  const { sellPositionRequirement } = await import("../lib/manualTicket");
+  const positions = [position(), position({ id: "pos-2" })];
+  assert.match(sellPositionRequirement({ side: "SELL", positions, positionId: "", walletSell: false }) ?? "",
+    /Choose which position to sell/);
+  assert.equal(sellPositionRequirement({ side: "SELL", positions, positionId: "", walletSell: true }), null);
+  assert.equal(sellPositionRequirement({ side: "SELL", positions, positionId: "pos-2", walletSell: false }), null);
+  assert.match(sellPositionRequirement({ side: "SELL", positions, positionId: "pos-gone", walletSell: false }) ?? "",
+    /no longer open/);
+  assert.equal(sellPositionRequirement({ side: "SELL", positions: [], positionId: "", walletSell: false }), null,
+    "no positions: a wallet sell, as before");
+  assert.equal(sellPositionRequirement({ side: "BUY", positions, positionId: "", walletSell: false }), null);
+  // The panel no longer offers an unassociated sell as the default option.
+  assert.doesNotMatch(panel(), /Unassociated wallet sell/);
+  assert.match(panel(), /Sell from wallet \(not tied to a position\)/);
+});
+
+test("OD-1: the Bot's durable order notes, the entry-cancel state, and a partial SELL's working entry", async () => {
+  const { orderNote, exitCancelLine, entryStillWorkingFor } = await import("../lib/manualTicket");
+  for (const [error, label, danger] of [
+    ["RACE FILL: 0.01 SOL of this BUY filled after the exit", "RACE FILL", false],
+    ["ENTRY CANCEL PENDING: position x was closed", "ENTRY CANCEL PENDING", false],
+    ["ENTRY CANCEL FAILED: cancel it on Binance", "ENTRY CANCEL FAILED", true],
+    ["ENTRY CANCELED AFTER EXIT: done", "ENTRY CANCELED AFTER EXIT", false],
+    ["SWEEP FAILED: sell it by hand", "SWEEP FAILED", true],
+  ] as const) {
+    const note = orderNote(error);
+    assert.deepEqual([note?.label, note?.danger], [label, danger], error);
+    assert.ok(note && !note.detail.startsWith(":"));
+  }
+  assert.equal(orderNote("Insufficient balance"), null);
+  assert.equal(orderNote(null), null);
+  assert.equal(exitCancelLine({ exitCancelState: "pending" })?.text, "Entry cancel in progress");
+  assert.equal(exitCancelLine({ exitCancelState: "unknown" })?.text, "Entry cancel in progress");
+  assert.deepEqual(exitCancelLine({ exitCancelState: "failed" }), { text: "ENTRY CANCEL FAILED — cancel on Binance", danger: true });
+  assert.equal(exitCancelLine({ exitCancelState: "done" }), null);
+  assert.equal(exitCancelLine({}), null);
+  const order = (status: string, side: "BUY" | "SELL" = "BUY") => ({ linkedPositionId: "pos-1", side, status }) as never;
+  assert.equal(entryStillWorkingFor("pos-1", [order("open")]), true);
+  assert.equal(entryStillWorkingFor("pos-1", [order("partially_filled")]), true);
+  assert.equal(entryStillWorkingFor("pos-1", [order("filled")]), false);
+  assert.equal(entryStillWorkingFor("pos-1", [order("open", "SELL")]), false);
+  assert.equal(entryStillWorkingFor("pos-2", [order("open")]), false);
 });

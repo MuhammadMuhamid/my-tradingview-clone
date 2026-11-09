@@ -26,7 +26,7 @@ export function normaliseOneTimeCode(raw: string): string {
 }
 
 export function OneTimeCodeInput({
-  id, label, value, onChange, onComplete, disabled, autoFocus, className = "", hint,
+  id, label, value, onChange, onComplete, disabled, autoFocus, className = "", hint, plainClassName,
 }: {
   id: string;
   label: string;
@@ -39,6 +39,8 @@ export function OneTimeCodeInput({
   className?: string;
   /** A short line under the field. */
   hint?: string;
+  /** A page with its own field style (the sign-in screen): used instead of the shared field. */
+  plainClassName?: string;
 }) {
   // The last complete code handed to onComplete, so a re-render cannot submit it twice.
   const submitted = useRef<string | null>(null);
@@ -70,12 +72,17 @@ export function OneTimeCodeInput({
   return (
     <>
       <label className="block text-[13px] text-ink-muted" htmlFor={id}>{label}</label>
-      <TextInput id={id} name="one-time-code" type="text" inputMode="numeric" pattern="[0-9]*"
-        autoComplete="one-time-code" enterKeyHint="done" maxLength={CODE_LENGTH} spellCheck={false}
-        autoCorrect="off" autoCapitalize="off" value={value} disabled={disabled} autoFocus={autoFocus}
-        aria-describedby={hintId}
-        onChange={(e) => accept(e.target.value)} onPaste={onPaste} onKeyDown={onKeyDown}
-        className={`mt-1.5 block w-full max-w-[12rem] font-mono tracking-[0.2em] ${className}`} />
+      {(() => {
+        const props = {
+          id, name: "one-time-code", type: "text", inputMode: "numeric" as const, pattern: "[0-9]*",
+          autoComplete: "one-time-code", enterKeyHint: "done" as const, maxLength: CODE_LENGTH, spellCheck: false,
+          autoCorrect: "off", autoCapitalize: "off", value, disabled, autoFocus, "aria-describedby": hintId,
+          onChange: (e: { target: { value: string } }) => accept(e.target.value), onPaste, onKeyDown,
+        };
+        return plainClassName !== undefined
+          ? <input {...props} className={`tabular tracking-[0.2em] ${plainClassName}`} />
+          : <TextInput {...props} className={`mt-1.5 block w-full max-w-[12rem] tabular tracking-[0.2em] ${className}`} />;
+      })()}
       {hint && <p id={hintId} className="mt-1 text-[12px] text-ink-faint">{hint}</p>}
     </>
   );

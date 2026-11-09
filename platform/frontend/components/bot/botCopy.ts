@@ -7,6 +7,7 @@
  * while the operator's own exits keep working.
  */
 import type { BotControlPanel, BotSignedCause, BotSignedState, BotStatusConnection } from "@/lib/api";
+import { tradePanelSellHref } from "@/lib/spotScene";
 
 export const HALT_SCOPE_TEXT =
   "While the Bot is halted, TP/SL protection is not checked and TradingView exits are refused; "
@@ -174,8 +175,12 @@ export const STEP_UP_CODES = new Set([
   "mainnet_confirmation_required",
 ]);
 
-/** The chart, with this symbol and the manual Trade panel open (the Screener's existing deep link). */
-export function tradePanelHref(pair: string): string | null {
+/**
+ * The chart, with this symbol and the manual Trade panel open (the Screener's existing deep link).
+ * With a position (OD-7) the SELL tab preselects exactly it (`lib/spotScene` `tradePanelSellHref`); prefill only.
+ */
+export function tradePanelHref(pair: string, target?: { accountId?: string | null; positionId?: string | null }): string | null {
+  if (target?.positionId) return tradePanelSellHref(pair, { accountId: target.accountId ?? null, positionId: target.positionId });
   const symbol = pair.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   if (!/^[A-Z0-9]{2,24}$/.test(symbol)) return null;
   return `/chart?source=scanner&symbol=${encodeURIComponent(symbol)}&panel=manual`;

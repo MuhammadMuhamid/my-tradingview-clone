@@ -42,6 +42,8 @@ async function appWith(
 ) {
   const app = Fastify({ logger: false });
   await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
     riskLimits,
     /*
      * Both gate dependencies are injected, not just the mode.
