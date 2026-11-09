@@ -57,10 +57,32 @@ async function audit(client: PoolClient, actor: string | null, action: string, t
     [actor, action, target, JSON.stringify(detail)]);
 }
 
+interface EntryIdentity {
+  cohortId: string; membershipId: string | null; kind: string; amount: Units; idempotencyKey: string;
+}
+
+/**
+ * The entry this key already recorded, if it is THIS entry: same cohort, same
+ * membership, same kind, same amount. A key already used for anything else is
+ * refused, so a mistyped or reused key can't be reported as one member's money
+ * when it was another's.
+ */
+async function replayOf(client: PoolClient, entry: EntryIdentity): Promise<{ id: string; created: false } | null> {
+  const existing = await client.query<{ id: string; cohort_id: string; membership_id: string | null; kind: string; amount: string }>(
+    "SELECT id, cohort_id, membership_id, kind, amount::text AS amount FROM ledger_entries WHERE idempotency_key = $1",
+    [entry.idempotencyKey]);
+  const row = existing.rows[0];
+  if (!row) return null;
+  if (row.cohort_id !== entry.cohortId || row.membership_id !== entry.membershipId || row.kind !== entry.kind
+    || parseMoney(row.amount) !== entry.amount) {
+    throw new PackageRuleError("this idempotency key was already used for a different entry");
+  }
+  return { id: row.id, created: false };
+}
+
 /** Adds an entry, or returns the existing one if this key was already recorded. */
-async function appendEntry(client: PoolClient, entry: {
-  cohortId: string; membershipId: string | null; kind: string; amount: Units;
-  sourceType?: string; sourceId?: string; idempotencyKey: string; note?: string; actor: string | null;
+async function appendEntry(client: PoolClient, entry: EntryIdentity & {
+  sourceType?: string; sourceId?: string; note?: string; actor: string | null;
 }): Promise<{ id: string; created: boolean }> {
   const inserted = await client.query<{ id: string }>(
     `INSERT INTO ledger_entries (cohort_id, membership_id, kind, amount, source_type, source_id,
@@ -71,13 +93,9 @@ async function appendEntry(client: PoolClient, entry: {
       entry.sourceId ?? null, entry.idempotencyKey, entry.note ?? "", entry.actor],
   );
   if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
-  const existing = await client.query<{ id: string; cohort_id: string; kind: string; amount: string }>(
-    "SELECT id, cohort_id, kind, amount::text AS amount FROM ledger_entries WHERE idempotency_key = $1", [entry.idempotencyKey]);
-  const row = existing.rows[0]!;
-  if (row.cohort_id !== entry.cohortId || row.kind !== entry.kind || parseMoney(row.amount) !== entry.amount) {
-    throw new PackageRuleError("this idempotency key was already used for a different entry");
-  }
-  return { id: row.id, created: false };
+  const replay = await replayOf(client, entry);
+  if (!replay) throw new Error("idempotency conflict without an entry");
+  return replay;
 }
 
 async function cohortEquity(client: PoolClient, cohortId: string): Promise<Units> {
@@ -178,6 +196,11 @@ export async function recordDeposit(input: {
     const row = membership.rows[0];
     if (!row) throw new PackageRuleError("membership not found", 404);
     const cohort = await lockCohort(client, row.cohort_id);
+    // A retry of a deposit already recorded gets its original result, even if
+    // the cohort has moved on since: a 409 here would invite recording it twice.
+    const replay = await replayOf(client, { cohortId: row.cohort_id, membershipId: input.membershipId,
+      kind: "CAPITAL_IN", amount, idempotencyKey: input.idempotencyKey });
+    if (replay) return { entryId: replay.id, created: false };
     if (row.status !== "approved") throw new PackageRuleError("Approve the membership before recording money.");
     if (cohort.status !== "open") throw new PackageRuleError("This cohort has already started. Record the deposit in the next one.");
     if (now >= cohort.deposit_cutoff_at && !input.lateReason?.trim()) {
@@ -329,13 +352,18 @@ async function valuesOf(client: PoolClient, cohort: CohortRow) {
 
 export async function recordWithdrawal(input: {
   membershipId: string; amount: string; reference: string; actor: string; idempotencyKey: string; note?: string;
-}): Promise<void> {
+}): Promise<{ entryId: string; created: boolean }> {
   const amount = parseMoney(input.amount);
   if (amount <= 0n) throw new PackageRuleError("A withdrawal must be more than zero.", 400);
-  await inTransaction(async (client) => {
+  return inTransaction(async (client) => {
     const m = await client.query<{ cohort_id: string }>("SELECT cohort_id FROM memberships WHERE id = $1", [input.membershipId]);
     if (!m.rows[0]) throw new PackageRuleError("membership not found", 404);
     const cohort = await lockCohort(client, m.rows[0].cohort_id);
+    // As for deposits: a retry of a recorded payout gets its original result,
+    // even though the balance it was checked against has since been paid out.
+    const replay = await replayOf(client, { cohortId: cohort.id, membershipId: input.membershipId,
+      kind: "CAPITAL_OUT", amount: -amount, idempotencyKey: input.idempotencyKey });
+    if (replay) return { entryId: replay.id, created: false };
     const member = (await valuesOf(client, cohort)).find((v) => v.membershipId === input.membershipId);
     if (!member) throw new PackageRuleError("This membership has no money in the cohort.");
     const allowed = withdrawable(cohort.status, member.value, member.paidOut);
@@ -349,6 +377,7 @@ export async function recordWithdrawal(input: {
     if (result.created) {
       await audit(client, input.actor, "withdrawal.record", input.membershipId, { amount: formatMoney(amount), reference: input.reference });
     }
+    return { entryId: result.id, created: result.created };
   });
 }
 

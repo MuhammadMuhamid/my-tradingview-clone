@@ -23,6 +23,7 @@ const ERRORS: Record<string, string> = {
   google_disabled: "Google sign-in is not available here.",
   google_in_use: "That Google account is already linked to another account.",
   google_link_admin: "Sign in with the administrator's username and password, then link Google from your profile.",
+  google_link_unverified: "Your email isn't verified, and that Google account uses a different address. Verify your email first, or link a Google account that uses the same address as your account.",
   github_cancelled: "GitHub sign-in was cancelled.",
   github_expired: "That sign-in took too long or was opened in another browser. Try again.",
   github_failed: "GitHub could not confirm who you are. Your GitHub account needs a verified primary email.",
@@ -30,6 +31,7 @@ const ERRORS: Record<string, string> = {
   github_disabled: "GitHub sign-in is not available here.",
   github_in_use: "That GitHub account is already linked to another account.",
   github_link_admin: "Sign in with the administrator's username and password, then link GitHub from your profile.",
+  github_link_unverified: "Your email isn't verified, and that GitHub account uses a different address. Verify your email first, or link a GitHub account that uses the same address as your account.",
   signups_closed: "New accounts are not being accepted right now.",
   signin_required: "Sign in first.",
 };
