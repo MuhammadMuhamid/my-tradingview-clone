@@ -29,7 +29,7 @@ function VerifyEmail() {
     if (token) window.history.replaceState(null, "", "/verify-email");
   }, [token]);
 
-  const confirm = async (): Promise<void> => {
+  const confirmEmail = async (): Promise<void> => {
     if (!token || sent.current) return;
     sent.current = true;
     setState("working");
@@ -63,7 +63,7 @@ function VerifyEmail() {
             Only confirm if you created this Trading Scene account yourself. If you didn&apos;t sign up, close this
             page: the account stays unverified.
           </p>
-          <button type="button" onClick={() => void confirm()} className={`mt-6 ${PRIMARY_BUTTON}`}>
+          <button type="button" onClick={() => void confirmEmail()} className={`mt-6 ${PRIMARY_BUTTON}`}>
             Confirm my email address
           </button>
         </>

@@ -242,7 +242,10 @@ test("bot control", async (t) => {
     for (const id of ["not-a-uuid", "..%2F..%2Forders", `${TRADE_ID}x`, "%20"]) {
       const res = await call(admin, "POST", `/api/bot/control/trades/${id}/close`, { requestId: rid(), credential: { code: "123456" } });
       assert.equal(res.statusCode, 400, id);
-      assert.equal(res.json().code, "invalid_target_id");
+      // An encoded slash is refused earlier, by the session gate's path
+      // canonicalisation (G1), with its own 400; either way nothing is sent.
+      if (id.includes("%2F")) assert.equal(res.json().error, "malformed request path", id);
+      else assert.equal(res.json().code, "invalid_target_id", id);
     }
     // A dot-segment id is not even routed to the handler.
     const dots = await call(admin, "POST", "/api/bot/control/trades/%2e%2e/close", { requestId: rid(), credential: { code: "123456" } });
@@ -359,12 +362,16 @@ test("bot control", async (t) => {
       assert.equal(start.statusCode, 302, start.body);
       const state = new URL(start.headers.location as string).searchParams.get("state")!;
       const oauth = cookieNamed(start, "srtrend_oauth")!;
-      return call(oauth, "GET", `/api/auth/github/callback?code=c&state=${state}`);
+      // Link mode is bound to the signed-in session that started it (A1), so
+      // the callback carries that session cookie too, as a browser would.
+      const jar = mode === "link" && cookie ? `${cookie}; ${oauth}` : oauth;
+      return call(jar, "GET", `/api/auth/github/callback?code=c&state=${state}`);
     };
 
     // The administrator links GitHub from a signed-in session, then signs in with it.
     const linked = await github(admin, "link");
     assert.equal(linked.statusCode, 302, linked.body);
+    assert.doesNotMatch(String(linked.headers.location), /error=/, "the link succeeded");
     const signIn = await github(null);
     assert.match(signIn.headers.location as string, /^\/login\?step=2fa/, "two-factor is still asked for");
     const pending = cookieNamed(signIn, "srtrend_2fa");
