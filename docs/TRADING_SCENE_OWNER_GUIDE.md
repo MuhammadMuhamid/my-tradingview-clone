@@ -18,9 +18,8 @@ exchange, [OPERATIONS §6](OPERATIONS.md)) · **NOT SUPPORTED**.
 Test results are recorded per campaign run, with their date and commit, outside the repository
 (the latest is `Trading-Scene-Campaign/Integrated-Engineering-Finish-2026-11-09/`). The exact local
 commands are in the repository `README.md`; run them rather than trusting a number in a guide.
-Two-account isolation and Shariah publication ran against a real PostgreSQL 16. `tsc`, `eslint`
-(zero warnings, as CI runs them) for backend and frontend, and `next build` pass at the final commit.
-(V4 figures: 1,499 / 1,589 / 665 / 262 / 127 / 29; V3: 1,483 / 1,577 / 621 / 257 / 118 / 24.)
+Each campaign record says which suites ran against a real PostgreSQL 16, which builds, type checks
+and lints passed, and at which commit; this guide does not repeat those numbers.
 
 ---
 
