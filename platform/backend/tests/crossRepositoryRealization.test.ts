@@ -161,6 +161,24 @@ test("the shared webhook contract is byte-identical in both repositories", {
     `sha256:v${version(here)}:${createHash("sha256").update(canonical(here)).digest("hex")}`);
 });
 
+/*
+ * OD-5: the realization contract module is copied verbatim into the Bot (it
+ * imports only node:crypto for exactly this reason). Unlike the webhook check
+ * above, this one runs only when TRADING_SCENE_BOT_ROOT names the Bot checkout
+ * to compare with: during the v2 rollout the Platform ships first, and a Bot
+ * checkout found by walking up may legitimately still carry the v1 copy.
+ */
+const explicitBotRoot = process.env.TRADING_SCENE_BOT_ROOT ?? null;
+test("the realization contract module is byte-identical in both repositories", {
+  skip: explicitBotRoot ? false : "TRADING_SCENE_BOT_ROOT is unset — set it to the Bot checkout to compare the realization contract",
+}, () => {
+  if (!explicitBotRoot) return;
+  const here = fs.readFileSync(path.join(__dirname, "..", "src", "contract", "realizationEventContract.ts"), "utf8");
+  const there = fs.readFileSync(path.join(explicitBotRoot, "backend", "src", "contract", "realizationEventContract.ts"), "utf8");
+  assert.equal(there, here, "the two realization contract copies are not byte-identical");
+  assert.doesNotMatch(here, /^import (?!\{ createHash \} from "node:crypto";)/m, "the module stays self-contained");
+});
+
 test("loopback Bot outbox to authenticated Platform receipt survives duplicate replay", {
   skip: botInstalled ? false : NO_BOT_DEPS,
 }, async () => {

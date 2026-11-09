@@ -47,26 +47,45 @@ export function floorToStep(value: number, step: number): number {
   return Number((units * step).toFixed(decimalsForStep(step)));
 }
 
+/** The position a SELL is for (OD-7): only its remaining quantity matters here. */
+export interface SellPosition { quantity: number }
+
 /**
  * The largest order the ticket can honestly offer right now.
  *
  * BUY spends the quote asset, so its ceiling is free quote. SELL delivers the
- * base asset, so its ceiling is free base, floored onto the lot step because a
- * quantity off-step is refused outright.
+ * base asset, floored onto the lot step because a quantity off-step is refused
+ * outright. A SELL for a selected position (OD-7) is capped by THAT position:
+ * `floor(min(position quantity, free base))`, so "100%" means the position the
+ * operator chose, never coins belonging to another position or to nobody.
+ * Without a position it is the free wallet balance ("Sell from wallet").
  */
 export function maximumOrder(
-  state: ManualAccountState | null, side: "BUY" | "SELL"
+  state: ManualAccountState | null, side: "BUY" | "SELL", position?: SellPosition | null
 ): { amount: number; asset: string } | null {
   if (!state) return null;
   if (side === "BUY") return { amount: state.quote.free, asset: state.quote.asset };
-  return { amount: floorToStep(state.base.free, state.rules.lotStep), asset: state.base.asset };
+  const ceiling = position ? Math.min(Math.max(0, position.quantity), state.base.free) : state.base.free;
+  return { amount: floorToStep(ceiling, state.rules.lotStep), asset: state.base.asset };
+}
+
+/**
+ * What flooring a whole-position SELL onto the lot step leaves behind (OD-7):
+ * the part of the position (capped by the free balance) below one lot step.
+ * Null when there is none, so the ticket only mentions dust that exists.
+ */
+export function sellDust(state: ManualAccountState | null, position: SellPosition | null | undefined): number | null {
+  if (!state || !position) return null;
+  const ceiling = Math.min(Math.max(0, position.quantity), state.base.free);
+  const dust = Number((ceiling - floorToStep(ceiling, state.rules.lotStep)).toFixed(12));
+  return dust > 1e-12 ? dust : null;
 }
 
 /** A quick-fill percentage of the maximum, as the string the input holds. */
 export function quickFillAmount(
-  state: ManualAccountState | null, side: "BUY" | "SELL", percent: number
+  state: ManualAccountState | null, side: "BUY" | "SELL", percent: number, position?: SellPosition | null
 ): string {
-  const max = maximumOrder(state, side);
+  const max = maximumOrder(state, side, position);
   if (!max || !(max.amount > 0)) return "";
   const raw = (max.amount * percent) / 100;
   if (side === "BUY") {
@@ -93,13 +112,19 @@ export function preSubmitProblem(input: {
   amount: string;
   /** Last price or ask, used only to estimate a SELL's notional. */
   referencePrice: number | null;
+  /** The selected position, for a SELL tied to one (OD-7). */
+  position?: SellPosition | null;
 }): string | null {
   const amount = Number(input.amount);
   if (!input.state || !(amount > 0)) return null;
-  const max = maximumOrder(input.state, input.side);
+  const max = maximumOrder(input.state, input.side, input.position);
   if (!max) return null;
 
   if (amount > max.amount) {
+    if (input.side === "SELL" && input.position) {
+      return `The selected position allows at most ${trim(max.amount)} ${max.asset} `
+        + "(its quantity, capped by the free balance and the lot step).";
+    }
     return `Only ${trim(max.amount)} ${max.asset} is available. `
       + `Maximum order at current state: ${trim(max.amount)} ${max.asset}.`;
   }

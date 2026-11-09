@@ -159,9 +159,13 @@ export function declaredRealizationEnvironment(value: unknown): ExecutionEnviron
  *
  * 1. `paper` → PAPER.
  * 2. Not proven to be the custom Bot (`3commas`, `off`, unknown) → UNKNOWN.
- * 3. A `dry-` exchange order id → DRY_RUN.
- * 4. An explicit, valid declared environment → that value (MAINNET → REAL).
- * 5. Otherwise → UNKNOWN.
+ * 3. A declaration that contradicts the row's own exchange id (OD-5
+ *    consistency rule): MAINNET with a `dry-` id, or DRY_RUN with an id that is
+ *    not `dry-` → UNKNOWN. Neither side is believed over the other, and
+ *    UNKNOWN is never real money.
+ * 4. A `dry-` exchange order id → DRY_RUN.
+ * 5. An explicit, valid declared environment → that value (MAINNET → REAL).
+ * 6. Otherwise → UNKNOWN.
  */
 export function automatedEnvironment(input: {
   delivery: string | null | undefined;
@@ -170,8 +174,11 @@ export function automatedEnvironment(input: {
 }): ExecutionEnvironment {
   if (input.delivery === "paper") return "PAPER";
   if (input.delivery !== "custom") return "UNKNOWN";
-  if (isDryRunExchangeOrderId(input.exchangeOrderId)) return "DRY_RUN";
-  return declaredRealizationEnvironment(input.declaredEnvironment) ?? "UNKNOWN";
+  const declared = declaredRealizationEnvironment(input.declaredEnvironment);
+  const dry = isDryRunExchangeOrderId(input.exchangeOrderId);
+  if ((declared === "REAL" && dry) || (declared === "DRY_RUN" && !dry)) return "UNKNOWN";
+  if (dry) return "DRY_RUN";
+  return declared ?? "UNKNOWN";
 }
 
 /**
@@ -181,9 +188,9 @@ export function automatedEnvironment(input: {
  * deployment's current delivery is deliberately not consulted — a deployment
  * switched from custom to paper must not relabel its Bot history PAPER.
  *
- * Simulated closes never emit a realization event, so in practice a Bot row is
- * TESTNET or REAL — and nothing stored today says which. Until the event
- * carries an environment (see `declaredEnvironment`), such a row is UNKNOWN.
+ * A contract v2 event declares its environment (`declared_environment`,
+ * OD-5); a v1 event, an UNKNOWN declaration and a contradicted one stay
+ * UNKNOWN. The P&L stays the Bot's modeled figure either way.
  */
 export function automatedRealizationEnvironment(row: {
   sourceSystem?: string | null;

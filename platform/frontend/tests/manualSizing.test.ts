@@ -270,3 +270,29 @@ test("no Binance credential is required by the Platform for any of this", () => 
   assert.match(client, /\/api\/manual-trading\/account-state/);
   assert.doesNotMatch(read("lib/manualSizing.ts"), /apiKey|secret|binance\.com/i);
 });
+
+// ── OD-7: SELL 100% = the selected position ─────────────────────────────────
+
+test("OD-7: a SELL for a selected position is capped by that position, floored to the lot step", async () => {
+  const { sellDust } = await import("../lib/manualSizing");
+  const wallet = state({ base: { asset: "SOL", free: 1.2, locked: 0 }, rules: { lotStep: 0.01, minQty: 0.01, priceTick: 0.01, minNotional: 1 } });
+  const position = { quantity: 0.37 };
+  assert.deepEqual(maximumOrder(wallet, "SELL", position), { amount: 0.37, asset: "SOL" });
+  assert.equal(quickFillAmount(wallet, "SELL", 100, position), "0.37", "100% is the position, not the 1.2 SOL wallet");
+  assert.equal(quickFillAmount(wallet, "SELL", 50, position), "0.18", "0.185 floored");
+  // The wallet holds less than the position: the wallet caps it.
+  assert.equal(quickFillAmount(state({ ...wallet, base: { asset: "SOL", free: 0.2, locked: 0.2 } }), "SELL", 100, position), "0.2");
+  // Wallet mode (no position) is unchanged: the free balance.
+  assert.equal(quickFillAmount(wallet, "SELL", 100), "1.2");
+  assert.equal(quickFillAmount(wallet, "SELL", 100, null), "1.2");
+  // BUY ignores any position.
+  assert.equal(quickFillAmount(wallet, "BUY", 100, position), quickFillAmount(wallet, "BUY", 100));
+  // Dust below the lot step is named, never rounded up.
+  assert.equal(sellDust(wallet, { quantity: 0.375 }), 0.005);
+  assert.equal(sellDust(wallet, position), null);
+  assert.equal(sellDust(null, position), null);
+  // The pre-submit check holds a SELL to the position, not the wallet.
+  assert.match(preSubmitProblem({ state: wallet, side: "SELL", amount: "0.5", referencePrice: 150, position }) ?? "",
+    /selected position allows at most 0\.37 SOL/);
+  assert.equal(preSubmitProblem({ state: wallet, side: "SELL", amount: "0.5", referencePrice: 150 }), null);
+});

@@ -43,7 +43,7 @@ export interface TradeActions {
 function Actions({ trade, actions }: { trade: BotViewTrade; actions: TradeActions }) {
   if (trade.status !== "active") return null;
   if (trade.source === "manual") {
-    const href = tradePanelHref(trade.pair);
+    const href = tradePanelHref(trade.pair, { accountId: trade.account?.id ?? null, positionId: trade.id }); // OD-7
     return href ? (
       <Link href={href} className="inline-flex min-h-11 items-center text-sm text-ink-muted underline hover:text-ink sm:min-h-0">
         Close from the Trade panel

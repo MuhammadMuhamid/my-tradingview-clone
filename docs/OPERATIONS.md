@@ -95,6 +95,49 @@ other. `/bot` and the Bot panel on this page show both, each with what it blocks
 - **The owner's options** (one switch for both, or a Bot halt that keeps TP/SL
   running) are an owner decision and are not implemented.
 
+### Pause new entries (added 2026-11-09, OD-3)
+
+A third, narrower switch: no NEW position is opened, and everything else keeps
+running. One operator action, `POST /api/bot/control/entries` (`{paused, reason
+3–200 when pausing, cancelWorkingEntries?}`), sets both halves: the Platform's
+flag (`risk_controls.entries_paused`, migration 057, kept across restarts,
+audited `platform.entries_paused|entries_resumed`) and then the Bot's (command
+C9). The answer reports the two halves separately (`{platform, bot}`); when the
+Bot's answer is uncertain or the channel is not configured, the Platform half
+still applies and the Bot half says so. A Bot older than C9 has no `entries` in
+its status, and its half reads unknown, never "not paused".
+
+| | Platform half | Bot half |
+|---|---|---|
+| Refused | Strategy BUY emissions from the live runner, every delivery (`evaluateRisk` code `entries_paused`); a deployment test-signal BUY and a Platform manual BUY (409 `entries_paused`) | Webhook BUY, manual BUY, and strategy BUY intents (B-OD3) |
+| Never refused | Exits and SELLs (manual SELL, Close, Partial, strategy exits), cancels, protection edits | Exits, TP/SL, cancels and race-fill sweeps |
+
+It is independent of the halt: the Platform halt still stops automated entries
+AND exits. Pausing is risk-reducing, so like a halt it accepts the password
+while two-factor is off; resuming needs two-factor (grant tier). The explicit
+opt-in `cancelWorkingEntries` asks the Bot to cancel manual LIMIT BUYs still
+working on the exchange; it is passed through only as a boolean.
+
+### Manual orders from the Trade panel (updated 2026-11-09, OD-7)
+
+- **A SELL is for a chosen position.** The SELL tab selects the only open
+  position on that symbol and account (its whole quantity, floored to the lot
+  step and capped by the free balance); with several it waits for a choice; with
+  none it is a wallet sell, as before. "100%" means the selected position. A
+  sell not tied to a position needs the explicit tick "Sell from wallet (not
+  tied to a position)", and its percentages are "% of free wallet balance".
+  Dust below the lot step is named. The whole position is sent as
+  `positionFull: true` only to a Bot whose status lists `manualPositionFull.v1`;
+  otherwise as the floored quantity.
+- **"Close from the Trade panel" names the position**:
+  `/chart?source=scanner&symbol=X&panel=manual&side=sell&position=<id>` (plus
+  `&account=<id>` when known). It only prefills; a position that is no longer
+  open is reported and nothing is selected.
+- **The browser's request id is required** on `POST /api/manual-trading/orders`
+  (400 `invalid_request_id`; the Platform never mints one), and a manual **BUY**
+  asks for step-up at the grant tier (two-factor only). A SELL, a cancel and a
+  protection edit never ask, and are never blocked by a halt or a pause.
+
 ### Risk limits
 
 These are the Platform's limits. Each is opt-in and `null` (off) by default, so
@@ -140,6 +183,7 @@ per intent, and the Platform requires it and never mints one
 | Start or stop a bot (target state, not a toggle) | `POST /api/bot/control/bots/:id/status` | code |
 | Close a strategy trade | `POST /api/bot/control/trades/:id/close` | code |
 | Partial close (1–99 %) | `POST /api/bot/control/trades/:id/partial-close` | code |
+| Pause / resume new entries (Platform flag + C9) | `POST /api/bot/control/entries` | pause: code, or the password while two-factor is off; resume: code |
 | What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
 
 **Step-up, on every command that changes something.** The credential travels in
@@ -149,7 +193,10 @@ How the session was created plays no part, so a Google or GitHub sign-in is
 treated the same as a password sign-in:
 
 - **Two-factor on:** the authenticator code, and only that. Codes are single-use,
-  and guesses are limited to 5 per 5 minutes per account.
+  and guesses are limited to 5 per 5 minutes per account. A correct code also
+  leaves a five-minute step-up grant in that browser (OD-2, `docs/ACCOUNTS.md`):
+  halt, resume, start/stop, close, partial and pause/resume entries then need no
+  new code until it expires; risk limits always ask again.
 - **Two-factor off, and the account has a password:** the password is accepted
   for **Halt only**, so a halt is never blocked in an emergency. Every other
   command answers 403 `two_factor_required`.
@@ -338,11 +385,18 @@ row REAL. The Journal, the chart overlay and the manual Timeline share one rule
 - A `dry-` exchange order id is **DRY RUN**. A manual order on a testnet account
   is **TESTNET**. A paper deployment's rows are **PAPER**.
 - Everything else is **UNKNOWN**, and UNKNOWN is never counted as real money.
-- **Automated Bot realizations read UNKNOWN for now.** A simulated close emits
-  no realization event, so in practice these rows are testnet or real money,
-  but nothing stored says which. They stay UNKNOWN until the Bot's realization
-  event carries an environment. That is a deferred cross-repository change:
-  the Platform accepts the field first, then the Bot sends it.
+- **Automated Bot realizations declare their environment** (added 2026-11-09,
+  OD-5). Realization contract v2 events carry `environment` (DRY_RUN, TESTNET,
+  MAINNET or UNKNOWN), the environment of the SELL as the Bot recorded it; the
+  Platform stores it in `realised_pnl.declared_environment` (migration 056,
+  UNKNOWN as NULL) and the Journal shows MAINNET as REAL, TESTNET as TESTNET.
+  A declaration that contradicts the row's own exchange id (MAINNET with a
+  `dry-` id, DRY_RUN without one) reads UNKNOWN, and the event is still accepted
+  so the Bot's outbox never stalls. P&L and fees stay the Bot's modeled figures.
+  v1 events (an older Bot) and rows from before v2 stay UNKNOWN. Rollout is
+  Platform first: an accepted ingest answers `capabilities: ["realization.v2"]`,
+  and the Bot sends v2 only after it has seen that. The same event id re-sent
+  under the other version is an integrity conflict (409), by design.
 
 Manual orders and live cumulative execution reports can appear with **Unknown** P&L:
 that means execution activity is known but cost basis, disposition linkage, or

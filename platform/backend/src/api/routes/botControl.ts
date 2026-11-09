@@ -17,17 +17,26 @@
  *   gate then treats every request as the administrator and `passPassword`
  *   says "ok" when there is no hash, so step-up would fail open. Reads stay
  *   available for local development (F18).
- * - Every mutating command re-checks a credential carried in the same request
- *   (`step-up`, contract §3). Which credential is decided here, before
- *   `confirmIdentity` runs, because `confirmIdentity` deliberately says "ok"
- *   for an account with no password and that must never become a bypass:
+ * - Every mutating command is confirmed by `resolveStepUp` (`security/stepUp.ts`,
+ *   contract §3, OD-2) at the tier its `CommandSpec` declares: `grant` (a valid
+ *   step-up grant from a recent authenticator code suffices) or `fresh` (a new
+ *   credential every time; the default when a spec says nothing).
  *     two-factor on                       -> the authenticator code, only;
  *     two-factor off, a password exists   -> the password, for C1 halt only;
  *                                            anything else: two_factor_required;
  *     two-factor off, no password         -> step_up_unavailable.
  *   How the session was created (password, Google, GitHub) plays no part.
  *   The credential is never forwarded, stored or logged; the Bot receives
- *   `actor: { platformUserId, stepUp: { method, at } }`.
+ *   `actor: { platformUserId, stepUp: { method, at } }`. A grant is sent as
+ *   `method: "totp"` with `at` = when the code that minted it was entered.
+ *
+ * ── Adding a command (for the next engineer) ────────────────────────────────
+ *
+ * Write a `(body) => CommandSpec` builder in a NEW file, validate every field
+ * with `invalid`, `pathId` and `limitValue`, set `tier` deliberately, and
+ * register it with `app.post(url, (req, reply) => runCommand(req, reply, build))`.
+ * `runCommand` owns the request id, the auth/channel checks, step-up, the
+ * in-flight join, the audit rows and the F8 mapping.
  *
  * ── What an answer means (F8, F11) ──────────────────────────────────────────
  *
@@ -55,23 +64,24 @@ import * as liveSafety from "../../repositories/liveSafety";
 import * as users from "../../repositories/users";
 import { appendAdminAudit } from "../../repositories/adminAudit";
 import { userIdOf } from "../../security/requestUser";
-import { confirmIdentity } from "./accountSecurity";
+import {
+  Refusal, actorStepUpMethod, resolveStepUp, type StepUpProof, type StepUpTier,
+} from "../../security/stepUp";
 
-const REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
+export { Refusal };
+export type { StepUpProof, StepUpTier };
+
+export const REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
 /** SignalBot and SmartTrade ids are Prisma `uuid()` (bot `schema.prisma`). */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BOT_BASE = "/api/manual-trading/control";
+export const BOT_BASE = "/api/manual-trading/control";
 
-export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close";
-type StepUpMethod = "totp" | "password";
-
-/** A refusal this Platform authors. Always carries a code the browser can branch on. */
-class Refusal extends Error {
-  constructor(readonly status: number, readonly code: string, message: string,
-    readonly extra: Record<string, unknown> = {}) {
-    super(message);
-  }
-}
+/**
+ * The commands this file defines. A spec built elsewhere may use any other
+ * lower_snake kind; it names the audit rows `bot.<kind>.*`.
+ */
+export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close"
+  | "entries";
 
 // ── timeouts (contract §1, F8) ──────────────────────────────────────────────
 
@@ -94,7 +104,7 @@ const bodyOf = (req: FastifyRequest): Record<string, unknown> =>
  * service invented would make a retry a new command, exactly when retrying
  * safely matters.
  */
-function requestIdOf(req: FastifyRequest, body: Record<string, unknown>): string {
+export function requestIdOf(req: FastifyRequest, body: Record<string, unknown>): string {
   const header = req.headers["x-manual-request-id"];
   const fromHeader = typeof header === "string" ? header : undefined;
   const fromBody = body.requestId;
@@ -109,17 +119,17 @@ function requestIdOf(req: FastifyRequest, body: Record<string, unknown>): string
   return id;
 }
 
-function pathId(raw: unknown, what: string): string {
+export function pathId(raw: unknown, what: string): string {
   if (typeof raw !== "string" || !UUID.test(raw)) {
     throw new Refusal(400, "invalid_target_id", `That ${what} id is not valid.`);
   }
   return encodeURIComponent(raw.toLowerCase());
 }
 
-const invalid = (message: string) => new Refusal(400, "invalid_request", message);
+export const invalid = (message: string) => new Refusal(400, "invalid_request", message);
 
 /** A quote amount or count the Bot accepts: null (no limit) or a finite number ≥ 0. */
-function limitValue(raw: unknown, name: string, integer: boolean): number | null {
+export function limitValue(raw: unknown, name: string, integer: boolean): number | null {
   if (raw === null) return null;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || (integer && !Number.isInteger(raw))) {
     throw invalid(`${name} must be ${integer ? "a whole number" : "a number"} of 0 or more, or null for no limit.`);
@@ -129,9 +139,10 @@ function limitValue(raw: unknown, name: string, integer: boolean): number | null
 
 // ── the commands ────────────────────────────────────────────────────────────
 
-interface CommandSpec {
-  kind: BotCommandKind;
-  method: "POST" | "PATCH";
+export interface CommandSpec {
+  /** `BotCommandKind`, or another lower_snake name for a command defined elsewhere. */
+  kind: BotCommandKind | (string & {});
+  method: "POST" | "PATCH" | "PUT";
   /** Already validated and encoded. */
   botPath: string;
   target: string;
@@ -139,8 +150,18 @@ interface CommandSpec {
   params: Record<string, unknown>;
   accept: (body: Record<string, unknown>) => boolean;
   long: boolean;
-  /** C1 alone may be confirmed with the password when two-factor is off (OD-2). */
+  /** Risk-reducing commands only (C1 halt, pausing entries) may be confirmed with the password when two-factor is off (OD-2). */
   allowsPassword: boolean;
+  /** OD-2 tier. Absent means `fresh`: a new credential every time. */
+  tier?: StepUpTier;
+  /**
+   * A Platform-side change made after step-up and before the Bot is contacted
+   * (pausing entries sets the Platform's own flag first). Its result is
+   * answered beside the Bot's as `{ platform, bot }`. With this set, an
+   * unconfigured Bot channel does not refuse the request: the Platform half
+   * still applies and the Bot half says why it was not sent.
+   */
+  platformHalf?: (context: { actor: string; requestId: string; proof: StepUpProof }) => Promise<Record<string, unknown>>;
 }
 
 function haltSpec(body: Record<string, unknown>): CommandSpec {
@@ -148,13 +169,15 @@ function haltSpec(body: Record<string, unknown>): CommandSpec {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   if (reason.length < 3 || reason.length > 200) throw invalid("A reason of 3 to 200 characters is required.");
   return { kind: "halt", method: "POST", botPath: `${BOT_BASE}/halt`, target: "bot",
-    params: { confirmation: "HALT_TRADING", reason }, accept: botControlReplies.halt, long: false, allowsPassword: true };
+    params: { confirmation: "HALT_TRADING", reason }, accept: botControlReplies.halt, long: false,
+    allowsPassword: true, tier: "grant" };
 }
 
 function resumeSpec(body: Record<string, unknown>): CommandSpec {
   if (body.confirmation !== "RESUME_TRADING") throw invalid('confirmation must be "RESUME_TRADING".');
   return { kind: "resume", method: "POST", botPath: `${BOT_BASE}/resume`, target: "bot",
-    params: { confirmation: "RESUME_TRADING" }, accept: botControlReplies.resume, long: false, allowsPassword: false };
+    params: { confirmation: "RESUME_TRADING" }, accept: botControlReplies.resume, long: false,
+    allowsPassword: false, tier: "grant" };
 }
 
 function riskLimitsSpec(body: Record<string, unknown>): CommandSpec {
@@ -177,7 +200,7 @@ function riskLimitsSpec(body: Record<string, unknown>): CommandSpec {
   }
   if (Object.keys(params).length === 0) throw invalid("Change at least one limit.");
   return { kind: "risk_limits", method: "PATCH", botPath: `${BOT_BASE}/risk-limits`, target: "bot",
-    params, accept: botControlReplies.riskLimits, long: false, allowsPassword: false };
+    params, accept: botControlReplies.riskLimits, long: false, allowsPassword: false, tier: "fresh" };
 }
 
 function botStatusSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
@@ -185,13 +208,56 @@ function botStatusSpec(body: Record<string, unknown>, rawId: unknown): CommandSp
   if (body.status !== "active" && body.status !== "paused") throw invalid('status must be "active" or "paused".');
   return { kind: "bot_status", method: "POST", botPath: `${BOT_BASE}/bots/${id}/status`,
     target: `bot:${decodeURIComponent(id)}`, params: { status: body.status },
-    accept: botControlReplies.botStatus, long: false, allowsPassword: false };
+    accept: botControlReplies.botStatus, long: false, allowsPassword: false, tier: "grant" };
 }
 
 function closeSpec(_body: Record<string, unknown>, rawId: unknown): CommandSpec {
   const id = pathId(rawId, "trade");
   return { kind: "trade_close", method: "POST", botPath: `${BOT_BASE}/trades/${id}/close`,
-    target: `trade:${decodeURIComponent(id)}`, params: {}, accept: botControlReplies.close, long: true, allowsPassword: false };
+    target: `trade:${decodeURIComponent(id)}`, params: {}, accept: botControlReplies.close, long: true,
+    allowsPassword: false, tier: "grant" };
+}
+
+/**
+ * C9, pause or resume new entries (OD-3), with the Platform's own switch as
+ * its first half. Pausing is risk-reducing, so like a halt it accepts the
+ * password when two-factor is off; resuming needs two-factor.
+ *   pause  {paused:true, reason:3..200, cancelWorkingEntries?:boolean}
+ *   resume {paused:false}
+ * The body the Bot receives is rebuilt from these validated fields only.
+ */
+function entriesSpec(body: Record<string, unknown>): CommandSpec {
+  if (typeof body.paused !== "boolean") throw invalid("paused must be true or false.");
+  const paused = body.paused;
+  const params: Record<string, unknown> = { paused };
+  if (paused) {
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 3 || reason.length > 200) throw invalid("A reason of 3 to 200 characters is required.");
+    params.reason = reason;
+    if (body.cancelWorkingEntries !== undefined) {
+      if (typeof body.cancelWorkingEntries !== "boolean") throw invalid("cancelWorkingEntries must be true or false.");
+      if (body.cancelWorkingEntries) params.cancelWorkingEntries = true;
+    }
+  } else if (body.cancelWorkingEntries !== undefined && body.cancelWorkingEntries !== false) {
+    throw invalid("cancelWorkingEntries applies only to pausing.");
+  }
+  return {
+    kind: "entries", method: "POST", botPath: `${BOT_BASE}/entries`, target: "bot", params,
+    accept: botControlReplies.entries, long: true, allowsPassword: paused, tier: "grant",
+    platformHalf: async ({ actor, requestId, proof }) => {
+      const state = await liveSafety.setEntriesPaused(paused,
+        { reason: paused ? params.reason as string : null, by: actor });
+      try {
+        await appendAdminAudit(actor, paused ? "platform.entries_paused" : "platform.entries_resumed", "platform", {
+          requestId, changed: state.changed, ...(paused ? { reason: params.reason } : {}),
+          stepUpMethod: proof.method, ...(proof.grantId ? { grantId: proof.grantId } : {}),
+        });
+      } catch {
+        // The switch is set (risk-reducing when pausing); a lost audit row must not hide that.
+      }
+      return { paused: state.paused, at: state.pausedAt, by: state.pausedBy, reason: state.reason, changed: state.changed };
+    },
+  };
 }
 
 function partialCloseSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
@@ -202,55 +268,12 @@ function partialCloseSpec(body: Record<string, unknown>, rawId: unknown): Comman
   }
   return { kind: "trade_partial_close", method: "POST", botPath: `${BOT_BASE}/trades/${id}/partial-close`,
     target: `trade:${decodeURIComponent(id)}`, params: { pct },
-    accept: botControlReplies.partialClose, long: true, allowsPassword: false };
-}
-
-// ── step-up ─────────────────────────────────────────────────────────────────
-
-/**
- * Which credential this account can confirm this command with — or why it
- * cannot. Mirrors where `passPassword` looks for the hash (the server's
- * `ADMIN_PASSWORD_HASH` for the administrator, the account row otherwise), so
- * "a hash exists" here means the same thing `confirmIdentity` will check.
- */
-async function stepUpMethodFor(account: users.UserRow, allowsPassword: boolean): Promise<StepUpMethod> {
-  if (account.twoFactorEnabled) return "totp";
-  const hash = account.role === "admin" ? config.adminPasswordHash : await users.getPasswordHash(account.id);
-  if (!hash) {
-    throw new Refusal(403, "step_up_unavailable", "Turn on two-factor sign-in to confirm Bot commands.");
-  }
-  if (!allowsPassword) {
-    throw new Refusal(403, "two_factor_required",
-      "Turn on two-factor sign-in in your profile to operate the Bot from Trading Scene.");
-  }
-  return "password";
-}
-
-async function stepUp(reply: FastifyReply, account: users.UserRow, method: StepUpMethod,
-  body: Record<string, unknown>): Promise<void> {
-  const credential = typeof body.credential === "object" && body.credential !== null
-    ? body.credential as Record<string, unknown> : {};
-  const supplied = method === "totp" ? credential.code : credential.password;
-  if (typeof supplied !== "string" || supplied.trim() === "" || supplied.length > 1024) {
-    throw new Refusal(400, "step_up_required", method === "totp"
-      ? "Enter the code from your authenticator app to confirm."
-      : "Enter your password to confirm.", { method });
-  }
-  const result = await confirmIdentity(account, method === "totp" ? { code: supplied } : { password: supplied });
-  if (result === "ok") return;
-  if (result === "busy") throw new Refusal(429, "step_up_busy", "Busy. Try again shortly.");
-  if (result === "wrong") {
-    throw new Refusal(400, "step_up_failed", method === "totp"
-      ? "That code isn't correct. Each code works once; wait for the next one."
-      : "Your password isn't correct.", { method });
-  }
-  reply.header("retry-after", String(result.retryAfterSec));
-  throw new Refusal(429, "step_up_rate_limited", "Too many attempts. Try again in a few minutes.");
+    accept: botControlReplies.partialClose, long: true, allowsPassword: false, tier: "grant" };
 }
 
 // ── outcome → browser ───────────────────────────────────────────────────────
 
-interface Answer {
+export interface Answer {
   status: number;
   payload: Record<string, unknown>;
   /**
@@ -366,7 +389,7 @@ const commandHash = (spec: CommandSpec): string =>
 
 // ── the handler every mutating route shares ─────────────────────────────────
 
-async function runCommand(req: FastifyRequest, reply: FastifyReply,
+export async function runCommand(req: FastifyRequest, reply: FastifyReply,
   build: (body: Record<string, unknown>) => CommandSpec): Promise<FastifyReply> {
   try {
     if (!config.authEnabled) {
@@ -377,7 +400,7 @@ async function runCommand(req: FastifyRequest, reply: FastifyReply,
     const requestId = requestIdOf(req, body);
     const spec = build(body);
     // Before step-up, so an authenticator code is not spent on a command that cannot be sent.
-    if (!isManualControlChannelConfigured()) {
+    if (!spec.platformHalf && !isManualControlChannelConfigured()) {
       throw new Refusal(503, "bot_channel_not_configured", "Bot control channel not configured.");
     }
     const actor = userIdOf(req);
@@ -393,7 +416,7 @@ async function runCommand(req: FastifyRequest, reply: FastifyReply,
     }
 
     // Registered with no await since the check above, so a second click cannot slip between.
-    const flight: Flight = { actor, hash, answer: execute(req, reply, spec, requestId, actor, body) };
+    const flight: Flight = { actor, hash, answer: execute(req, reply, spec, requestId, actor) };
     inFlight.set(requestId, flight);
     let answer: Answer;
     try {
@@ -411,49 +434,74 @@ async function runCommand(req: FastifyRequest, reply: FastifyReply,
   }
 }
 
-/** Step-up, audit, send, audit. Resolves to the answer; throws only `Refusal` or a defect. */
+/**
+ * Step-up, (the Platform half,) audit, send, audit. Resolves to the answer;
+ * throws only `Refusal` or a defect.
+ */
 async function execute(req: FastifyRequest, reply: FastifyReply, spec: CommandSpec, requestId: string,
-  actor: string, body: Record<string, unknown>): Promise<Answer> {
+  actor: string): Promise<Answer> {
   try {
     const account = await users.getUser(actor);
     if (!account) throw new Refusal(401, "not_authenticated", "not authenticated");
-    const method = await stepUpMethodFor(account, spec.allowsPassword);
-    await stepUp(reply, account, method, body);
-    const at = new Date().toISOString();
-
-    try {
-      await appendAdminAudit(actor, `bot.${spec.kind}.requested`, spec.target,
-        { requestId, stepUpMethod: method, params: spec.params });
-    } catch (err) {
-      req.log.error({ err: (err as Error).name, requestId }, "bot command not sent: the audit row could not be written");
-      throw new Refusal(503, "audit_unavailable", "The command was not sent because it could not be recorded. Try again.");
+    const proof = await resolveStepUp(req, reply, account,
+      { tier: spec.tier ?? "fresh", allowsPassword: spec.allowsPassword });
+    if (!spec.platformHalf) return await sendToBot(req, spec, requestId, actor, proof);
+    const platform = await spec.platformHalf({ actor, requestId, proof });
+    // From here the Platform half has happened: a Bot-side refusal must not hide it.
+    let bot: Answer;
+    if (!isManualControlChannelConfigured()) {
+      bot = { status: 503, payload: { code: "bot_channel_not_configured", error: "Bot control channel not configured." } };
+    } else {
+      try {
+        bot = await sendToBot(req, spec, requestId, actor, proof);
+      } catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        bot = { status: error.status, payload: { code: error.code, error: error.message, ...error.extra } };
+      }
     }
-
-    const outcome = await botControlCommand({
-      method: spec.method, path: spec.botPath, requestId,
-      body: { ...spec.params, actor: { platformUserId: actor, stepUp: { method, at } } },
-      accept: spec.accept, timeoutMs: spec.long ? timeouts.longMs : timeouts.defaultMs,
-    });
-    const answer = commandAnswer(outcome, requestId);
-    const verdict = auditOutcomeOf(answer);
-    try {
-      await appendAdminAudit(actor, `bot.${spec.kind}.${verdict}`, spec.target, {
-        requestId, status: answer.status,
-        ...(typeof answer.payload.status === "string" ? { outcome: answer.payload.status } : {}),
-        ...(typeof answer.payload.code === "string" ? { code: answer.payload.code } : {}),
-        ...(outcome.outcome === "uncertain" ? { reason: outcome.reason } : {}),
-      });
-    } catch (err) {
-      // The command has run (or may have); its answer must still reach the operator.
-      req.log.error({ err: (err as Error).name, requestId }, "could not record a bot command outcome");
-    }
-    return answer;
+    return {
+      status: 200, payload: { platform, bot: { httpStatus: bot.status, ...bot.payload } }, fromBot: bot.fromBot,
+    };
   } catch (error) {
     if (error instanceof Refusal) {
       return { status: error.status, payload: { code: error.code, error: error.message, ...error.extra } };
     }
     throw error;
   }
+}
+
+/** Audit `requested`, send, audit the outcome. Not sent if the first row cannot be written. */
+async function sendToBot(req: FastifyRequest, spec: CommandSpec, requestId: string, actor: string,
+  proof: StepUpProof): Promise<Answer> {
+  try {
+    await appendAdminAudit(actor, `bot.${spec.kind}.requested`, spec.target, {
+      requestId, stepUpMethod: proof.method, ...(proof.grantId ? { grantId: proof.grantId } : {}),
+      params: spec.params,
+    });
+  } catch (err) {
+    req.log.error({ err: (err as Error).name, requestId }, "bot command not sent: the audit row could not be written");
+    throw new Refusal(503, "audit_unavailable", "The command was not sent because it could not be recorded. Try again.");
+  }
+
+  const outcome = await botControlCommand({
+    method: spec.method, path: spec.botPath, requestId,
+    body: { ...spec.params, actor: { platformUserId: actor, stepUp: { method: actorStepUpMethod(proof), at: proof.at } } },
+    accept: spec.accept, timeoutMs: spec.long ? timeouts.longMs : timeouts.defaultMs,
+  });
+  const answer = commandAnswer(outcome, requestId);
+  const verdict = auditOutcomeOf(answer);
+  try {
+    await appendAdminAudit(actor, `bot.${spec.kind}.${verdict}`, spec.target, {
+      requestId, status: answer.status,
+      ...(typeof answer.payload.status === "string" ? { outcome: answer.payload.status } : {}),
+      ...(typeof answer.payload.code === "string" ? { code: answer.payload.code } : {}),
+      ...(outcome.outcome === "uncertain" ? { reason: outcome.reason } : {}),
+    });
+  } catch (err) {
+    // The command has run (or may have); its answer must still reach the operator.
+    req.log.error({ err: (err as Error).name, requestId }, "could not record a bot command outcome");
+  }
+  return answer;
 }
 
 // ── reads ───────────────────────────────────────────────────────────────────
@@ -467,12 +515,24 @@ async function platformHalt() {
   }
 }
 
+/** The Platform half of "pause new entries" (OD-3); null when it could not be read (show unknown). */
+async function platformEntries() {
+  try {
+    const limits = await liveSafety.getRiskLimits();
+    return { paused: limits.entriesPaused === true, pausedAt: limits.entriesPausedAt ?? null,
+      pausedBy: limits.entriesPausedBy ?? null, reason: limits.entriesPausedReason ?? null };
+  } catch {
+    return null;
+  }
+}
+
 export async function botControlRoutes(app: FastifyInstance): Promise<void> {
   /** C0, plus what only this Platform knows: is the channel set, the webhook path, the Platform halt. */
   app.get("/api/bot/control/status", async () => {
     const deployments = await deploymentRepo.listDeployments();
-    const [{ panel }, halt] = await Promise.all([readBotOperations(deployments), platformHalt()]);
-    return { ...panel, platformHalt: halt };
+    const [{ panel }, halt, entries] = await Promise.all([
+      readBotOperations(deployments), platformHalt(), platformEntries()]);
+    return { ...panel, platformHalt: halt, platformEntries: entries };
   });
 
   /** C3. */
@@ -511,4 +571,9 @@ export async function botControlRoutes(app: FastifyInstance): Promise<void> {
     runCommand(req, reply, (body) => closeSpec(body, (req.params as { id?: string }).id)));
   app.post("/api/bot/control/trades/:id/partial-close", async (req, reply) =>
     runCommand(req, reply, (body) => partialCloseSpec(body, (req.params as { id?: string }).id)));
+
+  // ── C9 with the Platform half (OD-3) ─────────────────────────────────────
+
+  /** Answers `{platform:{paused, at, by, reason, changed}, bot:{httpStatus, status, …}}`. */
+  app.post("/api/bot/control/entries", async (req, reply) => runCommand(req, reply, entriesSpec));
 }

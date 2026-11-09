@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
-  canonicalJson, platformWebhookIdentity, type RealizationBatchV1, type RealizationEventV1,
+  canonicalJson, declaredEnvironmentOf, platformWebhookIdentity, type RealizationBatch, type RealizationEvent,
 } from "../contract/realizationEventContract";
 import { decryptSecret } from "../security/secrets";
 
@@ -24,7 +24,7 @@ interface CorrelationSource {
 }
 
 async function resolveCorrelation(
-  client: RealizationDbClient, event: RealizationEventV1
+  client: RealizationDbClient, event: RealizationEvent
 ): Promise<CorrelationSource> {
   const direct = event.platformDeploymentId !== null && event.platformOrderIntentId !== null;
   const candidates = direct
@@ -65,9 +65,14 @@ async function resolveCorrelation(
   return source;
 }
 
+/**
+ * Idempotent by event id: an identical re-send (same canonical JSON, so the
+ * same version and environment) is accepted again; the same id with anything
+ * different, including the other contract version, is an integrity conflict.
+ */
 export async function ingestRealizationBatch(
   client: RealizationDbClient,
-  batch: RealizationBatchV1
+  batch: RealizationBatch
 ): Promise<string[]> {
   const accepted: string[] = [];
   for (const event of batch.events) {
@@ -92,10 +97,11 @@ export async function ingestRealizationBatch(
             source_system, source_event_id, realization_kind,
             source_strategy_order_intent_id, source_exchange_order_id,
             source_platform_order_intent_id, accounting_basis, fee_model,
-            quote_currency, exit_revenue_quote, source_payload_sha256, received_at)
+            quote_currency, exit_revenue_quote, source_payload_sha256, received_at,
+            declared_environment)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'BOT_CUSTOM_V1',$8,$9,$10,$11,$12,
                  'modeled_fee_adjusted','fixed_0.1pct_each_side_not_exchange_observed',
-                 'USDT',$13,$14,now())
+                 'USDT',$13,$14,now(),$15)
          ON CONFLICT (source_system, source_event_id) WHERE source_event_id IS NOT NULL
          DO NOTHING
          RETURNING id`,
@@ -103,7 +109,7 @@ export async function ingestRealizationBatch(
           event.realizedPnlQuote, event.exitPrice, event.realizedQuantity,
           event.exitLeg ?? event.kind, event.eventId, event.kind,
           event.strategyOrderIntentId, event.exchangeOrderId,
-          String(source.id), event.exitRevenueQuote, payloadSha256]
+          String(source.id), event.exitRevenueQuote, payloadSha256, declaredEnvironmentOf(event)]
       );
     if (inserted.rowCount === 0) {
       // A concurrent exact retry may win after our initial read. Compare the

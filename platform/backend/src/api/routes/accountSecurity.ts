@@ -7,7 +7,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import QRCode from "qrcode";
 import { config } from "../../config";
-import { twoFactorLimiter, verificationEmailLimiter } from "../../security/rateLimit";
+import { stepUpLimiter, twoFactorLimiter, verificationEmailLimiter } from "../../security/rateLimit";
 import { forgetUser, userIdOf } from "../../security/requestUser";
 import { readCookie, sessionCookie, signUserSession } from "../../security/session";
 import {
@@ -17,8 +17,9 @@ import {
 import * as accountSecurity from "../../repositories/accountSecurity";
 import * as users from "../../repositories/users";
 import { isEmailConfigured, sendVerificationEmail } from "../../email/mailer";
-import { checkPassword, noteSignIn, publicUser, setSessionCookies, startSession } from "./auth";
+import { checkPassword, noteSignIn, publicUser, setSessionCookies } from "./auth";
 import { appendAdminAudit } from "../../repositories/adminAudit";
+import { clearStepUpCookie, revokeAllGrants, revokeThisGrant, stepUpStatus } from "../../security/stepUp";
 
 type SecondFactor = { code?: unknown; recoveryCode?: unknown };
 
@@ -28,7 +29,7 @@ function tooManyGuesses(reply: FastifyReply, retryAfterSec: number) {
 }
 
 /** A code from the app, or an unused recovery code. Each works once. */
-async function passSecondFactor(userId: string, body: SecondFactor, allowRecovery = true): Promise<boolean> {
+export async function passSecondFactor(userId: string, body: SecondFactor, allowRecovery = true): Promise<boolean> {
   if (allowRecovery && typeof body.recoveryCode === "string" && body.recoveryCode.length <= 64) {
     return accountSecurity.consumeRecoveryCode(userId, body.recoveryCode);
   }
@@ -44,7 +45,7 @@ async function passSecondFactor(userId: string, body: SecondFactor, allowRecover
  * to change who can sign in. An account that only signs in through a provider has
  * no password to ask for.
  */
-async function passPassword(account: users.UserRow, raw: unknown): Promise<"ok" | "wrong" | "busy"> {
+export async function passPassword(account: users.UserRow, raw: unknown): Promise<"ok" | "wrong" | "busy"> {
   const hash = account.role === "admin" ? config.adminPasswordHash : await users.getPasswordHash(account.id);
   if (!hash) return "ok";
   if (typeof raw !== "string" || raw.length > 1024) return "wrong";
@@ -55,16 +56,20 @@ async function passPassword(account: users.UserRow, raw: unknown): Promise<"ok" 
 
 /**
  * Re-entering a credential before a sensitive action: the code from the app when
- * two-factor is on, otherwise the password. Guesses count against the account.
+ * two-factor is on, otherwise the password. Guesses count against the account,
+ * in the step-up bucket (OD-2), not the one the sign-in second step uses.
+ *
+ * Bot and Operations commands go through `security/stepUp.ts` instead, which
+ * also knows about grants; this remains for the package confirmations.
  */
 export async function confirmIdentity(account: users.UserRow, body: { password?: unknown; code?: unknown }):
   Promise<"ok" | "wrong" | "busy" | { retryAfterSec: number }> {
-  const decision = twoFactorLimiter.hit(account.id);
+  const decision = stepUpLimiter.hit(account.id);
   if (!decision.allowed) return { retryAfterSec: decision.retryAfterSec };
   const result = account.twoFactorEnabled
     ? (await passSecondFactor(account.id, { code: body.code }, false) ? "ok" : "wrong")
     : await passPassword(account, body.password);
-  if (result === "ok") twoFactorLimiter.reset(account.id);
+  if (result === "ok") stepUpLimiter.reset(account.id);
   return result;
 }
 
@@ -79,10 +84,9 @@ export async function confirmIdentity(account: users.UserRow, body: { password?:
  * needed has already succeeded by then.
  *
  * Administrator accounts only. They are the accounts whose second factor
- * guards the Bot, and they are the only ones `admin_audit` may name:
- * `admin_audit.actor` is `ON DELETE SET NULL`, and the table's append-only
- * trigger refuses that UPDATE, so a row naming an ordinary account would make
- * that account impossible to delete. `deleteUser` never deletes an admin.
+ * guards the Bot. (Since migration 054 a row naming an ordinary account would
+ * no longer block its deletion, `admin_audit.actor` simply becomes NULL, but
+ * there is still no reason to record ordinary accounts here.)
  */
 async function auditTwoFactor(req: FastifyRequest, account: users.UserRow,
   action: "auth.2fa.setup_started" | "auth.2fa.enabled" | "auth.2fa.disabled"): Promise<void> {
@@ -196,8 +200,20 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     twoFactorLimiter.reset(account.id);
     const recoveryCodes = generateRecoveryCodes();
     await accountSecurity.replaceRecoveryCodes(account.id, recoveryCodes);
-    await accountSecurity.enableTotp(account.id);
+    /*
+     * On, and every OTHER session ends (OD-2): someone holding a stolen session
+     * and the password could otherwise enrol their own authenticator and keep
+     * every session the owner already had. This one is re-issued under the new
+     * version, so the person who just turned it on stays signed in here.
+     */
+    const version = await accountSecurity.enableTotpAndRotateSessions(account.id);
+    await revokeAllGrants(account.id);
+    forgetUser(account.id);
     await auditTwoFactor(req, account, "auth.2fa.enabled");
+    setSessionCookies(reply, [
+      sessionCookie(signUserSession(account.id, version, config.sessionSecret), config.cookieSecure),
+      clearStepUpCookie(),
+    ]);
     return { ok: true, recoveryCodes };
   });
 
@@ -215,10 +231,14 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     if (!await passSecondFactor(account.id, body)) return reply.code(400).send({ error: "That code isn't correct." });
     twoFactorLimiter.reset(account.id);
     await accountSecurity.clearTotp(account.id);
+    await revokeAllGrants(account.id);
     await auditTwoFactor(req, account, "auth.2fa.disabled");
     const version = await users.bumpSessionVersion(account.id);
     forgetUser(account.id);
-    startSession(reply, { id: account.id, sessionVersion: version });
+    setSessionCookies(reply, [
+      sessionCookie(signUserSession(account.id, version, config.sessionSecret), config.cookieSecure),
+      clearStepUpCookie(),
+    ]);
     return { ok: true };
   });
 
@@ -234,7 +254,26 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     twoFactorLimiter.reset(account.id);
     const recoveryCodes = generateRecoveryCodes();
     await accountSecurity.replaceRecoveryCodes(account.id, recoveryCodes);
+    // New codes are a credential change: any grant from before them ends.
+    await revokeAllGrants(account.id);
+    reply.header("set-cookie", clearStepUpCookie());
     return { ok: true, recoveryCodes };
+  });
+
+  // ── step-up grants (OD-2) ────────────────────────────────────────────────
+
+  /** Whether this browser holds a valid grant, and which credential a dialog would ask for. No secret. */
+  app.get("/api/auth/step-up/status", async (req, reply) => {
+    const account = await currentAccount(req, reply);
+    if (!account) return reply;
+    return stepUpStatus(req, account);
+  });
+
+  /** "Lock now": this browser's grant stops working; the next command asks for a code again. */
+  app.post("/api/auth/step-up/revoke", async (req, reply) => {
+    await revokeThisGrant(req);
+    reply.header("set-cookie", clearStepUpCookie());
+    return { ok: true };
   });
 
   // ── history ──────────────────────────────────────────────────────────────

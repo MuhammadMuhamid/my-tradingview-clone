@@ -54,8 +54,8 @@ test("a correct password with 2FA on asks for the code, and a wrong code says so
   await settle(4);
   assert.ok(screen.getByRole("heading", { name: "Two-factor sign-in" }));
   assert.equal(screen.queryByLabelText("Password"), null);
+  // The shared six-digit field submits on the sixth digit (OD-2).
   type("Code", "123456");
-  click("Continue");
   await settle(4);
   assert.deepEqual(attempt, { code: "123456" });
   assert.match(screen.getByRole("alert").textContent ?? "", /isn't correct/);
@@ -181,14 +181,14 @@ test("setting up 2FA: password, QR and key, code, then recovery codes shown once
   type("Password", "correct horse battery");
   click("Set up two-factor sign-in");
   await settle(4);
-  assert.ok(text().includes("SECRETKEY234"));
+  assert.ok(text().includes("SECR ETKE Y234"), "the setup key, grouped in fours (OD-2)");
   assert.ok(screen.getByAltText("QR code for your authenticator app"));
   type(/6-digit code/, "123456");
   click("Turn on");
   await settle(4);
   assert.deepEqual(seen, [{ password: "correct horse battery" }, { code: "123456" }]);
   assert.ok(text().includes("AAAAA-BBBBB"));
-  assert.equal(text().includes("SECRETKEY234"), false, "the secret isn't left on screen");
+  assert.equal(text().includes("SECR ETKE Y234"), false, "the secret isn't left on screen");
   click("I've saved them");
   await settle(4);
   assert.equal(text().includes("AAAAA-BBBBB"), false);

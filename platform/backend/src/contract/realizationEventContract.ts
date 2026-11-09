@@ -1,9 +1,41 @@
 import { createHash } from "node:crypto";
 
-/** Immutable Bot -> Platform realization event contract. */
+/**
+ * Immutable Bot -> Platform realization event contract.
+ *
+ * This file is copied byte-for-byte into the Bot repository; it imports only
+ * `node:crypto` so the two copies can stay identical.
+ *
+ * ── Versions ───────────────────────────────────────────────────────────────
+ *
+ * v1  the original keys, exactly. Unchanged, so an old Bot keeps working and
+ *     every stored v1 hash stays valid.
+ * v2  (owner decision OD-5) the v1 keys PLUS a required `environment`:
+ *     "DRY_RUN" | "TESTNET" | "MAINNET" | "UNKNOWN", the environment of the
+ *     SELL that realized it, as the Bot recorded it when it placed the order.
+ *     A batch and every event in it share one version. Unknown keys are still
+ *     refused at every level.
+ *
+ * Rollout is Platform first: a Platform that accepts v2 says so by answering
+ * an accepted ingest with `capabilities: ["realization.v2"]`
+ * (`REALIZATION_CAPABILITIES`), and a Bot sends v2 only after it has seen that.
+ *
+ * The payload hash is sha256 of `canonicalJson(normalizedEvent)`. A v2 event's
+ * hash covers `environment` and `contractVersion: 2`, so re-sending one event
+ * id under the other version is an integrity conflict (409), by design.
+ */
 export const REALIZATION_CONTRACT_VERSION = 1 as const;
+export const REALIZATION_CONTRACT_VERSIONS = [1, 2] as const;
+export type RealizationContractVersion = typeof REALIZATION_CONTRACT_VERSIONS[number];
 export const REALIZATION_EVENT_TYPE = "BOT_CUSTOM_REALIZATION" as const;
 export const REALIZATION_BATCH_MAX = 50;
+/** What an accepting Platform advertises in its ingest answer. */
+export const REALIZATION_CAPABILITY_V2 = "realization.v2" as const;
+export const REALIZATION_CAPABILITIES: readonly string[] = [REALIZATION_CAPABILITY_V2];
+
+/** v2 only. UNKNOWN is a valid declaration ("the Bot cannot say"); it is never real money. */
+export const REALIZATION_ENVIRONMENTS = ["DRY_RUN", "TESTNET", "MAINNET", "UNKNOWN"] as const;
+export type RealizationEnvironment = typeof REALIZATION_ENVIRONMENTS[number];
 
 export type RealizationKind = "partial" | "final";
 
@@ -45,11 +77,26 @@ export interface RealizationBatchV1 {
   events: RealizationEventV1[];
 }
 
+export interface RealizationEventV2 extends Omit<RealizationEventV1, "contractVersion"> {
+  contractVersion: 2;
+  environment: RealizationEnvironment;
+}
+
+export interface RealizationBatchV2 {
+  contractVersion: 2;
+  type: "BOT_CUSTOM_REALIZATION_BATCH";
+  events: RealizationEventV2[];
+}
+
+export type RealizationEvent = RealizationEventV1 | RealizationEventV2;
+export type RealizationBatch = RealizationBatchV1 | RealizationBatchV2;
+
 const EVENT_KEYS = ["accounting", "contractVersion", "eventId", "exchangeOrderId",
   "exitLeg", "exitPrice", "exitRevenueQuote", "exitSide", "kind",
   "platformDedupeKey", "platformDeploymentId", "platformOrderIntentId",
   "platformWebhookIdentity", "positionDirection", "quoteCurrency", "realizedAt", "realizedPnlQuote",
   "realizedQuantity", "strategyOrderIntentId", "symbol", "type"] as const;
+const EVENT_KEYS_V2 = [...EVENT_KEYS, "environment"] as const;
 const ACCOUNTING_KEYS = ["buyFeeRate", "commissionSource", "feeModel", "pnlBasis",
   "sellFeeRate"] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -120,10 +167,21 @@ function boundedDecimal(value: unknown, name: string, options: { positive?: bool
   return normalized;
 }
 
-/** Strict validation plus canonical decimal and timestamp normalization. */
-export function normalizeRealizationEvent(input: unknown): RealizationEventV1 {
-  if (!record(input) || !exactKeys(input, EVENT_KEYS)) throw new Error("invalid realization event shape");
-  if (input.contractVersion !== 1 || input.type !== REALIZATION_EVENT_TYPE) throw new Error("unsupported realization contract");
+/**
+ * Strict validation plus canonical decimal and timestamp normalization. A v1
+ * event normalizes to exactly the v1 keys (its hash never changes); a v2 event
+ * to the v1 keys plus `environment`.
+ */
+export function normalizeRealizationEvent(input: unknown): RealizationEvent {
+  if (!record(input)) throw new Error("invalid realization event shape");
+  const version = input.contractVersion;
+  if ((version !== 1 && version !== 2) || input.type !== REALIZATION_EVENT_TYPE) {
+    throw new Error("unsupported realization contract");
+  }
+  if (!exactKeys(input, version === 2 ? EVENT_KEYS_V2 : EVENT_KEYS)) throw new Error("invalid realization event shape");
+  if (version === 2 && !(REALIZATION_ENVIRONMENTS as readonly unknown[]).includes(input.environment)) {
+    throw new Error("invalid realization environment");
+  }
   if (input.kind !== "partial" && input.kind !== "final") throw new Error("invalid realization kind");
   if (typeof input.eventId !== "string" || !ID.test(input.eventId)
       || typeof input.strategyOrderIntentId !== "string" || !ID.test(input.strategyOrderIntentId)
@@ -154,7 +212,7 @@ export function normalizeRealizationEvent(input: unknown): RealizationEventV1 {
       || input.accounting.commissionSource !== "modeled_not_exchange_observed") {
     throw new Error("unsupported realization accounting semantics");
   }
-  return {
+  const v1: RealizationEventV1 = {
     contractVersion: 1, type: REALIZATION_EVENT_TYPE, eventId: input.eventId,
     kind: input.kind, realizedAt: canonicalTimestamp(String(input.realizedAt)),
     realizedPnlQuote: boundedDecimal(input.realizedPnlQuote, "realizedPnlQuote"),
@@ -172,16 +230,31 @@ export function normalizeRealizationEvent(input: unknown): RealizationEventV1 {
       buyFeeRate: "0.001", sellFeeRate: "0.001",
       commissionSource: "modeled_not_exchange_observed" },
   };
+  if (version === 1) return v1;
+  return { ...v1, contractVersion: 2, environment: input.environment as RealizationEnvironment };
 }
 
-export function normalizeRealizationBatch(input: unknown): RealizationBatchV1 {
+/** A batch and every event in it share one version: a v2 batch of v1 events (or the reverse) is refused. */
+export function normalizeRealizationBatch(input: unknown): RealizationBatch {
   if (!record(input) || !exactKeys(input, ["contractVersion", "events", "type"])
-      || input.contractVersion !== 1 || input.type !== "BOT_CUSTOM_REALIZATION_BATCH"
+      || (input.contractVersion !== 1 && input.contractVersion !== 2)
+      || input.type !== "BOT_CUSTOM_REALIZATION_BATCH"
       || !Array.isArray(input.events) || input.events.length < 1
       || input.events.length > REALIZATION_BATCH_MAX) throw new Error("invalid realization batch");
+  const version = input.contractVersion;
   const events = input.events.map(normalizeRealizationEvent);
+  if (events.some((event) => event.contractVersion !== version)) {
+    throw new Error("realization batch and event versions differ");
+  }
   if (new Set(events.map((event) => event.eventId)).size !== events.length) {
     throw new Error("duplicate event identity in realization batch");
   }
-  return { contractVersion: 1, type: "BOT_CUSTOM_REALIZATION_BATCH", events };
+  return version === 1
+    ? { contractVersion: 1, type: "BOT_CUSTOM_REALIZATION_BATCH", events: events as RealizationEventV1[] }
+    : { contractVersion: 2, type: "BOT_CUSTOM_REALIZATION_BATCH", events: events as RealizationEventV2[] };
+}
+
+/** The environment a stored realization declares: v2's value, with UNKNOWN (and every v1 event) stored as NULL. */
+export function declaredEnvironmentOf(event: RealizationEvent): "DRY_RUN" | "TESTNET" | "MAINNET" | null {
+  return event.contractVersion === 2 && event.environment !== "UNKNOWN" ? event.environment : null;
 }

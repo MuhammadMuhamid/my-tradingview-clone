@@ -41,7 +41,8 @@ const runner = () => ({
 
 async function testSignal(
   action: "buy" | "sell",
-  riskLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>,
+  riskLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null;
+    entriesPaused?: boolean; entriesPausedReason?: string | null }>,
 ) {
   /*
    * The route 404s unless the live-test flag is on, which is correct and is
@@ -106,4 +107,21 @@ test("a running platform is unchanged in both directions", async () => {
     assert.notEqual(response.statusCode, 409, `${action} was refused by a halt that is off`);
     assert.doesNotMatch(response.body, /trading is halted/);
   }
+});
+
+// ── Pause new entries (OD-3) ─────────────────────────────────────────────────
+
+const PAUSED = async () => ({ tradingHalted: false, haltedReason: null, entriesPaused: true, entriesPausedReason: null });
+
+test("paused entries refuse a BUY test signal with a typed code", async () => {
+  const response = await testSignal("buy", PAUSED);
+  assert.equal(response.statusCode, 409, response.body);
+  assert.equal(response.json().code, "entries_paused");
+  assert.match(response.json().error, /Selling is still allowed/);
+});
+
+test("paused entries do NOT refuse a SELL test signal", async () => {
+  const response = await testSignal("sell", PAUSED);
+  assert.doesNotMatch(response.body, /entries are paused/);
+  assert.notEqual(response.json().code, "entries_paused");
 });

@@ -183,10 +183,19 @@ function automatedBoth(input: { realization?: AutomatedRealizationEvidence; acti
 test("Bot realizations: dry- id is DRY_RUN, an explicit environment is honoured, otherwise UNKNOWN", () => {
   assert.deepEqual(automatedBoth({ realization: realization(1, { exchangeOrderId: "dry-sell-1" }) }),
     { journal: "DRY_RUN", overlay: "DRY_RUN" });
-  for (const [declared, expected] of [["DRY_RUN", "DRY_RUN"], ["TESTNET", "TESTNET"], ["MAINNET", "REAL"]]) {
+  for (const [declared, expected] of [["TESTNET", "TESTNET"], ["MAINNET", "REAL"]]) {
     assert.deepEqual(automatedBoth({ realization: realization(2, { declaredEnvironment: declared }) }),
       { journal: expected, overlay: expected }, `declared ${declared}`);
   }
+  // OD-5 consistency: a declaration must agree with the row's own exchange id.
+  assert.deepEqual(automatedBoth({ realization: realization(2, { declaredEnvironment: "DRY_RUN", exchangeOrderId: "dry-sell-2" }) }),
+    { journal: "DRY_RUN", overlay: "DRY_RUN" }, "DRY_RUN with a dry- id");
+  assert.deepEqual(automatedBoth({ realization: realization(2, { declaredEnvironment: "DRY_RUN" }) }),
+    { journal: "UNKNOWN", overlay: "UNKNOWN" }, "DRY_RUN with an exchange id is a contradiction");
+  assert.deepEqual(automatedBoth({ realization: realization(2, { declaredEnvironment: "MAINNET", exchangeOrderId: "dry-sell-3" }) }),
+    { journal: "UNKNOWN", overlay: "UNKNOWN" }, "MAINNET with a dry- id is a contradiction, never REAL");
+  assert.deepEqual(automatedBoth({ realization: realization(2, { declaredEnvironment: "TESTNET", exchangeOrderId: "dry-sell-4" }) }),
+    { journal: "DRY_RUN", overlay: "DRY_RUN" }, "a dry- id is still DRY_RUN under a TESTNET declaration");
   // Strict enum: anything else is not evidence.
   for (const declared of ["REAL", "mainnet", "LIVE", "", 1, true, null, { value: "MAINNET" }]) {
     assert.deepEqual(automatedBoth({ realization: realization(3, { declaredEnvironment: declared }) }),

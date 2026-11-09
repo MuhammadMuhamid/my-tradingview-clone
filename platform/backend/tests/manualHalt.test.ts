@@ -33,12 +33,17 @@ const ORDER = {
 const HALTED = async () => ({ tradingHalted: true, haltedReason: "feed lost" });
 const RUNNING = async () => ({ tradingHalted: false, haltedReason: null });
 
+type Limits = () => Promise<{ tradingHalted: boolean; haltedReason: string | null;
+  entriesPaused?: boolean; entriesPausedReason?: string | null }>;
+
 async function appWith(
-  riskLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>,
+  riskLimits: Limits,
   onBot: () => void
 ) {
   const app = Fastify({ logger: false });
   await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
     riskLimits,
     /*
      * Both gate dependencies are injected, not just the mode.
@@ -61,7 +66,7 @@ async function appWith(
 
 async function post(
   body: Record<string, unknown>,
-  riskLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>,
+  riskLimits: Limits,
   path = "/api/manual-trading/orders"
 ) {
   let reachedBot = false;
@@ -160,5 +165,34 @@ test("cancelling and adjusting protection are never halted", async (t) => {
     "/api/manual-trading/orders/abc/cancel"
   );
   assert.equal(cancel.response.statusCode, 200, cancel.response.body);
+  assert.equal(cancel.reachedBot, true);
+});
+
+// ── Pause new entries (OD-3) ─────────────────────────────────────────────────
+
+const PAUSED = async () => ({ tradingHalted: false, haltedReason: null, entriesPaused: true,
+  entriesPausedReason: "news risk" });
+
+test("paused entries refuse a manual BUY with a typed code, and never reach the Bot", async (t) => {
+  const previous = config.manualTradingEnabled;
+  config.manualTradingEnabled = true;
+  t.after(() => { config.manualTradingEnabled = previous; });
+  for (const side of ["BUY", "bUy ", "", undefined]) {
+    const { response, reachedBot } = await post({ ...ORDER, side }, PAUSED);
+    assert.equal(response.statusCode, 409, `${JSON.stringify(side)}: ${response.body}`);
+    assert.equal(response.json().code, "entries_paused");
+    assert.match(response.json().error, /new entries are paused: news risk\. Selling is still allowed/);
+    assert.equal(reachedBot, false);
+  }
+});
+
+test("paused entries never block a manual SELL, a cancel or a protection edit", async (t) => {
+  const previous = config.manualTradingEnabled;
+  config.manualTradingEnabled = true;
+  t.after(() => { config.manualTradingEnabled = previous; });
+  const sell = await post({ ...ORDER, side: "SELL" }, PAUSED);
+  assert.equal(sell.response.statusCode, 200, sell.response.body);
+  assert.equal(sell.reachedBot, true);
+  const cancel = await post({ requestId: ORDER.requestId }, PAUSED, "/api/manual-trading/orders/abc/cancel");
   assert.equal(cancel.reachedBot, true);
 });

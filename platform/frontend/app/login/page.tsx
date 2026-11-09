@@ -6,7 +6,8 @@
  * `/signup`) opens on account creation. The admin's original username still
  * works in the email field.
  */
-import { Suspense, useState } from "react";
+import { Suspense, useState, useRef } from "react";
+import { OneTimeCodeInput } from "@/components/OneTimeCodeInput";
 import { useSearchParams } from "next/navigation";
 import { safeNextPath } from "@/lib/safeRedirect";
 import { useSession } from "@/lib/session";
@@ -42,9 +43,14 @@ function TwoFactorStep({ next }: { next: string }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // One attempt at a time: the sixth digit and a click on Continue can arrive together.
+  const sending = useRef(false);
 
-  const submit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
+  const submit = async (e?: React.FormEvent, typed?: string): Promise<void> => {
+    e?.preventDefault();
+    const entered = typed ?? value;
+    if (sending.current || !entered.trim()) return;
+    sending.current = true;
     setBusy(true);
     setErr(null);
     try {
@@ -52,7 +58,7 @@ function TwoFactorStep({ next }: { next: string }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(useRecovery ? { recoveryCode: value } : { code: value }),
+        body: JSON.stringify(useRecovery ? { recoveryCode: entered } : { code: entered }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; user?: { onboarded?: boolean } };
       if (!res.ok) throw new Error(body.error ?? "Sign-in failed");
@@ -61,6 +67,8 @@ function TwoFactorStep({ next }: { next: string }) {
       setErr((error as Error).message);
       setValue("");
       setBusy(false);
+    } finally {
+      sending.current = false;
     }
   };
 
@@ -71,12 +79,18 @@ function TwoFactorStep({ next }: { next: string }) {
         {useRecovery ? "Enter one of your recovery codes. Each works once." : "Enter the 6-digit code from your authenticator app."}
       </p>
       <form onSubmit={submit} className="mt-6" noValidate>
-        <label className="block text-[13px] text-ink-muted" htmlFor="second-factor">
-          {useRecovery ? "Recovery code" : "Code"}
-        </label>
-        <input id="second-factor" autoFocus autoComplete="one-time-code" value={value}
-          inputMode={useRecovery ? "text" : "numeric"} onChange={(e) => setValue(e.target.value)}
-          className={`mt-1.5 ${AUTH_FIELD}`} />
+        {useRecovery ? (
+          <>
+            <label className="block text-[13px] text-ink-muted" htmlFor="second-factor">Recovery code</label>
+            <input id="second-factor" autoFocus autoComplete="off" value={value} spellCheck={false}
+              inputMode="text" onChange={(e) => setValue(e.target.value)}
+              className={`mt-1.5 ${AUTH_FIELD}`} />
+          </>
+        ) : (
+          // The shared six-digit field (OD-2): Apple Passwords and other autofill can offer the code here.
+          <OneTimeCodeInput id="second-factor" label="Code" value={value} onChange={setValue} autoFocus
+            disabled={busy} plainClassName={`mt-1.5 ${AUTH_FIELD}`} onComplete={(code) => void submit(undefined, code)} />
+        )}
         {err && <p role="alert" className="mt-4 rounded-md bg-down/10 px-3 py-2 text-[13px] text-down">{err}</p>}
         <button type="submit" disabled={busy || !value.trim()} className={`mt-5 ${PRIMARY_BUTTON}`}>
           {busy ? "Checking…" : "Continue"}

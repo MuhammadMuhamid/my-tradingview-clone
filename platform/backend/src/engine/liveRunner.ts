@@ -167,6 +167,12 @@ export class LiveRunner {
         "TRADING IS HALTED — evaluation continues, no signal will be delivered"
       );
     }
+    if (limits.entriesPaused === true) {
+      this.log.warn(
+        { reason: limits.entriesPausedReason, at: limits.entriesPausedAt },
+        "NEW ENTRIES ARE PAUSED — evaluation continues, no BUY will be delivered; exits still are"
+      );
+    }
     await this.syncReceiverPositions();
     this.receiverSyncTimer = setInterval(() => void this.syncReceiverPositions(), 30_000);
   }

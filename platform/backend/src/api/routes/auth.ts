@@ -47,7 +47,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../../config";
-import { clientKey, loginLimiter } from "../../security/rateLimit";
+import { clientKey, loginLimiter, stepUpLimiter, twoFactorLimiter } from "../../security/rateLimit";
 import {
   GithubSignInError, exchangeGithubCode, githubAuthorizeUrl, type GithubIdentity,
 } from "../../security/github";
@@ -70,6 +70,16 @@ import {
 import * as users from "../../repositories/users";
 import * as watchlists from "../../repositories/watchlists";
 import { cleanSymbols } from "./watchlists";
+import {
+  Refusal, clearStepUpCookie, hasPassword, resolveStepUp, revokeAllGrants, revokeThisGrant,
+} from "../../security/stepUp";
+import { deleteAccount, deletionBlocked } from "../../repositories/accountDeletion";
+
+const MEMBERSHIP_ACTIVE = {
+  code: "membership_active",
+  error: "This account still has a seat in a package cohort that hasn't finished, or money there that hasn't "
+    + "been settled. Withdraw or wait for the cohort to settle, then delete the account.",
+} as const;
 
 // Bound expensive checks across all client IPs without queueing passwords.
 let activePasswordChecks = 0;
@@ -307,17 +317,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post("/api/auth/logout", async (_req, reply) => {
-    setSessionCookies(reply, clearCookie(config.cookieSecure));
+  /** This browser only: its session cookie and its step-up grant (OD-2). */
+  app.post("/api/auth/logout", async (req, reply) => {
+    await revokeThisGrant(req);
+    setSessionCookies(reply, [clearCookie(config.cookieSecure), clearStepUpCookie()]);
     return { ok: true };
   });
 
-  /** End every session of this account, this one included. */
+  /** End every session of this account, this one included, and every step-up grant. */
   app.post("/api/auth/logout-all", async (req, reply) => {
     const id = userIdOf(req);
     await users.bumpSessionVersion(id);
+    await revokeAllGrants(id);
     forgetUser(id);
-    setSessionCookies(reply, clearCookie(config.cookieSecure));
+    setSessionCookies(reply, [clearCookie(config.cookieSecure), clearStepUpCookie()]);
     return { ok: true };
   });
 
@@ -380,8 +393,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       setSessionCookies(reply, clearCookie(config.cookieSecure));
       return reply.code(401).send({ error: "Your account changed while this was being saved. Sign in again." });
     }
-    // Every other session ends; this one is re-issued under the new version.
-    startSession(reply, { id, sessionVersion: version });
+    // Every other session ends, and every step-up grant; this session is
+    // re-issued under the new version.
+    await revokeAllGrants(id);
+    setSessionCookies(reply, [
+      sessionCookie(signUserSession(id, version, config.sessionSecret), config.cookieSecure),
+      clearStepUpCookie(),
+    ]);
     return { ok: true };
   });
 
@@ -408,27 +426,54 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, user: publicUser(updated) };
   });
 
-  /** Delete this account and everything it owns. The admin cannot be deleted. */
+  /**
+   * Delete this account and everything it owns (OD-6). The administrator
+   * cannot be deleted, and nothing is deleted while sign-in is off.
+   *
+   * Body `{confirm: "DELETE", credential?}`. The credential is fresh every
+   * time: the authenticator code when two-factor is on, otherwise the password
+   * when the account has one. An account with neither (it only ever signed in
+   * through Google or GitHub) confirms by typing DELETE alone: the signed-in
+   * provider session is then the only factor there is (documented).
+   *
+   * Refused 409 `membership_active` while the account has a seat in a package
+   * cohort that hasn't finished or money not yet settled (checked before the
+   * credential, so a code is not spent, and again under lock). See
+   * `repositories/accountDeletion.ts` for what is deleted and what is kept.
+   */
   app.delete("/api/auth/account", async (req, reply) => {
+    if (!config.authEnabled) {
+      return reply.code(403).send({ code: "auth_disabled", error: "Accounts are off on this instance (AUTH_ENABLED)." });
+    }
     const id = userIdOf(req);
-    const body = (req.body ?? {}) as { confirm?: unknown };
+    const body = (typeof req.body === "object" && req.body !== null ? req.body : {}) as { confirm?: unknown };
     if (body.confirm !== "DELETE") {
-      return reply.code(400).send({ error: 'Type DELETE to confirm.' });
+      return reply.code(400).send({ code: "confirmation_required", error: "Type DELETE to confirm." });
     }
-    if (id === users.ADMIN_USER_ID) {
-      return reply.code(400).send({ error: "The administrator account cannot be deleted." });
+    const account = await users.getUser(id);
+    if (!account) return reply.code(404).send({ code: "not_found", error: "account not found" });
+    if (account.role === "admin") {
+      return reply.code(403).send({ code: "admin_account", error: "The administrator account cannot be deleted." });
     }
-    let ok: boolean;
+    if (await deletionBlocked(id)) return reply.code(409).send(MEMBERSHIP_ACTIVE);
     try {
-      ok = await users.deleteUser(id);
-    } catch (err) {
-      // Package memberships and their ledger outlive the account; nothing was deleted.
-      if (err instanceof users.AccountHasRecordsError) return reply.code(409).send({ error: err.message });
-      throw err;
+      if (account.twoFactorEnabled || await hasPassword(account)) {
+        await resolveStepUp(req, reply, account, { tier: "fresh", allowsPassword: true, requireAdmin: false });
+      }
+    } catch (error) {
+      if (error instanceof Refusal) {
+        return reply.code(error.status).send({ code: error.code, error: error.message, ...error.extra });
+      }
+      throw error;
     }
+    const outcome = await deleteAccount(id);
     forgetUser(id);
-    if (!ok) return reply.code(404).send({ error: "account not found" });
-    setSessionCookies(reply, clearCookie(config.cookieSecure));
+    if (outcome === "membership_active") return reply.code(409).send(MEMBERSHIP_ACTIVE);
+    if (outcome === "admin") return reply.code(403).send({ code: "admin_account", error: "The administrator account cannot be deleted." });
+    if (outcome === "not_found") return reply.code(404).send({ code: "not_found", error: "account not found" });
+    twoFactorLimiter.reset(id);
+    stepUpLimiter.reset(id);
+    setSessionCookies(reply, [clearCookie(config.cookieSecure), clearStepUpCookie()]);
     return { ok: true };
   });
 

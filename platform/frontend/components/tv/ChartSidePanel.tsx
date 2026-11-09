@@ -89,6 +89,9 @@ export interface ChartSidePanelProps {
   tradingNotice: string | null;
   onTicketStagedChange: (staged: boolean) => void;
   onManualState: (state: ManualTradingState | null) => void;
+  /** OD-7: a "Close from the Trade panel" link's position, to preselect once on the SELL tab. */
+  manualSellTarget?: { accountId: string | null; positionId: string } | null;
+  onManualSellTargetUsed?: () => void;
 
   maLines: { type: MaType; length: number; visible: boolean }[];
   maValues: Record<string, number | null>;
@@ -271,6 +274,8 @@ export function ChartSidePanel(props: ChartSidePanelProps): ReactNode {
                 targetNotice={props.tradingNotice}
                 onStagedChange={props.onTicketStagedChange}
                 onClose={props.onClosePanel}
+                initialSell={props.manualSellTarget ?? null}
+                onInitialSellUsed={props.onManualSellTargetUsed}
                 onStateChange={props.onManualState} />)}
           {props.panel === "ma" && (
             <aside className="flex h-full w-[85vw] max-w-[300px] shrink-0 flex-col bg-surface md:w-[300px]">

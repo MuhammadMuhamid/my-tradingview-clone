@@ -65,8 +65,16 @@ function canonicalUrl(raw: string): string {
   return `${url.pathname}${query ? `?${query}` : ""}`;
 }
 
+/** The Bot half of "pause new entries" (C9, OD-3), as C0 reports it. */
+export interface FakeEntries {
+  paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null;
+  workingEntryLimits: number; unresolvedBuyIntents: number;
+}
+
 export function controlStatus(overrides: { halted?: boolean; haltedBy?: string | null; dryRun?: boolean;
-  routing?: "TESTNET" | "MAINNET" | "MIXED" | "NONE"; latched?: boolean } = {}) {
+  routing?: "TESTNET" | "MAINNET" | "MIXED" | "NONE"; latched?: boolean;
+  /** Omitted from C0 when undefined (an older Bot). */
+  entries?: FakeEntries; capabilities?: string[] } = {}) {
   const halted = overrides.halted ?? false;
   const dryRun = overrides.dryRun ?? true;
   return {
@@ -97,8 +105,12 @@ export function controlStatus(overrides: { halted?: boolean; haltedBy?: string |
     manual: { enabled: true, mainnetEnabled: false },
     version: "1.2.3",
     time: "2026-11-09T12:00:00.000Z",
+    ...(overrides.entries ? { entries: overrides.entries } : {}),
+    ...(overrides.capabilities ? { capabilities: overrides.capabilities } : {}),
   };
 }
+
+export const FAKE_BOT_CAPABILITIES = ["entries.v1", "manualPositionFull.v1"];
 
 export class FakeBot {
   readonly requests: RecordedBotRequest[] = [];
@@ -111,6 +123,15 @@ export class FakeBot {
   limits = { maxTotalExposureQuote: 1000 as number | null, maxConcurrentTrades: 3 as number | null,
     maxDailyLossQuote: 50 as number | null, dailyLossWindowHours: 24 };
   readonly bots = new Map<string, { id: string; name: string; status: "active" | "paused" }>();
+  /** C9 state. `legacyStatus` makes C0 omit `entries` and `capabilities`, as a Bot before OD-3 does. */
+  entries: FakeEntries = { paused: false, pausedAt: null, pausedBy: null, reason: null,
+    workingEntryLimits: 0, unresolvedBuyIntents: 0 };
+  /** Manual LIMIT BUYs still working; a pause with `cancelWorkingEntries` cancels them. */
+  workingEntries: { orderId: string; symbol: string }[] = [];
+  capabilities: string[] = [...FAKE_BOT_CAPABILITIES];
+  legacyStatus = false;
+  /** Manual orders the Platform forwarded (POST /api/manual-trading/orders). */
+  readonly manualOrders: { requestId: string; body: Record<string, unknown> }[] = [];
   readonly manualTrades = new Set<string>();
   readonly commands = new Map<string, StoredCommand>();
   private readonly nonces = new Set<string>();
@@ -137,6 +158,11 @@ export class FakeBot {
     this.halted = false;
     this.haltedBy = null;
     this.commands.clear();
+    this.entries = { paused: false, pausedAt: null, pausedBy: null, reason: null, workingEntryLimits: 0, unresolvedBuyIntents: 0 };
+    this.workingEntries = [];
+    this.capabilities = [...FAKE_BOT_CAPABILITIES];
+    this.legacyStatus = false;
+    this.manualOrders.length = 0;
   }
 
   /** Requests that reached a command route (not C0/C3/C8 reads). */
@@ -223,7 +249,11 @@ export class FakeBot {
     const { actor, ...params } = b;
     const base = "/api/manual-trading/control";
     if (method === "GET" && path === `${base}/status`) {
-      return { status: 200, body: controlStatus({ halted: this.halted, haltedBy: this.haltedBy }) };
+      return { status: 200, body: controlStatus({ halted: this.halted, haltedBy: this.haltedBy,
+        ...(this.legacyStatus ? {} : {
+          entries: { ...this.entries, workingEntryLimits: this.workingEntries.length },
+          capabilities: this.capabilities,
+        }) }) };
     }
     if (method === "GET" && path === `${base}/risk-limits`) {
       return { status: 200, body: { limits: this.limits, snapshot: { openExposureQuote: 100, openTrades: 1, realisedPnlInWindow: -5 },
@@ -243,6 +273,38 @@ export class FakeBot {
         if (!alreadyHalted) { this.halted = true; this.haltedBy = "operator"; }
         return { status: 200, body: { halted: true, haltedBy: this.haltedBy, haltedReason: params.reason ?? null,
           haltedAt: "2026-11-09T12:00:00.000Z", alreadyHalted } };
+      });
+    }
+    if (method === "POST" && path === "/api/manual-trading/orders") {
+      // The manual order route (OD-7 tests): recorded, answered as accepted. Not a control command.
+      this.manualOrders.push({ requestId, body: b });
+      return { status: 200, body: { id: `manual-order-${this.manualOrders.length}`, status: "submitted", requestId } };
+    }
+    if (method === "POST" && path === `${base}/entries`) {
+      // C9 (OD-3), strict like the Bot's schema: pause {paused:true, reason 3..200,
+      // cancelWorkingEntries?}, resume {paused:false}; anything else is 400.
+      const keys = Object.keys(params).sort().join(",");
+      const pausing = params.paused === true;
+      const valid = pausing
+        ? typeof params.reason === "string" && params.reason.length >= 3 && params.reason.length <= 200
+          && (keys === "paused,reason" || (keys === "cancelWorkingEntries,paused,reason"
+            && typeof params.cancelWorkingEntries === "boolean"))
+        : params.paused === false && keys === "paused";
+      if (!valid) return { status: 400, body: { error: "Invalid entries command.", code: "invalid_request" } };
+      return this.command(requestId, "entries", "bot", params, actor, () => {
+        const changed = this.entries.paused !== pausing;
+        if (changed) {
+          this.entries = pausing
+            ? { ...this.entries, paused: true, pausedAt: "2026-11-09T12:00:00.000Z",
+              pausedBy: (actor as { platformUserId?: string } | undefined)?.platformUserId ?? "operator",
+              reason: params.reason as string }
+            : { ...this.entries, paused: false, pausedAt: null, pausedBy: null, reason: null };
+        }
+        const canceled = pausing && params.cancelWorkingEntries === true
+          ? this.workingEntries.map((o) => ({ ...o, outcome: "canceled" as const })) : undefined;
+        if (canceled) this.workingEntries = [];
+        const { workingEntryLimits: _w, unresolvedBuyIntents: _u, ...entries } = this.entries;
+        return { status: 200, body: { entries, changed, ...(canceled ? { canceledEntries: canceled } : {}) } };
       });
     }
     if (method === "POST" && path === `${base}/resume`) {

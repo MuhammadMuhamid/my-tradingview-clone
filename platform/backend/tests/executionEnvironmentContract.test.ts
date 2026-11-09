@@ -57,6 +57,8 @@ async function forwardedBody(payload: Record<string, unknown>) {
   let sent: Record<string, unknown> | undefined;
   const app = Fastify({ logger: false });
   await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
     riskLimits: RUNNING,
     shariah: { readMode: async () => "off" as const, lookupBaseAsset: async () => null },
     botRequest: async (input: { body?: unknown }) => {

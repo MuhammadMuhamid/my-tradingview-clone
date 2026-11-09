@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../../config";
-import { normalizeRealizationBatch } from "../../contract/realizationEventContract";
+import { REALIZATION_CAPABILITIES, normalizeRealizationBatch } from "../../contract/realizationEventContract";
 import { pool } from "../../db/pool";
 import { verifyRealizationRequest } from "../../realizations/auth";
 import {
@@ -37,7 +37,9 @@ export async function realizationEventRoutes(
       }
       const acceptedEventIds = await ingestRealizationBatch(client, batch);
       await client.query("COMMIT");
-      return reply.send({ status: "accepted", acceptedEventIds });
+      // `capabilities` (OD-5): this Platform accepts contract v2. A Bot sends v2
+      // only after it has seen this on an accepted ingest.
+      return reply.send({ status: "accepted", acceptedEventIds, capabilities: [...REALIZATION_CAPABILITIES] });
     } catch (error) {
       await client.query("ROLLBACK");
       if (error instanceof RealizationIntegrityConflict) {

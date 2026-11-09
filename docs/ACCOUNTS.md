@@ -21,10 +21,45 @@ had one sign-in and every row was that person's.
   `CONFLICT_TARGET` begins with `user_id`, so one user's upsert can never
   update another user's identical alert.
 - An alert notifies its owner's devices only (`sendPush(…, { userId })`).
-- Deleting an account deletes everything it owns (`ON DELETE CASCADE`), except
-  that an account with a package membership can't be deleted: the membership and
-  its append-only ledger must be kept, so `DELETE /api/auth/account` answers 409
-  and nothing is deleted.
+- Deleting an account deletes everything it owns (`ON DELETE CASCADE`). See
+  "Deleting an account" below for what is kept (anonymous package ledger rows,
+  audit rows naming only a uuid) and when it is refused.
+
+### Deleting an account (updated 2026-11-09, OD-6, migration `054_account_deletion.sql`)
+
+`DELETE /api/auth/account` with `{confirm: "DELETE", credential?}` from the profile's
+Account section. Refused for the administrator and while `AUTH_ENABLED=false`. The
+credential is asked fresh every time: the authenticator code when two-factor is on,
+otherwise the password when the account has one. An account with neither (it only ever
+signed in through Google or GitHub) confirms by typing DELETE alone; the signed-in
+provider session is then the only factor there is, a documented limitation.
+
+It is refused (409 `membership_active`, before any credential is asked, and again under
+the row lock) while the account has an approved seat in a cohort that is open, running
+or settling, or money not settled to zero (a settled or cancelled cohort not fully paid
+out, or ledger rows on a membership that was never approved). Settle or withdraw first.
+
+In one transaction it then deletes memberships that have no ledger rows (a join
+request, a rejection), gives the remaining ones an opaque `former_member_ref` (random,
+not derived from the account), and deletes the `users` row. Foreign keys delete
+watchlists, layouts, scripts, drawings, pane studies, push devices, alerts with their
+events and delivery outbox, verification links, recovery codes, sign-in history and
+step-up grants, and set `memberships.user_id`, `memberships.decided_by`,
+`packages.created_by`, `ledger_entries.recorded_by` and `admin_audit.actor` to NULL.
+`tests/accountDeletionDb.test.ts` holds every foreign key to `users` to its rule, so a
+new table cannot silently block or survive a deletion.
+
+The append-only triggers on `admin_audit` and `ledger_entries` still refuse every
+DELETE and TRUNCATE and every UPDATE except that one column (`actor`,
+`recorded_by`) becoming NULL with every other column unchanged.
+
+Kept afterwards: audit rows that name the account only by its uuid in `target` (no
+email or name is stored there, though an administrator's free-text deposit reference
+could hold one), and the anonymous membership and ledger rows for settled money,
+shown to the administrator as "Former member <ref>". Signing in again with the same
+Google or GitHub account creates a new, empty account. The browser forgets the
+account's cached chart state (theme kept). There is no route for an administrator to
+delete another account.
 
 ## 2. What an ordinary account may reach
 
@@ -184,8 +219,7 @@ Turn two-factor on for the administrator before relying on Bot controls in
 Trading Scene. On an administrator account, starting setup, turning two-factor
 on and turning it off each append an `admin_audit` row
 (`auth.2fa.setup_started`, `auth.2fa.enabled`, `auth.2fa.disabled`). Ordinary
-accounts are not recorded there. `admin_audit` is append-only, and a row naming
-an account would stop that account from being deleted.
+accounts are not recorded there.
 
 **Email verification.** Signing up sends a link that works once and expires in 24
 hours. Only its hash is stored, and a new link replaces the old one. A provider's
@@ -202,11 +236,47 @@ one of them verify an account for whoever registered the address.
 - Setup needs a verified email and the account's password, so someone holding an
   unverified address or a stolen session can't lock out the owner. The secret is
   encrypted with `ALERT_ENCRYPTION_KEY`.
+- The setup card (updated 2026-11-09, OD-2) puts Apple Passwords first: the QR code,
+  an "Open in Passwords / authenticator app" `otpauth://` link, and the setup key in
+  groups of four with Copy. It says plainly that any RFC 6238 app works and that keeping
+  the password and the codes in the same Apple Passwords store is more convenient but
+  separates the two factors less. It does not claim autofill works everywhere. Every
+  code field (sign-in, setup, the step-up dialog, account deletion) is one shared
+  six-digit input with the numeric keypad and `autocomplete="one-time-code"`; a pasted
+  "123 456" or "123-456" is normalised and the sixth digit submits. Recovery codes can
+  be copied or downloaded as a `.txt` made in the browser (never sent anywhere). The
+  step-up dialog says "Confirmed — no code needed until HH:MM" while this browser holds
+  a grant, with "Lock now".
 - A correct password or provider sign-in then gives a 5-minute proof cookie, not a
   session. The code or a recovery code turns it into a session.
 - Each code works once. Guesses are limited to 5 per 5 minutes per account.
 - Ten recovery codes are shown once and stored hashed.
+- Turning it ON ends every other session and re-issues this one (added 2026-11-09,
+  OD-2): someone holding a stolen session and the password could otherwise enrol
+  their own authenticator and keep every session the owner already had.
 - Turning it off needs the password and a code, and ends every other session.
+
+**Step-up grants** (added 2026-11-09, OD-2, migration `055_step_up_grants.sql`,
+`platform/backend/src/security/stepUp.ts`). A correct authenticator code before a Bot
+or Operations command leaves a grant for five minutes, fixed from the moment the code
+was entered and never extended by use. The browser holds only an opaque random handle
+in the cookie `srtrend_stepup` (HttpOnly, SameSite=Strict, Path=/api); the database
+stores its SHA-256. While it is valid, grant-tier commands (Bot halt, resume, pause or
+start a bot, close or partly close a trade, pause or resume new entries, Platform halt
+and resume, a Platform manual BUY) need no new code. Fresh-tier commands (Bot and
+Platform risk limits, account deletion, and the existing two-factor changes) ask for a
+credential every time; a correct code there also mints a grant. Only a code mints a
+grant, never a password. A grant stops working when it expires, when "Lock now" is
+pressed (`POST /api/auth/step-up/revoke`), on sign-out in that browser, and, for every
+browser of the account, on sign-out everywhere, a password change, two-factor turned
+on or off, new recovery codes, a reclaim, an administrator's two-factor reset or the
+account's deletion. It is also refused if the account's session version or role is no
+longer what it was when it was minted. `GET /api/auth/step-up/status` tells the dialogs
+whether a code is needed (`{twoFactorEnabled, method, grant: {valid, expiresAt?}}`, no
+secret). Step-up guesses have their own limit (5 per 5 minutes per account), separate
+from the sign-in second step, so wrong codes in a dialog cannot lock the administrator
+out of signing in. Platform halt, resume and risk limits append
+`platform.<kind>.requested|succeeded|refused` rows to `admin_audit`.
 
 **Joining by email.** If an unverified account's address signs in through Google or
 GitHub, the provider has proved who owns it, and the account is taken back for that
@@ -236,8 +306,17 @@ a primary, verified address, and a GitHub account without one is refused.
 shown on the profile. Deleting an account deletes them.
 
 **Locked out of the administrator account.** Use a recovery code. If those are lost too,
-someone with database access must clear `totp_secret_enc` and `totp_enabled_at` on the
-admin row. There is no way to do this from the app.
+someone with access to the server runs the reset script (added 2026-11-09):
+
+    cd platform/backend && npm run reset-admin-2fa -- --admin          # local
+    docker exec -i <backend> node dist/scripts/resetAdmin2fa.js --admin  # deployed
+
+(`--admin` or any account's id.) In one transaction it clears the TOTP secret, its
+enabled time and last step, deletes the recovery codes and every step-up grant, bumps
+the session version so every session ends, and appends an `admin_audit` row
+`auth.2fa.reset` with no actor. Sign in with the password, then turn two-factor on
+again from the profile. A running server may keep its cached view of the account for
+up to 15 seconds. There is no way to do this from the app.
 
 ### Not built
 

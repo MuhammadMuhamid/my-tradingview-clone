@@ -179,6 +179,10 @@ interface DbRisk {
   max_concurrent_positions: number | null;
   max_daily_loss_quote: string | number | null;
   daily_loss_window_hours: number;
+  entries_paused: boolean;
+  entries_paused_at: Date | null;
+  entries_paused_by: string | null;
+  entries_paused_reason: string | null;
 }
 
 const num = (v: string | number | null): number | null =>
@@ -199,7 +203,49 @@ export async function getRiskLimits(): Promise<RiskLimits> {
     // the execution bot owns and enforces daily realised-loss protection.
     maxDailyLossQuote: null,
     dailyLossWindowHours: r.daily_loss_window_hours,
+    entriesPaused: r.entries_paused,
+    entriesPausedAt: r.entries_paused_at ? r.entries_paused_at.toISOString() : null,
+    entriesPausedBy: r.entries_paused_by,
+    entriesPausedReason: r.entries_paused_reason,
   };
+}
+
+export interface EntriesPauseState {
+  paused: boolean;
+  pausedAt: string | null;
+  pausedBy: string | null;
+  reason: string | null;
+}
+
+/**
+ * Pause or resume new entries (OD-3), as a target state: asking for the state
+ * it is already in changes nothing (`changed: false`) and keeps the original
+ * time, account and reason. Persisted, so a restart keeps it.
+ */
+export async function setEntriesPaused(
+  paused: boolean, opts: { reason?: string | null; by?: string | null } = {}
+): Promise<EntriesPauseState & { changed: boolean }> {
+  type Row = { entries_paused: boolean; entries_paused_at: Date | null; entries_paused_by: string | null;
+    entries_paused_reason: string | null };
+  const toState = (r: Row): EntriesPauseState => ({
+    paused: r.entries_paused, pausedAt: r.entries_paused_at ? r.entries_paused_at.toISOString() : null,
+    pausedBy: r.entries_paused_by, reason: r.entries_paused_reason,
+  });
+  const updated = await query<Row>(
+    `UPDATE risk_controls
+        SET entries_paused = $1,
+            entries_paused_at = CASE WHEN $1 THEN now() ELSE NULL END,
+            entries_paused_by = CASE WHEN $1 THEN $3 ELSE NULL END,
+            entries_paused_reason = CASE WHEN $1 THEN $2 ELSE NULL END,
+            updated_at = now()
+      WHERE id = 1 AND entries_paused IS DISTINCT FROM $1
+      RETURNING entries_paused, entries_paused_at, entries_paused_by, entries_paused_reason`,
+    [paused, opts.reason ?? null, opts.by ?? null]);
+  if (updated.rows[0]) return { ...toState(updated.rows[0]), changed: true };
+  const current = await query<Row>(
+    "SELECT entries_paused, entries_paused_at, entries_paused_by, entries_paused_reason FROM risk_controls WHERE id = 1");
+  if (!current.rows[0]) throw new Error("risk_controls has no row: the entries switch cannot be set");
+  return { ...toState(current.rows[0]), changed: false };
 }
 
 /** Set the kill switch. `reason` is required when halting, for the audit trail. */

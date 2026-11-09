@@ -29,7 +29,8 @@ export function deploymentRoutes(
   deps: {
     shariah?: ShariahGateDeps;
     /** Injected so the halt refusal is provable without a database. */
-    riskLimits?: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>;
+    riskLimits?: () => Promise<{ tradingHalted: boolean; haltedReason: string | null;
+      entriesPaused?: boolean; entriesPausedReason?: string | null }>;
     /**
      * Injected for the same reason: a test that proves a SELL gets PAST the
      * halt has to let the request continue, and continuing means a real query
@@ -226,6 +227,13 @@ export function deploymentRoutes(
               ? `trading is halted: ${limits.haltedReason}. Closing an open position is still allowed.`
               : "trading is halted. Closing an open position is still allowed.",
           });
+        }
+        // OD-3: paused new entries refuse a test BUY too; a test SELL still goes.
+        if (limits.entriesPaused === true) {
+          return reply.code(409).send({ code: "entries_paused",
+            error: limits.entriesPausedReason
+              ? `new entries are paused: ${limits.entriesPausedReason}. Selling is still allowed.`
+              : "new entries are paused. Selling is still allowed." });
         }
       }
       const dep = await readDeployment(id);

@@ -49,7 +49,7 @@ test("bot control", async (t) => {
   const { config } = await import("../src/config");
   const { buildServer } = await import("../src/api/server");
   const { useEmailTransportForTests } = await import("../src/email/mailer");
-  const { loginLimiter, twoFactorLimiter } = await import("../src/security/rateLimit");
+  const { loginLimiter, stepUpLimiter } = await import("../src/security/rateLimit");
   const { totpCode, totpStepAt } = await import("../src/security/twoFactor");
   const { hashPassword } = await import("../src/security/session");
   const { ADMIN_USER_ID } = await import("../src/repositories/users");
@@ -104,10 +104,10 @@ test("bot control", async (t) => {
     assert.equal(res.statusCode, 200, res.body);
     return session(res)!;
   };
-  const admin = await adminLogin();
+  let admin = await adminLogin();
   const signup = await call(null, "POST", "/api/auth/signup", { email: "standard@example.com", password: "correct horse battery" });
   assert.equal(signup.statusCode, 201, signup.body);
-  const standard = session(signup)!;
+  let standard = session(signup)!;
 
   const ROUTES: [string, string][] = [
     ["GET", "/api/bot/control/status"],
@@ -185,7 +185,7 @@ test("bot control", async (t) => {
 
   await t.test("step-up: missing, wrong and too many attempts never reach the Bot", async () => {
     bot.reset();
-    twoFactorLimiter.reset(ADMIN_USER_ID);
+    stepUpLimiter.reset(ADMIN_USER_ID);
     const missing = await call(admin, "POST", "/api/bot/control/halt", halt(undefined));
     assert.equal(missing.statusCode, 400);
     assert.deepEqual([missing.json().code, missing.json().method], ["step_up_required", "password"]);
@@ -198,7 +198,7 @@ test("bot control", async (t) => {
     assert.equal(limited.json().code, "step_up_rate_limited");
     assert.ok(Number(limited.headers["retry-after"]) > 0);
     assert.equal(commandsSent(), 0);
-    twoFactorLimiter.reset(ADMIN_USER_ID);
+    stepUpLimiter.reset(ADMIN_USER_ID);
   });
 
   await t.test("2FA off: every money-moving command is two_factor_required, with no Bot call and no audit", async () => {
@@ -261,10 +261,12 @@ test("bot control", async (t) => {
   const secret = (setup.json() as { secret: string }).secret;
   const enabled = await call(admin, "POST", "/api/auth/2fa/enable", { code: totpCode(secret, totpStepAt(Date.now())) });
   assert.equal(enabled.statusCode, 200, enabled.body);
+  // OD-2: turning two-factor on ends every other session and re-issues this one.
+  admin = session(enabled)!;
   /** A code that will be accepted once: the last-used step is reset so tests need not wait 30 s. */
   const freshCode = async () => {
     await query("UPDATE users SET totp_last_step = 0 WHERE id = $1", [ADMIN_USER_ID]);
-    twoFactorLimiter.reset(ADMIN_USER_ID);
+    stepUpLimiter.reset(ADMIN_USER_ID);
     return totpCode(secret, totpStepAt(Date.now()));
   };
 
@@ -284,10 +286,13 @@ test("bot control", async (t) => {
     const userSecret = (userSetup.json() as { secret: string }).secret;
     const on = await call(standard, "POST", "/api/auth/2fa/enable", { code: totpCode(userSecret, totpStepAt(Date.now())) });
     assert.equal(on.statusCode, 200, on.body);
+    standard = session(on)!;
     assert.equal((await listAdminAudit("auth.2fa.", 50)).filter((r) => r.target === `user:${me.id}`).length, 0);
     // admin_audit.actor is ON DELETE SET NULL under an append-only trigger: a row naming
     // this account would turn the delete below into a 500.
-    const gone = await call(standard, "DELETE", "/api/auth/account", { confirm: "DELETE" });
+    // OD-6: two-factor is on, so the code confirms the deletion (the next step, since enabling used this one).
+    const gone = await call(standard, "DELETE", "/api/auth/account",
+      { confirm: "DELETE", credential: { code: totpCode(userSecret, totpStepAt(Date.now()) + 1) } });
     assert.equal(gone.statusCode, 200, gone.body);
   });
 
@@ -440,7 +445,7 @@ test("bot control", async (t) => {
     bot.reset();
     resetBotControlStateForTests();
     const requestId = rid("retry");
-    twoFactorLimiter.reset(ADMIN_USER_ID);
+    stepUpLimiter.reset(ADMIN_USER_ID);
     const wrong = await call(admin, "POST", "/api/bot/control/halt", halt({ code: "000000" }, requestId));
     assert.equal(wrong.json().code, "step_up_failed");
     const right = await call(admin, "POST", "/api/bot/control/halt", halt({ code: await freshCode() }, requestId));
@@ -587,7 +592,7 @@ test("bot control", async (t) => {
       const res = await call(admin, "POST", "/api/bot/control/halt", halt({ code }));
       assert.deepEqual([res.statusCode, res.json().code], [503, "bot_channel_not_configured"]);
       config.manualTradingHmacSecret = SECRET;
-      twoFactorLimiter.reset(ADMIN_USER_ID);
+      stepUpLimiter.reset(ADMIN_USER_ID);
       const sameCode = await call(admin, "POST", "/api/bot/control/halt", halt({ code }));
       assert.equal(sameCode.statusCode, 200, "the code was still unused");
     } finally {
