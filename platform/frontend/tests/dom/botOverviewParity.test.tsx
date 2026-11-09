@@ -17,7 +17,7 @@ import { setCommandPollingForTests } from "@/components/bot/commandRunner";
 import { setBotPollMsForTests } from "@/components/bot/polling";
 import { RACE_FILL_LABEL } from "@/components/bot/BotTrades";
 import type { BotControlPanel } from "@/lib/api";
-import { account, BOT, botFixtures, facts, json, MANUAL_TRADE, page, panel, TRADE, TRADE_ID } from "./botFixtures";
+import { account, BOT, botFixtures, enterCode, facts, json, MANUAL_TRADE, page, panel, TRADE, TRADE_ID } from "./botFixtures";
 
 const ALL_CAPS = ["entries.v1", "operatorExit.v1", "manualPositionFull.v1", "bots.v1", "accounts.v1", "enroll.v1"];
 
@@ -46,11 +46,7 @@ async function open(opts: Parameters<typeof botFixtures>[0] = {}, twoFactorEnabl
   await settle(6);
 }
 
-async function codeAndConfirm(dialog: HTMLElement, button: string) {
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123456" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: button }));
-  await settle(6);
-}
+const codeAndConfirm = (dialog: HTMLElement, button: string) => enterCode(dialog, button);
 
 test("pause card: the two halves are shown separately, and cancelling working entries is an explicit opt-in", async () => {
   await open({ panel: capPanel(ALL_CAPS) });
@@ -75,7 +71,9 @@ test("pause card: the two halves are shown separately, and cancelling working en
   assert.equal(box.checked, false, "off by default");
   const confirm = within(dialog).getByRole("button", { name: "Pause entries" }) as HTMLButtonElement;
   fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123456" } });
-  assert.equal(confirm.disabled, true, "a reason is required");
+  await settle(2);
+  assert.equal(confirm.disabled, true, "a reason is required: the sixth digit alone sends nothing");
+  assert.equal(sent.length, 0);
   fireEvent.change(within(dialog).getByLabelText(/Reason for pausing/), { target: { value: "news" } });
   fireEvent.click(box);
   fireEvent.click(confirm);

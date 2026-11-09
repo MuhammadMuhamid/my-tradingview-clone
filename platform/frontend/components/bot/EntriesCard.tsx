@@ -181,7 +181,7 @@ export function EntriesCard({ panel, isAdmin, canCommand, commandsBlocked, twoFa
         {!twoFactorEnabled && <p className="text-xs text-ink-faint">Pausing accepts your password while two-factor is off; resuming needs two-factor (<Link href="/profile" className="underline">profile</Link>).</p>}
       </div>
 
-      <StepUpDialog open={dialog === "pause"} title="Pause new entries" confirmLabel="Pause entries" danger allowsPassword
+      <StepUpDialog open={dialog === "pause"} title="Pause new entries" confirmLabel="Pause entries" danger allowsPassword tier="grant" autoSubmit
         canConfirm={reasonOk} onCancel={() => setDialog(null)} onConfirm={confirm}
         intro={<><p>Stops new BUYs on this Platform and at the Bot. Exits, TP/SL, Close and Partial keep working.</p>
           {latched && <p className="text-warn">The daily-loss limit is latched; this does not change it.</p>}</>}>
@@ -197,7 +197,7 @@ export function EntriesCard({ panel, isAdmin, canCommand, commandsBlocked, twoFa
         </label>
       </StepUpDialog>
 
-      <StepUpDialog open={dialog === "resume"} title="Resume new entries" confirmLabel="Resume entries"
+      <StepUpDialog open={dialog === "resume"} title="Resume new entries" confirmLabel="Resume entries" tier="grant" autoSubmit
         onCancel={() => setDialog(null)} onConfirm={confirm}
         intro={<p>New BUYs are allowed again on this Platform and at the Bot.{latched ? " The daily-loss limit stays latched until the Bot is resumed separately." : ""}</p>} />
     </Card>

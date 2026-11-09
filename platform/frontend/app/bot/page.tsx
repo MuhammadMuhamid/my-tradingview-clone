@@ -361,7 +361,7 @@ function BotView() {
       </footer>
 
       {/* ── dialogs ──────────────────────────────────────────────────────── */}
-      <StepUpDialog open={dialog?.type === "halt"} title="Halt the Bot" confirmLabel="Halt Bot" danger allowsPassword
+      <StepUpDialog open={dialog?.type === "halt"} title="Halt the Bot" confirmLabel="Halt Bot" danger allowsPassword tier="grant" autoSubmit
         canConfirm={reason.trim().length >= 3 && reason.trim().length <= 200} onCancel={close}
         intro={<><p>{HALT_SCOPE_TEXT}</p><p className="text-ink-muted">An existing halt is never overwritten; a daily-loss latch stays a daily-loss latch.</p></>}
         onConfirm={(credential) => commands.run({
@@ -376,7 +376,7 @@ function BotView() {
         </Field>
       </StepUpDialog>
 
-      <StepUpDialog open={dialog?.type === "resume"} title="Resume the Bot" confirmLabel="Resume Bot" onCancel={close}
+      <StepUpDialog open={dialog?.type === "resume"} title="Resume the Bot" confirmLabel="Resume Bot" tier="grant" autoSubmit onCancel={close}
         intro={<><p>Automation starts again in both directions: signals, TradingView exits and the TP/SL monitors.</p>
           {facts?.risk.latched && <p className="text-warn">The daily-loss limit latched this halt. The Bot refuses to resume while the loss is still at the limit.</p>}</>}
         onConfirm={(credential) => commands.run({
@@ -385,7 +385,7 @@ function BotView() {
           describe: () => "The Bot resumed. TP/SL protection is being checked again.",
         })} />
 
-      {dialog?.type === "bot" && <StepUpDialog open title={`${dialog.target === "active" ? "Start" : "Stop"} ${dialog.bot.name}`}
+      {dialog?.type === "bot" && <StepUpDialog open tier="grant" autoSubmit title={`${dialog.target === "active" ? "Start" : "Stop"} ${dialog.bot.name}`}
         confirmLabel={dialog.target === "active" ? "Start bot" : "Stop bot"} danger={dialog.target === "paused"} onCancel={close}
         intro={dialog.target === "active"
           ? <StartIntro bot={dialog.bot} dryRun={facts?.dryRun ?? null} />
@@ -404,7 +404,7 @@ function BotView() {
           },
         })} />}
 
-      {dialog?.type === "close" && <StepUpDialog open title={`Close ${dialog.trade.pair}`} confirmLabel="Close trade" danger onCancel={close}
+      {dialog?.type === "close" && <StepUpDialog open tier="grant" autoSubmit title={`Close ${dialog.trade.pair}`} confirmLabel="Close trade" danger onCancel={close}
         intro={<><p>Sells this strategy trade&apos;s whole quantity at market through the Bot&apos;s normal exit path. It works while the Bot is halted.</p>
           <p className="text-ink-muted">{dialog.trade.botName ?? "Bot"} · {dialog.trade.pair} · quantity {dialog.trade.quantity}</p></>}
         onConfirm={(credential) => commands.run({
@@ -416,7 +416,7 @@ function BotView() {
             : "The close went through the Bot's exit path.",
         })} />}
 
-      {dialog?.type === "partial" && <StepUpDialog open title={`Partial close ${dialog.trade.pair}`} confirmLabel={`Sell ${pct}%`} danger
+      {dialog?.type === "partial" && <StepUpDialog open tier="grant" autoSubmit title={`Partial close ${dialog.trade.pair}`} confirmLabel={`Sell ${pct}%`} danger
         canConfirm={pctValid} onCancel={close}
         intro={<p>Sells part of this strategy trade at market through the Bot&apos;s partial-close path. It works while the Bot is halted.</p>}
         onConfirm={(credential) => commands.run({

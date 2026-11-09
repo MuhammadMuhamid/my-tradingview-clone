@@ -27,7 +27,7 @@ import OperationsPage from "@/app/operations/page";
 import { resetSessionForTests } from "@/lib/session";
 import { setCommandPollingForTests } from "@/components/bot/commandRunner";
 import { BOT_APPEARANCE_KEY } from "@/components/bot/classicAppearance";
-import { account, botFixtures, json, page, panel, TRADE, TRADE_ID } from "./botFixtures";
+import { account, botFixtures, enterCode, json, page, panel, TRADE, TRADE_ID } from "./botFixtures";
 
 beforeEach(() => {
   resetBrowser(); resetSessionForTests(); server.interpose(null);
@@ -45,9 +45,7 @@ async function confirmClose() {
   fireEvent.click(screen.getAllByRole("button", { name: "Close BTCUSDT" })[0]!);
   await settle(2);
   const dialog = screen.getByRole("dialog", { name: "Close BTCUSDT" });
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123456" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Close trade" }));
-  await settle(4);
+  await enterCode(dialog, "Close trade");
 }
 
 test("D-1: under StrictMode a refusal and an unknown outcome are still shown, and C8 is still polled", async () => {

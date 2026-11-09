@@ -19,7 +19,7 @@ import { setCommandPollingForTests } from "@/components/bot/commandRunner";
 import { BOT_APPEARANCE_KEY } from "@/components/bot/classicAppearance";
 import { HALT_SCOPE_TEXT, LOSS_LIMIT_WARNING } from "@/components/bot/botCopy";
 import {
-  account, BOT, botFixtures, json, MANUAL_TRADE, MANUAL_TRADE_ID, page, panel, TRADE, TRADE_ID,
+  account, BOT, botFixtures, enterCode, json, MANUAL_TRADE, MANUAL_TRADE_ID, page, panel, TRADE, TRADE_ID,
 } from "./botFixtures";
 
 beforeEach(() => {
@@ -46,9 +46,7 @@ async function confirmClose(code = "123456") {
   fireEvent.click(screen.getAllByRole("button", { name: "Close BTCUSDT" })[0]!);
   await settle(2);
   const dialog = screen.getByRole("dialog", { name: "Close BTCUSDT" });
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: code } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Close trade" }));
-  await settle(4);
+  await enterCode(dialog, "Close trade", code);
 }
 
 test("a manual trade offers the Trade panel, never Close; a strategy trade offers Close and Partial", async () => {
@@ -82,10 +80,8 @@ test("halt: the dialog states the scope, asks for the code, and sends the comman
   assert.equal(confirm.disabled, true);
   fireEvent.change(within(dialog).getByLabelText(/Reason for halting/), { target: { value: "maintenance window" } });
   assert.equal(confirm.disabled, true, "a reason alone is not enough");
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123 456" } });
-  assert.equal(confirm.disabled, false);
-  fireEvent.click(confirm);
-  await settle(6);
+  // OD-2: the sixth digit confirms (a pasted "123 456" is normalised); no second click is needed.
+  await enterCode(dialog, "Halt Bot", "123 456");
   assert.ok(sent);
   const s = sent as Record<string, unknown>;
   assert.match(String(s.requestId), REQUEST_ID);
@@ -274,9 +270,7 @@ test("Start confirms the target state and shows the unresolved-intent count", as
   await settle(2);
   const dialog = screen.getByRole("dialog", { name: "Start Trend bot" });
   assert.match(dialog.textContent ?? "", /unresolved intents/);
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123456" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Start bot" }));
-  await settle(6);
+  await enterCode(dialog, "Start bot");
   assert.equal((sent as unknown as Record<string, unknown>).status, "active", "a target state, not a toggle");
   assert.ok(body().includes("Started. 3 unresolved intents for this bot."));
 });
@@ -298,9 +292,7 @@ test("risk limits: units, the latch warnings, and only the changed field is sent
   fireEvent.change(within(dialog).getByLabelText(/Daily-loss limit \(USDT\)/), { target: { value: "" } });
   await settle(1);
   assert.ok(within(dialog).getAllByText(new RegExp(LOSS_LIMIT_WARNING.slice(0, 40).replace(/[()]/g, "."))).length >= 1);
-  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: "123456" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Save limits" }));
-  await settle(6);
+  await enterCode(dialog, "Save limits");
   const s = sent as unknown as Record<string, unknown>;
   assert.deepEqual(Object.keys(s).sort(), ["credential", "maxDailyLossQuote", "requestId"]);
   assert.equal(s.maxDailyLossQuote, null);
