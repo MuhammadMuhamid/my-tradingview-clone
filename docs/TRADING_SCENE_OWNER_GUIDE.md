@@ -1,7 +1,9 @@
 # Trading Scene — Owner's Feature Guide
 
 Written 2026-11-01 during the V2 completion campaign, reconciled 2026-11-02 in the V3 engineering
-closeout and again in the V4 experience finish, and kept as the one owner-facing guide.
+closeout and again in the V4 experience finish, updated 2026-11-09 for the integrated engineering
+finish (Bot controls in Trading Scene, execution environments, ten-user isolation), and kept as the
+one owner-facing guide.
 For each product area it states **where you find it, who can use it, the exact choices you get,
 what must be configured first, the ordinary workflow, what success and errors look like, and what
 is unsupported or unverified** — then links to the maintained document with the detail. Where this
@@ -28,7 +30,7 @@ Two-account isolation and Shariah publication ran against a real PostgreSQL 16. 
 | Product | What it is | Where it runs |
 |---|---|---|
 | **Trading Scene** (Platform) | Charting workstation and decision authority: chart, Screener, indicators and Pine, drawings, layouts, watchlists, alerts, accounts, Shariah screening, the manual order ticket, the Journal, the Quick Backtester. **Never holds exchange keys.** | `platform/` — Next.js on :3000, Fastify on :4000, PostgreSQL |
-| **Execution Bot** | The only component holding Binance Spot API keys and placing orders; own dashboard (password + TOTP). | `bot/` — Express + SQLite, :4001 when co-hosted |
+| **Execution Bot** | The only component holding Binance Spot API keys and placing orders. Operated from Trading Scene's `/bot` page over a signed channel; its own dashboard (password + TOTP) stays as the restricted recovery path. | `bot/` — Express + SQLite, :4001 when co-hosted |
 | **Backtester Optimizer** (Research) | Search, Walk-forward, Replay, Holdout, Stress on registered strategy trees, using the Platform's engine. Loopback-only web UI. | `research/` — Python controller on :8765 |
 | **Compute Helper** | A second Mac that takes one kind of Research job over a paired mTLS link. | `research/backtester/compute_helper*.py`, page on :8877 |
 
@@ -46,14 +48,17 @@ environment's password hash.
 | | Administrator | Standard account |
 |---|---|---|
 | Chart, Screener (read), alerts, watchlists, layouts, drawings, Pine scripts, push devices, Shariah screen (read-only) | yes | yes — isolated per account |
-| Trading ticket, Automations, Journal, Bot section, Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
+| Packages: browse, ask to join a cohort, own portfolio (API only; packages have no pages yet) | yes, plus package administration | browse and own portfolio; joining needs a verified email and two-factor |
+| Trading ticket, Automations, Journal, Bot page (`/bot`), Quick Backtester, Optimizer, Stress, Operations, scanner configuration, Shariah management | yes | **no** — backend 403; navigation, chart workstation, the Shariah screen and the pages themselves say so instead of showing controls that would fail |
+| Exchange keys and trading | the owner's one Bot (keys entered on the Bot dashboard) | **none** — a Standard account has no exchange keys and cannot trade. Owner decision; per-user keys or trading are not implemented |
 | Deep market-history requests | unlimited (large backfills stream) | backfill/coverage requests clamped to the newest 200,000 source bars; requests over 20,000 source bars run at most 2 per account and 4 across all ordinary accounts (the response says `clamped`); Market v1 chart/candle reads are clamped the same way **before the venue is asked** (the response says `truncated` with a note naming the limit); reads too wide for the candle cache (over 50,000 source bars) hold one of the same slots, and beyond them the browser waits its turn; a Pine run over more than 200,000 source bars including warm-up is refused with a sentence naming the limit |
 
 **Options:** display name, password change, email verification, Google and GitHub links (admin
 links from Profile; a user whose provider email matches an unverified password account joins it and
 loses the password and any two-factor setup), two-factor sign-in with recovery codes, recent
-sign-ins, sign out everywhere, delete account. Nothing requires verification or two-factor until
-packages exist ([ACCOUNTS.md §7](ACCOUNTS.md)). **Prerequisites for Google:** `GOOGLE_CLIENT_ID`,
+sign-ins, sign out everywhere, delete account. Two things require them: joining a package cohort
+needs a verified email and two-factor ([ACCOUNTS.md §7](ACCOUNTS.md), [PACKAGES.md](PACKAGES.md)),
+and every Bot command from `/bot` except Halt needs the administrator's two-factor (§4). **Prerequisites for Google:** `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`; the button appears only when all three are set. GitHub
 and email have their own settings, listed in §7 there. **Success/errors:** a wrong
 password says nothing about which half was wrong; duplicate email is 409; a user on an admin URL
@@ -82,8 +87,24 @@ the read-only view — screenshots `Closeout-V3/evidence/ui-*.png`), **TESTED** 
 unknown→user transitions in `chartRoleTabs`, `shariahReadOnly`, `adminOnlyPages` DOM tests; the
 Market v1 bound in `marketCandleBounds.test.ts` and live against the local backend,
 `Closeout-V3/evidence/a-live-standard-user-candles-demo.log`). Google OAuth round trip:
-**SOURCE-IMPLEMENTED** only (token checks unit-tested; no real Google call). Reference:
-[ACCOUNTS.md](ACCOUNTS.md).
+**SOURCE-IMPLEMENTED** only (token checks unit-tested; no real Google call).
+
+**Ten-user isolation (2026-11-09).** **TESTED** against a real PostgreSQL:
+
+- `tenUserIsolationDb.test.ts` signs in ten Standard accounts and the
+  administrator. It checks each one's own data, reads, changes and deletions
+  by real and guessed ids of another owner's rows, and creates or updates that
+  name another owner. It also covers paged alert events, account switching,
+  parallel use, and 28 administrator-only routes.
+- `sessionGatePathDb.test.ts` sends percent-encoded and fragment variants of
+  admin paths over real HTTP.
+- The session gate checks the path the router actually dispatches on. That
+  closed a hole (G1) where a Standard account could reach an administrator
+  route through an encoded path such as `sync%2Ddeployments`.
+- Shared on purpose, and read-only: candles and symbols, Screener reads, and
+  published Shariah decisions.
+
+Reference: [ACCOUNTS.md](ACCOUNTS.md).
 
 ---
 
@@ -136,6 +157,9 @@ stays OFF, 502 explained. Mode ON with **no Bot control channel configured:** tu
 *Bot floor: not armed* (a direct webhook BUY is not gated by this Platform). **Mode ON is this
 Platform's gate; it is not the Bot being armed** — the Bot floor line is the separate fact, and the
 Status tab says which of *not required / not armed / enforcing / unknown / out of sync* applies.
+Since 2026-11-09 `/bot` and the Bot panel in Operations also show the Bot's own floor as a
+separate status line, *Shariah floor: Enforced (policy …)* or *Off*, read from the Bot's signed
+status rather than from this Platform's Mode.
 
 **Unsupported/unverified:** other asset classes (refused for BUY under enforcement); production
 mode is not visible here; the owner must decide whether a no-channel installation may show ON.
@@ -155,12 +179,16 @@ Postgres; Bot `shariahEnforcement`; 17 first-use DOM tests). Reference:
 **Yes for the administrator, Binance Spot only, once the Bot is set up. The ticket offers testnet
 accounts only, and no order has yet been placed on testnet or mainnet.**
 
-**Production (2026-11-05):** the Bot runs in simulation and the Trade panel shows PAPER SIMULATION
-with the testnet account, and one simulated BUY exists ([OPERATIONS §10](OPERATIONS.md)).
+**Production (2026-11-05):** the Bot runs in simulation, and one simulated BUY exists
+([OPERATIONS §10](OPERATIONS.md)). On the build deployed then, the Trade panel showed PAPER
+SIMULATION with the testnet account. Current code labels the Bot's dry run **DRY RUN
+(simulated)**. It never calls it PAPER, which is the Platform's own paper engine.
 
 **Where:** chart → *Trade* button / order-ticket rail cell / *Positions & Orders* bottom tab.
 Keys are entered on the **Bot dashboard** (Settings → exchange account: API key, secret, testnet
-flag), never on the website. **Who:** administrator only.
+flag), never on the website. *Use Binance testnet* is ticked by default, and a mainnet account
+needs a typed `MAINNET`. **Who:** administrator only. A Standard account has no exchange keys and
+no trading. That is an owner decision; per-user keys are not implemented.
 
 **Exact choices:** account (from the Bot), side BUY / SELL, order type **MARKET** or **LIMIT**,
 amount (BUY in USDT quote amount with quick-fill percentages; SELL in base quantity, optionally
@@ -175,15 +203,48 @@ with `MAINNET_MANUAL_TRADING_ENABLED=true` and the exact confirmation phrase on 
 `ManualTradingPanel.tsx` lists testnet accounts only, so real-money orders also need a code change.
 
 **Gates on every BUY:** Platform halt → Shariah gate (Mode ON) → Bot HMAC → Bot halt/risk → Bot
-Shariah floor → exchange. SELL is never blocked by halt or Shariah. TP/SL are **bot-managed**: a
-30-second poll sells at market when the ticker crosses the level; **no exchange-native stop is
-placed**, `EXCHANGE_STOPS_ENABLED` is inert, and positions are unprotected while the Bot is down.
+Shariah floor → exchange. A manual SELL is never blocked by either halt or by Shariah. TP/SL
+protection works like this:
 
-**Success/errors:** the ticket shows PAPER SIMULATION / TESTNET SANDBOX / mainnet state, refusals
-in the Bot's own words (Shariah refusals are their own bucket), a named 502 when the Bot is down,
-and "manual trading is disabled" when the feature is off. **3Commas** is a deployment delivery
-mode only (signal to 3Commas' webhook): Platform halt and Shariah gates apply, the Bot's do not,
-no Bot protection, no Journal realization rows.
+- **Bot-managed.** A 30-second poll sells at market when the ticker crosses the level.
+- **No exchange-native stop is placed.** `EXCHANGE_STOPS_ENABLED` is inert.
+- **Positions are unprotected while the Bot is down or halted.** A Bot halt stops both TP/SL
+  pollers.
+- **A protected badge needs the Bot's word.** A position reads *TP/SL bot-managed* only while
+  the Bot reports that its poller is checking it. Otherwise it reads *TP/SL NOT BEING CHECKED*
+  with the reason, such as the Bot halted or manual trading off. The chart then draws no Bot
+  TP/SL line.
+
+**Closing a manual position:** only from this Trade panel (SELL), so its ledger and TP/SL stay
+correct. `/bot` and the Bot dashboard refuse Close and Partial for manual positions and point
+here.
+
+**Uncertain exchange answers:**
+
+- When Binance's answer to an order is uncertain (a timeout, `-1006`/`-1007`, a 5xx), the order
+  stays pending. The Bot reconciles it by its original client order id; it is never booked as
+  rejected, and no second order is placed.
+- If the exchange still has no record of the order 60 seconds after submission, the order is
+  closed off as never placed.
+- A closed trade is never reopened.
+
+**Late fills.** Take a LIMIT BUY that is still working when its trade's TP/SL fires: the
+remainder is flagged on the order, and you can cancel it yourself. If that remainder fills
+later, it becomes its own position marked **UNPROTECTED · late fill**, with no TP/SL; sell it
+from this panel. Whether the Bot should instead cancel the remainder first, or protect late
+fills, is an open owner decision (OD-1, §10).
+
+**Success/errors:**
+
+- The ticket shows *DRY RUN (simulated)*, *TESTNET SANDBOX* or the mainnet state.
+- The chart's trading-state chip names where an order placed now would go: *DRY RUN*,
+  *TESTNET*, *REAL* (mainnet accounts only) or *UNKNOWN*. It never says LIVE.
+- Refusals come in the Bot's own words, and Shariah refusals are their own bucket.
+- A named 502 appears when the Bot is down, and "manual trading is disabled" when the feature is
+  off.
+
+**3Commas** is a deployment delivery mode only (signal to 3Commas' webhook): Platform halt and
+Shariah gates apply, the Bot's do not, no Bot protection, no Journal realization rows.
 
 Evidence: **TESTED** (Platform `manualTrading`, `manualHalt`, `shariahGate`; Bot `manualTrading`,
 `tpslHalt`, `shariahEnforcement`, `security`), **LOCAL UI VERIFIED** (ticket surface and disabled
@@ -191,13 +252,62 @@ state), **TESTNET / LIVE: never**. Reference: [ARCHITECTURE.md](ARCHITECTURE.md)
 [WEBHOOK-CONTRACT.md](WEBHOOK-CONTRACT.md), Bot `README.md`,
 [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
 
-**Bot section:** *Trading → Bot* (`/bot`, administrator only) reads the Bot's overview, bots with
-their settings, open trades and trade history with order ids. It changes nothing: pausing a bot,
-closing a trade and managing keys stay on the Bot's own dashboard. It doesn't show exchange
-balances, signal logs or partial-close detail. If the Bot is down the page says *Bot unreachable*
-and keeps what it last read. Evidence: **TESTED** (`botView` on both sides, `botPage` DOM tests),
-**LOCAL UI VERIFIED** (a local Bot and Platform with fixture data over the real signed path),
-**PRODUCTION UI OBSERVED** (as admin, 2026-11-05).
+**Bot page (operating the Bot from Trading Scene, 2026-11-09):** *Trading → Bot* (`/bot`,
+administrator only) operates the separately deployed Bot over the signed channel. It still reads
+the overview, bots with their settings, open trades and trade history with order ids. Exchange
+keys stay on the Bot.
+
+- **Exact choices:**
+  - *Halt Bot…* (a reason of 3–200 characters) and *Resume Bot…*;
+  - risk limits: total exposure, concurrent trades and daily loss (empty = no limit), and the
+    daily-loss window of 1–720 h;
+  - *Start…* / *Stop…* per bot. After a start, the page shows how many unresolved signals the
+    Bot reports for that bot;
+  - *Close* and *Partial* (1–99 %) on **strategy** trades;
+  - the trades filter and *Refresh*;
+  - opt-in *Classic Bot appearance*.
+- **Confirmation (step-up):** every command that changes something opens a dialog that asks again
+  for the credential.
+  - With two-factor on, it asks for the authenticator code. This holds for password, Google and
+    GitHub sign-ins alike.
+  - With two-factor off, only *Halt* accepts the password. Every other command says to turn on
+    two-factor in Profile.
+  - A Google- or GitHub-only account without two-factor cannot confirm any command.
+  - **Prerequisite before relying on these controls: turn on the administrator's two-factor
+    sign-in.**
+- **Status:** every Bot fact is shown under its own name. They are the control channel, the
+  signed connection, the webhook path, *Dry run (simulated)* or live, the Bot halt and latch,
+  exchange routing per account, risk limits, the Bot's Shariah floor, TP/SL protection, and
+  manual/mainnet. A Bot that is set up but down reads *Unreachable*.
+- **Two halts:** the page shows the Bot halt and the Platform halt side by side, each with what it
+  blocks. The Platform halt is switched on Operations. While the Bot is halted, TP/SL protection
+  is not checked and TradingView exits are refused; your own SELL / Close / Partial still work.
+- **Outcome unknown:** when the answer is lost (a timeout, a dropped connection, a proxy error),
+  the page says *Outcome unknown, checking…* and asks the Bot about that same request for up to a
+  minute. It says *Nothing was changed* only if the Bot has no record of it. Repeating the action
+  while the outcome is unknown never runs it twice.
+- **Errors in plain words:**
+  - a manual position → *Close it from the Trade panel* (with a link);
+  - a stopped bot's trade → start the bot first;
+  - more than one open trade on the pair → refused, because Close could hit the wrong one;
+  - an earlier exit still reconciling → wait and retry;
+  - a latched daily-loss halt still at its limit → cannot resume yet.
+- **Not in Trading Scene yet:**
+  - creating, editing or deleting bots;
+  - entering keys;
+  - closing a stopped or deleted bot's trade;
+  - closing one of several open trades on the same pair.
+
+  The standalone Bot dashboard remains the restricted recovery and break-glass path.
+- **If the Bot is down:** the page says *Bot unreachable* and keeps what it last read.
+
+Every command is recorded in the Platform's append-only `admin_audit`. Detail:
+[OPERATIONS §1](OPERATIONS.md). Evidence: **TESTED** (Platform `botControlDb` against a fake Bot
+that authenticates like the real one, `botControlClient`, `botStatusSigned`; DOM `botPage`,
+`botControls`, `operationsBotPanel`; Bot `botControl`, `botDashboardFixes`; the signing vector is
+asserted on both sides). Read-only views before 2026-11-09: **LOCAL UI VERIFIED** and
+**PRODUCTION UI OBSERVED** (as admin, 2026-11-05). The controls have **not** been run against the
+production Bot.
 
 ---
 
@@ -213,10 +323,30 @@ monthly), paging.
 | MANUAL | one bounded read of the Bot's current manual-order state (only when manual trading is enabled) | activity only; economics **Unknown** — manual BUY and SELL are never paired |
 | PAPER | simulated fills of paper deployments | exact paper accounting, kept apart from real |
 
-**Success/errors:** "Unknown" means a record exists but cost basis or commission evidence does not
-(never shown as zero); an empty period says what feeds the Journal; an install with manual trading
-off says so under *Evidence limits*. Evidence: **TESTED** (`journal.test.ts`), **LOCAL UI
-VERIFIED** (empty state, admin and user views). Reference: [OPERATIONS.md](OPERATIONS.md) §1.
+**Execution environment (2026-11-09).** Every row also carries an environment badge: **REAL**,
+**TESTNET**, **DRY RUN**, **PAPER** or **UNKNOWN**. The badge comes from that row's own evidence,
+never from the Bot's current mode, and the chart overlay and the order Timeline use the same rule.
+
+- A manual order is REAL only when its own Bot account is mainnet and the exchange acknowledged
+  it.
+- A `dry-` order id is DRY RUN, and a testnet account is TESTNET.
+- Anything unproven is UNKNOWN, and is never counted as real money.
+
+There are five summary cards: *Real money evidence*, *Paper evidence*, *Testnet evidence*,
+*Dry-run evidence* and *Unknown environment*. None is added to another. The daily, weekly,
+monthly and per-symbol lists name the environment on every line, and still show at most 12 lines
+each.
+
+**What this means for the owner:** automated Bot results appear under *Unknown environment*, not
+under real money, until the Bot's realization event carries an environment. That is a deferred
+change: the Platform accepts it first, then the Bot sends it.
+
+**Success/errors:** "Unknown" P&L means a record exists but cost basis or commission evidence does
+not (never shown as zero); an empty period says what feeds the Journal; an install with manual
+trading off says so under *Evidence limits*. Evidence: **TESTED** (`journal.test.ts`,
+`journalEnvironment.test.ts`, `journalEnvironmentDb.test.ts`, DOM `journalEnvironment`), **LOCAL
+UI VERIFIED** (empty state, admin and user views, before the environment split). Reference:
+[OPERATIONS.md](OPERATIONS.md) §1.
 
 ---
 
@@ -266,7 +396,7 @@ Pine strategies. **Choices:** strategy (`ma_rr_v9` MA + R:R v9, `srtrend_v10` SR
 timeframe 1s–1d; start / end date;
 initial capital; commission % per fill (0–5, default 0.1); slippage ticks (0–1000, default 2);
 validation window last 10–50 % (default 20 %); position size *fixed cash per entry* (default 930 of
-1,000) or *percentage of current equity*; every strategy parameter (defaults apply unless changed).
+1,000 for `ma_rr_v9` and `srtrend_v10`; 1,000 for `mtf_lean`) or *percentage of current equity*; every strategy parameter (defaults apply unless changed).
 
 **Prerequisites:** candles for the window are fetched automatically through the market-data host.
 **Data integrity:** the backtester refuses to run over an interior hole in the stored candles
@@ -386,6 +516,14 @@ proven on one Mac over the real mTLS transport with the 16-trade synthetic unit)
 |---|---|
 | Binance testnet / live manual order | never run; both sides tested with fakes. Production Bot has testnet keys and `DRY_RUN=true`, and one simulated order exists, so the next step is testnet orders with `DRY_RUN=false` |
 | Bot backups | run every 6 hours, but no restore has been tested and the Bot's encryption keys have no copy off the server |
+| Bot controls from Trading Scene (2026-11-09) | tested against a fake Bot and fake exchange; not yet run against the production Bot. Turn on the administrator's two-factor first. The Bot needs its two new migrations (`20261109120000_manual_command_body_hash`, `20261109130000_bot_control_command`); the Platform adds none |
+| Security questions only the operator can answer | the old `tradingbot` server and its keys, rotation of the webhook secret exposed in public Bot history, an off-server copy of `ENCRYPTION_KEY`/`SCRYPT_SALT` with a tested restore, the production migration-count drift and `btree_gist` for `053`: [OPERATIONS §11](OPERATIONS.md) |
+| Owner decision OD-1 | a manual LIMIT BUY partly filled when its TP/SL fires: cancel the remainder first, track and protect late fills, or cancel then sweep (recommended). Today, the interim: the trade is never reopened, the working remainder is flagged, a late fill becomes a separate **UNPROTECTED** position you can sell |
+| Owner decision OD-2 | Bot commands need two-factor; Halt alone also accepts the password while two-factor is off (default chosen so a halt is never blocked; can be tightened or relaxed) |
+| Owner decision OD-3 | two halt switches as now, one switch for both, or a Bot halt that keeps TP/SL running (not implemented) |
+| Automated Journal environment | Bot realizations read *Unknown environment* until the Bot's event carries one (deferred two-repository change: Platform accepts, then Bot sends) |
+| Not in Trading Scene yet | bot create/edit/delete and exchange-key entry (Bot dashboard only); closing a stopped or deleted bot's trade, or one of several same-pair trades (refused on the Bot dashboard too: needs a trade-targeted exit in the Bot's money path) |
+| Standard accounts and trading | no per-user exchange keys or trading (owner decision; not implemented) |
 | Exchange-native stops | adapter exists, no call sites, five testnet checks pending (`bot/backend/src/services/exchangeStops.ts`) |
 | Production Shariah mode, `ALLOW_SIGNUPS`, 3Commas deployments | production database, not visible here |
 | Google sign-in round trip | needs a real OAuth client |

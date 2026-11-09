@@ -46,36 +46,211 @@ suggest an operator decision that nobody made.
 
 ### Halting
 
-The halt button refuses every emission and needs a written reason — whoever
-finds the system halted has to be able to see why. Resuming is deliberately
-harder than halting, and a latched daily-loss halt re-checks the live number
-before it will resume: resuming straight back into a breached limit would trip
-again on the next signal.
+The halt button on this page is the **Platform halt**. The execution Bot has a
+second, separate halt (next section). The Platform halt refuses every emission
+and needs a written reason — whoever finds the system halted has to be able to
+see why. Resuming is deliberately harder than halting, and a latched daily-loss
+halt re-checks the live number before it will resume: resuming straight back
+into a breached limit would trip again on the next signal.
 
 **Halting does not close open positions.** The platform cannot flatten a
 position it does not hold: it has no exchange credentials, and it does not know
 the fill price of anything it did not open. Inventing an exit would put real
-money behind a guess. Close positions in the execution bot or on the exchange.
+money behind a guess. Close positions by hand instead. Close a strategy trade
+with *Close* or *Partial* on `/bot`, and a manual position with a SELL in the
+chart's Trade panel. If Trading Scene is unavailable, use the standalone Bot
+dashboard. Each of these asks the Bot to sell, because the Bot holds the keys.
 
 A flatten-all control is deliberately absent. It would require the platform to
 place orders directly, which is the bot's job, and it could not be validated
 here without Binance testnet credentials.
 
+### Platform halt and Bot halt (added 2026-11-09)
+
+There are two switches. Neither sets the other, and no screen shows one as the
+other. `/bot` and the Bot panel on this page show both, each with what it blocks.
+
+| | Platform halt (this page) | Bot halt (`/bot`, or the standalone Bot dashboard) |
+|---|---|---|
+| Automated orders | Every emission is refused, entries and exits (`evaluateRisk` in `platform/backend/src/engine/riskControls.ts`) | Every webhook BUY and SELL is refused. That includes TradingView exit alerts and Platform signals. A strategy intent that was never sent is not submitted (`evaluateBotHalt` in `bot:backend/src/services/riskControls.ts`) |
+| New manual exposure | A manual BUY from the Trade panel, or a manual buy on a deployment, is refused with 409 (`assertNotHalted` in `platform/backend/src/api/routes/manualTrading.ts`, and `platform/backend/src/api/routes/deployments.ts`) | A manual BUY that reaches the Bot is refused with 409 |
+| Operator exits: manual SELL, *Close*, *Partial* | Allowed | Allowed. The halt never refuses an operator's own exit (`isOperatorExit`) |
+| TP/SL | Not touched. This switch never reaches the Bot | **Both TP/SL pollers stop**: strategy TP/SL (`bot:backend/src/services/smartTrade.ts`) and manual TP/SL (`bot:backend/src/services/manualProtection.ts`). Nothing is checked until the Bot is resumed |
+
+- **TP/SL is not checked while the Bot is halted, and not while the Bot is
+  down.** Protection is the Bot's 30-second in-process poll, and nothing rests
+  on the exchange. `/bot`, this page and the Bot dashboard say: *"While the Bot
+  is halted, TP/SL protection is not checked and TradingView exits are refused;
+  your own SELL / Close / Partial still work."*
+- **The Trade panel and the chart are cautious about protection.** They show a
+  manual position as protected only while the Bot reports that its poller is
+  checking that position. Otherwise the position reads *TP/SL NOT BEING
+  CHECKED* with the reason, and the chart draws no Bot TP/SL line for it.
+- **A re-halt keeps the existing halt.** Halting a Bot that is already halted
+  keeps the original reason and who set it, so a daily-loss latch stays a
+  daily-loss latch. It used to be overwritten, and resume then skipped the loss
+  re-check. The answer says `alreadyHalted`.
+- **Resuming a latched Bot.** While the rolling loss is still at the limit,
+  Resume is refused with 409 `still_breached`.
+- **The owner's options** (one switch for both, or a Bot halt that keeps TP/SL
+  running) are an owner decision and are not implemented.
+
 ### Risk limits
 
-Three limits, each opt-in and each `null` (off) by default, so adding them
-changed no behaviour until an operator set a number:
+These are the Platform's limits. Each is opt-in and `null` (off) by default, so
+adding them changed no behaviour until an operator set a number:
 
 - **Total exposure** — the sum of `buy_quote_qty` across deployments currently
   long. This is what they are *configured* to spend, not a balance read from the
   exchange.
 - **Concurrent positions** — how many deployments may be long at once.
-- **Rolling realised loss** — over a configurable window, defaulting to 24 hours.
+
+The Platform's **rolling realised loss** limit is disabled. The Platform does
+not see realised fills; the Bot does. So `PATCH /api/ops/risk-limits` refuses
+any non-null `maxDailyLossQuote` with 409, and this page says so. The daily-loss
+limit that acts is the Bot's, set on `/bot` (below).
 
 A breach of a numeric limit **latches the kill switch**. An exit is never
 refused by a numeric limit: refusing a sell because exposure is too high would
 trap the position that caused the problem. Only an explicit operator halt stops
-an exit.
+an automated exit.
+
+### The execution Bot from Trading Scene: `/bot` (added 2026-11-09)
+
+`/bot` (Trading → Bot, administrator only) is where the administrator operates
+the separately deployed execution Bot. The Bot keeps the exchange keys, the
+order ledger and the 24/7 TP/SL poll. Nothing secret reaches the Platform or
+the browser.
+
+**The path.** The browser calls one Platform admin route per command. The
+Platform rebuilds the body from validated fields and sends one signed request
+to one Bot route under `/api/manual-trading/control/*`. That request uses the
+manual-trading HMAC, with a ±60 s window and a single-use nonce. There is no
+pass-through proxy. Path ids must be UUIDs. The browser mints a request id once
+per intent, and the Platform requires it and never mints one
+(`platform/backend/src/api/routes/botControl.ts`,
+`bot:backend/src/routes/manualControl.ts`).
+
+| Command | Platform route | Step-up |
+|---|---|---|
+| Status (signed C0, plus the Platform halt) | `GET /api/bot/control/status` | none (admin session) |
+| Halt the Bot | `POST /api/bot/control/halt` (confirmation, reason of 3–200 characters) | code; or the password while two-factor is off |
+| Resume the Bot | `POST /api/bot/control/resume` | code |
+| Read / change risk limits | `GET` / `PATCH /api/bot/control/risk-limits` | none / code |
+| Start or stop a bot (target state, not a toggle) | `POST /api/bot/control/bots/:id/status` | code |
+| Close a strategy trade | `POST /api/bot/control/trades/:id/close` | code |
+| Partial close (1–99 %) | `POST /api/bot/control/trades/:id/partial-close` | code |
+| What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
+
+**Step-up, on every command that changes something.** The credential travels in
+the same request, is checked by the existing `confirmIdentity`, and is never
+forwarded, stored or logged. The Bot receives only who stepped up, how and when.
+How the session was created plays no part, so a Google or GitHub sign-in is
+treated the same as a password sign-in:
+
+- **Two-factor on:** the authenticator code, and only that. Codes are single-use,
+  and guesses are limited to 5 per 5 minutes per account.
+- **Two-factor off, and the account has a password:** the password is accepted
+  for **Halt only**, so a halt is never blocked in an emergency. Every other
+  command answers 403 `two_factor_required`.
+- **Two-factor off, and no password** (a provider-only account): 403
+  `step_up_unavailable`. This is never a bypass.
+- **`AUTH_ENABLED=false`:** every changing command is refused with 403
+  `auth_disabled`. Reads still work, for local development.
+
+**Go-live precondition: turn on the administrator's two-factor sign-in before
+relying on Bot controls in Trading Scene.** Setting up, turning on and turning
+off two-factor on an administrator account each write an `admin_audit` row
+(`auth.2fa.setup_started`, `auth.2fa.enabled`, `auth.2fa.disabled`).
+
+**Outcome unknown.** Only two answers are definitive: a Bot-authored JSON 2xx,
+or a Bot refusal that carries a `code`. Anything else on a changing command is
+*"Outcome unknown, checking…"*. That covers a timeout (10 s, or 30 s for Close
+and Partial), a dropped connection, a proxy error, an unreadable reply and the
+Bot's `command_in_progress`. The page then asks
+`GET /api/bot/control/commands/:requestId` with the **same** request id, every
+2 s for up to 60 s.
+
+- *"Nothing was changed"* appears only when the Bot answers that it has no
+  record of that id.
+- If the window runs out, the page says the outcome is still unknown and offers
+  *Check again*.
+- Doing the same thing again while the outcome is unknown reuses the same id,
+  and the Bot never runs a command twice.
+- An order whose result is still pending is reconciled by the Bot from the
+  exchange.
+
+**Audit.** The Platform appends `bot.<kind>.requested` to `admin_audit` before
+sending, and does not send if that row cannot be written. One of
+`.succeeded`, `.refused` or `.uncertain` follows. No row carries the credential.
+On the Bot, the `BotControlCommand` row records the command, the request id and
+the outcome. Its actor is a claim signed by the Platform's key, not independent
+proof.
+
+**Risk limits on the Bot.** Total exposure, concurrent trades, daily loss
+(`null` turns it off) and the daily-loss window (1–720 hours). A change never
+clears a latched halt. Turning the daily-loss limit off, or raising it, makes a
+latched daily-loss halt resumable, and the page warns about this.
+
+**Close and Partial are for strategy trades only.** *Close* is refused with a
+code, and nothing is sold, in each of these cases:
+
+- `trade_manual`: the trade was opened from Trading Scene;
+- `bot_deleted`: its bot was deleted;
+- `bot_paused`: its bot is stopped;
+- `pair_not_listed`: the pair has left the bot's list;
+- `ambiguous_trade`: the bot holds more than one open trade on that pair.
+
+*Partial* has the same refusals except `bot_paused` and `pair_not_listed`, so
+it works on a stopped bot. If an earlier exit for the trade is still being
+reconciled, both are refused with `exit_unresolved`.
+
+**Manual positions are closed from the chart's Trade panel only** (SELL). That
+keeps their ledger and TP/SL correct. `/bot` and the Bot dashboard link there
+rather than offering Close.
+
+**Status (Operations and `/bot`).** Each fact is shown under its own name; there
+is no single "connected" verdict:
+
+- whether the control channel is set up on this Platform;
+- the signed connection: connected, refused (signature, proxy, replay, or the
+  Bot's control key unset), rate-limited, unreachable, or an unexpected reply;
+- the separate webhook-credential path;
+- execution: *Dry run (simulated)* or live orders;
+- the Bot halt and whether it is latched;
+- exchange routing: testnet, mainnet, mixed or no accounts, with per-account
+  counts;
+- risk limits;
+- the Bot's Shariah floor (*Enforced* with its policy, or *Off*), apart from
+  the Platform's Shariah Mode;
+- TP/SL protection;
+- manual and mainnet-manual trading.
+
+A Bot that is set up but down shows *Unreachable*, never *not configured*.
+
+**Prerequisites.** The Platform needs `MANUAL_TRADING_BOT_URL` and a
+`MANUAL_TRADING_HMAC_SECRET` of at least 32 characters. The Bot needs the same
+secret. The control routes work with `MANUAL_TRADING_ENABLED=false`. The
+overview, bots and trades lists below them still need it on both sides. The
+proxy in front of the Bot answers `/api/manual-trading/*` only from the
+Platform's address. Each side runs the control commands under its own rate
+limit, so polling cannot starve a halt. A 429 from the Bot is definitive: the
+command was not executed.
+
+**Not in Trading Scene yet.**
+
+- Creating, editing or deleting a bot, and entering exchange keys, stay on the
+  standalone Bot dashboard. The keys stay on the Bot.
+- Closing a stopped or deleted bot's trade, or one of several open trades on
+  the same pair, is not built anywhere. The Bot dashboard refuses it too. It
+  needs a trade-targeted exit in the Bot's money path, which is a separate,
+  reviewed change. *Classic Bot appearance* at the foot of `/bot` is
+an opt-in, per-browser recolouring
+([UI contract §2](TRADING_SCENE_UI_UX_CONTRACT.md)).
+
+**Recovery.** The standalone Bot dashboard (its own password and TOTP) remains
+the restricted recovery and break-glass path. It has its own halt, Close and
+Partial, which run the same Bot functions.
 
 ### Feed freshness
 
@@ -130,7 +305,11 @@ The **Timeline** control on a Manual Trading order or deployment is evidence
 inspection only. `Persisted event` means the named record has an explicit event
 time; `Current known state` means a mutable snapshot was last persisted at the
 displayed time and does not prove every earlier transition. The panel labels
-paper simulation, Bot dry-run, Binance testnet, and Binance mainnet separately.
+paper simulation, Bot dry-run, Binance testnet, Binance mainnet and an unknown
+execution mode separately. A manual order's label comes from that order's own
+evidence (its `dry-` exchange id and its own Bot account), never from the
+Bot's current dry-run setting. The Journal and the chart overlay use the same
+rule (below).
 
 Bot execution evidence is fetched server-side only after one specific timeline
 is opened. Manual orders use the exact signed order identity; custom deployment
@@ -143,8 +322,29 @@ transitions remain unavailable rather than inferred.
 ### Trade Journal
 
 Open **Journal** for a bounded cross-source view of activity and accumulated
-known realized results. REAL and PAPER totals are separate by default. Manual
-orders and live cumulative execution reports can appear with **Unknown** P&L:
+known realized results. Every row carries an execution environment: `REAL`,
+`TESTNET`, `DRY RUN`, `PAPER` or `UNKNOWN`. There are five separate summary
+cards, one per environment, and none is ever added to another. The daily,
+weekly, monthly and per-symbol lists name the environment on every line.
+
+The environment comes from the row's own evidence. The Bot's current mode is
+never an input, and a deployment's current delivery setting can never make a
+row REAL. The Journal, the chart overlay and the manual Timeline share one rule
+(the `journal/environment` module in the Platform backend):
+
+- **REAL** needs positive per-row evidence. A manual order is REAL only when its
+  own Bot account is explicitly mainnet and it has a non-`dry-` exchange order
+  id. An automated row is REAL only when its realization declares MAINNET.
+- A `dry-` exchange order id is **DRY RUN**. A manual order on a testnet account
+  is **TESTNET**. A paper deployment's rows are **PAPER**.
+- Everything else is **UNKNOWN**, and UNKNOWN is never counted as real money.
+- **Automated Bot realizations read UNKNOWN for now.** A simulated close emits
+  no realization event, so in practice these rows are testnet or real money,
+  but nothing stored says which. They stay UNKNOWN until the Bot's realization
+  event carries an environment. That is a deferred cross-repository change:
+  the Platform accepts the field first, then the Bot sends it.
+
+Manual orders and live cumulative execution reports can appear with **Unknown** P&L:
 that means execution activity is known but cost basis, disposition linkage, or
 commission evidence is not. Unknown is excluded from known totals and from
 win/loss counts; it is never displayed as zero.
@@ -205,7 +405,13 @@ and makes no call to Binance from anywhere.
 
 Turning it on is `BINANCE_TESTNET=true` in the bot's `.env`. On the bot side,
 `bot:deploy/remote-deploy.sh` preserves whatever the server already has rather than
-overwriting it (`BOT-030`).
+overwriting it (`BOT-030`). That variable is only the Bot's process-wide default,
+for a bot with no exchange account of its own. Each exchange account carries its
+own testnet flag, and that flag decides where the account's orders go. Since
+2026-11-09 the Bot dashboard ticks **Use Binance testnet** by default and asks
+for a typed `MAINNET` before it adds a mainnet account. The Bot's API also
+refuses an account that does not state `testnet` explicitly. `/bot` shows the
+routing per account: testnet, mainnet, mixed or none.
 
 **No testnet order has ever been placed.** Production has testnet keys on the
 Bot but runs `DRY_RUN=true` (§10). The exchange-native stop adapter (`BOT-017`) therefore remains
@@ -374,6 +580,11 @@ count on:
   `sr_zone`, `pivot_level`, `rsi`, `macd` and the trend gates are unit-tested
   and have been armed end to end through the real API, database and browser,
   but no live market event has driven one to delivery.
+- **The Bot controls on `/bot` (2026-11-09) have not been run against the
+  production Bot.** They are tested against a fake Bot that authenticates the
+  way the real one does (`platform/backend/tests/botControlDb.test.ts`). The
+  Bot's own route tests (`bot:backend/tests/botControl.test.ts`) use a fake
+  exchange. The signing test vector is asserted on both sides.
 
 ### Since corrected (2026-08-31)
 
@@ -565,10 +776,13 @@ bash cloud-deploy.sh $TAG
 - Tags are UTC timestamps: env-backup pruning sorts by name, and a reused tag
   collides with its own pre-deploy RDS snapshot.
 - Done means `/readyz` reports `expected` equal to the commit's migration
-  count (51 as of migration 051).
+  count (53 as of migration 053; the 2026-11-09 changes add no Platform
+  migration).
+- Migration `053_package_ledger.sql` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`.
+  The database user needs that privilege, so check it in the dry run.
 - Accounts need `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_BASE_URL`
-  and optionally `ALLOW_SIGNUPS` in `/opt/srtrend/deployment/.env` — see
-  `docs/ACCOUNTS.md`.
+  and optionally `ALLOW_SIGNUPS` in `/opt/srtrend/deployment/.env`. GitHub sign-in
+  and verification email need the settings in `docs/ACCOUNTS.md` §7.
 
 ---
 
@@ -602,3 +816,44 @@ Conditions to clear:
 - **Migration count.** `/readyz` reports 52 expected and 59 applied, with none
   missing, and returns 200. Migration `052` applied cleanly over them. The source of the extra 7 hasn't been traced. Check it
   before adding or rolling back migrations.
+
+> *Pointer, added 2026-11-09 outside this production log:* questions that only
+> the operator can answer, none verified, are listed in §11.
+
+---
+
+## 11. Unverified: questions only the operator can answer (added 2026-11-09)
+
+These are not observations. Nobody in the engineering workspace can check them,
+because each needs AWS, the production database, the exchange account or the
+operator's secret store. Each stays open until the operator records an answer
+in §10.
+
+1. **The old Bot server.** The stopped EC2 instance tagged `tradingbot` may
+   hold real Binance keys and live settings, and its containers may restart on
+   boot. Is it still stopped, or retired? Are its keys revoked? Does the real
+   Binance account have open positions or orders?
+2. **The exposed webhook secret.** A webhook secret was committed to the public
+   Bot repository's history. Rotation has not been verified. Has the bot that
+   used it been given a new secret, and has the Platform deployment been
+   updated to match?
+3. **Bot `ENCRYPTION_KEY` and `SCRYPT_SALT`.** Is there a copy off the Bot
+   server, in the operator's secret store? Has a restore of a Bot backup been
+   tested end to end? Without these two values a restored database cannot
+   decrypt its exchange keys.
+4. **Production migration drift.** `/readyz` reported 52 expected and 59
+   applied (§10). Where did the extra 7 come from? Settle that before
+   deploying `053`.
+5. **The `btree_gist` prerequisite.** Migration `053_package_ledger.sql` needs
+   `CREATE EXTENSION btree_gist`. Can the production database user create it?
+6. **New migrations in the 2026-11-09 changes.**
+   - The Platform adds none: the set still ends at `053`.
+   - The Bot adds two additive SQLite migrations, which its entrypoint applies
+     with `prisma migrate deploy`:
+     - `20261109120000_manual_command_body_hash` adds a nullable
+       `ManualCommand.bodyHash`;
+     - `20261109130000_bot_control_command` adds the `BotControlCommand` table.
+   - Take a verified Bot backup before deploying them.
+7. **The administrator's two-factor sign-in.** §10 records it on since
+   2026-11-07. Confirm it is still on before relying on Bot controls from
+   Trading Scene.

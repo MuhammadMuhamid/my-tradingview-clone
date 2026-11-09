@@ -59,15 +59,15 @@ and handoff. Production is deployed from Mahamid's copies,
 ## Local development
 
 Requires Node 22+ and a PostgreSQL/TimescaleDB instance for anything that
-touches the database. The quality gates below need neither.
+touches the database, including the backend's database-backed tests.
 
 ```bash
 # backend
 cd platform/backend
 npm ci
-npm run lint        # eslint, zero warnings tolerated
-npm run typecheck   # tsc --noEmit
-npm test            # node:test, fixture-only, no network and no database
+npm run lint        # eslint over src, tests and scripts, zero warnings tolerated
+npm run typecheck   # tsc --noEmit for src, scripts and tests
+npm test            # node:test with tests/test.env; no network; *Db tests need PostgreSQL (below)
 npm run build       # tsc
 npm run verify      # all four, in order
 
@@ -76,13 +76,50 @@ cd platform/frontend
 npm ci
 npm run lint
 npm run typecheck
-npm test
-npm run build
+npm test            # test:unit, then test:dom (the DOM harness)
+npm run build       # next build
 npm run verify
 ```
 
 `npm test` loads `platform/backend/tests/test.env`, which holds non-secret
 fixture values only. Never point it at a real database or a real key.
+
+**Database-backed tests** need a PostgreSQL 16 server at `DATABASE_URL`.
+`tests/test.env` points at
+`postgres://platform:platform@127.0.0.1:5433/platform_test`, which is the
+`docker compose` database below.
+
+- Most of them, such as `tenUserIsolationDb`, `sessionGatePathDb`,
+  `botControlDb` and `journalManualDisabled`, drop and create their **own**
+  database: that URL's database name plus a suffix, for example
+  `platform_test_bot_control`.
+- Without a reachable server they skip locally and name the reason. With `CI`
+  set they fail instead. CI provides PostgreSQL 16 on 5433.
+- `shariahUniverseDb` drops and recreates the configured database itself, and
+  fails when no server answers.
+
+**One database prefix per checkout.** Two checkouts or worktrees that run the
+suite against the same server at the same time would drop each other's
+databases. Give each its own prefix through `DATABASE_URL`, which takes
+precedence over the value in `--env-file`:
+
+```bash
+DATABASE_URL=postgres://platform:platform@127.0.0.1:5433/platform_test_<checkout> npm test
+```
+
+**The cross-repository test** (`platform/backend/tests/crossRepositoryRealization.test.ts`) compares
+the vendored webhook contract with a Bot checkout byte for byte, and runs the
+real Bot outbox against this receiver. It finds a sibling `bot/` checkout by
+itself, or uses `TRADING_SCENE_BOT_ROOT`. The loopback half also needs
+`npm ci` in that Bot's `backend`. Otherwise each half skips with its reason.
+
+```bash
+TRADING_SCENE_BOT_ROOT=/path/to/bot \
+  node --env-file=tests/test.env --import tsx --test tests/crossRepositoryRealization.test.ts
+```
+
+`platform/scripts/release.sh gate --peer-bot-root /path/to/bot` runs it as part
+of the release gate ([OPERATIONS §7](docs/OPERATIONS.md)).
 
 Bringing up the database and running migrations:
 

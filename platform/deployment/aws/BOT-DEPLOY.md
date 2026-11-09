@@ -1,7 +1,8 @@
 # Deploying the execution Bot
 
 This puts the Bot on its own EC2 instance in `ap-south-1` and connects the
-production Platform to it for **paper and testnet** manual trading. Every
+production Platform to it for **dry-run and testnet** manual trading (the Bot's
+`DRY_RUN` simulation, not the Platform's paper mode) and for the Bot controls on `/bot`. Every
 command runs in AWS CloudShell through `bot-stack.sh`, which pins the Bot commit
 in `BOT_SHA`. [OPERATIONS §7](../../../docs/OPERATIONS.md) lists the known pairs.
 
@@ -48,15 +49,24 @@ override below has been removed. See [OPERATIONS §10](../../../docs/OPERATIONS.
 | 4 | `bash bot-stack.sh verify` | Expect health 200, manual route 403, and `DRY_RUN=true`. |
 | 5 | `bash bot-stack.sh setup-token` | Prints the one-time token. Open `https://bot.alphawebstudioz.com`, create the Bot account, and scan the TOTP code. |
 | 6 | `bash bot-stack.sh finish-setup` | Removes the token, which closes registration. |
-| 7 | Bot dashboard | **Settings → Exchange account**: add keys from `testnet.binance.vision` and tick **Use Binance testnet**. |
+| 7 | Bot dashboard | **Settings → Exchange account**: add keys from `testnet.binance.vision` and leave **Use Binance testnet** ticked (the default since 2026-11-09; a mainnet account needs a typed `MAINNET`). |
 | 8 | `bash bot-stack.sh platform-on` | Connects the Platform and restarts its backend. |
-| 9 | `/chart` as admin | Open **Trade**. It should show **PAPER SIMULATION** and the testnet account. |
+| 9 | `/chart` as admin | Open **Trade**. It should show **DRY RUN (simulated)** and the testnet account (builds before 2026-11-09 said PAPER SIMULATION). `/bot` should show *Signed connection: Connected* and *Execution: Dry run (simulated)*. |
 
 ## Updating a running Bot
 
 Push the Bot commit, set `BOT_SHA` in `bot-stack.sh` to it, then run
 `bash bot-stack.sh deploy`. Update the Bot before a Platform release that reads new
 Bot routes. Otherwise those pages show an error until the Bot catches up.
+
+The 2026-11-09 Bot control routes (`/api/manual-trading/control/*`, used by `/bot`)
+come with two additive Bot migrations, `20261109120000_manual_command_body_hash`
+and `20261109130000_bot_control_command`. The backend applies them with
+`prisma migrate deploy` when it starts. Run `backup-now` first. The control
+routes use the same channel as manual trading, `MANUAL_TRADING_BOT_URL` and
+`MANUAL_TRADING_HMAC_SECRET`, behind the same Caddy rule that answers
+`/api/manual-trading/*` only from the Platform's address. No new setting is
+needed.
 
 ## If DNS still shows the old address
 
@@ -119,8 +129,12 @@ away, and it's safe to run again. Use `backup-status` to see the last result and
 
 ## Before any real money
 
+- Turn on the administrator's two-factor sign-in before relying on the Bot
+  controls on `/bot`. Every command except Halt needs it.
 - Run testnet orders with `DRY_RUN=false`, then check halts, Shariah refusals,
   TP/SL, and a Bot restart. None of this has been run against an exchange yet.
+  While the Bot is halted, TP/SL is not checked and TradingView exits are refused;
+  your own SELL / Close / Partial still work.
 - Keep a separate copy of `ENCRYPTION_KEY` and `SCRYPT_SALT`, and do a restore test.
 - Note that the Trade ticket currently offers testnet accounts only. Mainnet
   orders need a code change as well as the Bot's mainnet setting.
