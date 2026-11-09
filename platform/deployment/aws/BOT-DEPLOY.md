@@ -68,6 +68,35 @@ routes use the same channel as manual trading, `MANUAL_TRADING_BOT_URL` and
 `/api/manual-trading/*` only from the Platform's address. No new setting is
 needed.
 
+## V3 release (2026-11-09): order, migrations, flags
+
+Nothing in this section was run on production. Full detail:
+[the final handoff](../../../docs/MAHAMID_FINAL_HANDOFF_2026-11-09.md).
+
+1. Run `backup-now` and back up the Platform Postgres.
+2. Deploy the Bot with every new flag off. Its five additive migrations
+   (`20261110100000_manual_exit_cancel`, `20261110110000_entries_pause`,
+   `20261110200000_exchange_account_key_hint`, `20261110210000_exchange_enrollment`,
+   `20261110220000_realization_environment`) apply at start. Cancel-first exits
+   apply to new exits at once; legacy "entry still working" orders are not
+   auto-cancelled.
+3. Deploy the Platform (additive migrations 054 to 058). It shows new features
+   only when the Bot's status lists them, so either order is safe; Bot first is
+   recommended.
+4. Turn on the administrator's two-factor sign-in.
+5. Enrollment: set up the reverse proxy for `/enroll` and `/api/enroll` as in
+   the Bot's `deploy/ENROLLMENT.md`, and keep the `/api/manual-trading`
+   Platform-address rule. Then set Bot `ENROLLMENT_ENABLED=true`,
+   `PUBLIC_URL` (the Bot's https origin) and `PLATFORM_RETURN_URL`
+   (e.g. `https://mytradingview.alphawebstudioz.com/bot/accounts`), and Platform
+   `BOT_PUBLIC_ORIGIN` (e.g. `https://bot.alphawebstudioz.com`).
+6. Only after the Platform is deployed, set Bot
+   `REALIZATION_CONTRACT_V2_ENABLED=true`. Never roll the Bot back past this
+   version once v2 rows exist.
+7. A controlled testnet round trip with `DRY_RUN=false` on testnet-only
+   accounts, mainnet manual trading off, operator present. No mainnet before it
+   passes and the owner authorises it.
+
 ## If DNS still shows the old address
 
 A changed record can stay cached for hours, and `platform-on` holds back while the

@@ -331,8 +331,25 @@ route under `/api/bot/control/*` per Bot command:
 - halt and resume;
 - risk limits, read and change;
 - start or stop one bot;
-- close and partial-close a strategy trade;
+- close and partial-close a strategy trade (by trade id);
+- pause or resume new entries (the Platform flag, then Bot command C9);
+- create, read, edit, delete a bot and rotate its secret (C10 to C14);
+- list and remove exchange accounts, read a balance (C15, C16, C19);
+- mint an enrollment or secret-reveal link and read its outcome (C17, C18);
 - the status of one command.
+
+**Control contract v2 (2026-11-09).** The Bot's status (C0) now carries
+`capabilities` (`entries.v1`, `bots.v1`, `accounts.v1`, `enroll.v1`,
+`operatorExit.v1`, `manualPositionFull.v1`) and `entries`. The Platform shows
+a feature only when the Bot lists it, so either side can deploy first. Step-up
+is a tier per command (a five-minute grant, or a fresh code), resolved in one
+helper before the signed request is built. A bot's webhook secret is kept
+encrypted in `bot_webhook_secrets` and copied server-side into linked
+deployments; it never reaches the browser. Realization events use contract v2
+(adds `environment`), which the Bot sends only after the Platform advertises
+`realization.v2`. Exchange keys never pass through the Platform: it only mints
+a link to the Bot's `/enroll` page. Final list of changes:
+[handoff](MAHAMID_FINAL_HANDOFF_2026-11-09.md).
 
 Each route maps to one signed route under `/api/manual-trading/control/*` on the
 Bot (`bot:backend/src/routes/manualControl.ts`). The rules are:

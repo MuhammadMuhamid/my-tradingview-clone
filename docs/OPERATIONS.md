@@ -262,18 +262,20 @@ proof.
 clears a latched halt. Turning the daily-loss limit off, or raising it, makes a
 latched daily-loss halt resumable, and the page warns about this.
 
-**Close and Partial are for strategy trades only.** *Close* is refused with a
-code, and nothing is sold, in each of these cases:
+**Close and Partial are for strategy trades, by trade id** (final V3 behaviour).
+*Close* and *Partial* target the exact trade you clicked, so they now work for a
+stopped bot's trade, a pair that has left the bot's list, and one of several
+open trades on the same pair. Nothing is sold, and a typed code is returned,
+in these cases:
 
-- `trade_manual`: the trade was opened from Trading Scene;
+- `trade_manual`: the trade was opened from Trading Scene (use the Trade panel);
 - `bot_deleted`: its bot was deleted;
-- `bot_paused`: its bot is stopped;
-- `pair_not_listed`: the pair has left the bot's list;
-- `ambiguous_trade`: the bot holds more than one open trade on that pair.
+- `exit_unresolved` / `exit_recent`: an earlier exit of that trade is still
+  being reconciled, or just left the position open.
 
-*Partial* has the same refusals except `bot_paused` and `pair_not_listed`, so
-it works on a stopped bot. If an earlier exit for the trade is still being
-reconciled, both are refused with `exit_unresolved`.
+The codes `bot_paused`, `pair_not_listed` and `ambiguous_trade` no longer
+exist. The Classic dashboard shares this code. The Bot must list the
+`operatorExit.v1` capability; an older Bot hides the controls.
 
 **Manual positions are closed from the chart's Trade panel only** (SELL). That
 keeps their ledger and TP/SL correct. `/bot` and the Bot dashboard link there
@@ -307,19 +309,34 @@ Platform's address. Each side runs the control commands under its own rate
 limit, so polling cannot starve a halt. A 429 from the Bot is definitive: the
 command was not executed.
 
-**Not in Trading Scene yet.**
+**Closing a position (OD-1, OD-7).** A full exit of a position whose LIMIT
+entry is still working cancels that entry first, re-reads what filled, then
+sells. A fill that lands in between becomes a *race fill* position that the Bot
+sweeps (at most 3 attempts, then it asks the operator, with an alert). The row
+says *RACE FILL*, *ENTRY CANCEL PENDING*, *SWEEP FAILED* or *NETTING
+UNCONFIRMED*. There is no zero-exposure promise: an unknown cancel leaves a
+window until the next query. A partial SELL never cancels. Legacy orders that
+were already flagged *ENTRY STILL WORKING* before this release are **not**
+cancelled at deploy; the operator handles them. The SELL tab's 100% is the
+selected position's quantity, never the wallet.
 
-- Creating, editing or deleting a bot, and entering exchange keys, stay on the
-  standalone Bot dashboard. The keys stay on the Bot.
-- Closing a stopped or deleted bot's trade, or one of several open trades on
-  the same pair, is not built anywhere. The Bot dashboard refuses it too. It
-  needs a trade-targeted exit in the Bot's money path, which is a separate,
-  reviewed change. *Classic Bot appearance* at the foot of `/bot` is
-an opt-in, per-browser recolouring
+**Webhook secret, accounts and keys.** The secret never reaches the browser;
+use *Link to deployment*, or reveal it once on the Bot origin (fresh code). Keys
+are entered only on the Bot's `/enroll` page, reached from `/bot/accounts`. If a
+secret rotation's reply was lost, linked deployments are refused until you
+rotate again (the page says so).
+
+**Not in Trading Scene.** Three Classic features are exceptions: Bot execution
+push notifications (P-81), deleting a closed trade from history (P-70, unsafe,
+an archive is proposed) and Bot-specific install (P-11, equivalent for
+installation only). All three remain on the Classic dashboard. Full list:
+[the final handoff](MAHAMID_FINAL_HANDOFF_2026-11-09.md). *Classic Bot
+appearance* at the foot of `/bot` is an opt-in, per-browser recolouring
 ([UI contract §2](TRADING_SCENE_UI_UX_CONTRACT.md)).
 
 **Recovery.** The standalone Bot dashboard (its own password and TOTP) remains
-the restricted recovery and break-glass path. It has its own halt, Close and
+the restricted recovery and break-glass path; restrict it to an allow-list or
+VPN. It has its own halt, Close and
 Partial, which run the same Bot functions.
 
 ### Feed freshness

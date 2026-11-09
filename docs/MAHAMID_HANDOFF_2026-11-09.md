@@ -1,3 +1,5 @@
+> **Superseded** by [MAHAMID_FINAL_HANDOFF_2026-11-09.md](MAHAMID_FINAL_HANDOFF_2026-11-09.md), the canonical handoff. Read that first.
+
 # Engineering handoff, 2026-11-09: verified fixes and Bot operation inside Trading Scene
 
 **From:** the owner (2ms-muzammil), working with Claude Code.

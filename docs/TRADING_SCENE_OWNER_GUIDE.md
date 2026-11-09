@@ -286,17 +286,16 @@ keys stay on the Bot.
   while the outcome is unknown never runs it twice.
 - **Errors in plain words:**
   - a manual position → *Close it from the Trade panel* (with a link);
-  - a stopped bot's trade → start the bot first;
-  - more than one open trade on the pair → refused, because Close could hit the wrong one;
+  - a stopped bot's trade or one of several on the same pair → allowed, because Close and Partial
+    now target the exact trade;
   - an earlier exit still reconciling → wait and retry;
   - a latched daily-loss halt still at its limit → cannot resume yet.
-- **Not in Trading Scene yet:**
-  - creating, editing or deleting bots;
-  - entering keys;
-  - closing a stopped or deleted bot's trade;
-  - closing one of several open trades on the same pair.
-
-  The standalone Bot dashboard remains the restricted recovery and break-glass path.
+- **Also on `/bot`:** pause new entries, create/edit/delete bots (`/bot/bots/new`, `/bot/bots/[id]`),
+  and accounts with key enrollment on the Bot origin (`/bot/accounts`). Each shows only if the Bot
+  reports the feature.
+- **Not in Trading Scene:** Bot execution push notifications and deleting closed trades from
+  history (see below). The standalone Bot dashboard remains the restricted recovery and
+  break-glass path.
 - **If the Bot is down:** the page says *Bot unreachable* and keeps what it last read.
 
 Every command is recorded in the Platform's append-only `admin_audit`. Detail:
@@ -308,6 +307,14 @@ asserted on both sides). Read-only views before 2026-11-09: **LOCAL UI VERIFIED*
 production Bot.
 
 ---
+
+### Operating the Bot from `/bot` (updated 2026-11-09)
+
+- **Two-factor first.** Turn on the administrator's two-factor sign-in. Scan the QR code with your iPhone camera or the Passwords app (Apple Passwords), or paste the setup key. If your password and codes are both in Apple Passwords, sign-in is easier but the two factors are less separated. Entering one code opens a five-minute window with no more codes for routine commands; *Lock now* closes it. Changing risk limits, key links and secret rotation always ask again.
+- **Pause is not halt.** *Pause new entries* stops only new positions, on both the Platform and the Bot; exits, take-profit and stop-loss keep working. *Halt* stops automation in both directions, including take-profit and stop-loss checks on the Bot.
+- **Closing positions.** *Close* and *Partial* work by trade, including a stopped bot's trade. In the Trade panel, SELL 100% sells the selected position, not your wallet. If a limit entry is still working, the Bot cancels it first and sells what actually filled; a late fill is swept or handed to you with a warning.
+- **Keys and secrets** are entered on the Bot's own page, never on Trading Scene.
+- **Not ported:** Bot execution push notifications and deleting closed trades from history stay on the Classic dashboard. See the [final handoff](MAHAMID_FINAL_HANDOFF_2026-11-09.md).
 
 ## 5. Journal
 
@@ -516,11 +523,8 @@ proven on one Mac over the real mTLS transport with the 16-trade synthetic unit)
 | Bot backups | run every 6 hours, but no restore has been tested and the Bot's encryption keys have no copy off the server |
 | Bot controls from Trading Scene (2026-11-09) | tested against a fake Bot and fake exchange; not yet run against the production Bot. Turn on the administrator's two-factor first. The Bot needs its two new migrations (`20261109120000_manual_command_body_hash`, `20261109130000_bot_control_command`); the Platform adds none |
 | Security questions only the operator can answer | the old `tradingbot` server and its keys, rotation of the webhook secret exposed in public Bot history, an off-server copy of `ENCRYPTION_KEY`/`SCRYPT_SALT` with a tested restore, the production migration-count drift and `btree_gist` for `053`: [OPERATIONS §11](OPERATIONS.md) |
-| Owner decision OD-1 | a manual LIMIT BUY partly filled when its TP/SL fires: cancel the remainder first, track and protect late fills, or cancel then sweep (recommended). Today, the interim: the trade is never reopened, the working remainder is flagged, a late fill becomes a separate **UNPROTECTED** position you can sell |
-| Owner decision OD-2 | Bot commands need two-factor; Halt alone also accepts the password while two-factor is off (default chosen so a halt is never blocked; can be tightened or relaxed) |
-| Owner decision OD-3 | two halt switches as now, one switch for both, or a Bot halt that keeps TP/SL running (not implemented) |
-| Automated Journal environment | Bot realizations read *Unknown environment* until the Bot's event carries one (deferred two-repository change: Platform accepts, then Bot sends) |
-| Not in Trading Scene yet | bot create/edit/delete and exchange-key entry (Bot dashboard only); closing a stopped or deleted bot's trade, or one of several same-pair trades (refused on the Bot dashboard too: needs a trade-targeted exit in the Bot's money path) |
+| Owner decisions OD-1 to OD-7 (2026-11-09) | all implemented, none deployed. OD-1 cancel-then-sweep, OD-2 five-minute 2FA grant, OD-3 pause both halves, OD-4 keys only on the Bot origin, OD-5 Journal environment (new events only), OD-6 account deletion, OD-7 SELL 100% = the position. Not run against a real exchange; testnet round trip first |
+| Not ported from the Classic Bot dashboard | Bot execution push notifications, deleting closed trades from history (unsafe; an archive is proposed) and Bot-specific install. Parity is not 100%. The Classic dashboard stays as restricted break-glass |
 | Standard accounts and trading | no per-user exchange keys or trading (owner decision; not implemented) |
 | Exchange-native stops | adapter exists, no call sites, five testnet checks pending (`bot/backend/src/services/exchangeStops.ts`) |
 | Production Shariah mode, `ALLOW_SIGNUPS`, 3Commas deployments | production database, not visible here |
