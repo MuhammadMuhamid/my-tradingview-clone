@@ -34,7 +34,7 @@ import { equityExecutionRoutes } from "./routes/equityExecution";
 import { traditionalExecutionRoutes } from "./routes/traditionalExecution";
 import type { LiveRunner } from "../engine/liveRunner";
 import { SESSION_COOKIE, readCookie, sessionCookie } from "../security/session";
-import { DEV_ADMIN, userMayReach } from "../security/requestUser";
+import { DEV_ADMIN, canonicalRequestPath, userMayReachRoute } from "../security/requestUser";
 import { authenticate } from "./routes/auth";
 
 /** Reachable without a session: health probes and the sign-in flows themselves. */
@@ -92,6 +92,21 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   });
 
   /**
+   * ONE path for every check below: the one the router dispatched on.
+   *
+   * The router decodes and trims the URL before matching it, so a check on the
+   * raw `req.url` can pass for one path while the handler of another runs. See
+   * `canonicalRequestPath`. A URL it refuses is answered here, before any
+   * check, rather than letting each hook decide what an odd path means.
+   */
+  app.decorateRequest("gatePath", "");
+  app.addHook("onRequest", async (req, reply) => {
+    const path = canonicalRequestPath(req.url);
+    if (path === null) return reply.code(400).send({ error: "malformed request path" });
+    req.gatePath = path;
+  });
+
+  /**
    * Sign-in rate limit. Password checks run asynchronously with bounded
    * concurrency, but unbounded guessing would still consume CPU and memory.
    *
@@ -100,8 +115,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
    * session would start failing.
    */
   app.addHook("onRequest", async (req, reply) => {
-    const path = req.url.split("?")[0] ?? "";
-    if (!LIMITED_AUTH_PATHS.has(path) || req.method !== "POST") return;
+    if (!LIMITED_AUTH_PATHS.has(req.gatePath) || req.method !== "POST") return;
     const key = clientKey(req.ip, req.headers["x-forwarded-for"], config.trustProxy);
     const decision = loginLimiter.hit(key);
     if (!decision.allowed) {
@@ -117,7 +131,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
    */
   app.decorateRequest("user", null);
   app.addHook("onRequest", async (req, reply) => {
-    const path = req.url.split("?")[0] ?? "";
+    const path = req.gatePath;
     if (!config.authEnabled) {
       // Unauthenticated instance (development, tests): the single admin.
       req.user = DEV_ADMIN;
@@ -135,7 +149,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
     if (!session) return reply.code(401).send({ error: "not authenticated" });
 
     // Default-deny for ordinary accounts: see security/requestUser.
-    if (session.user.role !== "admin" && !userMayReach(req.method, path)) {
+    if (session.user.role !== "admin" && !userMayReachRoute(req.method, path, req.routeOptions.url)) {
       return reply.code(403).send({ error: "This part of the platform is available to the administrator only." });
     }
   });

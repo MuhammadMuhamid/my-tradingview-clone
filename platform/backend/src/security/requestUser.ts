@@ -35,6 +35,11 @@ declare module "fastify" {
   interface FastifyRequest {
     /** Set by the session gate; null only on public paths. */
     user: RequestUser | null;
+    /**
+     * The path every request check runs against: `canonicalRequestPath` of the
+     * URL, set by the first request hook in `api/server.ts`.
+     */
+    gatePath: string;
   }
 }
 
@@ -134,8 +139,80 @@ const ADMIN_ONLY: readonly RegExp[] = [
   /^\/api\/layouts\/sync-deployments$/,
 ];
 
+/** The same exceptions, as the route patterns the router matches them by. */
+const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
+  "/api/layouts/sync-deployments",
+]);
+
+/**
+ * `path` must be the CANONICAL path (`canonicalRequestPath`), never `req.url`:
+ * these patterns describe the paths the router dispatches on.
+ */
 export function userMayReach(method: string, path: string): boolean {
   if (ADMIN_ONLY.some((re) => re.test(path))) return false;
   const m = method.toUpperCase();
   return USER_ROUTES.some(([allowed, re]) => (allowed === "*" || allowed === m) && re.test(path));
+}
+
+/**
+ * The gate's whole decision for an ordinary account: the canonical path is in
+ * reach, AND the route the router actually matched is not one of the
+ * admin-only exceptions. The second half is a backstop for any difference
+ * between the canonical path and the router that this file failed to foresee.
+ */
+export function userMayReachRoute(method: string, path: string, routeUrl: string | undefined): boolean {
+  if (routeUrl !== undefined && ADMIN_ONLY_ROUTES.has(routeUrl)) return false;
+  return userMayReach(method, path);
+}
+
+// ── the path a request is checked against ───────────────────────────────────
+
+/** An absolute-form request target (`POST http://host/path`), as the router strips it. */
+const ABSOLUTE_FORM = /^https?:\/\/.*?\//;
+
+/**
+ * The path the router dispatches this URL on, or null for a URL this API refuses.
+ *
+ * Every request check (`PUBLIC_PATHS`, the sign-in limit, `userMayReach`) must
+ * see the same path the router matched, or a request can pass a check written
+ * for one path and run the handler of another. The raw `req.url` is not that
+ * path: the router strips an absolute-form `http://host`, cuts at the first
+ * `?` OR `#`, and percent-decodes. A gate reading the raw URL once let an
+ * ordinary account reach `POST /api/layouts/sync-deployments` as
+ * `/api/layouts/sync%2Ddeployments`.
+ *
+ * This mirrors find-my-way 9 under Fastify 5's defaults (case-sensitive; no
+ * trailing-slash, duplicate-slash or dot-segment folding; `;` is not a
+ * delimiter). Its path decoding is `decodeURI`, which leaves the escapes of
+ * reserved characters (`# $ & + , / : ; = ? @`) encoded, with `%25` also kept
+ * as `%25`; parameters are decoded fully afterwards, which changes no route
+ * choice. `tests/sessionGatePathDb.test.ts` holds both to the real router.
+ *
+ * Refused (null, answered 400):
+ *  - an escape that does not decode — the router refuses those too, before
+ *    any hook runs, so this is a second lock;
+ *  - an encoded slash, `%2F`. The router keeps it in the path but decodes it
+ *    to a real `/` inside a parameter, so one segment is two depending on who
+ *    reads it. This product's client never sends one;
+ *  - a target that does not start with `/` once an absolute-form prefix is
+ *    removed. The router never compares the first character, so it dispatches
+ *    `xapi/layouts/sync-deployments` as `/api/layouts/sync-deployments`, while
+ *    every check here is written for a leading `/`. Node's own HTTP parser
+ *    refuses such request lines, so this closes the gap for in-process
+ *    dispatch (inject) and keeps the stated invariant exact. (`OPTIONS *` is
+ *    400 rather than 404 as a result; no route serves it.)
+ */
+export function canonicalRequestPath(rawUrl: string): string | null {
+  let path = rawUrl;
+  if (path.charCodeAt(0) !== 47 /* "/" */) path = path.replace(ABSOLUTE_FORM, "/");
+  if (path.charCodeAt(0) !== 47) return null;
+  // From index 1, as the router scans: the query and the fragment are not path.
+  const end = path.slice(1).search(/[?#]/);
+  if (end !== -1) path = path.slice(0, end + 1);
+  if (/%2f/i.test(path)) return null;
+  try {
+    return decodeURI(path.replace(/%25/g, "%2525"));
+  } catch {
+    return null;
+  }
 }
