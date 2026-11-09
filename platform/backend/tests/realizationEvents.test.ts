@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QueryResult, QueryResultRow } from "pg";
+import { createHash } from "node:crypto";
 import {
-  canonicalJson, normalizeRealizationBatch, normalizeRealizationEvent, platformWebhookIdentity,
-  type RealizationEventV1,
+  REALIZATION_CAPABILITIES, canonicalJson, declaredEnvironmentOf, normalizeRealizationBatch,
+  normalizeRealizationEvent, platformWebhookIdentity, type RealizationEventV1, type RealizationEventV2,
 } from "../src/contract/realizationEventContract";
 import { signManualCommand } from "../src/manualTrading/client";
 import { verifyRealizationRequest } from "../src/realizations/auth";
@@ -30,11 +31,12 @@ function event(over: Partial<RealizationEventV1> = {}): RealizationEventV1 {
       buyFeeRate: "0.001", sellFeeRate: "0.001",
       commissionSource: "modeled_not_exchange_observed" },
     ...over,
-  });
+  }) as RealizationEventV1;
 }
 
 class FakeDb implements RealizationDbClient {
   readonly rows = new Map<string, { hash: string; realizedAt: string }>();
+  readonly declared = new Map<string, string | null>();
   correlation = { deploymentId, orderIntentId: "41", dedupeKey: "X-1788350400000-tp1",
     symbol: "BTCUSDT", action: "sell", delivery: "custom", secret: webhookSecret };
 
@@ -58,6 +60,7 @@ class FakeDb implements RealizationDbClient {
       const eventId = String(values[7]);
       if (this.rows.has(eventId)) throw Object.assign(new Error("unique"), { code: "23505" });
       this.rows.set(eventId, { hash: String(values[13]), realizedAt: String(values[2]) });
+      this.declared.set(eventId, values[14] as string | null);
       rowCount = 1;
     }
     return { rows: rows as T[], rowCount, command: "", oid: 0, fields: [] };
@@ -66,6 +69,73 @@ class FakeDb implements RealizationDbClient {
 
 const batch = (...events: RealizationEventV1[]) => ({
   contractVersion: 1 as const, type: "BOT_CUSTOM_REALIZATION_BATCH" as const, events,
+});
+
+/** The same event as contract v2, with `environment`. */
+const v2 = (environment: unknown, over: Partial<RealizationEventV1> = {}) =>
+  normalizeRealizationEvent({ ...event(over), contractVersion: 2, environment }) as RealizationEventV2;
+const batch2 = (...events: RealizationEventV2[]) => ({
+  contractVersion: 2 as const, type: "BOT_CUSTOM_REALIZATION_BATCH" as const, events,
+});
+
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+
+test("OD-5: a v1 event normalizes to exactly the v1 keys, with the same hash as before v2 existed", () => {
+  const normalized = event();
+  assert.deepEqual(Object.keys(normalized).sort(), ["accounting", "contractVersion", "eventId", "exchangeOrderId",
+    "exitLeg", "exitPrice", "exitRevenueQuote", "exitSide", "kind", "platformDedupeKey", "platformDeploymentId",
+    "platformOrderIntentId", "platformWebhookIdentity", "positionDirection", "quoteCurrency", "realizedAt",
+    "realizedPnlQuote", "realizedQuantity", "strategyOrderIntentId", "symbol", "type"]);
+  // Computed from the contract at 0afaeec (before v2), split so no long hex literal sits in the source.
+  assert.equal(sha256(canonicalJson(normalized)), "68a821bc98cb26f7193b5c065a87333580e4acd6" + "6f44771ec5eba04daec6f142");
+});
+
+test("OD-5: v2 requires environment from the strict set; its hash covers it", () => {
+  for (const environment of ["DRY_RUN", "TESTNET", "MAINNET", "UNKNOWN"] as const) {
+    const normalized = v2(environment);
+    assert.equal(normalized.contractVersion, 2);
+    assert.equal(normalized.contractVersion === 2 && normalized.environment, environment);
+    assert.deepEqual(normalizeRealizationBatch(batch2(normalized)).events, [normalized]);
+  }
+  assert.equal(declaredEnvironmentOf(v2("MAINNET")), "MAINNET");
+  assert.equal(declaredEnvironmentOf(v2("TESTNET")), "TESTNET");
+  assert.equal(declaredEnvironmentOf(v2("DRY_RUN")), "DRY_RUN");
+  assert.equal(declaredEnvironmentOf(v2("UNKNOWN")), null, "UNKNOWN is stored as NULL");
+  assert.equal(declaredEnvironmentOf(event()), null, "v1 declares nothing");
+  const hashes = new Set([event(), v2("MAINNET"), v2("TESTNET")].map((e) => sha256(canonicalJson(e))));
+  assert.equal(hashes.size, 3, "version and environment are part of the immutable payload");
+  for (const environment of ["REAL", "mainnet", "LIVE", "", 1, true, null, { value: "MAINNET" }]) {
+    assert.throws(() => v2(environment), JSON.stringify(environment));
+  }
+  const { environment: _dropped, ...missing } = v2("TESTNET");
+  assert.throws(() => normalizeRealizationEvent(missing), "v2 without environment");
+  assert.throws(() => normalizeRealizationEvent({ ...event(), environment: "MAINNET" }), "v1 with environment is an unknown key");
+  assert.throws(() => normalizeRealizationEvent({ ...v2("TESTNET"), extra: 1 }), "unknown keys are still refused");
+  assert.throws(() => normalizeRealizationEvent({ ...event(), contractVersion: 3 }));
+});
+
+test("OD-5: a batch and its events share one version", () => {
+  assert.throws(() => normalizeRealizationBatch({ ...batch2(v2("TESTNET")), contractVersion: 1 }));
+  assert.throws(() => normalizeRealizationBatch({ ...batch(event()), contractVersion: 2 }));
+  assert.throws(() => normalizeRealizationBatch({ ...batch2(v2("TESTNET")),
+    events: [v2("TESTNET"), event({ eventId: "bot-realization-v1:partial:mix" })] }));
+  assert.deepEqual(REALIZATION_CAPABILITIES, ["realization.v2"]);
+});
+
+test("OD-5: ingestion stores the declared environment; the same id under the other version is a conflict", async () => {
+  const db = new FakeDb();
+  const declared = v2("MAINNET");
+  assert.deepEqual(await ingestRealizationBatch(db, batch2(declared)), [declared.eventId]);
+  assert.equal(db.declared.get(declared.eventId), "MAINNET");
+  assert.deepEqual(await ingestRealizationBatch(db, batch2(declared)), [declared.eventId], "identical re-send");
+  await assert.rejects(ingestRealizationBatch(db, batch(event())), RealizationIntegrityConflict);
+  await assert.rejects(ingestRealizationBatch(db, batch2(v2("TESTNET"))), RealizationIntegrityConflict);
+  const unknown = v2("UNKNOWN", { eventId: "bot-realization-v1:final:unknown", kind: "final" });
+  await ingestRealizationBatch(db, batch2(unknown));
+  assert.equal(db.declared.get(unknown.eventId), null);
+  const plain = event({ eventId: "bot-realization-v1:final:plain", kind: "final" });
+  await ingestRealizationBatch(db, batch(plain));
+  assert.equal(db.declared.get(plain.eventId), null);
 });
 
 test("v1 canonicalizes exact decimal and timestamp spellings before conflict comparison", () => {

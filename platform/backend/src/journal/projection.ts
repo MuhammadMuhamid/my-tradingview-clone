@@ -37,9 +37,9 @@ export interface AutomatedRealizationEvidence extends ProvenanceEvidence {
   sourceSystem?: string | null;
   /**
    * An explicit environment declared by the realization event itself
-   * ("DRY_RUN" | "TESTNET" | "MAINNET", validated strictly where it is read).
-   * Nothing stores one yet — `realised_pnl` keeps only the payload hash — so
-   * the repository never sets it today; the rule honours it when present.
+   * ("DRY_RUN" | "TESTNET" | "MAINNET", validated strictly where it is read):
+   * `realised_pnl.declared_environment`, written for contract v2 events
+   * (migration 056, OD-5). NULL for v1, UNKNOWN and legacy rows.
    */
   declaredEnvironment?: unknown;
 }

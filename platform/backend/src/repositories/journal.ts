@@ -50,12 +50,13 @@ export async function listAutomatedRealizations(
     source_strategy_order_intent_id: string | null; source_exchange_order_id: string | null;
     source_platform_order_intent_id: string | number | null;
     accounting_basis: string | null; fee_model: string | null; source_system: string | null;
+    declared_environment: string | null;
   }>(
     `SELECT rp.id, rp.closed_at, rp.pnl_quote, rp.entry_price, rp.exit_price,
             rp.quantity, rp.reason, rp.source_event_id, rp.realization_kind,
             rp.source_strategy_order_intent_id, rp.source_exchange_order_id,
             rp.source_platform_order_intent_id, rp.accounting_basis, rp.fee_model,
-            rp.source_system,
+            rp.source_system, rp.declared_environment,
             d.id AS deployment_id, d.strategy_id,
             s.key AS strategy_key, s.name AS strategy_name, d.config_id,
             sc.name AS config_name, d.symbol
@@ -81,6 +82,8 @@ export async function listAutomatedRealizations(
       ? null : String(row.source_platform_order_intent_id),
     accountingBasis: row.accounting_basis, feeModel: row.fee_model,
     sourceSystem: row.source_system,
+    // OD-5: what a v2 realization declared; `journal/environment.ts` decides what it proves.
+    declaredEnvironment: row.declared_environment,
   }));
 }
 

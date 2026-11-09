@@ -338,11 +338,18 @@ row REAL. The Journal, the chart overlay and the manual Timeline share one rule
 - A `dry-` exchange order id is **DRY RUN**. A manual order on a testnet account
   is **TESTNET**. A paper deployment's rows are **PAPER**.
 - Everything else is **UNKNOWN**, and UNKNOWN is never counted as real money.
-- **Automated Bot realizations read UNKNOWN for now.** A simulated close emits
-  no realization event, so in practice these rows are testnet or real money,
-  but nothing stored says which. They stay UNKNOWN until the Bot's realization
-  event carries an environment. That is a deferred cross-repository change:
-  the Platform accepts the field first, then the Bot sends it.
+- **Automated Bot realizations declare their environment** (added 2026-11-09,
+  OD-5). Realization contract v2 events carry `environment` (DRY_RUN, TESTNET,
+  MAINNET or UNKNOWN), the environment of the SELL as the Bot recorded it; the
+  Platform stores it in `realised_pnl.declared_environment` (migration 056,
+  UNKNOWN as NULL) and the Journal shows MAINNET as REAL, TESTNET as TESTNET.
+  A declaration that contradicts the row's own exchange id (MAINNET with a
+  `dry-` id, DRY_RUN without one) reads UNKNOWN, and the event is still accepted
+  so the Bot's outbox never stalls. P&L and fees stay the Bot's modeled figures.
+  v1 events (an older Bot) and rows from before v2 stay UNKNOWN. Rollout is
+  Platform first: an accepted ingest answers `capabilities: ["realization.v2"]`,
+  and the Bot sends v2 only after it has seen that. The same event id re-sent
+  under the other version is an integrity conflict (409), by design.
 
 Manual orders and live cumulative execution reports can appear with **Unknown** P&L:
 that means execution activity is known but cost basis, disposition linkage, or
