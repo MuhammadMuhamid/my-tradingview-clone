@@ -130,6 +130,22 @@ something in this product:
 **Accent is never "this one is selected."** That is what the two state
 neutrals are for.
 
+### Documented exception: Classic Bot appearance
+
+At the owner's request (WS-BOTCMD, 2026-11-09), an administrator may tick
+**Classic Bot appearance** on `/bot`. It recolours that page's body with the
+standalone Bot dashboard's navy surfaces and teal accent. It is the one place
+the neutral rule bends, and only for the person who asked:
+
+- opt-in per browser (one localStorage key), **off by default**;
+- the `/bot` body only — the Nav, dialogs (portalled outside it) and every
+  other page keep the neutral tokens;
+- dark theme only: `:root:not([data-theme="light"]) [data-bot-appearance="classic"]`
+  in `globals.css`, after the light block;
+- token overrides only, no second styling framework;
+- the Bot's own muted grey is 4.0:1 on its panel, below WCAG AA, so muted and
+  faint are lifted to the Platform's contrast (7.9:1 and 6.0:1).
+
 ---
 
 ## 3. Density
@@ -950,6 +966,7 @@ from being lost — §9 has the test:
 | a right-click on a legend row is the legend's display menu; the study's own menu is its `⋯` | `tests/dom/legendStudyActions.test.tsx` |
 | an alert dialog confirms in `contrast` and names its symbol in ink | `tests/alertEditing.test.ts` |
 | a text tool types inline at the click (no dialog); Escape / empty removal; one undo per placed text; its keys never reach a shortcut; the floating toolbar's widget set is per tool, with no Clone or Hide | `tests/dom/drawingTextInline.test.tsx`, `tests/drawingRail.test.ts` |
+| Classic Bot appearance is opt-in, `/bot`-only and dark-only, and never moves the dark/light token blocks | `tests/botControlUi.test.ts`, `tests/dom/botControls.test.tsx` |
 | a backtest result counts one population (entries) per row and names it; the last window is "Validation", never "frozen"; a failed run leads with the reader's sentence and keeps the engine's words behind a disclosure; a run can be reproduced from its page | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts` |
 | a backtest compares and names its engine CORRECTION SET, not just "v2-corrected"; a run from an older correction set is never called "Reproducible" and says what it lacks; a run whose stored settings the server now refuses leads with that sentence, hides its figures behind a disclosure and offers no Re-run or Stress; an unfinished run is "Not finished yet" | `tests/dom/researchResult.test.tsx`, `tests/backtestFigures.test.ts`, `backend/tests/backtestReadTruth.test.ts` |
 

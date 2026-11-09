@@ -1,0 +1,514 @@
+/**
+ * Bot controls: the administrator operating the separately deployed execution
+ * Bot from Trading Scene (BOT_CONTROL_CONTRACT v1.2).
+ *
+ * ── Shape ───────────────────────────────────────────────────────────────────
+ *
+ * One Platform route per Bot command, C0-C8, and nothing else. There is no
+ * proxy: the browser never names a Bot path, every path id is checked and
+ * encoded before it enters the signed path, and every body the Bot receives is
+ * rebuilt here from validated fields (contract §0.2, F5, F10).
+ *
+ * ── Who may ─────────────────────────────────────────────────────────────────
+ *
+ * - Admin-only by the default-deny gate in `api/server.ts`: `/api/bot/*` is not
+ *   in `USER_ROUTES`, so an ordinary account gets 403 and nobody signed in 401.
+ * - A mutating command is refused outright while `AUTH_ENABLED` is false. The
+ *   gate then treats every request as the administrator and `passPassword`
+ *   says "ok" when there is no hash, so step-up would fail open. Reads stay
+ *   available for local development (F18).
+ * - Every mutating command re-checks a credential carried in the same request
+ *   (`step-up`, contract §3). Which credential is decided here, before
+ *   `confirmIdentity` runs, because `confirmIdentity` deliberately says "ok"
+ *   for an account with no password and that must never become a bypass:
+ *     two-factor on                       -> the authenticator code, only;
+ *     two-factor off, a password exists   -> the password, for C1 halt only;
+ *                                            anything else: two_factor_required;
+ *     two-factor off, no password         -> step_up_unavailable.
+ *   How the session was created (password, Google, GitHub) plays no part.
+ *   The credential is never forwarded, stored or logged; the Bot receives
+ *   `actor: { platformUserId, stepUp: { method, at } }`.
+ *
+ * ── What an answer means (F8, F11) ──────────────────────────────────────────
+ *
+ * Definitive: a Bot-authored JSON 2xx of the expected shape, or a JSON 4xx
+ * carrying `code`. Everything else on a mutating command is UNCERTAIN, and the
+ * browser is told 202 `{status:"uncertain", requestId}` and asks C8 with the
+ * same id. "Nothing was changed" is only ever C8's 404.
+ *
+ * ── Audit (contract §5) ─────────────────────────────────────────────────────
+ *
+ * `bot.<kind>.requested` is appended before anything is sent, and the command
+ * is not sent if that row cannot be written. `.succeeded`, `.refused` or
+ * `.uncertain` follows with the outcome. No row carries the credential.
+ */
+import { createHash } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { config } from "../../config";
+import {
+  botControlCommand, botControlReplies, canonicalJson, isManualControlChannelConfigured,
+  type BotControlOutcome,
+} from "../../manualTrading/client";
+import { readBotOperations } from "../../operations/botStatus";
+import * as deploymentRepo from "../../repositories/deployments";
+import * as liveSafety from "../../repositories/liveSafety";
+import * as users from "../../repositories/users";
+import { appendAdminAudit } from "../../repositories/adminAudit";
+import { userIdOf } from "../../security/requestUser";
+import { confirmIdentity } from "./accountSecurity";
+
+const REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
+/** SignalBot and SmartTrade ids are Prisma `uuid()` (bot `schema.prisma`). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BOT_BASE = "/api/manual-trading/control";
+
+export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close";
+type StepUpMethod = "totp" | "password";
+
+/** A refusal this Platform authors. Always carries a code the browser can branch on. */
+class Refusal extends Error {
+  constructor(readonly status: number, readonly code: string, message: string,
+    readonly extra: Record<string, unknown> = {}) {
+    super(message);
+  }
+}
+
+// ── timeouts (contract §1, F8) ──────────────────────────────────────────────
+
+const DEFAULT_TIMEOUTS = { defaultMs: 10_000, longMs: 30_000 };
+let timeouts = { ...DEFAULT_TIMEOUTS };
+
+/** Tests only: shorten the wait so a timeout can be exercised without sleeping 10 s. */
+export function setBotControlTimeoutsForTests(next: { defaultMs: number; longMs: number } | null): void {
+  timeouts = next ? { ...next } : { ...DEFAULT_TIMEOUTS };
+}
+
+// ── input ───────────────────────────────────────────────────────────────────
+
+const bodyOf = (req: FastifyRequest): Record<string, unknown> =>
+  typeof req.body === "object" && req.body !== null && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown> : {};
+
+/**
+ * The browser's id for this intent. Never minted here (F7): an id this
+ * service invented would make a retry a new command, exactly when retrying
+ * safely matters.
+ */
+function requestIdOf(req: FastifyRequest, body: Record<string, unknown>): string {
+  const header = req.headers["x-manual-request-id"];
+  const fromHeader = typeof header === "string" ? header : undefined;
+  const fromBody = body.requestId;
+  if (fromHeader !== undefined && fromBody !== undefined && fromHeader !== fromBody) {
+    throw new Refusal(400, "invalid_request_id", "The request id in the header and the body differ.");
+  }
+  const id = fromHeader ?? fromBody;
+  if (typeof id !== "string" || !REQUEST_ID.test(id)) {
+    throw new Refusal(400, "invalid_request_id",
+      "A request id of 16 to 128 letters, digits, - or _ is required.");
+  }
+  return id;
+}
+
+function pathId(raw: unknown, what: string): string {
+  if (typeof raw !== "string" || !UUID.test(raw)) {
+    throw new Refusal(400, "invalid_target_id", `That ${what} id is not valid.`);
+  }
+  return encodeURIComponent(raw.toLowerCase());
+}
+
+const invalid = (message: string) => new Refusal(400, "invalid_request", message);
+
+/** A quote amount or count the Bot accepts: null (no limit) or a finite number ≥ 0. */
+function limitValue(raw: unknown, name: string, integer: boolean): number | null {
+  if (raw === null) return null;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || (integer && !Number.isInteger(raw))) {
+    throw invalid(`${name} must be ${integer ? "a whole number" : "a number"} of 0 or more, or null for no limit.`);
+  }
+  return raw;
+}
+
+// ── the commands ────────────────────────────────────────────────────────────
+
+interface CommandSpec {
+  kind: BotCommandKind;
+  method: "POST" | "PATCH";
+  /** Already validated and encoded. */
+  botPath: string;
+  target: string;
+  /** JSON-stable values only (F10): no undefined, Date, NaN. */
+  params: Record<string, unknown>;
+  accept: (body: Record<string, unknown>) => boolean;
+  long: boolean;
+  /** C1 alone may be confirmed with the password when two-factor is off (OD-2). */
+  allowsPassword: boolean;
+}
+
+function haltSpec(body: Record<string, unknown>): CommandSpec {
+  if (body.confirmation !== "HALT_TRADING") throw invalid('confirmation must be "HALT_TRADING".');
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (reason.length < 3 || reason.length > 200) throw invalid("A reason of 3 to 200 characters is required.");
+  return { kind: "halt", method: "POST", botPath: `${BOT_BASE}/halt`, target: "bot",
+    params: { confirmation: "HALT_TRADING", reason }, accept: botControlReplies.halt, long: false, allowsPassword: true };
+}
+
+function resumeSpec(body: Record<string, unknown>): CommandSpec {
+  if (body.confirmation !== "RESUME_TRADING") throw invalid('confirmation must be "RESUME_TRADING".');
+  return { kind: "resume", method: "POST", botPath: `${BOT_BASE}/resume`, target: "bot",
+    params: { confirmation: "RESUME_TRADING" }, accept: botControlReplies.resume, long: false, allowsPassword: false };
+}
+
+function riskLimitsSpec(body: Record<string, unknown>): CommandSpec {
+  const params: Record<string, unknown> = {};
+  if (body.maxTotalExposureQuote !== undefined) {
+    params.maxTotalExposureQuote = limitValue(body.maxTotalExposureQuote, "maxTotalExposureQuote", false);
+  }
+  if (body.maxConcurrentTrades !== undefined) {
+    params.maxConcurrentTrades = limitValue(body.maxConcurrentTrades, "maxConcurrentTrades", true);
+  }
+  if (body.maxDailyLossQuote !== undefined) {
+    params.maxDailyLossQuote = limitValue(body.maxDailyLossQuote, "maxDailyLossQuote", false);
+  }
+  if (body.dailyLossWindowHours !== undefined) {
+    const hours = body.dailyLossWindowHours;
+    if (typeof hours !== "number" || !Number.isInteger(hours) || hours < 1 || hours > 720) {
+      throw invalid("dailyLossWindowHours must be a whole number of hours from 1 to 720.");
+    }
+    params.dailyLossWindowHours = hours;
+  }
+  if (Object.keys(params).length === 0) throw invalid("Change at least one limit.");
+  return { kind: "risk_limits", method: "PATCH", botPath: `${BOT_BASE}/risk-limits`, target: "bot",
+    params, accept: botControlReplies.riskLimits, long: false, allowsPassword: false };
+}
+
+function botStatusSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
+  const id = pathId(rawId, "bot");
+  if (body.status !== "active" && body.status !== "paused") throw invalid('status must be "active" or "paused".');
+  return { kind: "bot_status", method: "POST", botPath: `${BOT_BASE}/bots/${id}/status`,
+    target: `bot:${decodeURIComponent(id)}`, params: { status: body.status },
+    accept: botControlReplies.botStatus, long: false, allowsPassword: false };
+}
+
+function closeSpec(_body: Record<string, unknown>, rawId: unknown): CommandSpec {
+  const id = pathId(rawId, "trade");
+  return { kind: "trade_close", method: "POST", botPath: `${BOT_BASE}/trades/${id}/close`,
+    target: `trade:${decodeURIComponent(id)}`, params: {}, accept: botControlReplies.close, long: true, allowsPassword: false };
+}
+
+function partialCloseSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
+  const id = pathId(rawId, "trade");
+  const pct = body.pct;
+  if (typeof pct !== "number" || !Number.isInteger(pct) || pct < 1 || pct > 99) {
+    throw invalid("pct must be a whole percentage from 1 to 99.");
+  }
+  return { kind: "trade_partial_close", method: "POST", botPath: `${BOT_BASE}/trades/${id}/partial-close`,
+    target: `trade:${decodeURIComponent(id)}`, params: { pct },
+    accept: botControlReplies.partialClose, long: true, allowsPassword: false };
+}
+
+// ── step-up ─────────────────────────────────────────────────────────────────
+
+/**
+ * Which credential this account can confirm this command with — or why it
+ * cannot. Mirrors where `passPassword` looks for the hash (the server's
+ * `ADMIN_PASSWORD_HASH` for the administrator, the account row otherwise), so
+ * "a hash exists" here means the same thing `confirmIdentity` will check.
+ */
+async function stepUpMethodFor(account: users.UserRow, allowsPassword: boolean): Promise<StepUpMethod> {
+  if (account.twoFactorEnabled) return "totp";
+  const hash = account.role === "admin" ? config.adminPasswordHash : await users.getPasswordHash(account.id);
+  if (!hash) {
+    throw new Refusal(403, "step_up_unavailable", "Turn on two-factor sign-in to confirm Bot commands.");
+  }
+  if (!allowsPassword) {
+    throw new Refusal(403, "two_factor_required",
+      "Turn on two-factor sign-in in your profile to operate the Bot from Trading Scene.");
+  }
+  return "password";
+}
+
+async function stepUp(reply: FastifyReply, account: users.UserRow, method: StepUpMethod,
+  body: Record<string, unknown>): Promise<void> {
+  const credential = typeof body.credential === "object" && body.credential !== null
+    ? body.credential as Record<string, unknown> : {};
+  const supplied = method === "totp" ? credential.code : credential.password;
+  if (typeof supplied !== "string" || supplied.trim() === "" || supplied.length > 1024) {
+    throw new Refusal(400, "step_up_required", method === "totp"
+      ? "Enter the code from your authenticator app to confirm."
+      : "Enter your password to confirm.", { method });
+  }
+  const result = await confirmIdentity(account, method === "totp" ? { code: supplied } : { password: supplied });
+  if (result === "ok") return;
+  if (result === "busy") throw new Refusal(429, "step_up_busy", "Busy. Try again shortly.");
+  if (result === "wrong") {
+    throw new Refusal(400, "step_up_failed", method === "totp"
+      ? "That code isn't correct. Each code works once; wait for the next one."
+      : "Your password isn't correct.", { method });
+  }
+  reply.header("retry-after", String(result.retryAfterSec));
+  throw new Refusal(429, "step_up_rate_limited", "Too many attempts. Try again in a few minutes.");
+}
+
+// ── outcome → browser ───────────────────────────────────────────────────────
+
+interface Answer {
+  status: number;
+  payload: Record<string, unknown>;
+  /**
+   * A definitive answer the BOT gave — its JSON 2xx, or its typed refusal —
+   * which a repeat of the same request id may be answered from. Never this
+   * Platform's own refusals (a wrong code, a missing field): a retry after
+   * one of those must be able to succeed.
+   */
+  fromBot?: boolean;
+}
+
+const CHANNEL_REJECTED = "The execution bot refused this Platform's signed request (channel configuration).";
+
+function commandAnswer(outcome: BotControlOutcome, requestId: string): Answer {
+  if (outcome.outcome === "ok") {
+    const pending = outcome.status === 202 || outcome.body.status === "pending";
+    return pending
+      ? { status: 202, payload: { status: "pending", requestId, result: outcome.body } }
+      : { status: 200, payload: { status: "succeeded", requestId, result: outcome.body }, fromBot: true };
+  }
+  if (outcome.outcome === "uncertain") {
+    return { status: 202, payload: { status: "uncertain", requestId } };
+  }
+  /*
+   * The Bot's 409 `command_in_progress` is "still running", not "did not run":
+   * the same request id is being executed right now. It is an unknown outcome
+   * like any other, so the browser keeps the id and asks C8; it is never
+   * replayed from here and never audited as a refusal.
+   */
+  if (outcome.fault === "business" && outcome.code === "command_in_progress") {
+    return { status: 202, payload: { status: "uncertain", requestId, code: "command_in_progress" } };
+  }
+  const answer = refusalAnswer(outcome);
+  // `request_id_reused` is about the id, not the command: a corrected retry must reach the Bot.
+  return outcome.fault === "business" && outcome.code !== "request_id_reused" ? { ...answer, fromBot: true } : answer;
+}
+
+function refusalAnswer(outcome: Extract<BotControlOutcome, { outcome: "refused" }>): Answer {
+  switch (outcome.fault) {
+    case "channel_auth":
+    case "channel_proxy":
+    case "channel_replay":
+      return { status: 502, payload: { code: "bot_channel_rejected", error: CHANNEL_REJECTED,
+        cause: outcome.fault.replace("channel_", "") } };
+    case "rate_limited":
+      return { status: 503, payload: { code: "bot_rate_limited", error: outcome.message } };
+    case "not_configured":
+      return { status: 503, payload: { code: "bot_channel_not_configured", error: "Bot control channel not configured." } };
+    default:
+      // Only a typed refusal's own words are passed on (F11).
+      return { status: outcome.status, payload: { code: outcome.code, error: outcome.message } };
+  }
+}
+
+function readAnswer(outcome: BotControlOutcome): Answer {
+  if (outcome.outcome === "ok") return { status: 200, payload: outcome.body };
+  if (outcome.outcome === "refused") return refusalAnswer(outcome);
+  return outcome.reason === "invalid_reply" || outcome.reason === "no_code"
+    ? { status: 502, payload: { code: "bot_invalid_response", error: "The execution bot answered, but not in the expected form." } }
+    : { status: 502, payload: { code: "bot_unreachable", error: "The execution bot could not be reached." } };
+}
+
+function auditOutcomeOf(answer: Answer): "succeeded" | "refused" | "uncertain" {
+  if (answer.status === 200) return "succeeded";
+  if (answer.status === 202) return "uncertain";
+  return "refused";
+}
+
+// ── one in-flight command per request id ────────────────────────────────────
+
+/*
+ * A double-click, or a retry racing a slow first attempt, arrives with the SAME
+ * request id. It must not become a second command, and the second click must
+ * not be refused because the first one already spent the authenticator code.
+ * So a request whose id is already in flight for the same administrator and
+ * the same command joins it and gets the same answer; one that finished with a
+ * definitive answer a moment ago gets that answer replayed. Neither contacts
+ * the Bot again. The Bot keeps its own idempotency table as well (contract §4);
+ * this only stops the duplicate before it costs a nonce and a code.
+ *
+ * Nothing uncertain is replayed from here: a resend after an uncertain answer
+ * goes to the Bot, which knows the truth.
+ */
+interface Flight { actor: string; hash: string; answer: Promise<Answer> }
+const inFlight = new Map<string, Flight>();
+const settled = new Map<string, { actor: string; hash: string; at: number; answer: Answer }>();
+const SETTLED_TTL_MS = 10 * 60_000;
+const SETTLED_MAX = 500;
+
+function remember(requestId: string, entry: { actor: string; hash: string; answer: Answer }): void {
+  if (!entry.answer.fromBot) return;
+  settled.set(requestId, { ...entry, at: Date.now() });
+  while (settled.size > SETTLED_MAX) settled.delete(settled.keys().next().value!);
+}
+
+function earlier(requestId: string): { actor: string; hash: string; answer: Promise<Answer> | Answer } | null {
+  const flight = inFlight.get(requestId);
+  if (flight) return flight;
+  const done = settled.get(requestId);
+  if (!done) return null;
+  if (Date.now() - done.at > SETTLED_TTL_MS) { settled.delete(requestId); return null; }
+  return done;
+}
+
+/** Tests only. */
+export function resetBotControlStateForTests(): void {
+  inFlight.clear();
+  settled.clear();
+}
+
+const commandHash = (spec: CommandSpec): string =>
+  createHash("sha256").update(canonicalJson({ kind: spec.kind, target: spec.target, params: spec.params })).digest("hex");
+
+// ── the handler every mutating route shares ─────────────────────────────────
+
+async function runCommand(req: FastifyRequest, reply: FastifyReply,
+  build: (body: Record<string, unknown>) => CommandSpec): Promise<FastifyReply> {
+  try {
+    if (!config.authEnabled) {
+      throw new Refusal(403, "auth_disabled",
+        "Bot commands need sign-in to be on (AUTH_ENABLED). Reads still work.");
+    }
+    const body = bodyOf(req);
+    const requestId = requestIdOf(req, body);
+    const spec = build(body);
+    // Before step-up, so an authenticator code is not spent on a command that cannot be sent.
+    if (!isManualControlChannelConfigured()) {
+      throw new Refusal(503, "bot_channel_not_configured", "Bot control channel not configured.");
+    }
+    const actor = userIdOf(req);
+    const hash = commandHash(spec);
+
+    const previous = earlier(requestId);
+    if (previous) {
+      if (previous.actor !== actor || previous.hash !== hash) {
+        throw new Refusal(409, "request_id_reused", "That request id was already used for a different command.");
+      }
+      const answer = await previous.answer;
+      return reply.code(answer.status).send({ ...answer.payload, replayed: true });
+    }
+
+    // Registered with no await since the check above, so a second click cannot slip between.
+    const flight: Flight = { actor, hash, answer: execute(req, reply, spec, requestId, actor, body) };
+    inFlight.set(requestId, flight);
+    let answer: Answer;
+    try {
+      answer = await flight.answer;
+    } finally {
+      inFlight.delete(requestId);
+    }
+    remember(requestId, { actor, hash, answer });
+    return reply.code(answer.status).send(answer.payload);
+  } catch (error) {
+    if (error instanceof Refusal) {
+      return reply.code(error.status).send({ code: error.code, error: error.message, ...error.extra });
+    }
+    throw error;
+  }
+}
+
+/** Step-up, audit, send, audit. Resolves to the answer; throws only `Refusal` or a defect. */
+async function execute(req: FastifyRequest, reply: FastifyReply, spec: CommandSpec, requestId: string,
+  actor: string, body: Record<string, unknown>): Promise<Answer> {
+  try {
+    const account = await users.getUser(actor);
+    if (!account) throw new Refusal(401, "not_authenticated", "not authenticated");
+    const method = await stepUpMethodFor(account, spec.allowsPassword);
+    await stepUp(reply, account, method, body);
+    const at = new Date().toISOString();
+
+    try {
+      await appendAdminAudit(actor, `bot.${spec.kind}.requested`, spec.target,
+        { requestId, stepUpMethod: method, params: spec.params });
+    } catch (err) {
+      req.log.error({ err: (err as Error).name, requestId }, "bot command not sent: the audit row could not be written");
+      throw new Refusal(503, "audit_unavailable", "The command was not sent because it could not be recorded. Try again.");
+    }
+
+    const outcome = await botControlCommand({
+      method: spec.method, path: spec.botPath, requestId,
+      body: { ...spec.params, actor: { platformUserId: actor, stepUp: { method, at } } },
+      accept: spec.accept, timeoutMs: spec.long ? timeouts.longMs : timeouts.defaultMs,
+    });
+    const answer = commandAnswer(outcome, requestId);
+    const verdict = auditOutcomeOf(answer);
+    try {
+      await appendAdminAudit(actor, `bot.${spec.kind}.${verdict}`, spec.target, {
+        requestId, status: answer.status,
+        ...(typeof answer.payload.status === "string" ? { outcome: answer.payload.status } : {}),
+        ...(typeof answer.payload.code === "string" ? { code: answer.payload.code } : {}),
+        ...(outcome.outcome === "uncertain" ? { reason: outcome.reason } : {}),
+      });
+    } catch (err) {
+      // The command has run (or may have); its answer must still reach the operator.
+      req.log.error({ err: (err as Error).name, requestId }, "could not record a bot command outcome");
+    }
+    return answer;
+  } catch (error) {
+    if (error instanceof Refusal) {
+      return { status: error.status, payload: { code: error.code, error: error.message, ...error.extra } };
+    }
+    throw error;
+  }
+}
+
+// ── reads ───────────────────────────────────────────────────────────────────
+
+async function platformHalt() {
+  try {
+    const limits = await liveSafety.getRiskLimits();
+    return { halted: limits.tradingHalted, haltedBy: limits.haltedBy, haltedReason: limits.haltedReason };
+  } catch {
+    return null;
+  }
+}
+
+export async function botControlRoutes(app: FastifyInstance): Promise<void> {
+  /** C0, plus what only this Platform knows: is the channel set, the webhook path, the Platform halt. */
+  app.get("/api/bot/control/status", async () => {
+    const deployments = await deploymentRepo.listDeployments();
+    const [{ panel }, halt] = await Promise.all([readBotOperations(deployments), platformHalt()]);
+    return { ...panel, platformHalt: halt };
+  });
+
+  /** C3. */
+  app.get("/api/bot/control/risk-limits", async (_req, reply) => {
+    const answer = readAnswer(await botControlCommand({ method: "GET", path: `${BOT_BASE}/risk-limits`,
+      accept: botControlReplies.riskLimits, timeoutMs: timeouts.defaultMs }));
+    return reply.code(answer.status).send(answer.payload);
+  });
+
+  /** C8. Its 404 is the one answer that may be shown as "nothing was changed". */
+  app.get("/api/bot/control/commands/:requestId", async (req, reply) => {
+    const raw = (req.params as { requestId?: string }).requestId;
+    if (typeof raw !== "string" || !REQUEST_ID.test(raw)) {
+      return reply.code(400).send({ code: "invalid_request_id",
+        error: "A request id of 16 to 128 letters, digits, - or _ is required." });
+    }
+    const outcome = await botControlCommand({ method: "GET", path: `${BOT_BASE}/commands/${encodeURIComponent(raw)}`,
+      accept: botControlReplies.command, timeoutMs: timeouts.defaultMs });
+    if (outcome.outcome === "refused" && outcome.fault === "business" && outcome.status === 404
+      && outcome.code === "command_not_found") {
+      return reply.code(404).send({ code: "command_not_found",
+        error: "The execution bot has no record of this command." });
+    }
+    const answer = readAnswer(outcome);
+    return reply.code(answer.status).send(answer.payload);
+  });
+
+  // ── C1-C7 ────────────────────────────────────────────────────────────────
+
+  app.post("/api/bot/control/halt", async (req, reply) => runCommand(req, reply, haltSpec));
+  app.post("/api/bot/control/resume", async (req, reply) => runCommand(req, reply, resumeSpec));
+  app.patch("/api/bot/control/risk-limits", async (req, reply) => runCommand(req, reply, riskLimitsSpec));
+  app.post("/api/bot/control/bots/:id/status", async (req, reply) =>
+    runCommand(req, reply, (body) => botStatusSpec(body, (req.params as { id?: string }).id)));
+  app.post("/api/bot/control/trades/:id/close", async (req, reply) =>
+    runCommand(req, reply, (body) => closeSpec(body, (req.params as { id?: string }).id)));
+  app.post("/api/bot/control/trades/:id/partial-close", async (req, reply) =>
+    runCommand(req, reply, (body) => partialCloseSpec(body, (req.params as { id?: string }).id)));
+}
