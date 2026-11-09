@@ -18,6 +18,7 @@ interface DbDeployment {
   webhook_url: string | null;
   secret: string | null;
   bot_uuid: string | null;
+  bot_id?: string | null;
   buy_quote_qty: number | null;
   runtime_state: RuntimeState;
   last_bar_time: Date | null;
@@ -38,6 +39,7 @@ function toRow(r: DbDeployment): DeploymentRow {
     webhookUrl: r.webhook_url,
     secret: decryptSecret(r.secret),
     botUuid: decryptSecret(r.bot_uuid),
+    botId: r.bot_id ?? null,
     buyQuoteQty: r.buy_quote_qty,
     runtimeState: { ...initialRuntimeState(), ...(r.runtime_state ?? {}) },
     lastBarTime: r.last_bar_time ? r.last_bar_time.toISOString() : null,
@@ -210,7 +212,11 @@ export async function updateDeployment(
   };
   if (patch.delivery !== undefined) push("delivery", patch.delivery);
   if (patch.webhookUrl !== undefined) push("webhook_url", patch.webhookUrl);
-  if (patch.secret !== undefined) push("secret", encryptSecret(patch.secret));
+  if (patch.secret !== undefined) {
+    push("secret", encryptSecret(patch.secret));
+    // A secret pasted by hand is no longer the one a Bot link copied in.
+    sets.push("bot_id = NULL");
+  }
   if (patch.botUuid !== undefined) push("bot_uuid", encryptSecret(patch.botUuid));
   if (patch.buyQuoteQty !== undefined) push("buy_quote_qty", patch.buyQuoteQty);
   if (sets.length === 0) return getDeployment(id);

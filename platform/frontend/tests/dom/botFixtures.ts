@@ -2,8 +2,9 @@
  * Bot-page fixtures shared by the Bot DOM tests: the shapes `lib/api.ts`
  * describes and the backend (`api/routes/botControl.ts`, `botView.ts`) sends.
  */
+import { fireEvent, within } from "@testing-library/react";
 import type { BotControlPanel, BotControlStatus } from "@/lib/api";
-import { server } from "./harness/env";
+import { server, settle } from "./harness/env";
 
 export const BOT_ID = "11111111-1111-4111-8111-111111111111";
 export const TRADE_ID = "33333333-3333-4333-8333-333333333333";
@@ -103,3 +104,17 @@ export const failing = (status: number, error: string, extra: Record<string, unk
 
 export const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/**
+ * Type the authenticator code into an open step-up dialog. The /bot dialogs
+ * confirm on the sixth digit (OD-2 `autoSubmit`), so the confirm button is
+ * clicked only if the dialog is still waiting for it (a field was missing).
+ */
+export async function enterCode(dialog: HTMLElement, confirmName: string | RegExp, code = "123456"): Promise<void> {
+  fireEvent.change(within(dialog).getByLabelText(/Code from your authenticator app/), { target: { value: code } });
+  await settle(3);
+  if (!document.body.contains(dialog)) { await settle(3); return; }
+  const button = within(dialog).queryByRole("button", { name: confirmName }) as HTMLButtonElement | null;
+  if (button && !button.disabled) fireEvent.click(button);
+  await settle(6);
+}

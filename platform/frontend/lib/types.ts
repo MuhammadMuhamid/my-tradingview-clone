@@ -461,6 +461,8 @@ export interface Deployment {
   delivery: DeliveryMode;
   webhookUrl: string | null;
   botUuid: string | null;
+  /** The Bot bot whose webhook secret this deployment carries (linked from /bot), if any. */
+  botId?: string | null;
   buyQuoteQty: number | null;
   runtimeState: { position: "flat" | "long"; entryPrice: number | null };
   lastBarTime: string | null;

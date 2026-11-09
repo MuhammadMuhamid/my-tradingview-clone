@@ -1095,7 +1095,9 @@ test("CONTRACT — every page renders inside the shared grammar", () => {
       || /\btv-workstation\b/.test(src)
       || /<PageShell\b/.test(src)
       // The account screens' frame carries `ts-app` itself.
-      || /<AuthShell\b/.test(src);
+      || /<AuthShell\b/.test(src)
+      // The Bot section's frame renders `PageShell` (components/bot/BotShell.tsx).
+      || /<BotShell\b/.test(src);
     if (!inside) offenders.push(route);
   }
   assert.deepEqual(offenders, [],

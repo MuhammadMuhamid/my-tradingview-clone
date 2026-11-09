@@ -1469,6 +1469,8 @@ export interface BotRiskView {
   summary: string;
   /** The daily-loss halt is latched: resuming re-checks the loss. */
   latched: boolean;
+  /** The loss is at or past the limit right now (Bot OD-3 and later; absent on an older Bot). */
+  dailyLossBreached?: boolean;
 }
 /** C0, as the Bot reports it. `dryRun` and `halt` are independent facts. */
 export interface BotControlStatus {
@@ -1545,7 +1547,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
  * into an `Error`, and a failed `fetch` into "could not". A request that may
  * have reached the Platform is uncertain, so a network failure here is too.
  */
-async function botControlSend(method: "POST" | "PATCH", path: string,
+export async function botControlSend(method: "POST" | "PATCH", path: string,
   body: Record<string, unknown> & { requestId: string }): Promise<BotCommandAnswer> {
   if (await refusedForThisAccount(path)) {
     return { kind: "refused", status: 403, code: "admin_only",
@@ -1651,6 +1653,10 @@ export interface BotViewTrade {
   entryPrice: number | null; currentPrice: number | null; quantity: number; quoteSpent: number;
   pnlUsdt: number; pnlPct: number; exchangeOrderId: string | null; closedReason: string | null;
   partialCloses: number; account: BotViewAccount | null; createdAt: string; closedAt: string | null;
+  /** Summed P&L of this trade's partial closes, when the Bot sends it (it does not yet). */
+  partialPnlUsdt?: number | null;
+  /** A manual position's protection state; `race_fill_sweep` = a late entry fill being sold (OD-1). */
+  protectionState?: string | null;
 }
 export interface BotTradesPage { total: number; page: number; pageSize: number; rows: BotViewTrade[] }
 

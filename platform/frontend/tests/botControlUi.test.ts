@@ -126,8 +126,20 @@ test("classic appearance: one scoped, dark-only token block after the light bloc
     }
   };
   ["app", "components", "lib"].forEach(walk);
-  assert.deepEqual(setters, ["app/bot/page.tsx"], "no other page can turn it on");
-  assert.match(read("app/bot/page.tsx"), /data-bot-appearance=\{classic \? "classic" : undefined\}/, "absent unless opted in");
+  // 2026-11-09 parity: the one setter is the Bot section's shared frame, so the
+  // preference reaches every /bot route (overview, bot form, accounts) and nothing else.
+  assert.deepEqual(setters, ["components/bot/BotShell.tsx"], "no other page can turn it on");
+  assert.match(read("components/bot/BotShell.tsx"), /data-bot-appearance=\{classic \? "classic" : undefined\}/, "absent unless opted in");
+  const botRoutes: string[] = [];
+  const pages = (dir: string) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, entry.name);
+      if (entry.isDirectory()) pages(rel);
+      else if (entry.name === "page.tsx") botRoutes.push(rel);
+    }
+  };
+  pages("app/bot");
+  for (const route of botRoutes) assert.match(read(route), /<BotShell\b/, `${route} renders inside the Bot frame`);
 });
 
 test("OD-7: 'Close from the Trade panel' names the position, and the link only prefills", async () => {

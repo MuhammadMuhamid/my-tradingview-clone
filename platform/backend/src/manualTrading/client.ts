@@ -141,8 +141,9 @@ export async function traditionalBotRequest<T>(
 /**
  * One signed request on the wire. Rejects only when no HTTP response arrived:
  * a refused connection, a DNS failure, a refused redirect or the timeout.
+ * Exported for reads that must see a coded 5xx (`exchange_unavailable`).
  */
-async function dispatchSigned(input: ManualBotRequestInput, fetchImpl: typeof fetch): Promise<Response> {
+export async function dispatchSigned(input: ManualBotRequestInput, fetchImpl: typeof fetch): Promise<Response> {
   const timestamp = String(Date.now());
   const nonce = randomBytes(24).toString("base64url");
   const requestId = input.requestId ?? randomUUID();

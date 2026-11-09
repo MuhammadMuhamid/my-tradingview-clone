@@ -18,6 +18,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { FakeBotManage } from "./fakeBotManage";
 
 export interface FakeBotReply {
   status?: number;
@@ -134,6 +135,8 @@ export class FakeBot {
   readonly manualOrders: { requestId: string; body: Record<string, unknown> }[] = [];
   readonly manualTrades = new Set<string>();
   readonly commands = new Map<string, StoredCommand>();
+  /** Slice 2 (C10-C19): bots, accounts, enrollments. */
+  readonly manage = new FakeBotManage();
   private readonly nonces = new Set<string>();
   private server: Server | null = null;
   url = "";
@@ -162,6 +165,7 @@ export class FakeBot {
     this.workingEntries = [];
     this.capabilities = [...FAKE_BOT_CAPABILITIES];
     this.legacyStatus = false;
+    this.manage.reset();
     this.manualOrders.length = 0;
   }
 
@@ -346,6 +350,24 @@ export class FakeBot {
           : { status: 200, body: { partial: { pct: params.pct }, trade: { id }, requestedQty: 0.25, executedQty: 0.25 } };
       });
     }
+    const managed = this.manage.route(method, path, params, actor, requestId,
+      (id, kind, target, p, a, run) => this.storedCommand(id, kind, target, p, a, run));
+    if (managed) return managed;
     return { status: 404, body: { error: "Not found" } };
+  }
+
+  /**
+   * `command`, for a command whose stored answer differs from its live one
+   * (X2: a secret or a ticket is answered once and never replayed).
+   */
+  private storedCommand(requestId: string, kind: string, target: string, params: unknown, actor: unknown,
+    run: () => { status: number; body: unknown; stored?: unknown }): { status: number; body: unknown } {
+    let live: { status: number; body: unknown } | null = null;
+    const answer = this.command(requestId, kind, target, params, actor, () => {
+      const result = run();
+      live = { status: result.status, body: result.body };
+      return { status: result.status, body: result.stored ?? result.body };
+    });
+    return live ?? answer;
   }
 }

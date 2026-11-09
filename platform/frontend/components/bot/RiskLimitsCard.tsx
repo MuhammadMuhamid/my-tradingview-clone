@@ -100,7 +100,7 @@ export function RiskLimitsCard({ risk, disabled, disabledReason, onSubmit }: {
         <p className="text-xs text-ink-faint">{LATCH_NOTE} {LOSS_LIMIT_WARNING}</p>
       </div>
 
-      <StepUpDialog open={draft !== null} title="Change the Bot's risk limits" confirmLabel="Save limits"
+      <StepUpDialog open={draft !== null} title="Change the Bot's risk limits" confirmLabel="Save limits" tier="fresh" autoSubmit
         canConfirm={changed} onCancel={() => setDraft(null)}
         intro={<p>Empty means no limit. The Bot applies these to new entries; exits are never capped.</p>}
         onConfirm={async (credential) => {
