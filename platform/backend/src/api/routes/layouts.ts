@@ -6,7 +6,7 @@ import { isInterval } from "../../types/market";
 import type { StrategyParams } from "../../types/strategy";
 import type { LayoutMaLine, LayoutProperties } from "../../repositories/layouts";
 import { canonicalizeLegacySpotSymbol } from "../../market/model";
-import { userIdOf } from "../../security/requestUser";
+import { isAdmin, userIdOf } from "../../security/requestUser";
 
 interface LayoutBody {
   name?: string;
@@ -98,7 +98,13 @@ export async function layoutRoutes(app: FastifyInstance): Promise<void> {
    * Existing layout properties/history depth are preserved.
    */
   // Deployments are the admin's, so the layouts this writes are the admin's.
-  app.post("/api/layouts/sync-deployments", async (req) => {
+  app.post("/api/layouts/sync-deployments", async (req, reply) => {
+    // The session gate already refuses this to ordinary accounts. This is the
+    // second lock: copying every deployment's strategy settings must not rest
+    // on one path check (an encoded path once slipped past it).
+    if (!isAdmin(req)) {
+      return reply.code(403).send({ error: "This part of the platform is available to the administrator only." });
+    }
     const owner = userIdOf(req);
     const [allDeployments, allStrategies] = await Promise.all([
       deployments.listDeployments(),
