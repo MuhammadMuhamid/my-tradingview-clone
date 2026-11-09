@@ -54,7 +54,7 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : S
 const connectionIsOff = (error: unknown) =>
   error instanceof ApiError && error.status === 404 && /manual trading is disabled/i.test(error.message);
 
-export function Figure({ label, value, className = "text-ink" }: { label: string; value: string; className?: string }) {
+function Figure({ label, value, className = "text-ink" }: { label: string; value: string; className?: string }) {
   return (
     <div className="min-w-0 px-4 py-3">
       <div className="text-xs text-ink-muted">{label}</div>

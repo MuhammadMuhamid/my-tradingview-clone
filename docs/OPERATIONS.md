@@ -185,6 +185,29 @@ per intent, and the Platform requires it and never mints one
 | Partial close (1–99 %) | `POST /api/bot/control/trades/:id/partial-close` | code |
 | Pause / resume new entries (Platform flag + C9) | `POST /api/bot/control/entries` | pause: code, or the password while two-factor is off; resume: code |
 | What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
+| Create a bot (C10) | `POST /api/bot/manage/bots` | fresh code; a recent one when created with entries off |
+| Read a bot (C11, plus whether Trading Scene holds its secret) | `GET /api/bot/manage/bots/:id` | none |
+| Edit a bot (C12) | `PATCH /api/bot/manage/bots/:id` | fresh code when it loosens protection, else a recent one |
+| Delete a bot (C13) / rotate its secret (C14) | `POST /api/bot/manage/bots/:id/delete` / `…/rotate-secret` | recent code / fresh code |
+| Exchange accounts, balance (C15, C19) | `GET /api/bot/manage/accounts`, `…/accounts/:id/balance` | none |
+| Remove an account (C16) | `POST /api/bot/manage/accounts/:id/delete` (`REMOVE_ACCOUNT`) | recent code |
+| Enrollment / reveal link (C17), its outcome (C18) | `POST /api/bot/manage/enrollments`, `GET …/enrollments/:id` | fresh code / none |
+| Link a deployment to a bot | `POST /api/deployments/:id/link-bot` | recent code |
+
+**Bots, accounts and keys from `/bot` (added 2026-11-09, B-SLICE2).** Pages:
+`/bot/bots/new`, `/bot/bots/[id]`, `/bot/accounts`; each feature appears only
+when the Bot's C0 `capabilities` lists it (`bots.v1`, `accounts.v1`,
+`enroll.v1`, `operatorExit.v1`). A bot's webhook secret, issued by a create or a
+rotation, is stored encrypted in `bot_webhook_secrets` (migration 058) before
+the page is answered and never reaches the browser, the replay cache, a log or
+an audit row; **Link to deployment** copies it server-side into a custom
+deployment (`deployments.bot_id`), and a rotation re-copies it into every
+linked deployment. A secret pasted by hand ends the link. API keys are entered
+only on the Bot's own page: set `BOT_PUBLIC_ORIGIN` on the Platform (the Bot's
+public origin; enrollment links on any other origin are refused, and without
+it the Platform answers `enrollment_not_configured`) and, on the Bot,
+`ENROLLMENT_ENABLED=true` and `PLATFORM_RETURN_URL=<Platform>/bot/accounts`.
+The return page reads the outcome from the Bot (C18) and removes the query.
 
 **Step-up, on every command that changes something.** The credential travels in
 the same request, is checked by the existing `confirmIdentity`, and is never
