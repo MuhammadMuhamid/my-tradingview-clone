@@ -113,11 +113,16 @@ test("no control channel: nothing is sent and the refusal says so", async (t) =>
 test("F5: a signed request refuses redirects, and the timeout is the caller's", async (t) => {
   withChannel(t);
   let seen: RequestInit | undefined;
+  // AbortSignal.timeout()'s timer does not keep the event loop alive, and a real
+  // socket would. Hold the loop open until the abort lands, or Node 22's test
+  // runner cancels this test ("event loop has already resolved").
+  const hangUntilAbort = (init?: RequestInit): Promise<Response> => new Promise<Response>((_resolve, reject) => {
+    const keepAlive = setInterval(() => {}, 1_000);
+    init?.signal?.addEventListener("abort", () => { clearInterval(keepAlive); reject(init.signal!.reason); });
+  });
   const hang: typeof fetch = async (_input, init) => {
     seen = init;
-    return new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
-    });
+    return hangUntilAbort(init);
   };
   const started = Date.now();
   const result = await botControlCommand({ method: "POST", path: "/api/manual-trading/control/halt",
@@ -129,11 +134,7 @@ test("F5: a signed request refuses redirects, and the timeout is the caller's", 
 
   // The thrown-error transport keeps its old contract, with the caller's timeout in the sentence.
   await assert.rejects(manualBotControlRequest({ method: "GET", path: "/x", timeoutMs: 1_000 },
-    async (_input, init) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
-      });
-    }),
+    async (_input, init) => hangUntilAbort(init)),
   (error: unknown) => error instanceof ManualBotError && error.status === 502 && /within 1s/.test(error.message));
 });
 
