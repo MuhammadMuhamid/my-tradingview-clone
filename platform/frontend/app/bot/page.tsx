@@ -32,7 +32,7 @@ import { TradeCards, TradesTable, dollars, money, type TradeActions, type TradeT
 import { RiskLimitsCard } from "@/components/bot/RiskLimitsCard";
 import { StepUpDialog } from "@/components/bot/StepUpDialog";
 import { useBotCommands, type Outcome } from "@/components/bot/commandRunner";
-import { useClassicBotAppearance } from "@/components/bot/classicAppearance";
+import { useClassicBotAppearance, useLightTheme } from "@/components/bot/classicAppearance";
 import {
   BOT_HALT_BLOCKS, HALT_SCOPE_TEXT, PLATFORM_HALT_BLOCKS, RECOVERY_NOTE, routingLabel, tradePanelHref,
 } from "@/components/bot/botCopy";
@@ -117,6 +117,7 @@ function OutcomeList({ outcomes, onRecheck, onDismiss }: {
 function BotView() {
   const session = useSession();
   const [classic, setClassic] = useClassicBotAppearance();
+  const lightTheme = useLightTheme();
   const [summary, setSummary] = useState<BotSummary | null>(null);
   const [bots, setBots] = useState<BotViewBot[] | null>(null);
   const [trades, setTrades] = useState<BotTradesPage | null>(null);
@@ -377,10 +378,12 @@ function BotView() {
       </Card>}
 
       <footer className="space-y-2 border-t border-border pt-3 text-xs text-ink-faint">
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <Checkbox checked={classic} onChange={setClassic} label="Classic Bot appearance" />
+        <label className="flex flex-wrap items-center gap-2 text-sm text-ink">
+          <Checkbox checked={classic} onChange={setClassic} label="Classic Bot appearance" disabled={lightTheme} />
           <span>Classic Bot appearance</span>
-          <span className="text-xs text-ink-faint">(this page, dark theme only)</span>
+          <span className="text-xs text-ink-faint">
+            {lightTheme ? "Dark theme only: no effect in the light theme. Your choice is kept." : "(this page, dark theme only)"}
+          </span>
         </label>
         <p>{RECOVERY_NOTE}</p>
       </footer>

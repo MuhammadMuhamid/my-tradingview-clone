@@ -10,7 +10,8 @@
 import { useState } from "react";
 import { Button, Card, CardHeader, Field, Notice, TextInput } from "@/components/ui";
 import type { BotCredential, BotRiskLimitsView, BotRiskView } from "@/lib/api";
-import { LATCH_NOTE, LOSS_LIMIT_WARNING } from "./botCopy";
+import { signClass } from "@/lib/format";
+import { LATCH_NOTE, LOSS_LIMIT_WARNING, countedLoss, signedUsdt } from "./botCopy";
 import type { DialogResult } from "./commandRunner";
 import { StepUpDialog } from "./StepUpDialog";
 
@@ -80,16 +81,22 @@ export function RiskLimitsCard({ risk, disabled, disabledReason, onSubmit }: {
       <div className="space-y-2 px-4 py-3">
         {!risk ? <p className="text-sm text-ink-faint">The Bot's limits could not be read.</p> : (
           <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            <div><dt className="text-xs text-ink-muted">Total exposure</dt>
+            <div><dt className="text-xs text-ink-muted">Total exposure (incl. pending entries)</dt>
               <dd className="tabular text-ink">{usd(risk.snapshot.openExposureQuote)} of {risk.limits.maxTotalExposureQuote === null ? "no limit" : usd(risk.limits.maxTotalExposureQuote)}</dd></div>
-            <div><dt className="text-xs text-ink-muted">Open trades</dt>
+            <div><dt className="text-xs text-ink-muted">Open trades (incl. pending entries)</dt>
               <dd className="tabular text-ink">{risk.snapshot.openTrades} of {risk.limits.maxConcurrentTrades ?? "no limit"}</dd></div>
-            <div><dt className="text-xs text-ink-muted">Daily loss (rolling {risk.limits.dailyLossWindowHours} h)</dt>
-              <dd className="tabular text-ink">{usd(risk.snapshot.realisedPnlInWindow)} · limit {risk.limits.maxDailyLossQuote === null ? "off" : usd(risk.limits.maxDailyLossQuote)}</dd></div>
+            <div><dt className="text-xs text-ink-muted">Daily loss counted by the limit (rolling {risk.limits.dailyLossWindowHours} h)</dt>
+              <dd className="tabular text-ink">{usd(countedLoss(risk.snapshot.realisedPnlInWindow))} of {risk.limits.maxDailyLossQuote === null ? "no limit (off)" : usd(risk.limits.maxDailyLossQuote)}</dd></div>
+            <div><dt className="text-xs text-ink-muted">Realised P&amp;L (rolling {risk.limits.dailyLossWindowHours} h, signed)</dt>
+              <dd className={`tabular ${signClass(risk.snapshot.realisedPnlInWindow)}`}>{signedUsdt(risk.snapshot.realisedPnlInWindow)}</dd></div>
             <div><dt className="text-xs text-ink-muted">Daily-loss latch</dt>
               <dd className={risk.latched ? "text-down" : "text-ink"}>{risk.latched ? "Latched: the Bot is halted by the daily-loss limit" : "Not latched"}</dd></div>
           </dl>
         )}
+        <p className="text-xs text-ink-faint">
+          Pending entries are unfilled manual BUY orders and strategy BUYs whose outcome the Bot is still
+          reconciling; the limits count them, the trades list shows booked trades only.
+        </p>
         <p className="text-xs text-ink-faint">{LATCH_NOTE} {LOSS_LIMIT_WARNING}</p>
       </div>
 

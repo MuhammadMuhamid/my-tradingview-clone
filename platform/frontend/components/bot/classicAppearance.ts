@@ -44,3 +44,23 @@ export function useClassicBotAppearance(): [boolean, (on: boolean) => void] {
   }, []);
   return [classic, set];
 }
+
+/**
+ * Whether the light theme is showing, read after mount and kept current.
+ *
+ * The classic palette is dark-only, so in light it does nothing; the toggle
+ * says so instead of looking broken. Read from `<html data-theme>`, which both
+ * theme toggles set, through an observer rather than one event name.
+ */
+export function useLightTheme(): boolean {
+  const [light, setLight] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => setLight(root.dataset.theme === "light");
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return light;
+}

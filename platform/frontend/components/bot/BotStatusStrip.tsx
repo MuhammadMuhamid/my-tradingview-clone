@@ -9,7 +9,7 @@
  * says "Unknown", never "off" or "none".
  */
 import type { BotControlPanel } from "@/lib/api";
-import { haltLabel, routingLabel, signedLabel, webhookLabel } from "./botCopy";
+import { countedLoss, haltLabel, routingLabel, signedLabel, signedUsdt, webhookLabel } from "./botCopy";
 
 type Tone = "ink" | "warn" | "down";
 const TONE: Record<Tone, string> = { ink: "text-ink", warn: "text-warn", down: "text-down" };
@@ -52,13 +52,14 @@ export function BotStatusStrip({ panel }: { panel: BotControlPanel }) {
         detail={facts ? `${facts.exchange.accounts.testnet} testnet · ${facts.exchange.accounts.mainnet} mainnet account(s)` : undefined} />
       <Item label="Risk limits"
         value={risk
-          ? `Exposure ${usd(risk.snapshot.openExposureQuote)} / ${risk.limits.maxTotalExposureQuote === null ? "no limit" : usd(risk.limits.maxTotalExposureQuote)}`
+          ? `Exposure incl. pending entries ${usd(risk.snapshot.openExposureQuote)} / ${risk.limits.maxTotalExposureQuote === null ? "no limit" : usd(risk.limits.maxTotalExposureQuote)}`
           : UNKNOWN}
         tone={!risk ? "warn" : risk.latched ? "down" : "ink"}
         detail={risk
-          ? `Trades ${risk.snapshot.openTrades} / ${risk.limits.maxConcurrentTrades ?? "no limit"} · Daily loss `
-            + `${usd(risk.snapshot.realisedPnlInWindow)} over ${risk.limits.dailyLossWindowHours}h, limit `
-            + `${risk.limits.maxDailyLossQuote === null ? "off" : usd(risk.limits.maxDailyLossQuote)}`
+          ? `Open trades incl. pending entries ${risk.snapshot.openTrades} / ${risk.limits.maxConcurrentTrades ?? "no limit"} · Daily loss `
+            + `${usd(countedLoss(risk.snapshot.realisedPnlInWindow))} of `
+            + `${risk.limits.maxDailyLossQuote === null ? "no limit (off)" : usd(risk.limits.maxDailyLossQuote)} over `
+            + `${risk.limits.dailyLossWindowHours}h (realised P&L ${signedUsdt(risk.snapshot.realisedPnlInWindow)})`
             + `${risk.latched ? " · latched" : ""}`
           : undefined} />
       <Item label="Shariah floor"

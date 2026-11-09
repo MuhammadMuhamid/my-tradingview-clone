@@ -46,7 +46,7 @@ export const MANUAL_TRADE = {
 export const page = (rows: unknown[], total = rows.length) => ({ total, page: 1, pageSize: 50, rows });
 
 export function facts(overrides: { halted?: boolean; haltedBy?: string | null; dryRun?: boolean;
-  routing?: BotControlStatus["exchange"]["routing"]; latched?: boolean } = {}): BotControlStatus {
+  routing?: BotControlStatus["exchange"]["routing"]; latched?: boolean; realisedPnlInWindow?: number } = {}): BotControlStatus {
   const halted = overrides.halted ?? false;
   const dryRun = overrides.dryRun ?? true;
   return {
@@ -66,7 +66,7 @@ export function facts(overrides: { halted?: boolean; haltedBy?: string | null; d
     exchange: { defaultTestnet: true, accounts: { testnet: 1, mainnet: 0 }, routing: overrides.routing ?? "TESTNET" },
     risk: {
       limits: { maxTotalExposureQuote: 1000, maxConcurrentTrades: 3, maxDailyLossQuote: 50, dailyLossWindowHours: 24 },
-      snapshot: { openExposureQuote: 100, openTrades: 1, realisedPnlInWindow: -5 },
+      snapshot: { openExposureQuote: 100, openTrades: 1, realisedPnlInWindow: overrides.realisedPnlInWindow ?? -5 },
       summary: "ACTIVE", latched: overrides.latched ?? false,
     },
     bots: { active: 1, paused: 0 },
