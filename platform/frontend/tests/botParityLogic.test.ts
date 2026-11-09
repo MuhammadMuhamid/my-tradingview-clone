@@ -110,3 +110,66 @@ test("Close gating: only an older Bot refuses stopped, delisted and twin trades"
     assert.equal(closeBlockReason(TRADE, bots, [TRADE, { ...TRADE, id: "t2" }], "yes"), null, "operatorExit.v1 closes by id");
   }
 });
+
+// ── the bot form (port of bot/frontend/src/lib/botForm.ts, §5 fixes) ─────────
+import {
+  buildBotPayload, changedFields, defaultBotForm, formFromBot, investmentEstimate, unsafeConfigReason, validateBotForm,
+  weakensProtection,
+} from "../components/bot/botForm";
+import type { BotConfigView } from "../lib/botManageApi";
+
+test("form defaults are the safe ones (5%, exits on, 3% stop loss) and validate once a pair is chosen", () => {
+  assert.deepEqual([defaultBotForm.maxInvestmentPct, defaultBotForm.exitEnabled, defaultBotForm.stopLossEnabled, defaultBotForm.stopLossPct],
+    ["5", true, true, "3"]);
+  assert.deepEqual(Object.keys(validateBotForm(defaultBotForm)), ["pairs"]);
+  assert.deepEqual(validateBotForm({ ...defaultBotForm, pairs: ["BTCUSDT"] }), {});
+});
+
+test("form validation mirrors the Bot: name, pairs, per-unit bounds, empty numbers, the 50% rule", () => {
+  const ok = { ...defaultBotForm, pairs: ["BTCUSDT"] };
+  assert.ok(validateBotForm({ ...ok, name: "   " }).name);
+  assert.ok(validateBotForm({ ...ok, name: "x".repeat(65) }).name);
+  assert.ok(validateBotForm({ ...ok, pairs: ["BTCEUR"] }).pairs);
+  assert.equal(validateBotForm({ ...ok, pairs: ["OLD-PAIR"] }, ["OLD-PAIR"]).pairs, undefined, "a kept pair is not re-judged");
+  assert.ok(validateBotForm({ ...ok, maxInvestmentPct: "101" }).maxInvestmentPct, "a percentage is at most 100");
+  assert.equal(validateBotForm({ ...ok, maxInvestmentPct: "5000", maxInvestmentUnit: "usdt_bot" }).maxInvestmentPct, undefined);
+  assert.ok(validateBotForm({ ...ok, entryVolumePct: "" }).entryVolumePct, "empty is an error, never 0");
+  assert.ok(validateBotForm({ ...ok, stopLossPct: "abc" }).stopLossPct);
+  assert.ok(validateBotForm({ ...ok, maxActiveSmartTradesEnabled: true, maxActiveSmartTrades: "1.5" }).maxActiveSmartTrades);
+  assert.ok(validateBotForm({ ...ok, maxEntryOrders: "0" }).maxEntryOrders);
+  assert.equal(unsafeConfigReason({ ...ok, maxInvestmentPct: "50", entryVolumePct: "100", stopLossEnabled: false })?.includes("50%"), true);
+  assert.equal(unsafeConfigReason({ ...ok, maxInvestmentPct: "60", entryVolumePct: "50", stopLossEnabled: false }), null, "30% effective");
+  assert.equal(unsafeConfigReason({ ...ok, maxInvestmentPct: "5000", maxInvestmentUnit: "usdt_bot", stopLossEnabled: false }), null);
+});
+
+const VIEW: BotConfigView = {
+  id: "b", name: "Trend", status: "active", alertType: "custom", direction: "long", pairs: ["BTCUSDT"], maxInvestmentPct: 5,
+  maxInvestmentUnit: "pct_bot", maxInvestmentLabel: "5%", entryEnabled: true, entryVolumePct: 50, entryOrderType: "market",
+  exitEnabled: true, takeProfitPct: null, stopLossPct: 3, maxEntryOrders: 2, maxActiveSmartTradesEnabled: true,
+  maxActiveSmartTrades: 2, exchangeAccountId: "a1", exchangeAccount: null, webhookSecretMasked: "••••abcd",
+  webhookPath: "/api/webhooks/signal_bots", activeTrades: 0, unresolvedIntents: 0, createdAt: "", updatedAt: "",
+};
+
+test("payload, round trip, and an edit sends only what changed (a switch travels with its value)", () => {
+  const payload = buildBotPayload({ ...defaultBotForm, pairs: ["BTCUSDT"], takeProfitEnabled: false });
+  assert.deepEqual([payload.takeProfitPct, payload.stopLossPct, payload.maxActiveSmartTrades, payload.exchangeAccountId, payload.maxEntryOrders],
+    [null, 3, null, null, null]);
+  const form = formFromBot(VIEW);
+  assert.deepEqual(changedFields(form, form), {});
+  assert.deepEqual(changedFields(form, { ...form, name: "New" }), { name: "New" });
+  assert.deepEqual(changedFields(form, { ...form, stopLossEnabled: false }), { stopLossEnabled: false, stopLossPct: null });
+  assert.deepEqual(changedFields(form, { ...form, maxInvestmentPct: "4" }), { maxInvestmentPct: 4, maxInvestmentUnit: "pct_bot" });
+});
+
+test("the client's weakening rule matches the server's list", () => {
+  const w = (changed: Record<string, unknown>) => weakensProtection(changed, VIEW);
+  for (const c of [{ stopLossEnabled: false }, { stopLossPct: 4 }, { maxInvestmentPct: 6 }, { maxInvestmentUnit: "pct_trade" },
+    { entryVolumePct: 60 }, { maxActiveSmartTradesEnabled: false }, { maxActiveSmartTrades: 3 }, { maxEntryOrders: null },
+    { exchangeAccountId: "b2" }, { exitEnabled: false }]) assert.equal(w(c), true, JSON.stringify(c));
+  assert.equal(weakensProtection({ entryEnabled: true }, { ...VIEW, entryEnabled: false }), true);
+  for (const c of [{ name: "x" }, { stopLossPct: 2 }, { takeProfitPct: 9 }, { maxInvestmentPct: 4 }, { pairs: ["ETHUSDT"] }]) {
+    assert.equal(w(c), false, JSON.stringify(c));
+  }
+  assert.equal(investmentEstimate({ ...defaultBotForm }, 812.5), "≈ 40.63 USDT of 812.50 available");
+  assert.equal(investmentEstimate({ ...defaultBotForm, maxInvestmentUnit: "usdt_bot" }, 812.5), null);
+});

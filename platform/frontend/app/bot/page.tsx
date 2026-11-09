@@ -31,12 +31,13 @@ import { BotStatusStrip } from "@/components/bot/BotStatusStrip";
 import { TradeCards, TradesTable, dollars, money, type TradeActions, type TradeTab } from "@/components/bot/BotTrades";
 import { RiskLimitsCard } from "@/components/bot/RiskLimitsCard";
 import { StepUpDialog } from "@/components/bot/StepUpDialog";
-import { useBotCommands, type Outcome } from "@/components/bot/commandRunner";
+import { useBotCommands } from "@/components/bot/commandRunner";
 import { useClassicBotAppearance, useLightTheme } from "@/components/bot/classicAppearance";
 import {
   BOT_HALT_BLOCKS, HALT_SCOPE_TEXT, PLATFORM_HALT_BLOCKS, RECOVERY_NOTE, routingLabel, tradePanelHref,
 } from "@/components/bot/botCopy";
 import { BotShell } from "@/components/bot/BotShell";
+import { OutcomeNotices } from "@/components/bot/OutcomeNotices";
 import { BotsCard } from "@/components/bot/BotsCard";
 import { EntriesCard } from "@/components/bot/EntriesCard";
 import { HistorySummary } from "@/components/bot/HistorySummary";
@@ -76,40 +77,6 @@ type Dialog =
   | { type: "partial"; trade: BotViewTrade };
 
 const num = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
-
-function OutcomeList({ outcomes, onRecheck, onDismiss }: {
-  outcomes: Outcome[];
-  onRecheck: (outcome: Extract<Outcome, { phase: "unknown" }>) => void;
-  onDismiss: (id: string) => void;
-}) {
-  if (outcomes.length === 0) return null;
-  return (
-    <section aria-label="Command outcomes" aria-live="polite" className="space-y-2">
-      {outcomes.map((o) => {
-        if (o.phase === "checking") {
-          return <Notice key={o.id} tone="warn" role="status"><strong>{o.label}:</strong>{" "}
-            {o.pending ? "The Bot sent an order and its result is pending. Checking…" : "Outcome unknown, checking…"}</Notice>;
-        }
-        if (o.phase === "unknown") {
-          return <Notice key={o.id} tone="warn" role="status" onDismiss={() => onDismiss(o.id)}>
-            <strong>{o.label}:</strong> {o.message}{" "}
-            <Button variant="ghost" onClick={() => onRecheck(o)}>Check again</Button>
-          </Notice>;
-        }
-        if (o.phase === "refused") {
-          return <Notice key={o.id} tone="error" role="alert" onDismiss={() => onDismiss(o.id)}>
-            <strong>{o.label}:</strong> {o.message}
-            {o.chart && <> <Link href={o.chart} className="underline">Open the Trade panel</Link></>}
-            {o.profile && <> <Link href="/profile" className="underline">Open your profile</Link></>}
-          </Notice>;
-        }
-        return <Notice key={o.id} tone={o.phase === "succeeded" ? "success" : "info"} role="status" onDismiss={() => onDismiss(o.id)}>
-          <strong>{o.label}:</strong> {o.message}
-        </Notice>;
-      })}
-    </section>
-  );
-}
 
 function BotView() {
   const session = useSession();
@@ -226,7 +193,7 @@ function BotView() {
       </Button>}>
       {isAdmin && twoFactorOff && !authOff && <TwoFactorBanner />}
 
-      <OutcomeList outcomes={commands.outcomes} onRecheck={commands.recheck} onDismiss={commands.dismiss} />
+      <OutcomeNotices outcomes={commands.outcomes} onRecheck={commands.recheck} onDismiss={commands.dismiss} />
 
       {/* ── status ───────────────────────────────────────────────────────── */}
       <Card>
