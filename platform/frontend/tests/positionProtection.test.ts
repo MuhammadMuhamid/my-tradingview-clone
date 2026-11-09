@@ -125,8 +125,10 @@ test("protectionContextFor reads the bot's report and the position's own account
   const context = protectionContextFor(old, old.positions[0]!);
   assert.equal(context.polling, undefined);
   assert.equal(context.halted, undefined);
-  // This Platform's own halt read is enough on its own.
-  assert.equal(protectionContextFor(s, s.positions[0]!, true).halted, true);
+  // Only bot-reported facts: this Platform's own halt is not an input (it
+  // never reaches the bot, whose TP/SL poller keeps running).
+  assert.equal(protectionContextFor.length, 2);
+  assert.equal(protectionContextFor(state({ tradingHalted: true }, { polling: false }), s.positions[0]!).halted, true);
 });
 
 test("RR1: the chart draws BOT TP/SL lines only for a position the bot is checking", () => {
@@ -148,12 +150,17 @@ test("the Trade panel, the chart strip and the chart all use it; the halt notice
   const panel = read("components/tv/ManualTradingPanel.tsx");
   const strip = read("components/tv/TradingStateStrip.tsx");
   const chart = read("app/chart/page.tsx");
-  assert.match(panel, /positionProtection\(p, stateReadFailed\s*\? UNKNOWN_PROTECTION_CONTEXT : protectionContextFor\(state, p, halted !== null\)\)/);
+  assert.match(panel, /positionProtection\(p, stateReadFailed\s*\? UNKNOWN_PROTECTION_CONTEXT : protectionContextFor\(state, p\)\)/);
+  assert.doesNotMatch(panel, /protectionContextFor\(state, p, halted/, "the Platform's halt must not feed bot protection");
   assert.match(panel, /setStateReadFailed\(true\);\s*setError\(describeAction\(e, "read the trading state"\)\)/);
   assert.match(panel, /<ProtectionBadge protection=\{protectionStatus\} \/>/);
   assert.doesNotMatch(panel, /p\.protectionType \?\? "no protection"/);
   assert.doesNotMatch(panel, /adjusting\s+protection are still available/);
-  assert.match(panel, /NOT checking take-profit \/ stop-loss while halted/);
+  // The Platform's halt names its true scope; the bot's halt keeps its own wording.
+  assert.match(panel, /Platform halted\{halted\.reason/);
+  assert.match(panel, /TP\/SL checks continue unless the bot itself is halted/);
+  assert.match(panel, /The bot is NOT checking take-profit \/ stop-loss right now/);
+  assert.match(panel, /state\?\.protection\.polling === false \|\| state\?\.tradingHalted === true/);
   assert.match(strip, /<ProtectionCell position=\{p\} state=\{stale \? null : state\} \/>/);
   assert.match(chart, /manualProtectionLines\(\s*manualUnavailable \? null : manualState,\s*manualState\?\.positions\.filter\(\(p\) => p\.pair === tradingSymbol && p\.status === "active"\)/);
   assert.doesNotMatch(chart, /MANUAL TP · BOT/, "the chart builds no BOT line of its own");
