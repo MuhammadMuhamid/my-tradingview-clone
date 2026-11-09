@@ -114,7 +114,7 @@ import {
   togglePriceScaleAuto, togglePriceScaleInvert, togglePriceScaleMode,
   type PriceScaleState,
 } from "@/lib/priceScale";
-import { parseScannerChartTarget } from "@/lib/spotScene";
+import { parseScannerChartTarget, type ScannerSellTarget } from "@/lib/spotScene";
 import { sameSymbol } from "@/lib/manualTicket";
 import { resolveTradingTarget, tradingTargetNotice, type TradingTarget } from "@/lib/tradingTarget";
 import { datasetKey } from "@/lib/liveDataset";
@@ -449,6 +449,8 @@ export default function TvWorkspace() {
    * mismatch and rebuilt it client-side on every load.
    */
   const [panel, setPanel] = useState<Panel>(DEFAULT_PANEL);
+  /** OD-7: the position a "Close from the Trade panel" link named; consumed once by the ticket. */
+  const [manualSellTarget, setManualSellTarget] = useState<ScannerSellTarget | null>(null);
   /** The stored choice has been applied; until then nothing may overwrite it. */
   const [panelRestored, setPanelRestored] = useState(false);
   useLayoutEffect(() => { setPanel(openingPanel()); setPanelRestored(true); }, []);
@@ -1324,7 +1326,8 @@ export default function TvWorkspace() {
 
   // Scanner navigation is a read-only workspace prefill. It selects the exact
   // existing Platform Spot symbol and, for Trade, opens the normal manual ticket.
-  // It never chooses a side/size or submits an order.
+  // It never submits an order. The one side/size it may preselect (OD-7) is a
+  // SELL of exactly the position a "Close from the Trade panel" link named.
   useEffect(() => {
     const target = parseScannerChartTarget(window.location.search);
     if (!target) return;
@@ -1334,6 +1337,9 @@ export default function TvWorkspace() {
       { ...DEFAULT_SYNC, symbol: true }));
     setTrades([]);
     if (target.panel === "manual") setPanel("manual");
+    // Prefill only: the ticket preselects this position on the SELL tab, or
+    // says it is no longer open. Nothing is sized beyond it or submitted.
+    if (target.sell) setManualSellTarget(target.sell);
   }, []);
 
   const applyDeepLink = useCallback(async (request: ApplyRequest) => {
@@ -3213,6 +3219,8 @@ export default function TvWorkspace() {
         tradingNotice={tradingNotice}
         onTicketStagedChange={setTicketStaged}
         onManualState={recordManualState}
+        manualSellTarget={manualSellTarget}
+        onManualSellTargetUsed={() => setManualSellTarget(null)}
         maLines={maLines}
         maValues={maValues}
         maAlerts={maAlerts}

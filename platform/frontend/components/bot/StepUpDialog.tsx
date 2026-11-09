@@ -23,7 +23,7 @@ import type { BotCredential } from "@/lib/api";
 import type { DialogResult } from "./commandRunner";
 
 export function StepUpDialog({ open, title, intro, children, confirmLabel, danger = false, allowsPassword = false,
-  canConfirm = true, onCancel, onConfirm }: {
+  canConfirm = true, onCancel, onConfirm, initialMethod = null }: {
   open: boolean;
   title: string;
   intro: ReactNode;
@@ -37,6 +37,8 @@ export function StepUpDialog({ open, title, intro, children, confirmLabel, dange
   /** Closes the dialog: Cancel, Escape, or once a command has been sent. */
   onCancel: () => void;
   onConfirm: (credential: BotCredential) => Promise<DialogResult>;
+  /** The credential a refusal that opened this dialog already named (`step_up_required` with `method`). */
+  initialMethod?: "totp" | "password" | null;
 }) {
   const session = useSession();
   const user = session?.user ?? null;
@@ -44,13 +46,13 @@ export function StepUpDialog({ open, title, intro, children, confirmLabel, dange
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [serverMethod, setServerMethod] = useState<"totp" | "password" | null>(null);
+  const [serverMethod, setServerMethod] = useState<"totp" | "password" | null>(initialMethod);
   const formId = useId();
 
   useEffect(() => {
-    if (open) return;
+    if (open) { setServerMethod(initialMethod); return; }
     setCode(""); setPassword(""); setError(""); setBusy(false); setServerMethod(null);
-  }, [open]);
+  }, [open, initialMethod]);
 
   const authOff = session !== null && !session.authEnabled;
   const method: "totp" | "password" | null = serverMethod

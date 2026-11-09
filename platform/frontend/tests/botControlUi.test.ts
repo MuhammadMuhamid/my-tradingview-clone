@@ -129,3 +129,14 @@ test("classic appearance: one scoped, dark-only token block after the light bloc
   assert.deepEqual(setters, ["app/bot/page.tsx"], "no other page can turn it on");
   assert.match(read("app/bot/page.tsx"), /data-bot-appearance=\{classic \? "classic" : undefined\}/, "absent unless opted in");
 });
+
+test("OD-7: 'Close from the Trade panel' names the position, and the link only prefills", async () => {
+  const { tradePanelHref } = await import("../components/bot/botCopy");
+  assert.equal(tradePanelHref("SOL/USDT"), "/chart?source=scanner&symbol=SOLUSDT&panel=manual");
+  assert.equal(tradePanelHref("SOLUSDT", { accountId: "acct-1", positionId: "pos-9" }),
+    "/chart?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&account=acct-1&position=pos-9");
+  assert.equal(tradePanelHref("SOLUSDT", { accountId: null, positionId: "pos-9" }),
+    "/chart?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&position=pos-9");
+  const trades = fs.readFileSync(path.join(__dirname, "..", "components", "bot", "BotTrades.tsx"), "utf8");
+  assert.match(trades, /tradePanelHref\(trade\.pair, \{ accountId: trade\.account\?\.id \?\? null, positionId: trade\.id \}\)/);
+});

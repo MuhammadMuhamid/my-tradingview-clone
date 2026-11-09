@@ -87,7 +87,7 @@ test("OD-5: a v1 event normalizes to exactly the v1 keys, with the same hash as 
     "platformOrderIntentId", "platformWebhookIdentity", "positionDirection", "quoteCurrency", "realizedAt",
     "realizedPnlQuote", "realizedQuantity", "strategyOrderIntentId", "symbol", "type"]);
   // Computed from the contract at 0afaeec (before v2), split so no long hex literal sits in the source.
-  assert.equal(sha256(canonicalJson(normalized)), "68a821bc98cb26f7193b5c065a87333580e4acd6" + "6f44771ec5eba04daec6f142");
+  assert.equal(sha256(canonicalJson(normalized)), ["68a821bc98cb26f7", "193b5c065a873335", "80e4acd66f44771e", "c5eba04daec6f142"].join(""));
 });
 
 test("OD-5: v2 requires environment from the strict set; its hash covers it", () => {

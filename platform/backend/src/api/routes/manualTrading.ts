@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../../config";
 import * as liveSafety from "../../repositories/liveSafety";
 import { ManualBotError, manualBotRequest } from "../../manualTrading/client";
@@ -11,6 +11,50 @@ import {
   assertExecutionSupported, defaultExecutionTarget, UnsupportedExecutionError,
   type ExecutionTarget,
 } from "../../market/execution";
+import { Refusal, resolveStepUp, type StepUpProof } from "../../security/stepUp";
+import { userIdOf } from "../../security/requestUser";
+import * as users from "../../repositories/users";
+
+/**
+ * Step-up for a manual BUY (OD-2/OD-7): grant tier, two-factor only. Injected
+ * in tests that are about something else; the real one refuses everything
+ * while AUTH_ENABLED is false.
+ */
+export type ManualStepUp = (req: FastifyRequest, reply: FastifyReply) => Promise<StepUpProof>;
+
+const realStepUp: ManualStepUp = async (req, reply) => {
+  const account = await users.getUser(userIdOf(req));
+  if (!account) throw new Refusal(401, "not_authenticated", "not authenticated");
+  return resolveStepUp(req, reply, account, { tier: "grant" });
+};
+
+const ORDER_REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
+
+/**
+ * The browser's id for this order, required (OD-7, F7). The order route never
+ * mints one: an id invented here would make a retry a second order.
+ */
+function browserRequestId(body: Record<string, unknown>): string {
+  const id = body.requestId;
+  if (typeof id === "string" && ORDER_REQUEST_ID.test(id)) return id;
+  throw new ManualBotError("A request id of 16 to 128 letters, digits, - or _ is required.", 400, "invalid_request_id");
+}
+
+/**
+ * `positionFull: true` (OD-7, B-OD7) sells the whole remaining quantity of
+ * `positionId`. Only `true`, only on a SELL with a position, and never beside a
+ * `baseQuantity`; the browser sends it only when the Bot advertises
+ * `manualPositionFull.v1`.
+ */
+function assertPositionFullShape(command: Record<string, unknown>): void {
+  if (command.positionFull === undefined) return;
+  if (command.positionFull !== true || normalizeSpotSide(command.side) !== "SELL"
+    || typeof command.positionId !== "string" || command.positionId.length === 0
+    || command.baseQuantity !== undefined || command.quoteQuantity !== undefined) {
+    throw new ManualBotError(
+      "positionFull must be true, on a SELL with a positionId and no quantity.", 400, "invalid_request");
+  }
+}
 
 function bodyRecord(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new ManualBotError("invalid request body", 400);
@@ -34,6 +78,9 @@ async function send<T>(reply: FastifyReply, action: () => Promise<T>) {
     }
     if (error instanceof UnsupportedExecutionError) {
       return reply.code(error.status).send({ error: error.message, code: "unsupported_execution" });
+    }
+    if (error instanceof Refusal) {
+      return reply.code(error.status).send({ code: error.code, error: error.message, ...error.extra });
     }
     if (error instanceof ManualBotError) {
       return reply.code(error.status).send({ error: error.message, ...(error.code ? { code: error.code } : {}) });
@@ -121,12 +168,15 @@ export async function manualTradingRoutes(
     botRequest?: typeof manualBotRequest;
     /** Injected so the halt (and pause) refusal is provable without a database. */
     riskLimits?: () => Promise<ManualRiskLimits>;
+    /** Injected by tests about something other than step-up. */
+    stepUp?: ManualStepUp;
   } = {}
 ): Promise<void> {
   const shariahDeps = dependencies.shariah ?? {};
   const resolveExecutionTarget = dependencies.executionTarget ?? defaultExecutionTarget;
   const sendBotRequest = dependencies.botRequest ?? manualBotRequest;
   const readRiskLimits = dependencies.riskLimits ?? liveSafety.getRiskLimits;
+  const stepUp = dependencies.stepUp ?? realStepUp;
 
   /**
    * Advisory account context for the ticket: free and locked for the two assets
@@ -181,11 +231,17 @@ export async function manualTradingRoutes(
    * forwarded — the block that ships is the one this backend just computed.
    */
   app.post("/api/manual-trading/orders", async (req, reply) => send(reply, async () => {
-    const body = bodyRecord(req.body); const requestId = requestIdentity(body);
-    const { requestId: _browserOnly, shariah: _neverTrustedFromClient, ...command } = body;
+    // Before anything that could ask for a credential: an install without manual
+    // trading refuses the same way it always did.
+    if (!config.manualTradingEnabled) throw new ManualBotError("manual trading is disabled", 404);
+    const body = bodyRecord(req.body);
+    // The credential is for this Platform's step-up only: never forwarded.
+    const { requestId: _browserOnly, shariah: _neverTrustedFromClient, credential: _stepUpOnly, ...command } = body;
 
     const target = resolveExecutionTarget(String(command.symbol ?? ""));
     assertExecutionSupported(target, command);
+    const requestId = browserRequestId(body);
+    assertPositionFullShape(command);
 
     // Before the Bot is contacted, and before the Shariah gate, because a
     // halted platform has nothing to say about permissibility — it has said it
@@ -206,6 +262,14 @@ export async function manualTradingRoutes(
       if (gatedSide(command) !== "SELL") throw error;
       req.log.warn({ err: error }, "manual exit proceeds without unavailable Shariah provenance");
     }
+
+    /*
+     * A BUY opens new exposure, so it is confirmed (grant tier: a recent code
+     * suffices). Last, after every refusal that needs no credential, so a code
+     * is not spent on an order that would be refused anyway. A SELL never asks:
+     * an exit is never blocked by step-up, a halt or a pause.
+     */
+    if (gatedSide(command) === "BUY") await stepUp(req, reply);
 
     /*
      * The block rides inside the signed request body — `client.ts`

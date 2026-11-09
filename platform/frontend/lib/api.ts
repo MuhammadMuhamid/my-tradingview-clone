@@ -715,22 +715,37 @@ export class ApiError extends Error {
   readonly status: number;
   /** What the server actually said, whether prose or a status line. */
   readonly detail: string;
-  constructor(status: number, detail: string) {
+  /** The server's typed refusal code, when it sent one (`step_up_required`, `entries_paused`, …). */
+  readonly code: string | null;
+  /** For a step-up refusal: which credential the server will accept. */
+  readonly method: "totp" | "password" | null;
+  constructor(status: number, detail: string, extra: { code?: string | null; method?: "totp" | "password" | null } = {}) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.code = extra.code ?? null;
+    this.method = extra.method ?? null;
   }
 }
 
-/** The server's `error` field if it sent one, else its status line. */
-async function failureText(res: Response): Promise<string> {
-  let msg = `${res.status} ${res.statusText}`;
+/** The server's `error` field if it sent one, else its status line; plus its typed code. */
+async function failureOf(res: Response): Promise<{ detail: string; code: string | null; method: "totp" | "password" | null }> {
+  let detail = `${res.status} ${res.statusText}`;
+  let code: string | null = null;
+  let method: "totp" | "password" | null = null;
   try {
-    const body = (await res.json()) as { error?: string };
-    if (body.error) msg = body.error;
+    const body = (await res.json()) as { error?: string; code?: unknown; method?: unknown };
+    if (body.error) detail = body.error;
+    if (typeof body.code === "string") code = body.code;
+    if (body.method === "totp" || body.method === "password") method = body.method;
   } catch { /* keep status text */ }
-  return msg;
+  return { detail, code, method };
+}
+
+async function failureError(res: Response): Promise<ApiError> {
+  const failure = await failureOf(res);
+  return new ApiError(res.status, failure.detail, failure);
 }
 
 /**
@@ -816,7 +831,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     if (res.status === 401) redirectToSignIn(path);
-    throw new ApiError(res.status, await failureText(res));
+    throw await failureError(res);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -856,7 +871,7 @@ async function reqAcceptingConflict<T>(
     const payload = (await res.json()) as T;
     return { ...payload, conflicted: res.status === 409 };
   }
-  throw new ApiError(res.status, await failureText(res));
+  throw await failureError(res);
 }
 
 /** One instrument's drawings, or one pane's studies, as the server holds them. */
@@ -1467,6 +1482,13 @@ export interface BotControlStatus {
   manual: { enabled: boolean; mainnetEnabled: boolean };
   version: string | null;
   time: string;
+  /** Pause new entries, the Bot half (OD-3, C9). Absent from an older Bot: unknown, never "not paused". */
+  entries?: {
+    paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null;
+    workingEntryLimits?: number; unresolvedBuyIntents?: number;
+  };
+  /** What this Bot supports (e.g. "entries.v1", "manualPositionFull.v1"). Absent = an older Bot. */
+  capabilities?: string[];
 }
 /** Every Bot fact under its own name. `facts` null means "could not read", never "off". */
 export interface BotControlPanel {
@@ -1478,6 +1500,8 @@ export interface BotControlPanel {
   readAt: string;
   /** Only on `/api/bot/control/status`: the Platform's own, separate halt switch. */
   platformHalt?: { halted: boolean; haltedBy: string | null; haltedReason: string | null } | null;
+  /** Only on `/api/bot/control/status`: the Platform half of "pause new entries" (OD-3); null = could not read. */
+  platformEntries?: { paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null } | null;
 }
 /** `/api/ops/status` carries the panel beside `bot`. */
 export type OpsStatusBotControl = { botControl?: BotControlPanel };
@@ -1592,7 +1616,11 @@ export const botControlApi = {
   },
 };
 
-export interface BotViewAccount { name: string; testnet: boolean }
+export interface BotViewAccount {
+  name: string; testnet: boolean;
+  /** The exchange account's id, when the Bot's view sends it (older Bots do not). */
+  id?: string;
+}
 export interface BotViewBot {
   id: string; name: string; status: string; pairs: string[]; investment: string;
   entryEnabled: boolean; exitEnabled: boolean;

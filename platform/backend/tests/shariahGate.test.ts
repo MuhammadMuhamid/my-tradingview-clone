@@ -264,6 +264,8 @@ test("the browser is never trusted to have applied the rule", () => {
 async function manualApp(gateDeps: ShariahGateDeps) {
   const app = Fastify({ logger: false });
   await app.register(manualTradingRoutes, {
+    // Step-up is not what this test is about (stepUpGrantsDb / manualOrderStepUpDb cover it).
+    stepUp: async () => ({ method: "grant" as const, at: "2026-11-09T00:00:00.000Z" }),
     shariah: gateDeps,
     // The halt is checked BEFORE permissibility — a platform that has stopped
     // trading has nothing to say about whether an asset is eligible. These

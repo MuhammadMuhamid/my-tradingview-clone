@@ -4,6 +4,7 @@ import type { ScreenerRow } from "../lib/scanner/types";
 import {
   parseScannerAlertTarget,
   parseScannerChartTarget,
+  tradePanelSellHref,
   platformSpotSymbol,
   scannerActionHrefs,
 } from "../lib/spotScene";
@@ -55,6 +56,30 @@ test("Chart Scanner links only prefill symbol and the established manual panel",
   assert.equal(parseScannerChartTarget("?source=scanner&symbol=BTCUSDT&panel=execute"), null);
 });
 
+test("OD-7: a Trade-panel link may name the position to SELL; malformed ids and other sides are ignored", () => {
+  assert.deepEqual(parseScannerChartTarget(
+    "?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&account=acct-1&position=pos_9"), {
+    symbol: "SOLUSDT", panel: "manual", sell: { accountId: "acct-1", positionId: "pos_9" },
+  });
+  // The Bot's trade view does not send account ids yet: the position alone is enough.
+  assert.deepEqual(parseScannerChartTarget("?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&position=pos-9"), {
+    symbol: "SOLUSDT", panel: "manual", sell: { accountId: null, positionId: "pos-9" },
+  });
+  for (const query of [
+    "side=buy&account=acct-1&position=pos-9",
+    "side=sell&account=acct-1&position=..%2Fx",
+    "side=sell&account=a%20b&position=pos-9",
+    "side=sell&account=acct-1&position=" + "p".repeat(65),
+    "side=sell&account=acct-1",
+  ]) {
+    assert.deepEqual(parseScannerChartTarget(`?source=scanner&symbol=SOLUSDT&panel=manual&${query}`),
+      { symbol: "SOLUSDT", panel: "manual" }, query);
+  }
+  // Without the manual panel there is no sell prefill.
+  assert.deepEqual(parseScannerChartTarget("?source=scanner&symbol=SOLUSDT&side=sell&position=pos-9"),
+    { symbol: "SOLUSDT", panel: null });
+});
+
 test("Alert Scanner links open only the existing review dialog", () => {
   assert.deepEqual(
     parseScannerAlertTarget("?source=scanner&symbol=BTCUSDT&create=level"),
@@ -62,4 +87,18 @@ test("Alert Scanner links open only the existing review dialog", () => {
   );
   assert.equal(parseScannerAlertTarget("?source=scanner&symbol=BTCUSDT"), null);
   assert.equal(parseScannerAlertTarget("?source=scanner&symbol=BTC/USDT&create=level"), null);
+});
+
+test("OD-7: the link for one position round-trips through the parser, and only prefills", () => {
+  const href = tradePanelSellHref("SOL/USDT", { accountId: "acct-1", positionId: "pos-9" })!;
+  assert.equal(href, "/chart?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&account=acct-1&position=pos-9");
+  assert.deepEqual(parseScannerChartTarget(href.slice(href.indexOf("?"))),
+    { symbol: "SOLUSDT", panel: "manual", sell: { accountId: "acct-1", positionId: "pos-9" } });
+  assert.equal(tradePanelSellHref("SOLUSDT", { accountId: null, positionId: "pos-9" }),
+    "/chart?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&position=pos-9");
+  assert.equal(tradePanelSellHref("SOLUSDT", { accountId: "acct-1", positionId: "../x" }),
+    "/chart?source=scanner&symbol=SOLUSDT&panel=manual", "a malformed id names nothing");
+  assert.equal(tradePanelSellHref("SOLUSDT", { accountId: "a b", positionId: "pos-9" }),
+    "/chart?source=scanner&symbol=SOLUSDT&panel=manual&side=sell&position=pos-9");
+  assert.equal(tradePanelSellHref("/", { positionId: "pos-9" }), null);
 });

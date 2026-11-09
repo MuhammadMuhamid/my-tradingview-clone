@@ -3,19 +3,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { Button, FIELD, StatusBadge } from "@/components/ui";
 import { TradeOrderTimeline } from "@/components/TradeOrderTimeline";
-import { api, type ManualAccount, type ManualAccountStateView, type ManualOrder,
-  type ManualPosition, type ManualTradingState } from "@/lib/api";
+import { ApiError, api, botControlApi, type BotCredential, type ManualAccount, type ManualAccountStateView,
+  type ManualOrder, type ManualPosition, type ManualTradingState } from "@/lib/api";
+import { StepUpDialog } from "@/components/bot/StepUpDialog";
+import type { DialogResult } from "@/components/bot/commandRunner";
 import { fmtPrice, fmtPriceDelta, fmtQty } from "@/lib/format";
 import { shariahApi, type ShariahSymbolStatus } from "@/lib/shariah";
 import {
-  maximumOrder, preSubmitProblem, quickFillAmount, QUICK_FILL_PERCENTS,
-  relativePriceHint, spreadOf,
+  floorToStep, maximumOrder, preSubmitProblem, quickFillAmount, QUICK_FILL_PERCENTS,
+  relativePriceHint, sellDust, spreadOf,
 } from "../../lib/manualSizing";
 import { useBookQuote } from "../../lib/useBookQuote";
 import { REFUSAL_TONE, toTradeEvent } from "../../lib/tradeEvents";
 import {
   baseAssetOf, isTicketStaged, positionsForSymbol, resetForAccountChange,
-  resetForSymbolChange, ticketSubmitBlocker,
+  resetForSymbolChange, sameSymbol, sellPositionRequirement, sellTabPosition, ticketSubmitBlocker,
 } from "../../lib/manualTicket";
 import {
   manualTradingPollingAllowed, noteManualTradingFailure,
@@ -27,6 +29,10 @@ import {
 } from "@/components/tv/positionProtection";
 
 const newRequestId = (): string => window.crypto.randomUUID();
+
+/** Refusals of a manual BUY that belong in the step-up dialog (OD-2/OD-7), not on the panel. */
+const STEP_UP_REFUSALS = new Set(["step_up_required", "step_up_failed", "step_up_rate_limited", "step_up_busy",
+  "two_factor_required", "step_up_unavailable", "auth_disabled"]);
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
 
 /** Order types this product actually supports. Nothing else is offered. */
@@ -115,6 +121,7 @@ function UnitField({
 
 export function ManualTradingPanel({
   symbol, lastPrice = null, targetNotice = null, onClose, onStateChange, onStagedChange,
+  initialSell = null, onInitialSellUsed,
 }: {
   symbol: string;
   /** Latest close from the chart. Presentational context only — never submitted. */
@@ -139,6 +146,13 @@ export function ManualTradingPanel({
    * disarm and the submit guard use, so all three can never disagree.
    */
   onStagedChange?: (staged: boolean) => void;
+  /**
+   * OD-7: the position a "Close from the Trade panel" link named. Applied once,
+   * when the state read lists it: SELL tab, that account, that position, its
+   * quantity. If it is not open the ticket says so and does nothing. Never submits.
+   */
+  initialSell?: { accountId: string | null; positionId: string } | null;
+  onInitialSellUsed?: () => void;
 }) {
   const [state, setState] = useState<ManualTradingState | null>(null);
   const [accountId, setAccountId] = useState("");
@@ -165,6 +179,16 @@ export function ManualTradingPanel({
   const [tp, setTp] = useState("");
   const [sl, setSl] = useState("");
   const [positionId, setPositionId] = useState("");
+  /** OD-7: the explicit opt-in to sell from the wallet, not tied to any position. Never a silent fallback. */
+  const [walletSell, setWalletSell] = useState(false);
+  /** OD-7: the amount is the whole selected position (chosen, or 100%), not a typed or partial figure. */
+  const [wholePosition, setWholePosition] = useState(false);
+  /** OD-7: a deep link's position that is not open any more. */
+  const [sellTargetNotice, setSellTargetNotice] = useState<string | null>(null);
+  /** What the Bot advertises (C0 `capabilities`); null = unread or an older Bot. */
+  const [botCapabilities, setBotCapabilities] = useState<string[] | null>(null);
+  /** A manual BUY the server asked to be confirmed (OD-2): the dialog is open for it. */
+  const [stepUpOpen, setStepUpOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [orderRequestId, setOrderRequestId] = useState<string | null>(null);
   const [actionRequestIds, setActionRequestIds] = useState<Record<string, string>>({});
@@ -269,6 +293,18 @@ export function ManualTradingPanel({
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  /*
+   * The Bot's capabilities, read once (OD-7 `manualPositionFull.v1`). A failure
+   * leaves null: the ticket then sends the floored quantity, today's shape.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    botControlApi.status()
+      .then((panel) => { if (!cancelled) setBotCapabilities(panel.facts?.capabilities ?? null); })
+      .catch(() => { if (!cancelled) setBotCapabilities(null); });
+    return () => { cancelled = true; };
+  }, []);
+
   /**
    * Tell the workspace whether anything is staged.
    *
@@ -302,6 +338,7 @@ export function ManualTradingPanel({
     const cleared = resetForSymbolChange();
     setAmount(cleared.amount); setLimitPrice(cleared.limitPrice);
     setTp(cleared.tp); setSl(cleared.sl); setPositionId(cleared.positionId);
+    setWalletSell(false); setWholePosition(false);
     setMainnetConfirmed(cleared.mainnetConfirmed);
     setOrderRequestId(cleared.orderRequestId);
     setConfirming(cleared.confirming);
@@ -362,15 +399,27 @@ export function ManualTradingPanel({
    */
   const haltBlocksBuy = side === "BUY" && halted !== null;
 
-  /** The largest order this account can place right now, on this side. */
-  const maximum = maximumOrder(accountState, side);
+  /** OD-7: the position this SELL is for, if one is chosen and still open here. */
+  const selectedPosition = side === "SELL" && positionId
+    ? activePositions.find((p) => p.id === positionId) ?? null : null;
+  /** Why this SELL cannot go yet because of which coins it sells (no silent wallet fallback). */
+  const sellRequirement = sellPositionRequirement({ side, positions: activePositions, positionId, walletSell });
+  /** The largest order this account can place right now, on this side (a SELL: for the selected position). */
+  const maximum = maximumOrder(accountState, side, selectedPosition);
+  const dust = selectedPosition ? sellDust(accountState, selectedPosition) : null;
+  /** The whole selected position as an amount: floored onto the lot step, capped by the free balance. */
+  const wholeAmountOf = (p: ManualPosition): string => {
+    const max = maximumOrder(accountState, "SELL", p);
+    return max ? (max.amount > 0 ? String(max.amount) : "")
+      : String(floorToStep(p.quantity, 0));
+  };
   /*
    * A pre-submit reason the exchange would refuse, named with the actual
    * current maximum. Advisory: the Bot and Binance both re-check, and this can
    * only ever discourage an order, never enlarge one.
    */
   const sizingProblem = preSubmitProblem({ state: accountState, side, amount,
-    referencePrice: quote?.bid ?? lastPrice });
+    referencePrice: quote?.bid ?? lastPrice, position: selectedPosition });
   const priceHint = relativePriceHint({ limitPrice, quote,
     tickSize: accountState?.rules.priceTick ?? 0 });
 
@@ -402,7 +451,7 @@ export function ManualTradingPanel({
     && !haltBlocksBuy
     && staleTicket === null
     && sizingProblem === null
-    && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
+    && sellRequirement === null;
   // The Bot's dry run is not the Platform's PAPER deployment mode; never call it PAPER.
   const mode = account ? (state?.dryRun ? "DRY RUN (simulated)" : "TESTNET SANDBOX") : "SANDBOX ONLY";
   const accountLabel = (id: string): string => {
@@ -418,12 +467,52 @@ export function ManualTradingPanel({
     : `${amount} ${amountUnit} ${displayTicker(symbol)}${
       orderType === "LIMIT" ? ` @ ${limitPrice || "—"} LIMIT` : " MARKET"}`;
 
-  const commandBody = (selected: ManualAccount, requestId: string) => ({ requestId, accountId: selected.id,
-    symbol, side, orderType, ...(side === "BUY" ? { quoteQuantity: n(amount) } : { baseQuantity: n(amount) }),
+  /*
+   * OD-7: the whole selected position goes as `positionFull: true` (the Bot
+   * sells exactly what remains of it), but only to a Bot that advertises it;
+   * otherwise the floored quantity, today's shape. A typed or partial amount
+   * is always a quantity.
+   */
+  const sendPositionFull = side === "SELL" && selectedPosition !== null && wholePosition
+    && (botCapabilities?.includes("manualPositionFull.v1") ?? false);
+  const commandBody = (selected: ManualAccount, requestId: string, credential?: BotCredential) => ({ requestId, accountId: selected.id,
+    symbol, side, orderType,
+    ...(side === "BUY" ? { quoteQuantity: n(amount) } : sendPositionFull ? { positionFull: true } : { baseQuantity: n(amount) }),
     ...(orderType === "LIMIT" ? { limitPrice: n(limitPrice) } : {}),
     ...(side === "BUY" && n(tp) !== undefined ? { takeProfitPrice: n(tp) } : {}),
     ...(side === "BUY" && n(sl) !== undefined ? { stopLossPrice: n(sl) } : {}),
-    ...(side === "SELL" && positionId ? { positionId } : {}) });
+    ...(side === "SELL" && positionId ? { positionId } : {}),
+    ...(credential ? { credential } : {}) });
+
+  /*
+   * One order, one request id (F7): the id is minted once per staged order and
+   * reused for every attempt at it, including the retry after a step-up.
+   */
+  const placeOrder = async (credential?: BotCredential): Promise<"sent" | "step_up" | "failed"> => {
+    if (!account) return "failed";
+    // Also here, for the retry from the step-up dialog: never send a ticket staged for something else.
+    if (staleTicket) { setError(said(staleTicket)); setConfirming(false); return "failed"; }
+    const requestId = orderRequestId ?? newRequestId();
+    if (!orderRequestId) setOrderRequestId(requestId);
+    setPending(true); setError(null); setNotice(null);
+    try { await api.submitManualOrder(commandBody(account, requestId, credential)); setConfirming(false); setOrderRequestId(null); setAmount("");
+      setTp(""); setSl(""); setLimitPrice(""); setPositionId(""); setWalletSell(false); setWholePosition(false);
+      setMainnetConfirmed(false); setArmedSymbol(null); setArmedAccountId(null);
+      setNotice("Order accepted by the execution bot.");
+      await refresh(); setTab("orders");
+      return "sent"; }
+    catch (e) {
+      // A BUY the server wants confirmed: the step-up dialog asks (never a SELL).
+      if (e instanceof ApiError && e.code !== null && STEP_UP_REFUSALS.has(e.code) && side === "BUY") {
+        lastStepUpRefusal.current = e;
+        return "step_up";
+      }
+      setError(describeAction(e, "place the order"));
+      return "failed";
+    }
+    finally { setPending(false); }
+  };
+  const lastStepUpRefusal = useRef<ApiError | null>(null);
 
   const submit = async () => {
     if (!account || pending) return;
@@ -431,17 +520,54 @@ export function ManualTradingPanel({
     // place an order can still be stopped, and it must not depend on the
     // button's disabled state having been recomputed.
     if (staleTicket) { setError(said(staleTicket)); setConfirming(false); return; }
-    const requestId = orderRequestId ?? newRequestId();
-    if (!orderRequestId) setOrderRequestId(requestId);
-    setPending(true); setError(null); setNotice(null);
-    try { await api.submitManualOrder(commandBody(account, requestId)); setConfirming(false); setOrderRequestId(null); setAmount("");
-      setTp(""); setSl(""); setLimitPrice(""); setPositionId("");
-      setMainnetConfirmed(false); setArmedSymbol(null); setArmedAccountId(null);
-      setNotice("Order accepted by the execution bot.");
-      await refresh(); setTab("orders"); }
-    catch (e) { setError(describeAction(e, "place the order")); }
-    finally { setPending(false); }
+    if (await placeOrder() === "step_up") { setConfirming(false); setStepUpOpen(true); }
   };
+
+  /** The step-up dialog's confirm: the same order, the same id, with the credential. */
+  const confirmWithCredential = async (credential: BotCredential): Promise<DialogResult> => {
+    const outcome = await placeOrder(credential);
+    if (outcome !== "step_up") return { close: true };
+    const refusal = lastStepUpRefusal.current;
+    return { close: false, error: refusal?.detail ?? "That could not be confirmed.",
+      ...(refusal?.method ? { method: refusal.method } : {}) };
+  };
+
+  /*
+   * OD-7 deep link: once the state read lists the named position on this
+   * chart's symbol, preselect it on the SELL tab. If the read shows it is not
+   * open (or not this symbol's), say so and do nothing else.
+   */
+  const appliedSell = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialSell || !state) return;
+    const key = `${initialSell.accountId ?? ""}:${initialSell.positionId}`;
+    if (appliedSell.current === key) return; // once per link, whatever the parent does with the prop
+    const found = state.positions.find((p) => p.id === initialSell.positionId);
+    if (found && found.status === "active" && !sameSymbol(found.pair, symbol)) return; // the chart is still switching
+    appliedSell.current = key;
+    onInitialSellUsed?.();
+    const accountMatches = !initialSell.accountId || found?.exchangeAccountId === initialSell.accountId;
+    const sandbox = state.accounts.find((a) => a.id === found?.exchangeAccountId)?.testnet === true;
+    if (!found || found.status !== "active" || !accountMatches || !sandbox) {
+      setSellTargetNotice("That position is no longer open. Nothing was selected.");
+      return;
+    }
+    setSellTargetNotice(null);
+    setAccountId(found.exchangeAccountId);
+    setSide("SELL"); setWalletSell(false);
+    setArmedSymbol(symbol); setArmedAccountId(found.exchangeAccountId); setDisarmedFrom(null);
+    setPositionId(found.id); setAmount(String(found.quantity)); setWholePosition(true);
+    // The amount is re-floored against the account's lot step once it is read (below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSell, state, symbol]);
+
+  /* Re-floor a whole-position amount once the account's balance and lot step are known. */
+  useEffect(() => {
+    if (!wholePosition || !selectedPosition || !accountState) return;
+    const whole = wholeAmountOf(selectedPosition);
+    if (whole !== amount) setAmount(whole);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wholePosition, selectedPosition?.id, accountState]);
 
   const cancel = async (id: string) => {
     const order = state?.orders.find((o) => o.id === id);
@@ -662,7 +788,17 @@ export function ManualTradingPanel({
         */}
       <div className="grid grid-cols-[1fr_auto_1fr] gap-px overflow-hidden rounded-md border border-border bg-border"
         role="group" aria-label="Order side">
-        <button onClick={() => { setSide("SELL"); setPositionId(""); }} aria-pressed={side === "SELL"}
+        <button onClick={() => {
+          /*
+           * OD-7: the SELL tab preselects instead of clearing. One open position
+           * here: that one, its whole quantity. Several: none, and the operator
+           * must choose. None: a wallet sell, as before.
+           */
+          setSide("SELL"); setWalletSell(false);
+          const only = sellTabPosition(activePositions);
+          if (only) { arm(setPositionId)(only.id); setAmount(wholeAmountOf(only)); setWholePosition(true); }
+          else { setPositionId(""); setWholePosition(false); }
+        }} aria-pressed={side === "SELL"}
           className={`flex flex-col items-center py-1.5 transition-colors ${side === "SELL"
             ? "bg-down/20 text-down" : "bg-surface text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
           <span className="text-sm font-semibold">SELL</span>
@@ -676,7 +812,8 @@ export function ManualTradingPanel({
               ? `${fmtPriceDelta(spread.absolute, quote.ask, false)} · ${spread.bps.toFixed(1)} bps`
               : "—"}</span>
         </div>
-        <button onClick={() => { setSide("BUY"); setPositionId(""); }} aria-pressed={side === "BUY"}
+        <button onClick={() => { setSide("BUY"); setPositionId(""); setWalletSell(false); setWholePosition(false); }}
+          aria-pressed={side === "BUY"}
           className={`flex flex-col items-center py-1.5 transition-colors ${side === "BUY"
             ? "bg-up/20 text-up" : "bg-surface text-ink-muted hover:bg-state-hover hover:text-ink"}`}>
           <span className="text-sm font-semibold">BUY</span>
@@ -697,19 +834,38 @@ export function ManualTradingPanel({
             orderType === t.id ? "text-ink" : "text-ink-muted hover:text-ink"}`}>
           {t.label}</button>)}
       </div>
+      {sellTargetNotice && <p role="status" data-testid="manual-sell-target-notice" className="text-xs text-warn">
+        {sellTargetNotice}</p>}
       {side === "SELL" && activePositions.length > 0 && (
-        <div>
+        <div className="space-y-1.5">
           <label htmlFor="manual-position" className="mb-1 block text-[11px] font-medium text-ink-muted">
-            Manual position on {displayTicker(symbol)} (required when tracked)
+            Position to sell on {displayTicker(symbol)}
           </label>
-          <select id="manual-position" value={positionId}
-            onChange={(e) => { arm(setPositionId)(e.target.value);
-              const p = activePositions.find((x) => x.id === e.target.value); if (p) setAmount(String(p.quantity)); }}
+          <select id="manual-position" value={positionId} disabled={walletSell}
+            onChange={(e) => {
+              arm(setPositionId)(e.target.value);
+              const p = activePositions.find((x) => x.id === e.target.value);
+              if (p) { setAmount(wholeAmountOf(p)); setWholePosition(true); } else { setWholePosition(false); }
+            }}
             className={`w-full ${FIELD}`}>
-            <option value="">Unassociated wallet sell</option>
+            {(activePositions.length > 1 || positionId === "") && <option value="">Choose a position…</option>}
             {activePositions.map((p) => <option key={p.id} value={p.id}>
               {p.quantity} {base} · entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"}</option>)}
           </select>
+          <label className="flex items-start gap-2 text-[11px] text-ink-muted">
+            <input type="checkbox" checked={walletSell} data-testid="manual-wallet-sell"
+              onChange={(e) => {
+                arm(setWalletSell)(e.target.checked);
+                if (e.target.checked) { setPositionId(""); setWholePosition(false); setAmount(""); }
+              }} className="mt-0.5" />
+            <span>Sell from wallet (not tied to a position)</span>
+          </label>
+          {walletSell && <p className="text-[11px] text-warn">
+            A wallet sell can sell coins that belong to another position or that the Bot does not track.</p>}
+          {sellRequirement && <p role="status" data-testid="manual-sell-requirement" className="text-[11px] text-warn">
+            {sellRequirement}</p>}
+          {dust !== null && <p data-testid="manual-sell-dust" className="text-[11px] text-ink-muted">
+            {fmtQty(dust)} {base} below the lot step cannot be sold and stays in the wallet.</p>}
         </div>
       )}
       {orderType === "LIMIT" && (
@@ -749,7 +905,8 @@ export function ManualTradingPanel({
           <span className="text-ink">{fmtQty(maximum.amount)} {maximum.asset}</span>
         </p>}
       </div>}
-      <UnitField id="manual-amount" label={amountLabel} unit={amountUnit} value={amount} onChange={arm(setAmount)}
+      <UnitField id="manual-amount" label={amountLabel} unit={amountUnit} value={amount}
+        onChange={(value) => { setWholePosition(false); arm(setAmount)(value); }}
         invalid={amountInvalid} problem={amountInvalid ? `Enter an amount above zero in ${amountUnit}.` : null} />
       {/*
         * Quick fill, from the SAME balance the validation above uses. It only
@@ -757,16 +914,23 @@ export function ManualTradingPanel({
         * value is floored onto the exchange's lot step so "100%" can never ask
         * for more than is free.
         */}
-      {maximum && maximum.amount > 0 && (
-        <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-border bg-border"
-          role="group" aria-label="Quick fill amount">
-          {QUICK_FILL_PERCENTS.map((pct) => (
-            <button key={pct} type="button" data-testid={`manual-quickfill-${pct}`}
-              onClick={() => arm(setAmount)(quickFillAmount(accountState, side, pct))}
-              className="bg-surface py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-state-hover hover:text-ink">
-              {pct}%
-            </button>
-          ))}
+      {maximum && maximum.amount > 0 && sellRequirement === null && (
+        <div>
+          {side === "SELL" && <p data-testid="manual-quickfill-basis" className="mb-1 text-[11px] text-ink-muted">
+            {selectedPosition ? "% of the selected position" : "% of free wallet balance"}</p>}
+          <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-border bg-border"
+            role="group" aria-label="Quick fill amount">
+            {QUICK_FILL_PERCENTS.map((pct) => (
+              <button key={pct} type="button" data-testid={`manual-quickfill-${pct}`}
+                onClick={() => {
+                  arm(setAmount)(quickFillAmount(accountState, side, pct, selectedPosition));
+                  setWholePosition(selectedPosition !== null && pct === 100);
+                }}
+                className="bg-surface py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-state-hover hover:text-ink">
+                {pct}%
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {sizingProblem && <p role="alert" data-testid="manual-sizing-problem"
@@ -922,12 +1086,21 @@ export function ManualTradingPanel({
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
         <dt className="text-ink-muted">Account</dt><dd>{account?.name ?? "—"}</dd><dt className="text-ink-muted">Mode</dt><dd>{mode}</dd>
         <dt className="text-ink-muted">Symbol</dt><dd>{displayTicker(symbol)}</dd><dt className="text-ink-muted">Side / type</dt><dd>{side} · {orderType}</dd>
-        <dt className="text-ink-muted">Amount</dt><dd>{amount} {side === "BUY" ? "USDT quote" : "base"}</dd>
+        <dt className="text-ink-muted">Amount</dt><dd>{amount} {side === "BUY" ? "USDT quote" : "base"}
+          {sendPositionFull ? " (the whole selected position)" : ""}</dd>
+        {side === "SELL" && <><dt className="text-ink-muted">Sells</dt><dd>{selectedPosition
+          ? "The selected position" : "From the wallet (not tied to a position)"}</dd></>}
         {orderType === "LIMIT" && <><dt className="text-ink-muted">Limit price</dt><dd>{limitPrice}</dd></>}
         <dt className="text-ink-muted">TP / SL</dt><dd>{tp || "none"} / {sl || "none"}</dd>
         <dt className="text-ink-muted">Protection</dt><dd>{side === "BUY" && (tp || sl)
           ? "bot-managed · not exchange-resting" : "none"}</dd>
       </dl>
     </Modal>
+    {/* OD-2/OD-7: a manual BUY opens new exposure, so the server may ask for the code (a recent one suffices). */}
+    <StepUpDialog open={stepUpOpen} title="Confirm this BUY" confirmLabel="Confirm BUY"
+      initialMethod={lastStepUpRefusal.current?.method ?? null}
+      onCancel={() => setStepUpOpen(false)} onConfirm={confirmWithCredential}
+      intro={<p>A manual BUY opens new exposure, so it is confirmed with the code from your authenticator app.
+        {orderSummary ? ` ${orderSummary}.` : ""}</p>} />
   </aside>;
 }

@@ -118,6 +118,26 @@ while two-factor is off; resuming needs two-factor (grant tier). The explicit
 opt-in `cancelWorkingEntries` asks the Bot to cancel manual LIMIT BUYs still
 working on the exchange; it is passed through only as a boolean.
 
+### Manual orders from the Trade panel (updated 2026-11-09, OD-7)
+
+- **A SELL is for a chosen position.** The SELL tab selects the only open
+  position on that symbol and account (its whole quantity, floored to the lot
+  step and capped by the free balance); with several it waits for a choice; with
+  none it is a wallet sell, as before. "100%" means the selected position. A
+  sell not tied to a position needs the explicit tick "Sell from wallet (not
+  tied to a position)", and its percentages are "% of free wallet balance".
+  Dust below the lot step is named. The whole position is sent as
+  `positionFull: true` only to a Bot whose status lists `manualPositionFull.v1`;
+  otherwise as the floored quantity.
+- **"Close from the Trade panel" names the position**:
+  `/chart?source=scanner&symbol=X&panel=manual&side=sell&position=<id>` (plus
+  `&account=<id>` when known). It only prefills; a position that is no longer
+  open is reported and nothing is selected.
+- **The browser's request id is required** on `POST /api/manual-trading/orders`
+  (400 `invalid_request_id`; the Platform never mints one), and a manual **BUY**
+  asks for step-up at the grant tier (two-factor only). A SELL, a cancel and a
+  protection edit never ask, and are never blocked by a halt or a pause.
+
 ### Risk limits
 
 These are the Platform's limits. Each is opt-in and `null` (off) by default, so

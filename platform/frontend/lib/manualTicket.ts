@@ -156,3 +156,29 @@ export function ticketSubmitBlocker(input: {
   }
   return null;
 }
+
+/**
+ * Which position the SELL tab starts on (OD-7): the only active position when
+ * there is exactly one; none when there are several (the operator must choose)
+ * or none at all (then it is a wallet sell, as before).
+ */
+export function sellTabPosition(positions: readonly ManualPosition[]): ManualPosition | null {
+  return positions.length === 1 ? positions[0]! : null;
+}
+
+/**
+ * Why a SELL cannot be submitted yet because of WHICH coins it sells, or null.
+ * With positions open on this symbol and account, a SELL must name one, unless
+ * the operator explicitly ticked "Sell from wallet (not tied to a position)".
+ * Nothing falls back to the wallet silently.
+ */
+export function sellPositionRequirement(input: {
+  side: "BUY" | "SELL";
+  positions: readonly ManualPosition[];
+  positionId: string;
+  walletSell: boolean;
+}): string | null {
+  if (input.side !== "SELL" || input.walletSell || input.positions.length === 0) return null;
+  if (input.positionId === "") return "Choose which position to sell, or tick Sell from wallet.";
+  return input.positions.some((p) => p.id === input.positionId) ? null : "That position is no longer open.";
+}

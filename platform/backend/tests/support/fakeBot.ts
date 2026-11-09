@@ -130,6 +130,8 @@ export class FakeBot {
   workingEntries: { orderId: string; symbol: string }[] = [];
   capabilities: string[] = [...FAKE_BOT_CAPABILITIES];
   legacyStatus = false;
+  /** Manual orders the Platform forwarded (POST /api/manual-trading/orders). */
+  readonly manualOrders: { requestId: string; body: Record<string, unknown> }[] = [];
   readonly manualTrades = new Set<string>();
   readonly commands = new Map<string, StoredCommand>();
   private readonly nonces = new Set<string>();
@@ -160,6 +162,7 @@ export class FakeBot {
     this.workingEntries = [];
     this.capabilities = [...FAKE_BOT_CAPABILITIES];
     this.legacyStatus = false;
+    this.manualOrders.length = 0;
   }
 
   /** Requests that reached a command route (not C0/C3/C8 reads). */
@@ -271,6 +274,11 @@ export class FakeBot {
         return { status: 200, body: { halted: true, haltedBy: this.haltedBy, haltedReason: params.reason ?? null,
           haltedAt: "2026-11-09T12:00:00.000Z", alreadyHalted } };
       });
+    }
+    if (method === "POST" && path === "/api/manual-trading/orders") {
+      // The manual order route (OD-7 tests): recorded, answered as accepted. Not a control command.
+      this.manualOrders.push({ requestId, body: b });
+      return { status: 200, body: { id: `manual-order-${this.manualOrders.length}`, status: "submitted", requestId } };
     }
     if (method === "POST" && path === `${base}/entries`) {
       // C9 (OD-3), strict like the Bot's schema: pause {paused:true, reason 3..200,

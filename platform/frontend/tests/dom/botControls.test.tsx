@@ -55,7 +55,9 @@ test("a manual trade offers the Trade panel, never Close; a strategy trade offer
   await open({ trades: () => page([TRADE, MANUAL_TRADE]) });
   for (const card of [document.querySelector(`[data-trade-card="${MANUAL_TRADE_ID}"]`)!]) {
     const link = within(card as HTMLElement).getByRole("link", { name: "Close from the Trade panel" });
-    assert.equal(link.getAttribute("href"), "/chart?source=scanner&symbol=ETHUSDT&panel=manual");
+    // OD-7: the link names this position, so the Trade panel preselects it (prefill only).
+    assert.equal(link.getAttribute("href"),
+      `/chart?source=scanner&symbol=ETHUSDT&panel=manual&side=sell&position=${MANUAL_TRADE_ID}`);
     assert.ok(within(card as HTMLElement).queryByRole("button") === null);
   }
   const strategy = document.querySelector(`[data-trade-card="${TRADE_ID}"]`) as HTMLElement;

@@ -75,7 +75,7 @@ export function OneTimeCodeInput({
         autoCorrect="off" autoCapitalize="off" value={value} disabled={disabled} autoFocus={autoFocus}
         aria-describedby={hintId}
         onChange={(e) => accept(e.target.value)} onPaste={onPaste} onKeyDown={onKeyDown}
-        className={`mt-1.5 block w-full max-w-[12rem] font-mono tracking-[0.2em] ${className}`} />
+        className={`mt-1.5 block w-full max-w-[12rem] tabular tracking-[0.2em] ${className}`} />
       {hint && <p id={hintId} className="mt-1 text-[12px] text-ink-faint">{hint}</p>}
     </>
   );
