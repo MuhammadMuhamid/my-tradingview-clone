@@ -35,7 +35,9 @@ async function send<T>(reply: FastifyReply, action: () => Promise<T>) {
     if (error instanceof UnsupportedExecutionError) {
       return reply.code(error.status).send({ error: error.message, code: "unsupported_execution" });
     }
-    if (error instanceof ManualBotError) return reply.code(error.status).send({ error: error.message });
+    if (error instanceof ManualBotError) {
+      return reply.code(error.status).send({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    }
     throw error;
   }
 }
@@ -80,17 +82,35 @@ function gatedSide(command: Record<string, unknown>): SpotSide {
  */
 async function assertNotHalted(
   command: Record<string, unknown>,
-  readLimits: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>
+  readLimits: () => Promise<ManualRiskLimits>
 ): Promise<void> {
   if (gatedSide(command) !== "BUY") return;
   const limits = await readLimits();
-  if (!limits.tradingHalted) return;
-  throw new ManualBotError(
-    limits.haltedReason
-      ? `trading is halted: ${limits.haltedReason}. Closing an open position is still allowed.`
-      : "trading is halted. Closing an open position is still allowed.",
-    409
-  );
+  if (limits.tradingHalted) {
+    throw new ManualBotError(
+      limits.haltedReason
+        ? `trading is halted: ${limits.haltedReason}. Closing an open position is still allowed.`
+        : "trading is halted. Closing an open position is still allowed.",
+      409
+    );
+  }
+  // OD-3: paused new entries refuse a manual BUY too. SELL never reaches here.
+  if (limits.entriesPaused === true) {
+    throw new ManualBotError(
+      limits.entriesPausedReason
+        ? `new entries are paused: ${limits.entriesPausedReason}. Selling is still allowed.`
+        : "new entries are paused. Selling is still allowed.",
+      409, "entries_paused"
+    );
+  }
+}
+
+/** What the manual route reads of the risk controls (injectable for tests). */
+export interface ManualRiskLimits {
+  tradingHalted: boolean;
+  haltedReason: string | null;
+  entriesPaused?: boolean;
+  entriesPausedReason?: string | null;
 }
 
 export async function manualTradingRoutes(
@@ -99,8 +119,8 @@ export async function manualTradingRoutes(
     shariah?: ShariahGateDeps;
     executionTarget?: (instrument: string) => ExecutionTarget;
     botRequest?: typeof manualBotRequest;
-    /** Injected so the halt refusal is provable without a database. */
-    riskLimits?: () => Promise<{ tradingHalted: boolean; haltedReason: string | null }>;
+    /** Injected so the halt (and pause) refusal is provable without a database. */
+    riskLimits?: () => Promise<ManualRiskLimits>;
   } = {}
 ): Promise<void> {
   const shariahDeps = dependencies.shariah ?? {};

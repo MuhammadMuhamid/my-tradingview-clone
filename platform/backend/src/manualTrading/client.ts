@@ -27,7 +27,8 @@ export function signManualCommand(input: { method: string; path: string; timesta
 }
 
 export class ManualBotError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  /** `code`, when set, is this Platform's typed refusal (`entries_paused`, `invalid_request_id`, …). */
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
 }
 
 export interface ManualBotRequestInput {
@@ -357,6 +358,17 @@ export const botControlReplies = {
     b.status === "ok" || b.status === "ignored_duplicate" || b.status === "pending",
   partialClose: (b: Record<string, unknown>): boolean =>
     b.status === "pending" || (finite(b.requestedQty) && finite(b.executedQty)),
+  /** C9 (OD-3). `canceledEntries` only when the pause asked for working entry orders to be cancelled. */
+  entries: (b: Record<string, unknown>): boolean => {
+    const entries = b.entries;
+    const canceled = b.canceledEntries;
+    const nullableText = (value: unknown) => value === null || typeof value === "string";
+    return isObject(entries) && typeof entries.paused === "boolean" && nullableText(entries.pausedAt)
+      && nullableText(entries.pausedBy) && nullableText(entries.reason) && typeof b.changed === "boolean"
+      && (canceled === undefined || (Array.isArray(canceled) && canceled.every((c) => isObject(c)
+        && typeof c.orderId === "string" && typeof c.symbol === "string"
+        && ["canceled", "already_terminal", "unknown", "failed"].includes(String(c.outcome)))));
+  },
   command: (b: Record<string, unknown>): boolean =>
     typeof b.requestId === "string" && typeof b.kind === "string"
     && (b.status === "processing" || b.status === "succeeded" || b.status === "failed" || b.status === "pending"),

@@ -24,6 +24,15 @@ export interface RiskLimits {
   maxConcurrentPositions: number | null;
   maxDailyLossQuote: number | null;
   dailyLossWindowHours: number;
+  /**
+   * Pause new entries (OD-3, migration 057): BUYs are refused, exits pass.
+   * Optional so a hand-built limits object without it means "not paused",
+   * exactly as before the switch existed; the repository always fills it.
+   */
+  entriesPaused?: boolean;
+  entriesPausedAt?: string | null;
+  entriesPausedBy?: string | null;
+  entriesPausedReason?: string | null;
 }
 
 export type HaltSource = "operator" | "daily_loss" | "exposure" | "concurrency" | "data_gap";
@@ -55,7 +64,8 @@ export type RiskBlockCode =
   | "trading_halted"
   | "max_exposure"
   | "max_concurrent_positions"
-  | "daily_loss_limit";
+  | "daily_loss_limit"
+  | "entries_paused";
 
 export const DEFAULT_RISK_LIMITS: RiskLimits = {
   tradingHalted: false,
@@ -65,6 +75,10 @@ export const DEFAULT_RISK_LIMITS: RiskLimits = {
   maxConcurrentPositions: null,
   maxDailyLossQuote: null,
   dailyLossWindowHours: 24,
+  entriesPaused: false,
+  entriesPausedAt: null,
+  entriesPausedBy: null,
+  entriesPausedReason: null,
 };
 
 const block = (code: RiskBlockCode, reason: string): RiskDecision =>
@@ -105,6 +119,17 @@ export function evaluateRisk(
 
   // Exits are always permitted past this point.
   if (order.action === "sell") return { allowed: true };
+
+  // Pause new entries (OD-3): no new position, every delivery alike. Unlike
+  // the halt it never touches an exit, and unlike a limit it never latches.
+  if (limits.entriesPaused === true) {
+    return block(
+      "entries_paused",
+      limits.entriesPausedReason
+        ? `new entries are paused: ${limits.entriesPausedReason}`
+        : "new entries are paused"
+    );
+  }
 
   if (limits.maxDailyLossQuote !== null) {
     const loss = -Math.min(0, snapshot.realisedPnlInWindow);
@@ -209,5 +234,5 @@ export function describeRiskState(limits: RiskLimits, snapshot: RiskSnapshot): s
     `${limits.dailyLossWindowHours}h loss ${loss.toFixed(2)}` +
       (limits.maxDailyLossQuote !== null ? `/${limits.maxDailyLossQuote.toFixed(2)}` : "")
   );
-  return `LIVE — ${parts.join(", ")}`;
+  return `${limits.entriesPaused === true ? "LIVE, NEW ENTRIES PAUSED" : "LIVE"} — ${parts.join(", ")}`;
 }

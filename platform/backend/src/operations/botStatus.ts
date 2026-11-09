@@ -163,6 +163,23 @@ export interface BotControlStatus {
   manual: { enabled: boolean; mainnetEnabled: boolean };
   version: string | null;
   time: string;
+  /**
+   * Pause new entries, the Bot half (OD-3, C9). Absent on a Bot older than it:
+   * the Platform then shows the Bot half as unknown, never as "not paused".
+   */
+  entries?: {
+    paused: boolean; pausedAt: string | null; pausedBy: string | null; reason: string | null;
+    /** Manual LIMIT BUYs still working on the exchange (a pause may cancel them on request). */
+    workingEntryLimits?: number;
+    unresolvedBuyIntents?: number;
+  };
+  /** What this Bot supports (B-CAP), e.g. "entries.v1", "manualPositionFull.v1". Absent = an older Bot. */
+  capabilities?: string[];
+}
+
+/** Whether a C0 reading advertises a capability. An unread or older Bot advertises nothing. */
+export function botHasCapability(status: BotControlStatus | null | undefined, capability: string): boolean {
+  return Array.isArray(status?.capabilities) && status.capabilities.includes(capability);
 }
 
 const nullableString = (value: unknown): boolean => value === null || typeof value === "string";
@@ -192,6 +209,14 @@ export function isBotControlStatus(value: unknown): value is BotControlStatus {
   if (!isRecord(shariahFloor) || typeof shariahFloor.mode !== "string"
     || !nullableString(shariahFloor.policyVersion)) return false;
   if (!isRecord(manual) || typeof manual.enabled !== "boolean" || typeof manual.mainnetEnabled !== "boolean") return false;
+  // Optional (OD-3, B-CAP): absent from an older Bot, checked whenever present.
+  const { entries, capabilities } = value;
+  const optionalCount = (n: unknown) => n === undefined || (finiteNumber(n) && (n as number) >= 0);
+  if (entries !== undefined && (!isRecord(entries) || typeof entries.paused !== "boolean"
+    || !nullableString(entries.pausedAt) || !nullableString(entries.pausedBy) || !nullableString(entries.reason)
+    || !optionalCount(entries.workingEntryLimits) || !optionalCount(entries.unresolvedBuyIntents))) return false;
+  if (capabilities !== undefined && (!Array.isArray(capabilities) || capabilities.length > 64
+    || !capabilities.every((c) => typeof c === "string" && c.length > 0 && c.length <= 64))) return false;
   return nullableString(value.version) && typeof value.time === "string";
 }
 

@@ -218,6 +218,48 @@ function closeSpec(_body: Record<string, unknown>, rawId: unknown): CommandSpec 
     allowsPassword: false, tier: "grant" };
 }
 
+/**
+ * C9, pause or resume new entries (OD-3), with the Platform's own switch as
+ * its first half. Pausing is risk-reducing, so like a halt it accepts the
+ * password when two-factor is off; resuming needs two-factor.
+ *   pause  {paused:true, reason:3..200, cancelWorkingEntries?:boolean}
+ *   resume {paused:false}
+ * The body the Bot receives is rebuilt from these validated fields only.
+ */
+function entriesSpec(body: Record<string, unknown>): CommandSpec {
+  if (typeof body.paused !== "boolean") throw invalid("paused must be true or false.");
+  const paused = body.paused;
+  const params: Record<string, unknown> = { paused };
+  if (paused) {
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 3 || reason.length > 200) throw invalid("A reason of 3 to 200 characters is required.");
+    params.reason = reason;
+    if (body.cancelWorkingEntries !== undefined) {
+      if (typeof body.cancelWorkingEntries !== "boolean") throw invalid("cancelWorkingEntries must be true or false.");
+      if (body.cancelWorkingEntries) params.cancelWorkingEntries = true;
+    }
+  } else if (body.cancelWorkingEntries !== undefined && body.cancelWorkingEntries !== false) {
+    throw invalid("cancelWorkingEntries applies only to pausing.");
+  }
+  return {
+    kind: "entries", method: "POST", botPath: `${BOT_BASE}/entries`, target: "bot", params,
+    accept: botControlReplies.entries, long: true, allowsPassword: paused, tier: "grant",
+    platformHalf: async ({ actor, requestId, proof }) => {
+      const state = await liveSafety.setEntriesPaused(paused,
+        { reason: paused ? params.reason as string : null, by: actor });
+      try {
+        await appendAdminAudit(actor, paused ? "platform.entries_paused" : "platform.entries_resumed", "platform", {
+          requestId, changed: state.changed, ...(paused ? { reason: params.reason } : {}),
+          stepUpMethod: proof.method, ...(proof.grantId ? { grantId: proof.grantId } : {}),
+        });
+      } catch {
+        // The switch is set (risk-reducing when pausing); a lost audit row must not hide that.
+      }
+      return { paused: state.paused, at: state.pausedAt, by: state.pausedBy, reason: state.reason, changed: state.changed };
+    },
+  };
+}
+
 function partialCloseSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
   const id = pathId(rawId, "trade");
   const pct = body.pct;
@@ -473,12 +515,24 @@ async function platformHalt() {
   }
 }
 
+/** The Platform half of "pause new entries" (OD-3); null when it could not be read (show unknown). */
+async function platformEntries() {
+  try {
+    const limits = await liveSafety.getRiskLimits();
+    return { paused: limits.entriesPaused === true, pausedAt: limits.entriesPausedAt ?? null,
+      pausedBy: limits.entriesPausedBy ?? null, reason: limits.entriesPausedReason ?? null };
+  } catch {
+    return null;
+  }
+}
+
 export async function botControlRoutes(app: FastifyInstance): Promise<void> {
   /** C0, plus what only this Platform knows: is the channel set, the webhook path, the Platform halt. */
   app.get("/api/bot/control/status", async () => {
     const deployments = await deploymentRepo.listDeployments();
-    const [{ panel }, halt] = await Promise.all([readBotOperations(deployments), platformHalt()]);
-    return { ...panel, platformHalt: halt };
+    const [{ panel }, halt, entries] = await Promise.all([
+      readBotOperations(deployments), platformHalt(), platformEntries()]);
+    return { ...panel, platformHalt: halt, platformEntries: entries };
   });
 
   /** C3. */
@@ -517,4 +571,9 @@ export async function botControlRoutes(app: FastifyInstance): Promise<void> {
     runCommand(req, reply, (body) => closeSpec(body, (req.params as { id?: string }).id)));
   app.post("/api/bot/control/trades/:id/partial-close", async (req, reply) =>
     runCommand(req, reply, (body) => partialCloseSpec(body, (req.params as { id?: string }).id)));
+
+  // ── C9 with the Platform half (OD-3) ─────────────────────────────────────
+
+  /** Answers `{platform:{paused, at, by, reason, changed}, bot:{httpStatus, status, …}}`. */
+  app.post("/api/bot/control/entries", async (req, reply) => runCommand(req, reply, entriesSpec));
 }

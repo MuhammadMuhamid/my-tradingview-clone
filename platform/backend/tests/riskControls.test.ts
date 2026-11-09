@@ -186,3 +186,21 @@ test("the live summary shows each figure against its limit, or bare when unset",
   assert.match(bare, /positions 2,/);
   assert.ok(!bare.includes("/"), bare);
 });
+
+// ── Pause new entries (OD-3) ────────────────────────────────────────────────
+
+test("paused entries refuse a BUY, never an exit, and never latch the halt", () => {
+  const paused = limits({ entriesPaused: true, entriesPausedReason: "news risk" });
+  const refused = evaluateRisk(paused, snap(), buy());
+  assert.equal(refused.allowed, false);
+  assert.equal(refused.allowed ? "" : refused.code, "entries_paused");
+  assert.match(refused.allowed ? "" : refused.reason, /new entries are paused: news risk/);
+  assert.deepEqual(evaluateRisk(paused, snap(), sell()), { allowed: true }, "an exit always passes a pause");
+  assert.equal(shouldLatchHalt(refused), null, "a pause is not a breach");
+  // Independent of the halt: the halt still stops exits too.
+  const both = limits({ entriesPaused: true, tradingHalted: true, haltedReason: "stop" });
+  assert.equal(evaluateRisk(both, snap(), sell()).allowed, false);
+  // A limits object without the field means "not paused", exactly as before the switch existed.
+  const { entriesPaused: _absent, ...legacy } = limits();
+  assert.deepEqual(evaluateRisk(legacy, snap(), buy()), { allowed: true });
+});

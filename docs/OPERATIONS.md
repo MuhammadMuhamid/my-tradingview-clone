@@ -95,6 +95,29 @@ other. `/bot` and the Bot panel on this page show both, each with what it blocks
 - **The owner's options** (one switch for both, or a Bot halt that keeps TP/SL
   running) are an owner decision and are not implemented.
 
+### Pause new entries (added 2026-11-09, OD-3)
+
+A third, narrower switch: no NEW position is opened, and everything else keeps
+running. One operator action, `POST /api/bot/control/entries` (`{paused, reason
+3–200 when pausing, cancelWorkingEntries?}`), sets both halves: the Platform's
+flag (`risk_controls.entries_paused`, migration 057, kept across restarts,
+audited `platform.entries_paused|entries_resumed`) and then the Bot's (command
+C9). The answer reports the two halves separately (`{platform, bot}`); when the
+Bot's answer is uncertain or the channel is not configured, the Platform half
+still applies and the Bot half says so. A Bot older than C9 has no `entries` in
+its status, and its half reads unknown, never "not paused".
+
+| | Platform half | Bot half |
+|---|---|---|
+| Refused | Strategy BUY emissions from the live runner, every delivery (`evaluateRisk` code `entries_paused`); a deployment test-signal BUY and a Platform manual BUY (409 `entries_paused`) | Webhook BUY, manual BUY, and strategy BUY intents (B-OD3) |
+| Never refused | Exits and SELLs (manual SELL, Close, Partial, strategy exits), cancels, protection edits | Exits, TP/SL, cancels and race-fill sweeps |
+
+It is independent of the halt: the Platform halt still stops automated entries
+AND exits. Pausing is risk-reducing, so like a halt it accepts the password
+while two-factor is off; resuming needs two-factor (grant tier). The explicit
+opt-in `cancelWorkingEntries` asks the Bot to cancel manual LIMIT BUYs still
+working on the exchange; it is passed through only as a boolean.
+
 ### Risk limits
 
 These are the Platform's limits. Each is opt-in and `null` (off) by default, so
@@ -140,6 +163,7 @@ per intent, and the Platform requires it and never mints one
 | Start or stop a bot (target state, not a toggle) | `POST /api/bot/control/bots/:id/status` | code |
 | Close a strategy trade | `POST /api/bot/control/trades/:id/close` | code |
 | Partial close (1–99 %) | `POST /api/bot/control/trades/:id/partial-close` | code |
+| Pause / resume new entries (Platform flag + C9) | `POST /api/bot/control/entries` | pause: code, or the password while two-factor is off; resume: code |
 | What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
 
 **Step-up, on every command that changes something.** The credential travels in
@@ -149,7 +173,10 @@ How the session was created plays no part, so a Google or GitHub sign-in is
 treated the same as a password sign-in:
 
 - **Two-factor on:** the authenticator code, and only that. Codes are single-use,
-  and guesses are limited to 5 per 5 minutes per account.
+  and guesses are limited to 5 per 5 minutes per account. A correct code also
+  leaves a five-minute step-up grant in that browser (OD-2, `docs/ACCOUNTS.md`):
+  halt, resume, start/stop, close, partial and pause/resume entries then need no
+  new code until it expires; risk limits always ask again.
 - **Two-factor off, and the account has a password:** the password is accepted
   for **Halt only**, so a halt is never blocked in an emergency. Every other
   command answers 403 `two_factor_required`.
