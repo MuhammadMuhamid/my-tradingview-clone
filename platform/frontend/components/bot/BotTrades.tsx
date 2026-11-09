@@ -63,7 +63,14 @@ function Actions({ trade, actions }: { trade: BotViewTrade; actions: TradeAction
 
 export function TradesTable({ tab, rows, actions }: { tab: TradeTab; rows: BotViewTrade[]; actions: TradeActions }) {
   return (
-    <div className="hidden overflow-x-auto sm:block" data-layout="desktop">
+    /*
+     * `relative`: the "Actions" header is `sr-only` (position: absolute). With no
+     * positioned ancestor it was placed against the page, outside this scroll
+     * container, and lengthened the document so the whole app shell scrolled
+     * past the Nav (walkthrough D-5). Positioned here, it is clipped by the
+     * container like every other cell.
+     */
+    <div className="relative hidden overflow-x-auto sm:block" data-layout="desktop">
       <table className="w-full min-w-[600px] text-sm tabular">
         <thead>
           <tr className="border-b border-border text-xs text-ink-muted">

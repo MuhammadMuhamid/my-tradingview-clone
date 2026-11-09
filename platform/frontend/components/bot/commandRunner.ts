@@ -121,7 +121,16 @@ export function useBotCommands(onSettled: () => void) {
   const intents = useRef(new OpenIntents());
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  /*
+   * Set in the effect BODY, not only cleared in its cleanup: React StrictMode
+   * (and any future remount) runs mount → unmount → mount, and a ref that is
+   * only ever cleared stays false after the second mount — every outcome was
+   * then dropped and C8 polling cancelled at once (walkthrough D-1).
+   */
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const put = useCallback((outcome: Outcome) => {
     if (!alive.current) return;

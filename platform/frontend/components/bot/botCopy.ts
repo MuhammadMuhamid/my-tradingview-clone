@@ -28,6 +28,21 @@ export const LATCH_NOTE =
 export const LOSS_LIMIT_WARNING =
   "Turning the daily-loss limit off (or raising it) makes a latched daily-loss halt resumable.";
 
+/**
+ * The loss the Bot's daily-loss limit counts: the NET realised loss in its
+ * rolling window, as a positive number, and 0 when the window is in profit.
+ * Mirrors the Bot exactly (`riskControls.ts`: `loss = -Math.min(0, realisedPnlInWindow)`).
+ * `realisedPnlInWindow` itself is signed P&L — a profit is positive — and is
+ * never to be shown under a "loss" label (walkthrough D-2).
+ */
+export const countedLoss = (realisedPnlInWindow: number): number => Math.max(0, -realisedPnlInWindow);
+
+/** Signed P&L in USDT: "+1.29 USDT", "−5.00 USDT", "0.00 USDT". */
+export function signedUsdt(value: number): string {
+  const abs = Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${abs} USDT`;
+}
+
 export function signedLabel(state: BotSignedState, cause: BotSignedCause): string {
   switch (state) {
     case "CONNECTED": return "Connected";
