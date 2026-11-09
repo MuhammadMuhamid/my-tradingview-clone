@@ -507,6 +507,13 @@ test("bot management", async (t) => {
     assert.equal(read.json().platform.secret.stored, true);
     assert.equal(read.json().platform.linkedDeployments[0].id, depId);
 
+    // A linked deployment cannot be pointed elsewhere without that destination's own
+    // secret: the Bot's secret would follow it (final review A3). Nothing changes.
+    const moved = await call(admin, "PATCH", `/api/deployments/${depId}`, { webhookUrl: "https://api.3commas.io/signal", buyQuoteQty: 10 });
+    assert.deepEqual([moved.statusCode, moved.json().code], [409, "deployment_linked_to_bot"], moved.body);
+    row = (await query<{ secret: string; bot_id: string | null }>("SELECT secret, bot_id FROM deployments WHERE id = $1", [depId])).rows[0]!;
+    assert.deepEqual([decryptSecret(row.secret), row.bot_id], [second, managed.id]);
+
     // Only a custom deployment can be linked; an unknown deployment is 404; standard 403.
     const paper = await deployment("3commas");
     const notCustom = await call(granted, "POST", `/api/deployments/${paper}/link-bot`, { botId: managed.id });

@@ -32,7 +32,8 @@ export const BOT_NAME_MAX = 64;
 export const PAIR_RE = /^[A-Z0-9]{2,20}(USDT|USDC)$/;
 export const MAX_PAIRS = 50;
 export const MAX_PCT_INVESTMENT = 100;
-export const MAX_USDT_INVESTMENT = 10_000_000;
+/** The Bot's own bound for every investment unit (`botAdmin.ts`, `.max(10000)`); final review R1. */
+export const MAX_USDT_INVESTMENT = 10_000;
 /** Mirrors the Bot: a position this large needs a stop loss. */
 export const UNPROTECTED_SIZE_LIMIT_PCT = 50;
 

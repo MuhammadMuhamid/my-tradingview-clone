@@ -142,6 +142,16 @@ export function deploymentRoutes(
       if (!dep) return reply.code(404).send({ error: "deployment not found" });
       const result = validateDeploymentPatch(dep, (req.body ?? {}) as DeploymentPatchInput);
       if (!result.ok) return reply.code(400).send({ error: result.error });
+      // A deployment linked to a Bot carries that Bot's webhook secret (copied in
+      // server-side). Pointing it somewhere else would send the secret there, so
+      // the destination may change only together with that destination's own
+      // secret, which also unlinks it (final review A3).
+      const moves = (result.patch.delivery !== undefined && result.patch.delivery !== dep.delivery)
+        || (result.patch.webhookUrl !== undefined && result.patch.webhookUrl !== dep.webhookUrl);
+      if (dep.botId && moves && result.patch.secret === undefined) {
+        return reply.code(409).send({ code: "deployment_linked_to_bot",
+          error: "This deployment carries a Bot's webhook secret. Enter the new destination's own secret to change where it sends (that unlinks it from the Bot)." });
+      }
       const updated = await deploymentRepo.updateDeployment(id, result.patch);
       return updated ? publicDeployment(updated) : reply.code(404).send({ error: "deployment not found" });
     });
