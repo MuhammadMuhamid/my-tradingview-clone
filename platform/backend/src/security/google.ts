@@ -35,8 +35,14 @@ export interface OAuthState {
   verifier: string;
   /** Where to land afterwards — a path on this site, never a URL. */
   next: string;
-  /** Set when a signed-in user is LINKING Google, rather than signing in. */
+  /** Set when a signed-in user is LINKING a provider, rather than signing in. */
   linkUserId: string | null;
+  /**
+   * The session version the link was started under. The callback links only
+   * for a live session of that same account at that same version, so a state
+   * held across a sign-out-everywhere, a password change or a reclaim is dead.
+   */
+  linkVersion: number | null;
   exp: number;
 }
 
@@ -50,12 +56,15 @@ export function safeNext(raw: unknown, fallback = "/chart"): string {
   return raw;
 }
 
-export function newOAuthState(next: string, linkUserId: string | null, now = Date.now()): OAuthState {
+export function newOAuthState(
+  next: string, link: { userId: string; version: number } | null, now = Date.now(),
+): OAuthState {
   return {
     state: b64url(randomBytes(24)),
     verifier: b64url(randomBytes(48)),
     next: safeNext(next),
-    linkUserId,
+    linkUserId: link?.userId ?? null,
+    linkVersion: link?.version ?? null,
     exp: now + OAUTH_TTL_MS,
   };
 }
@@ -75,7 +84,12 @@ export function openState(sealed: string | null, secret: string, now = Date.now(
   try {
     const s = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as OAuthState;
     if (typeof s.state !== "string" || typeof s.verifier !== "string" || !(s.exp > now)) return null;
-    return { ...s, next: safeNext(s.next) };
+    const linkUserId = typeof s.linkUserId === "string" ? s.linkUserId : null;
+    const linkVersion = Number.isInteger(s.linkVersion) ? s.linkVersion : null;
+    // A link state must say which session it belongs to (states sealed before
+    // that was recorded included): otherwise it is no state at all.
+    if (linkUserId !== null && linkVersion === null) return null;
+    return { ...s, next: safeNext(s.next), linkUserId, linkVersion };
   } catch {
     return null;
   }

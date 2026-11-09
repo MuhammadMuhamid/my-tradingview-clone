@@ -10,19 +10,33 @@
  *
  * ── Linking Google to an existing account ──────────────────────────────────
  *
- * A Google sign-in whose verified email matches an existing PASSWORD account
- * joins that account — and drops its password. Emails are not verified at
+ * A Google sign-in whose verified email matches an existing UNVERIFIED account
+ * takes that account back for the Google user. Emails are not verified at
  * password sign-up, so someone could register a victim's address first and
- * wait; when the victim later signs in with Google, the password the squatter
- * knows must stop working, and every session issued under it is revoked. The
- * owner sets a new password from their profile if they want one.
+ * wait; when the victim later signs in with Google, nothing the squatter set up
+ * may survive: password, two-factor secret and recovery codes, BOTH provider
+ * links (the squatter may have linked their own GitHub or Google), push
+ * devices, the avatar, outstanding verification links and every session — in
+ * one transaction (`users.joinProviderByEmail`). The owner sets a new password
+ * from their profile if they want one.
  *
  * The admin is never joined by email: linking Google to it takes an explicit
  * "Link Google" from a signed-in admin session.
  *
  * GitHub follows the same rules. An account whose email is ALREADY verified has
- * no squatter to remove, so it keeps its password and its two-factor setup, and
- * still has to pass that second factor.
+ * no squatter to remove, so it keeps its password, its other links and its
+ * two-factor setup, and still has to pass that second factor.
+ *
+ * ── "Link Google / GitHub" from the profile ────────────────────────────────
+ *
+ * The state carries the account AND the session version the link started
+ * under, and the callback links only for that same live session at that same
+ * version: a state held across a sign-out-everywhere, a password change or a
+ * reclaim does nothing. Linking needs a verified email (the admin counts as
+ * verified), except that an unverified account may link a provider identity
+ * whose verified email is its own address, which then verifies it. Linking is
+ * not a sign-in: it issues no session and skips nothing. A state works for one
+ * callback only.
  *
  * ── Sessions ───────────────────────────────────────────────────────────────
  *
@@ -343,6 +357,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       || body.newPassword.length > MAX_PASSWORD) {
       return reply.code(400).send({ error: `Use a password of at least ${MIN_PASSWORD} characters.` });
     }
+    // The version this request's session was checked against by the gate.
+    const sessionVersion = req.user?.sessionVersion;
+    if (sessionVersion === undefined) return reply.code(401).send({ error: "not authenticated" });
     const current = await users.getPasswordHash(id);
     if (current) {
       if (typeof body.currentPassword !== "string") {
@@ -352,10 +369,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (ok === "busy") return reply.code(429).send({ error: "Busy. Try again shortly." });
       if (!ok) return reply.code(401).send({ error: "Your current password is not correct." });
     }
-    await users.setPasswordHash(id, hashPassword(body.newPassword));
-    // Every other session ends; this one is re-issued under the new version.
-    const version = await users.bumpSessionVersion(id);
+    // Compare-and-set: if a reclaim, a sign-out-everywhere or another change
+    // landed while the password was being checked, this request is stale and
+    // must neither set a password nor come away with a session.
+    const version = await users.setPasswordIfCurrent(id, {
+      expectedVersion: sessionVersion, expectedHash: current, newHash: hashPassword(body.newPassword),
+    });
     forgetUser(id);
+    if (version === null) {
+      setSessionCookies(reply, clearCookie(config.cookieSecure));
+      return reply.code(401).send({ error: "Your account changed while this was being saved. Sign in again." });
+    }
+    // Every other session ends; this one is re-issued under the new version.
     startSession(reply, { id, sessionVersion: version });
     return { ok: true };
   });
@@ -393,7 +418,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (id === users.ADMIN_USER_ID) {
       return reply.code(400).send({ error: "The administrator account cannot be deleted." });
     }
-    const ok = await users.deleteUser(id);
+    let ok: boolean;
+    try {
+      ok = await users.deleteUser(id);
+    } catch (err) {
+      // Package memberships and their ledger outlive the account; nothing was deleted.
+      if (err instanceof users.AccountHasRecordsError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
     forgetUser(id);
     if (!ok) return reply.code(404).send({ error: "account not found" });
     setSessionCookies(reply, clearCookie(config.cookieSecure));
@@ -406,9 +438,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!googleEnabled()) return reply.code(404).send({ error: "Google sign-in is not configured" });
     const q = req.query as { next?: string; mode?: string };
     // Linking needs the account it links to; signing in must not have one.
-    const linkUserId = q.mode === "link" ? req.user?.id ?? null : null;
-    if (q.mode === "link" && !linkUserId) return reply.redirect("/login?error=signin_required");
-    const state = newOAuthState(safeNext(q.next, linkUserId ? "/profile" : "/chart"), linkUserId);
+    const link = q.mode === "link" ? await linkTarget(req, "google") : null;
+    if (typeof link === "string") return reply.redirect(`/login?error=${link}`);
+    const state = newOAuthState(safeNext(q.next, link ? "/profile" : "/chart"), link);
     reply.header("set-cookie", oauthCookie(sealState(state, config.sessionSecret), config.cookieSecure));
     return reply.redirect(authorizeUrl({ clientId: config.googleClientId, redirectUri: redirectUri(), state }));
   });
@@ -422,7 +454,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const q = req.query as { code?: string; state?: string; error?: string };
     if (q.error) return fail(q.error === "access_denied" ? "google_cancelled" : "google_failed");
     const state = openState(readCookie(req.headers.cookie, OAUTH_COOKIE), config.sessionSecret);
-    if (!state || typeof q.state !== "string" || !safeEqual(q.state, state.state) || typeof q.code !== "string") {
+    if (!state || typeof q.state !== "string" || !safeEqual(q.state, state.state) || typeof q.code !== "string"
+      || !claimState(state)) {
       return fail("google_expired");
     }
 
@@ -447,9 +480,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/auth/github/start", async (req, reply) => {
     if (!githubEnabled()) return reply.code(404).send({ error: "GitHub sign-in is not configured" });
     const q = req.query as { next?: string; mode?: string };
-    const linkUserId = q.mode === "link" ? req.user?.id ?? null : null;
-    if (q.mode === "link" && !linkUserId) return reply.redirect("/login?error=signin_required");
-    const state = newOAuthState(safeNext(q.next, linkUserId ? "/profile" : "/chart"), linkUserId);
+    const link = q.mode === "link" ? await linkTarget(req, "github") : null;
+    if (typeof link === "string") return reply.redirect(`/login?error=${link}`);
+    const state = newOAuthState(safeNext(q.next, link ? "/profile" : "/chart"), link);
     reply.header("set-cookie", oauthCookie(sealState(state, config.sessionSecret), config.cookieSecure, GITHUB_COOKIE_PATH));
     return reply.redirect(githubAuthorizeUrl({ clientId: config.githubClientId, redirectUri: githubRedirectUri(), state }));
   });
@@ -463,7 +496,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const q = req.query as { code?: string; state?: string; error?: string };
     if (q.error) return fail(q.error === "access_denied" ? "github_cancelled" : "github_failed");
     const state = openState(readCookie(req.headers.cookie, OAUTH_COOKIE), config.sessionSecret);
-    if (!state || typeof q.state !== "string" || !safeEqual(q.state, state.state) || typeof q.code !== "string") {
+    if (!state || typeof q.state !== "string" || !safeEqual(q.state, state.state) || typeof q.code !== "string"
+      || !claimState(state)) {
       return fail("github_expired");
     }
     let identity: GithubIdentity;
@@ -481,6 +515,43 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /**
+ * Who a "Link …" round trip is for, and the session version it starts under —
+ * or the error code to send the browser back with.
+ */
+async function linkTarget(
+  req: FastifyRequest, kind: "google" | "github",
+): Promise<{ userId: string; version: number } | string> {
+  if (!req.user) return "signin_required";
+  const account = await users.getUser(req.user.id);
+  if (!account || (config.authEnabled && account.sessionVersion !== req.user.sessionVersion)) return "signin_required";
+  // Unverified: only a provider that proves this very address may be linked
+  // (checked again at the callback), so an account without one can't start.
+  if (account.role !== "admin" && !account.emailVerified && !account.email) return `${kind}_link_unverified`;
+  return { userId: account.id, version: account.sessionVersion };
+}
+
+/*
+ * States already used at a callback. Each works once: a duplicate or replayed
+ * callback is refused before its code is exchanged. Per process, like the rate
+ * limits (`security/rateLimit.ts`); an entry is needed only until its state's
+ * `exp`, after which `openState` refuses the state anyway.
+ */
+const usedStates = new Map<string, number>();
+const MAX_USED_STATES = 50_000;
+
+function claimState(state: OAuthState, now = Date.now()): boolean {
+  if (usedStates.has(state.state)) return false;
+  if (usedStates.size >= MAX_USED_STATES) {
+    for (const [key, exp] of usedStates) if (exp <= now) usedStates.delete(key);
+    // Still full of live states: drop the oldest. Replaying one would still
+    // need that browser's own cookie and a code the provider accepts twice.
+    while (usedStates.size >= MAX_USED_STATES) usedStates.delete(usedStates.keys().next().value!);
+  }
+  usedStates.set(state.state, state.exp);
+  return true;
+}
+
+/**
  * Who a provider's identity is, by its id, then by email. The email is one the
  * provider has verified, which is the only reason joining by it is safe.
  */
@@ -493,45 +564,76 @@ async function finishProviderSignIn(
     reply.header("set-cookie", clearOauthCookie(config.cookieSecure, cookiePath));
     return reply.redirect(`/login?error=${encodeURIComponent(code)}`);
   };
-  const link = (id: string) => kind === "google"
-    ? users.linkGoogle(id, identity.id, identity.picture)
-    : users.linkGithub(id, identity.id, identity.picture);
-
-  let account = kind === "google"
-    ? await users.getUserByGoogleSub(identity.id) : await users.getUserByGithubId(identity.id);
+  const holder = () => kind === "google"
+    ? users.getUserByGoogleSub(identity.id) : users.getUserByGithubId(identity.id);
 
   if (state.linkUserId) {
-    // Explicit linking from a signed-in session.
-    if (account && account.id !== state.linkUserId) return fail(`${kind}_in_use`);
-    if (!account) account = await link(state.linkUserId);
-    forgetUser(account.id);
-  } else if (!account) {
+    // Explicit linking, for the live session that started it and only that.
+    const live = req.user;
+    if (!live || live.id !== state.linkUserId || state.linkVersion === null
+      || (config.authEnabled && live.sessionVersion !== state.linkVersion)) {
+      return fail("signin_required");
+    }
+    const current = await holder();
+    if (current && current.id !== state.linkUserId) return fail(`${kind}_in_use`);
+    if (!current) {
+      let linked;
+      try {
+        linked = await users.linkProviderForSession(state.linkUserId, {
+          kind, providerId: identity.id, sessionVersion: state.linkVersion,
+          providerEmail: identity.email, avatarUrl: identity.picture,
+        });
+      } catch (err) {
+        if (err instanceof users.ProviderInUseError) return fail(`${kind}_in_use`);
+        throw err;
+      }
+      if (linked.status === "stale") return fail("signin_required");
+      if (linked.status === "unverified") return fail(`${kind}_link_unverified`);
+    }
+    // Not a sign-in: the session that asked carries on (the gate has already
+    // renewed it on this reply), and no new one is issued.
+    reply.header("set-cookie", clearOauthCookie(config.cookieSecure, cookiePath));
+    return reply.redirect(state.next);
+  }
+
+  let account = await holder();
+  if (!account) {
     const byEmail = await users.getUserByEmail(identity.email);
     if (byEmail && byEmail.role === "admin") return fail(`${kind}_link_admin`);
     if (byEmail) {
-      if (!byEmail.emailVerified) {
-        // See "Linking Google" at the top: whoever registered this address never
-        // proved it, so nothing they set up survives, a two-factor secret included.
-        await users.setPasswordHash(byEmail.id, null);
-        await accountSecurity.clearTotp(byEmail.id);
-        await users.bumpSessionVersion(byEmail.id);
+      // See "Linking Google" at the top: an unverified account is taken back,
+      // with nothing its registrant set up surviving; a verified one is joined.
+      let joined;
+      try {
+        joined = await users.joinProviderByEmail(byEmail.id, {
+          kind, providerId: identity.id, email: identity.email, avatarUrl: identity.picture,
+        });
+      } catch (err) {
+        if (err instanceof users.ProviderInUseError) return fail(`${kind}_in_use`);
+        throw err;
       }
-      await users.markEmailVerified(byEmail.id);
-      account = await link(byEmail.id);
+      if (!joined) return fail(`${kind}_failed`);
+      account = joined.user;
       forgetUser(account.id);
     } else {
       if (!config.allowSignups) return fail("signups_closed");
-      account = await users.createUser({
-        email: identity.email, displayName: identity.name || identity.email.split("@")[0]!,
-        ...(kind === "google" ? { googleSub: identity.id } : { githubId: identity.id }),
-        avatarUrl: identity.picture, emailVerified: true,
-      });
+      try {
+        account = await users.createUser({
+          email: identity.email, displayName: identity.name || identity.email.split("@")[0]!,
+          ...(kind === "google" ? { googleSub: identity.id } : { githubId: identity.id }),
+          avatarUrl: identity.picture, emailVerified: true,
+        });
+      } catch (err) {
+        // A simultaneous first sign-in got there first; trying again finds it.
+        if (err instanceof users.EmailTakenError) return fail(`${kind}_failed`);
+        throw err;
+      }
     }
   }
 
   const fresh = await users.getUser(account.id);
   if (!fresh) return fail(`${kind}_failed`);
-  if (fresh.twoFactorEnabled && !state.linkUserId) {
+  if (fresh.twoFactorEnabled) {
     setSessionCookies(reply, [
       clearOauthCookie(config.cookieSecure, cookiePath),
       pendingCookie(sealPendingSignIn(

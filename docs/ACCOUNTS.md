@@ -21,7 +21,10 @@ had one sign-in and every row was that person's.
   `CONFLICT_TARGET` begins with `user_id`, so one user's upsert can never
   update another user's identical alert.
 - An alert notifies its owner's devices only (`sendPush(…, { userId })`).
-- Deleting an account deletes everything it owns (`ON DELETE CASCADE`).
+- Deleting an account deletes everything it owns (`ON DELETE CASCADE`), except
+  that an account with a package membership can't be deleted: the membership and
+  its append-only ledger must be kept, so `DELETE /api/auth/account` answers 409
+  and nothing is deleted.
 
 ## 2. What an ordinary account may reach
 
@@ -71,8 +74,11 @@ is recognisable (otherwise 503), and `POST /api/symbols` marks such a row
 
 Cookie `srtrend_session` = `u2.<userId>.<sessionVersion>.<expiry>.<hmac>`
 (90 days, sliding). "Sign out everywhere" and a password change bump
-`users.session_version`, ending every other session. An old-format admin
-cookie is accepted once and re-issued in the new format.
+`users.session_version`, ending every other session. A password change is
+compare-and-set: it applies only if the account is still at the session version
+the request was signed in under and still has the password it checked, so one
+that a reclaim or a sign-out-everywhere overtook gets 401 and no session. An
+old-format admin cookie is accepted once and re-issued in the new format.
 
 ## 4. Google sign-in
 
@@ -90,10 +96,13 @@ Configured by three environment variables on the app server
 Authorized redirect URI in Google Cloud: `<PUBLIC_BASE_URL>/api/auth/google/callback`.
 The button appears only when all three are set.
 
-A Google sign-in whose verified email matches an existing password account
-joins it **and removes that password** (emails are not verified at password
-sign-up, so this defeats account pre-hijacking). Google is never joined to the
-admin by email — the admin links it from Profile while signed in.
+A Google sign-in whose verified email matches an existing account whose email
+is NOT verified takes that account back for the Google user, and removes
+everything its registrant set up, the password included (emails are not
+verified at password sign-up, so this defeats account pre-hijacking; see
+"Joining by email" in §7). An account whose email is verified is joined and keeps
+everything. Google is never joined to the admin by email — the admin links it
+from Profile while signed in.
 
 ## 5. Pages
 
@@ -106,7 +115,9 @@ account signs in on the same browser.
 ## 6. Tests
 
 `platform/backend/tests/accountSecurityDb.test.ts` (verification, two-factor and
-GitHub through the real API and PostgreSQL), `platform/backend/tests/twoFactor.test.ts`
+GitHub through the real API and PostgreSQL), `platform/backend/tests/accountProviderLinkDb.test.ts`
+(taking back an unverified account, linking from the profile, replayed round trips and
+the compare-and-set password change), `platform/backend/tests/twoFactor.test.ts`
 (RFC 6238 vectors), `platform/frontend/tests/dom/accountSecurity.test.tsx`,
 `platform/backend/tests/accounts.test.ts` (tokens, reach, Google token checks),
 `platform/backend/tests/accountsDb.test.ts` (two accounts, real API, own
@@ -115,16 +126,20 @@ database — nothing of one is visible to or changeable by the other),
 
 ## 7. Email verification, two-factor sign-in and GitHub
 
-Added 2026-11-05 (migration `052_account_security.sql`). **Nothing requires these yet.**
-`/api/auth/me` reports `moneyFeaturesUnlocked` when an account has both a verified
-email and two-factor on, and joining a package will require that. The administrator
-counts as verified, because it has no email.
+Added 2026-11-05 (migration `052_account_security.sql`). `/api/auth/me` reports
+`moneyFeaturesUnlocked` when an account has both a verified email and two-factor on.
+Joining a package cohort requires both (`platform/backend/src/api/routes/packages.ts`);
+linking a provider from the profile requires a verified email (see below). The
+administrator counts as verified, because it has no email.
 
 **Email verification.** Signing up sends a link that works once and expires in 24
 hours. Only its hash is stored, and a new link replaces the old one. A provider's
 verified address counts as verified. If sending fails, the account is still created
-and can ask again from its profile. `/verify-email` uses the token with a POST, so a
-mail scanner opening the link can't use it up.
+and can ask again from its profile. Opening `/verify-email` uses nothing: the token
+is sent, with a POST, only when the person presses "Confirm my email address", and the
+page says to confirm only an account they created. Mail scanners and link previewers
+open links, and some run the page's script, so a page that verified on load would let
+one of them verify an account for whoever registered the address.
 
 **Two-factor sign-in.** Standard TOTP from an authenticator app, in
 `platform/backend/src/security/twoFactor.ts`.
@@ -139,9 +154,25 @@ mail scanner opening the link can't use it up.
 - Turning it off needs the password and a code, and ends every other session.
 
 **Joining by email.** If an unverified account's address signs in through Google or
-GitHub, the provider has proved who owns it. The password, two-factor setup and sessions
-on that account are removed, in case someone else registered it first. A verified
-account keeps them and must still pass its second factor.
+GitHub, the provider has proved who owns it, and the account is taken back for that
+person in case someone else registered it first. In one transaction, with the account
+row locked: the password, the two-factor secret and recovery codes, BOTH provider links
+(a squatter may have linked their own Google or GitHub), push devices and any
+outstanding verification links are removed, the avatar becomes the provider's picture,
+every session ends, the email counts as verified, and the provider in use is linked. If that provider id turns out to be on
+another account, nothing changes and the sign-in fails with "already linked". A
+verified account keeps its password, its other links and its two-factor setup, and
+must still pass its second factor.
+
+**Linking Google or GitHub from the profile.** The round trip is bound to the session
+that started it: the callback links only for that same signed-in account at the same
+session version, so a link started before a sign-out-everywhere, a password change or
+a reclaim does nothing. Each round trip works once. Linking needs a verified email (the
+administrator counts as verified); an unverified account may link only a Google or
+GitHub account whose verified email is its own address, which then verifies it.
+Otherwise the browser returns to `/login` with a message saying so, and the profile
+says it beside the link buttons. Linking is not a sign-in: it issues no new session and
+records no sign-in, and the current session carries on.
 
 **GitHub.** OAuth with PKCE in `platform/backend/src/security/github.ts`. It only accepts
 a primary, verified address, and a GitHub account without one is refused.

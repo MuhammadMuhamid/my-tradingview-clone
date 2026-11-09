@@ -2,7 +2,7 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
-import { closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
+import { assertAbsent, closeBrowser, render, resetBrowser, server, settle } from "./harness/env";
 import { AppRoute } from "./harness/routing";
 import LoginPage from "@/app/login/page";
 import ProfilePage from "@/app/profile/page";
@@ -89,21 +89,30 @@ test("GitHub's button starts its own round trip", async () => {
   assert.match(screen.getByRole("link", { name: /Continue with GitHub/ }).getAttribute("href") ?? "", /^\/api\/auth\/github\/start/);
 });
 
-test("the verification link verifies once and takes the token out of the address", async () => {
+test("opening the verification link uses nothing until the person confirms, and takes the token out of the address", async () => {
   me(null);
   const calls: unknown[] = [];
   server.routes.set("POST /api/auth/email/verify", (body) => { calls.push(body); return { ok: true }; });
   render(<AppRoute path="/verify-email" query="token=abc123"><VerifyEmailPage /></AppRoute>);
   await settle(6);
+  // A mail scanner that loads the page, script and all, verifies nothing.
+  assert.deepEqual(calls, []);
+  assert.equal(window.location.search, "");
+  assert.ok(screen.getByRole("heading", { name: "Confirm your email address" }));
+  assert.match(text(), /Only confirm if you created this Trading Scene account yourself/);
+  click("Confirm my email address");
+  await settle(6);
   assert.deepEqual(calls, [{ token: "abc123" }]);
   assert.ok(screen.getByRole("heading", { name: "Email verified" }));
-  assert.equal(window.location.search, "");
+  assertAbsent(screen.queryByRole("button", { name: "Confirm my email address" }), "the token works once");
 });
 
 test("a used or expired link says what to do", async () => {
   me(null);
   server.routes.set("POST /api/auth/email/verify", failing(400, "This link has expired or has already been used. Ask for a new one from your profile."));
   render(<AppRoute path="/verify-email" query="token=old"><VerifyEmailPage /></AppRoute>);
+  await settle(6);
+  click("Confirm my email address");
   await settle(6);
   assert.match(screen.getByRole("alert").textContent ?? "", /expired or has already been used/);
 });
@@ -114,6 +123,34 @@ test("no token asks the server nothing", async () => {
   await settle(6);
   assert.equal(server.callsTo("/api/auth/email/verify").length, 0);
   assert.ok(screen.getByRole("alert"));
+});
+
+test("a link refused for an unverified account says why on the sign-in page", async () => {
+  for (const [code, provider] of [["google_link_unverified", "Google"], ["github_link_unverified", "GitHub"]]) {
+    me(null);
+    const { unmount } = render(<AppRoute path="/login" query={`error=${code}`}><LoginPage /></AppRoute>);
+    await settle(4);
+    assert.match(screen.getByRole("alert").textContent ?? "",
+      new RegExp(`Verify your email first, or link a ${provider} account that uses the same address`));
+    unmount();
+  }
+});
+
+test("an unverified account is told which provider accounts it can link; a verified one isn't", async () => {
+  me({ ...USER, emailVerified: false }, { google: true, github: true });
+  await openSecurity();
+  assert.ok(text().includes("Verify your email first, or link a Google account that uses this same address."));
+  assert.ok(text().includes("Verify your email first, or link a GitHub account that uses this same address."));
+  // The buttons stay: an identity with this same address can still be linked.
+  assert.ok(screen.getByRole("button", { name: "Link Google account" }));
+  assert.ok(screen.getByRole("button", { name: "Link GitHub account" }));
+});
+
+test("a verified account gets no link note", async () => {
+  me(USER, { google: true, github: true });
+  await openSecurity();
+  assert.equal(text().includes("link a Google account that uses this same address"), false);
+  assert.equal(text().includes("link a GitHub account that uses this same address"), false);
 });
 
 test("an unverified account can ask for the email again, and can't start 2FA", async () => {

@@ -155,8 +155,9 @@ export async function packageRoutes(app: FastifyInstance): Promise<void> {
     };
     const actor = await confirmed(req, reply);
     if (!actor) return reply;
-    await packages.recordWithdrawal({ ...input, actor });
-    return reply.code(201).send({ ok: true });
+    const result = await packages.recordWithdrawal({ ...input, actor });
+    // Like deposits: 201 when recorded now, 200 when this key was already recorded.
+    return reply.code(result.created ? 201 : 200).send({ ok: true, ...result });
   }));
 
   app.get("/api/admin/audit", async (_req, reply) => send(reply, async () => ({ entries: await packages.listAudit() })));

@@ -227,6 +227,12 @@ export default function ProfilePage() {
                 {!session.providers.google && !user.googleLinked && (
                   <p className="mt-2 text-[12px] text-ink-faint">Google sign-in is not configured on this server.</p>
                 )}
+                {/* The server links an unverified account only to an identity with its own address. */}
+                {!user.emailVerified && !user.googleLinked && session.providers.google && (
+                  <p className="mt-2 text-[12px] text-ink-faint">
+                    Verify your email first, or link a Google account that uses this same address.
+                  </p>
+                )}
               </Card>
 
               {(session.providers.github || user.githubLinked) && (
@@ -242,6 +248,11 @@ export default function ProfilePage() {
                       </a>
                     )}
                   </div>
+                  {!user.emailVerified && !user.githubLinked && (
+                    <p className="mt-2 text-[12px] text-ink-faint">
+                      Verify your email first, or link a GitHub account that uses this same address.
+                    </p>
+                  )}
                 </Card>
               )}
 
