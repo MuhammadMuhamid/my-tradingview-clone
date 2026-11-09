@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Card, Empty, ErrorNotice, Field, Loading, PageShell, Select, TextInput, PageHeader } from "@/components/ui";
 import {
-  api, type JournalResponse, type JournalRow, type JournalSource,
+  api, type JournalEnvironment, type JournalResponse, type JournalRow, type JournalSource,
   type JournalSummarySlice,
 } from "@/lib/api";
 import { fmtDateTime, fmtNum, fmtPrice, signClass, LOCAL_TIME_NOTE } from "@/lib/format";
+import { EXECUTION_ENVIRONMENT_LABEL, EXECUTION_ENVIRONMENT_TONE } from "@/lib/executionEnvironment";
 
 const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
 const today = () => {
@@ -37,31 +38,85 @@ const sourceStyle: Record<JournalSource, string> = {
   PAPER: "border-warn/30 bg-warn/10 text-warn",
 };
 
-function SummaryCard({ title, scope, paper = false }: {
-  title: string; scope: JournalSummarySlice; paper?: boolean;
+/*
+ * Which money a row is about. The backend decides it from the row's own
+ * evidence (journal/environment): REAL only on proof, UNKNOWN otherwise. The
+ * words and colours are the chart chip's own (lib/executionEnvironment):
+ * `warn` where it could be real money (REAL, UNKNOWN), neutral where it cannot
+ * (TESTNET, DRY RUN). PAPER keeps the page's existing PAPER style.
+ */
+const ENVIRONMENT_LABEL: Record<JournalEnvironment, string> = {
+  ...EXECUTION_ENVIRONMENT_LABEL, PAPER: "PAPER",
+};
+const ENVIRONMENT_STYLE: Record<JournalEnvironment, string> = {
+  ...EXECUTION_ENVIRONMENT_TONE, PAPER: sourceStyle.PAPER,
+};
+const ENVIRONMENT_MEANING: Record<JournalEnvironment, string> = {
+  REAL: "Real money: this row's own evidence proves a mainnet exchange order.",
+  PAPER: "Paper: simulated by the Platform's paper engine. No exchange order was sent.",
+  TESTNET: "Testnet account: not real funds.",
+  DRY_RUN: "Dry run: simulated by the execution bot. Nothing reached the exchange.",
+  UNKNOWN: "Environment unknown: nothing in this row's evidence proves which exchange it reached, so it is never counted as real money.",
+};
+
+function EnvironmentBadge({ environment }: { environment: JournalEnvironment }) {
+  return (
+    <span data-environment={environment} title={ENVIRONMENT_MEANING[environment]}
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ENVIRONMENT_STYLE[environment]}`}>
+      <span className="sr-only">Environment: </span>{ENVIRONMENT_LABEL[environment]}
+    </span>
+  );
+}
+
+/** Every row is counted once: as a known result or as unknown economics. */
+const rowsIn = (scope: JournalSummarySlice): number => scope.knownRealizedRows + scope.unknownEconomicRows;
+
+/**
+ * The rows the real card does NOT count, named — "1 unknown-environment and 2
+ * testnet rows below" — or null when there are none.
+ */
+function notCountedAsReal(counts: { unknown: number; testnet: number; dryRun: number }): string | null {
+  const parts = [
+    counts.unknown ? `${counts.unknown} unknown-environment` : null,
+    counts.testnet ? `${counts.testnet} testnet` : null,
+    counts.dryRun ? `${counts.dryRun} dry-run` : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  const total = counts.unknown + counts.testnet + counts.dryRun;
+  const list = parts.length === 1 ? parts[0]
+    : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `${list} row${total === 1 ? "" : "s"} below`;
+}
+
+function SummaryCard({ title, scope, environment, notCounted = null }: {
+  title: string; scope: JournalSummarySlice; environment: JournalEnvironment;
+  /** Real card only: the unproven rows it excludes. */
+  notCounted?: string | null;
 }) {
   const known = scope.knownRealizedRows > 0;
   // Nothing in range is not the same fact as "economics unknown": the first is
   // an empty period, the second is activity whose cost basis is missing.
   const empty = !known && scope.realizationRows === 0 && scope.unknownEconomicRows === 0
     && scope.incompleteRows === 0;
+  const paper = environment === "PAPER";
   return (
-    <Card className={paper ? "border-warn/30" : ""}>
+    <Card className={environment === "REAL" ? "" : "border-warn/30"}>
       <div className="p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</h2>
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-            paper ? sourceStyle.PAPER : "border-border bg-surface-2 text-ink-muted"
-          }`}>{paper ? "PAPER" : "REAL"}</span>
+          <EnvironmentBadge environment={environment} />
         </div>
         <p className={`mt-2 tabular text-2xl font-semibold ${known ? signClass(scope.knownRealizedPnl) : "text-ink-muted"}`}>
           {known ? money(scope.knownRealizedPnl) : empty ? "—" : "Unknown"}
         </p>
+        {/* Contract §7: could not read is not "you have none". An empty real
+            slice beside unknown-environment results is not an empty range. */}
         <p className="mt-1 text-xs text-ink-faint">
           {empty
-            ? "No realized results in this range"
+            ? notCounted ? `No result in this range is proven real money · ${notCounted}` : "No realized results in this range"
             : <>{paper ? "Known realized net" : "Known realized P&L"} · {scope.knownRealizedRows} known outcome{scope.knownRealizedRows === 1 ? "" : "s"}</>}
         </p>
+        {!empty && notCounted && <p className="mt-0.5 text-xs text-ink-muted">Not counted here: {notCounted}</p>}
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div><dt className="text-ink-faint">Known fees</dt><dd className="mt-0.5 tabular text-ink">
             {scope.feeKnownRows > 0 ? `$${fmtNum(scope.knownFees)}` : empty ? "—" : "Unknown"}
@@ -96,6 +151,7 @@ function JournalItem({ row }: { row: JournalRow }) {
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${sourceStyle[row.source]}`}>
               {row.source}
             </span>
+            <EnvironmentBadge environment={row.environment} />
             <span className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-ink-muted">
               {row.kind.replaceAll("_", " ")}
             </span>
@@ -243,27 +299,41 @@ function JournalView() {
           </div>
         </Card>
 
-        <section aria-label="Known realized summaries" className="grid gap-3 sm:grid-cols-2">
-          <SummaryCard title="Real money evidence" scope={data.summary.real} />
-          {/* "Simulation" was this card's own word for what its badge, its
-              filter option and the delivery mode itself all call PAPER. */}
-          <SummaryCard title="Paper evidence" scope={data.summary.paper} paper />
+        <section aria-label="Known realized summaries" className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SummaryCard title="Real money evidence" scope={data.summary.real} environment="REAL"
+              notCounted={notCountedAsReal({ unknown: rowsIn(data.summary.unknownEnvironment),
+                testnet: rowsIn(data.summary.testnet), dryRun: rowsIn(data.summary.dryRun) })} />
+            {/* "Simulation" was this card's own word for what its badge, its
+                filter option and the delivery mode itself all call PAPER. */}
+            <SummaryCard title="Paper evidence" scope={data.summary.paper} environment="PAPER" />
+          </div>
+          {/* D3: testnet, dry-run and unproven rows used to be counted in the
+              real card. Each now has its own, and none is ever added to it. */}
+          <p className="text-xs text-ink-faint">
+            Testnet, dry-run and unknown-environment rows are kept apart here and never counted as real money.
+          </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            <SummaryCard title="Testnet evidence" scope={data.summary.testnet} environment="TESTNET" />
+            <SummaryCard title="Dry-run evidence" scope={data.summary.dryRun} environment="DRY_RUN" />
+            <SummaryCard title="Unknown environment" scope={data.summary.unknownEnvironment} environment="UNKNOWN" />
+          </div>
         </section>
 
         {(data.summary.byPeriod.length > 0 || data.summary.bySymbol.length > 0) && <div className="grid gap-3 lg:grid-cols-2">
           <Card><div className="border-b border-border px-4 py-3"><h2 className="text-sm font-semibold text-ink">
             {period === "day" ? "Daily" : period === "week" ? "Weekly" : "Monthly"} realized outcomes
           </h2></div><div className="divide-y divide-border">
-            {data.summary.byPeriod.slice(0, 12).map((item) => <div key={`${item.bucket}-${item.source}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
-              <span className="text-ink-muted">{item.bucket} · {item.source}</span>
+            {data.summary.byPeriod.slice(0, 12).map((item) => <div key={`${item.bucket}-${item.source}-${item.environment}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
+              <span className="text-ink-muted">{item.bucket} · {item.source} · {ENVIRONMENT_LABEL[item.environment]}</span>
               <span className={`tabular ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
                 {item.summary.knownRealizedRows ? money(item.summary.knownRealizedPnl) : "Unknown"}
               </span>
             </div>)}
           </div></Card>
           <Card><div className="border-b border-border px-4 py-3"><h2 className="text-sm font-semibold text-ink">Per symbol</h2></div>
-            <div className="divide-y divide-border">{data.summary.bySymbol.slice(0, 12).map((item) => <div key={`${item.symbol}-${item.source}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
-              <span className="text-ink-muted">{item.symbol} · {item.source}</span>
+            <div className="divide-y divide-border">{data.summary.bySymbol.slice(0, 12).map((item) => <div key={`${item.symbol}-${item.source}-${item.environment}`} className="flex items-center justify-between gap-3 px-4 py-2 text-xs">
+              <span className="text-ink-muted">{item.symbol} · {item.source} · {ENVIRONMENT_LABEL[item.environment]}</span>
               <span className={`tabular ${item.summary.knownRealizedRows ? signClass(item.summary.knownRealizedPnl) : "text-ink-muted"}`}>
                 {item.summary.knownRealizedRows ? money(item.summary.knownRealizedPnl) : "Unknown"}
               </span>

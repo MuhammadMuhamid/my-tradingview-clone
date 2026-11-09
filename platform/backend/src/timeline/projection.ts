@@ -1,3 +1,4 @@
+import { manualOrderEnvironment, type ExecutionEnvironment } from "../journal/environment";
 import type { AlertRow } from "../types/alerts";
 import type { DeliveryMode, DeploymentRow } from "../types/deployments";
 import type { OrderIntent } from "../repositories/liveSafety";
@@ -133,18 +134,25 @@ function manualDescription(order: ManualOrderEvidence): string {
   return `${side} ${type} requested for ${amount}.`;
 }
 
-function manualMode(dryRun: boolean, account: ManualAccountEvidence | undefined): string {
-  if (dryRun) return "DRY RUN · simulated by execution bot (not paper mode)";
-  if (account?.testnet || account?.mode === "testnet") return "BINANCE TESTNET · not real funds";
-  if (account && (account.testnet === false || account.mode === "mainnet")) {
-    return "BINANCE MAINNET · real funds";
-  }
-  return "UNKNOWN EXECUTION MODE";
-}
+/*
+ * The order's environment comes from the same per-row rules as the Journal
+ * and the chart overlay (`journal/environment`): its own `dry-` id and its own
+ * account. The Bot's CURRENT dry-run flag used to win here, so an acknowledged
+ * testnet or mainnet order read "DRY RUN" whenever the Bot happened to be in
+ * dry-run at the moment the Timeline was opened.
+ */
+const MANUAL_MODE_LABEL: Record<ExecutionEnvironment, string> = {
+  DRY_RUN: "DRY RUN · simulated by execution bot (not paper mode)",
+  TESTNET: "BINANCE TESTNET · not real funds",
+  REAL: "BINANCE MAINNET · real funds",
+  PAPER: "PAPER · simulated; no exchange order",
+  UNKNOWN: "UNKNOWN EXECUTION MODE",
+};
 
 export function projectManualOrder(input: {
   order: ManualOrderEvidence;
   accounts?: ManualAccountEvidence[];
+  /** The Bot's CURRENT dry-run flag. Accepted from the route; never labels the order. */
   dryRun?: boolean;
   botEvidence?: ManualExecutionEvidence;
 }): TimelineReadModel {
@@ -181,8 +189,9 @@ export function projectManualOrder(input: {
       : originalOrder.averageFillPrice,
     updatedAt: evidenceCurrentIsNewest ? evidence.currentState.observedAt : originalOrder.updatedAt,
   } : originalOrder;
-  const account = input.accounts?.find((candidate) => candidate.id === order.exchangeAccountId);
-  const executionMode = manualMode(Boolean(input.dryRun), account);
+  const executionMode = MANUAL_MODE_LABEL[manualOrderEnvironment({
+    exchangeOrderId: order.exchangeOrderId, exchangeAccountId: order.exchangeAccountId,
+    accounts: input.accounts })];
   const requestIdentifiers: TimelineIdentifiers = {
     ...(evidence ? { manualOrderId: evidence.identity.manualOrderId } : {}),
     ...(order.requestId ? { requestId: order.requestId } : {}),

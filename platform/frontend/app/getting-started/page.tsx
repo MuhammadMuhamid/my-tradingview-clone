@@ -658,9 +658,9 @@ export default function GettingStarted() {
               <p>
                 A profitable paper run is evidence about a strategy&rsquo;s signals. It
                 is not evidence that the same sequence would have filled at those prices
-                with real money. The <A href="/journal">Journal</A> keeps real and Paper
-                totals in two separate cards and never adds them together, for exactly
-                this reason.
+                with real money. The <A href="/journal">Journal</A> keeps real, Paper,
+                testnet, dry-run and unknown-environment totals in separate cards and
+                never adds them together, for exactly this reason.
               </p>
             </Callout>
           </Section>
@@ -854,7 +854,8 @@ export default function GettingStarted() {
             </p>
             <Terms
               rows={[
-                ["Real and Paper", <>Two summary cards, <C>Real money evidence</C> and <C>Paper evidence</C>, never added together. Every row carries a <C>REAL</C> or <C>PAPER</C> badge alongside <C>MANUAL</C>, <C>AUTOMATED</C> or <C>PAPER</C> as its source.</>],
+                ["Environment", <>Every row carries an environment badge — <C>REAL</C>, <C>PAPER</C>, <C>TESTNET</C>, <C>DRY RUN</C> or <C>UNKNOWN</C> — alongside <C>MANUAL</C>, <C>AUTOMATED</C> or <C>PAPER</C> as its source. It comes from that row&rsquo;s own evidence, never from the Bot&rsquo;s current mode. A manual order is <C>REAL</C> only when its own Bot account is mainnet and the exchange acknowledged it; a <C>dry-</C> order id is <C>DRY RUN</C> and a testnet account is <C>TESTNET</C>. Automated rows store no environment yet, so they read <C>UNKNOWN</C> unless their order id marks a dry run.</>],
+                ["Separate totals", <>Five summary cards — <C>Real money evidence</C>, <C>Paper evidence</C>, <C>Testnet evidence</C>, <C>Dry-run evidence</C> and <C>Unknown environment</C> — never added together. Only <C>REAL</C> rows reach <C>Real money evidence</C>; an unknown environment is never counted as real money. The daily, weekly, monthly and per-symbol lists name the environment on every line for the same reason.</>],
                 ["Unknown economics", <>A value that was never persisted renders as the word <C>Unknown</C>, styled as neither profit nor loss. It is left out of totals and win/loss counts rather than counted as zero.</>],
                 ["INCOMPLETE", <>A row whose evidence is incomplete is tagged, and the reason is printed under its metrics.</>],
                 ["Filters", <><C>From</C>, <C>Through</C>, <C>Source</C>, <C>Symbol</C> and a <C>Summary</C> grouping of daily, weekly or monthly.</>],

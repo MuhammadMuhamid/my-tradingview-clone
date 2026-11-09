@@ -15,13 +15,30 @@ test("Journal is navigable and uses the bounded authenticated Platform API", () 
   assert.match(page, /limit: 50/);
 });
 
-test("real and paper known results are visually and numerically separate", () => {
-  assert.match(page, /title="Real money evidence" scope=\{data\.summary\.real\}/);
+test("each environment's known results are visually and numerically separate", () => {
+  assert.match(page, /title="Real money evidence" scope=\{data\.summary\.real\} environment="REAL"/);
   // Renamed in the 02A terminology pass: the badge, the filter option and the
   // delivery mode all say PAPER, and this card is the same idea.
-  assert.match(page, /title="Paper evidence" scope=\{data\.summary\.paper\} paper/);
-  assert.match(page, /paper \? "PAPER" : "REAL"/);
+  assert.match(page, /title="Paper evidence" scope=\{data\.summary\.paper\} environment="PAPER"/);
+  // D3: testnet, dry-run and unproven rows used to sit inside the real card.
+  assert.match(page, /title="Testnet evidence" scope=\{data\.summary\.testnet\} environment="TESTNET"/);
+  assert.match(page, /title="Dry-run evidence" scope=\{data\.summary\.dryRun\} environment="DRY_RUN"/);
+  assert.match(page, /title="Unknown environment" scope=\{data\.summary\.unknownEnvironment\} environment="UNKNOWN"/);
+  // The card badge is chosen by the card's environment, not by a boolean.
+  assert.match(page, /<EnvironmentBadge environment=\{environment\} \/>/);
+  assert.doesNotMatch(page, /paper \? "PAPER" : "REAL"/);
   assert.match(page, /All · separated/);
+});
+
+test("every row and every grouped line names its environment", () => {
+  // The Manual claimed a per-row REAL/PAPER badge that the page never drew.
+  assert.match(page, /<EnvironmentBadge environment=\{row\.environment\} \/>/);
+  assert.match(page, /\{item\.bucket\} · \{item\.source\} · \{ENVIRONMENT_LABEL\[item\.environment\]\}/);
+  assert.match(page, /\{item\.symbol\} · \{item\.source\} · \{ENVIRONMENT_LABEL\[item\.environment\]\}/);
+  // The words are the chart chip's own (tests/executionEnvironment.test.ts).
+  assert.match(page, /\.\.\.EXECUTION_ENVIRONMENT_LABEL, PAPER: "PAPER"/);
+  assert.match(api, /export type JournalEnvironment = "REAL" \| "TESTNET" \| "DRY_RUN" \| "PAPER" \| "UNKNOWN";/);
+  assert.match(api, /environment: JournalEnvironment; symbol: string;/);
 });
 
 test("unknown economics are explicit and never styled as profit or loss", () => {

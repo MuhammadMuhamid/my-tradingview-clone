@@ -22,6 +22,9 @@ import {
 } from "@/lib/manualTradingPolling";
 import { displayTicker } from "@/lib/instrument";
 import { describeAction, said, type FailureCopy } from "@/lib/errorCopy";
+import {
+  positionProtection, protectionContextFor, ProtectionBadge, UNKNOWN_PROTECTION_CONTEXT,
+} from "@/components/tv/positionProtection";
 
 const newRequestId = (): string => window.crypto.randomUUID();
 const n = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
@@ -168,6 +171,12 @@ export function ManualTradingPanel({
   const [mainnetConfirmed, setMainnetConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<FailureCopy | null>(null);
+  /**
+   * Whether the LATEST state read failed. `error` is shared with order
+   * actions, so it cannot say this. A retained state after a failed read proves
+   * nothing about whether the bot is checking TP/SL now.
+   */
+  const [stateReadFailed, setStateReadFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<"ticket" | "orders">("ticket");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
@@ -212,12 +221,13 @@ export function ManualTradingPanel({
        */
       const next = await api.manualState();
       if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
-      setState(next); onStateChange(next); setError(null);
+      setState(next); onStateChange(next); setError(null); setStateReadFailed(false);
       const firstSandbox = next.accounts.find((candidate) => candidate.testnet);
       if (!accountId && firstSandbox) setAccountId(firstSandbox.id);
     } catch (e) {
       const message = (e as Error).message;
       noteManualTradingFailure(message);
+      setStateReadFailed(true);
       setError(describeAction(e, "read the trading state"));
     }
   }, [accountId, onStateChange]);
@@ -393,7 +403,8 @@ export function ManualTradingPanel({
     && staleTicket === null
     && sizingProblem === null
     && (side === "BUY" || !positionId || activePositions.some((p) => p.id === positionId));
-  const mode = account ? (state?.dryRun ? "PAPER SIMULATION" : "TESTNET SANDBOX") : "SANDBOX ONLY";
+  // The Bot's dry run is not the Platform's PAPER deployment mode; never call it PAPER.
+  const mode = account ? (state?.dryRun ? "DRY RUN (simulated)" : "TESTNET SANDBOX") : "SANDBOX ONLY";
   const accountLabel = (id: string): string => {
     const found = state?.accounts.find((item) => item.id === id);
     return found ? ` · ${found.name} (${found.mode})` : "";
@@ -777,8 +788,20 @@ export function ManualTradingPanel({
         <p role="status" data-halt-notice="true"
           className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
           Trading is halted{halted.reason ? `: ${halted.reason}` : ""}. New positions are
-          refused. <span className="text-ink-muted">Closing, cancelling and adjusting
-          protection are still available.</span>
+          refused, and the bot is NOT checking take-profit / stop-loss while halted.{" "}
+          <span className="text-ink-muted">Closing and cancelling still work; TP/SL you set is
+          saved but not enforced until the bot is resumed.</span>
+        </p>
+      )}
+      {/* The bot's own report that its TP/SL poller is off (halted, or manual
+          trading disabled on the bot) — even when this Platform's halt read
+          did not say so. Never imply protection that nothing enforces. */}
+      {!halted && state?.protection.polling === false && (
+        <p role="status" data-protection-notice="true"
+          className="rounded-md border border-down/30 bg-down/10 px-3 py-2 text-xs text-down">
+          The bot is NOT checking take-profit / stop-loss right now
+          {state.tradingHalted ? " (the bot is halted)" : state.enabled === false ? " (manual trading is off on the bot)" : ""}.{" "}
+          <span className="text-ink-muted">Levels you set are saved but not enforced.</span>
         </p>
       )}
       {shariah && shariah.mode === "enforce" && (
@@ -812,12 +835,19 @@ export function ManualTradingPanel({
       </button>
     </div> : <div className="min-h-0 flex-1 overflow-y-auto">
       {activePositions.map((p) => { const values = edit[p.id] ?? { tp: p.manualTpPrice?.toString() ?? "", sl: p.manualSlPrice?.toString() ?? "" };
-        return <div key={p.id} className="space-y-2 border-b border-border bg-surface-2/30 p-3 text-xs">
-          <div className="flex items-center justify-between">
+        // The bot's protection state, read strictly: only a watched TP/SL is
+        // protected; a late fill or an unrecognised state says so loudly.
+        const protectionStatus = positionProtection(p, stateReadFailed
+          ? UNKNOWN_PROTECTION_CONTEXT : protectionContextFor(state, p, halted !== null));
+        return <div key={p.id} data-position-id={p.id} className="space-y-2 border-b border-border bg-surface-2/30 p-3 text-xs">
+          <div className="flex items-center justify-between gap-2">
             <strong className="text-ink">{p.pair} · <span className="tabular">{p.quantity}</span></strong>
-            <StatusBadge status={p.status} />
+            <span className="flex flex-wrap items-center justify-end gap-1.5">
+              <ProtectionBadge protection={protectionStatus} />
+              <StatusBadge status={p.status} />
+            </span>
           </div>
-          <div className="tabular text-ink-faint">Entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"} · {p.protectionType ?? "no protection"} {p.protectionState ?? ""}</div>
+          <div className="tabular text-ink-faint">Entry {p.entryPrice ? fmtPrice(p.entryPrice) : "—"}</div>
           <div className="grid grid-cols-2 gap-2">
             <input aria-label="Take profit" placeholder="TP" value={values.tp} inputMode="decimal"
               onChange={(e) => setEdit((old) => ({ ...old, [p.id]: { ...values, tp: e.target.value } }))}

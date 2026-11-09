@@ -1,4 +1,9 @@
 import type { StrategyExecutionEvidence } from "../timeline/botEvidenceClient";
+import {
+  automatedActivityEnvironment, automatedEnvironment, automatedRealizationEnvironment,
+  manualOrderEnvironment,
+  type ExecutionEnvironment, type ManualAccountEnvironmentEvidence,
+} from "./environment";
 import type {
   JournalPeriod, JournalRow, JournalSource, JournalSummary, JournalSummarySlice,
 } from "./types";
@@ -28,6 +33,15 @@ export interface AutomatedRealizationEvidence extends ProvenanceEvidence {
   platformOrderIntentId?: string | null;
   accountingBasis?: string | null;
   feeModel?: string | null;
+  /** `realised_pnl.source_system`; `BOT_CUSTOM_V1` proves the custom Bot at ingest. */
+  sourceSystem?: string | null;
+  /**
+   * An explicit environment declared by the realization event itself
+   * ("DRY_RUN" | "TESTNET" | "MAINNET", validated strictly where it is read).
+   * Nothing stores one yet — `realised_pnl` keeps only the payload hash — so
+   * the repository never sets it today; the rule honours it when present.
+   */
+  declaredEnvironment?: unknown;
 }
 
 export interface AutomatedActivityEvidence extends ProvenanceEvidence {
@@ -41,6 +55,8 @@ export interface AutomatedActivityEvidence extends ProvenanceEvidence {
   intentId: number | null;
   executionId: number | null;
   exchangeOrderId: string | null;
+  /** The deployment's CURRENT delivery; see `automatedActivityEnvironment` for its narrow use. */
+  delivery?: string | null;
 }
 
 export interface PaperFillEvidence extends ProvenanceEvidence {
@@ -75,6 +91,8 @@ export interface ManualActivityEvidence {
   updatedAt: number;
   filledBaseQty: number;
   averageFillPrice: number | null;
+  /** The order's own Bot exchange account; its testnet flag is per-row provenance. */
+  exchangeAccountId?: string | null;
 }
 
 const iso = (value: number): string => new Date(value).toISOString();
@@ -92,7 +110,7 @@ export function automatedRealizationRows(rows: readonly AutomatedRealizationEvid
     id: `automated-realization:${row.id}`,
     kind: "REALIZATION",
     source: "AUTOMATED",
-    environment: "REAL",
+    environment: automatedRealizationEnvironment(row),
     symbol: row.symbol,
     side: "SELL",
     title: row.realizationKind === "partial" ? "Automated partial realization"
@@ -142,7 +160,7 @@ export function automatedActivityRows(rows: readonly AutomatedActivityEvidence[]
       id: `${row.kind === "INTENT" ? "automated-intent" : "execution-snapshot"}:${row.id}`,
       kind: "ACTIVITY",
       source: "AUTOMATED",
-      environment: "REAL",
+      environment: automatedActivityEnvironment(row),
       symbol: row.symbol,
       side: row.side,
       title: row.kind === "INTENT" ? "Durable order intent" : "Persisted execution snapshot",
@@ -220,14 +238,22 @@ export function paperFillRows(rows: readonly PaperFillEvidence[]): JournalRow[] 
   });
 }
 
-export function manualActivityRows(rows: readonly ManualActivityEvidence[]): JournalRow[] {
+/**
+ * `accounts` is the Bot's account list from the same state read. Without it no
+ * manual row can be proven REAL (an order with a `dry-` id is still DRY_RUN).
+ */
+export function manualActivityRows(
+  rows: readonly ManualActivityEvidence[],
+  accounts: readonly ManualAccountEnvironmentEvidence[] = []
+): JournalRow[] {
   return rows.map((row) => {
     const occurredAt = row.completedAt ?? row.submittedAt ?? row.createdAt;
     return {
       id: `manual-order:${row.id}`,
       kind: "ACTIVITY",
       source: "MANUAL",
-      environment: "REAL",
+      environment: manualOrderEnvironment({ exchangeOrderId: row.exchangeOrderId,
+        exchangeAccountId: row.exchangeAccountId, accounts }),
       symbol: row.symbol,
       side: row.side,
       title: row.filledBaseQty > 0 ? "Manual executed activity" : "Manual order activity",
@@ -260,7 +286,11 @@ export function manualActivityRows(rows: readonly ManualActivityEvidence[]): Jou
   });
 }
 
-/** Exact Bot PartialClose events only; current cumulative snapshots never enter this projection. */
+/**
+ * Exact Bot PartialClose events only; current cumulative snapshots never enter this projection.
+ * The Bot evidence states no environment, so each row is UNKNOWN unless the
+ * event's own exchange order id marks a dry run. (No production caller today.)
+ */
 export function botPartialCloseRows(input: Array<{
   deployment: ProvenanceEvidence;
   evidence: StrategyExecutionEvidence;
@@ -278,7 +308,10 @@ export function botPartialCloseRows(input: Array<{
       if (!Number.isFinite(occurredAt)) continue;
       output.push({
         id: `partial-close:${partialCloseId}`,
-        kind: "REALIZATION", source: "AUTOMATED", environment: "REAL",
+        kind: "REALIZATION", source: "AUTOMATED",
+        // Read from the custom Bot itself, so the delivery is proven.
+        environment: automatedEnvironment({ delivery: "custom",
+          exchangeOrderId: event.identifiers?.exchangeOrderId ?? null }),
         symbol: deployment.symbol, side: "SELL", title: "Automated partial realization",
         occurredAt: iso(occurredAt), entryAt: null, realizationAt: iso(occurredAt),
         durationMs: null, quantity: event.quantities?.baseQuantity ?? null,
@@ -347,25 +380,40 @@ function grouped<K extends string>(rows: readonly JournalRow[], key: (row: Journ
   return [...groups.entries()].map(([group, values]) => ({ group, summary: summarizeRows(values) }));
 }
 
+const onlyEnvironment = (rows: readonly JournalRow[], environment: ExecutionEnvironment) =>
+  summarizeRows(rows.filter((row) => row.environment === environment));
+
 export function summarizeJournal(
   rows: readonly JournalRow[], period: JournalPeriod, truncated = false
 ): JournalSummary {
   const realizedForBuckets = rows.filter((row) => row.realizationAt !== null);
+  // Every group key carries the environment: a testnet, dry-run, paper or
+  // unknown result is never summed into the same figure as a real one.
   const byPeriod = grouped(realizedForBuckets, (row) =>
-    `${periodBucket(row.realizationAt!, period)}|${row.source}`)
-    .map(({ group, summary }) => { const [bucket, source] = group.split("|") as [string, JournalSource];
-      return { bucket, source, summary }; })
-    .sort((a, b) => b.bucket.localeCompare(a.bucket) || a.source.localeCompare(b.source));
+    `${periodBucket(row.realizationAt!, period)}|${row.source}|${row.environment}`)
+    .map(({ group, summary }) => {
+      const [bucket, source, environment] = group.split("|") as [string, JournalSource, ExecutionEnvironment];
+      return { bucket, source, environment, summary }; })
+    .sort((a, b) => b.bucket.localeCompare(a.bucket) || a.source.localeCompare(b.source)
+      || a.environment.localeCompare(b.environment));
   return {
     ...summarizeRows(rows),
-    real: summarizeRows(rows.filter((row) => row.environment === "REAL")),
-    paper: summarizeRows(rows.filter((row) => row.environment === "PAPER")),
-    bySource: grouped(rows, (row) => row.source)
-      .map(({ group: source, summary }) => ({ source, summary })),
-    bySymbol: grouped(rows, (row) => `${row.symbol}|${row.source}`)
-      .map(({ group, summary }) => { const [symbol, source] = group.split("|") as [string, JournalSource];
-        return { symbol, source, summary }; })
-      .sort((a, b) => a.symbol.localeCompare(b.symbol) || a.source.localeCompare(b.source)),
+    real: onlyEnvironment(rows, "REAL"),
+    paper: onlyEnvironment(rows, "PAPER"),
+    testnet: onlyEnvironment(rows, "TESTNET"),
+    dryRun: onlyEnvironment(rows, "DRY_RUN"),
+    unknownEnvironment: onlyEnvironment(rows, "UNKNOWN"),
+    bySource: grouped(rows, (row) => `${row.source}|${row.environment}`)
+      .map(({ group, summary }) => {
+        const [source, environment] = group.split("|") as [JournalSource, ExecutionEnvironment];
+        return { source, environment, summary }; })
+      .sort((a, b) => a.source.localeCompare(b.source) || a.environment.localeCompare(b.environment)),
+    bySymbol: grouped(rows, (row) => `${row.symbol}|${row.source}|${row.environment}`)
+      .map(({ group, summary }) => {
+        const [symbol, source, environment] = group.split("|") as [string, JournalSource, ExecutionEnvironment];
+        return { symbol, source, environment, summary }; })
+      .sort((a, b) => a.symbol.localeCompare(b.symbol) || a.source.localeCompare(b.source)
+        || a.environment.localeCompare(b.environment)),
     byPeriod,
     evidenceRowsScanned: rows.length,
     truncated,

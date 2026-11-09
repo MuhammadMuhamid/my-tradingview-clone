@@ -1,5 +1,9 @@
+import type { ExecutionEnvironment } from "../journal/environment";
+
 export type TradingOverlaySource = "MANUAL" | "AUTOMATED" | "PAPER";
-export type TradingOverlayEnvironment = "REAL" | "PAPER" | "TESTNET" | "DRY_RUN" | "UNKNOWN";
+
+/** The same five values, from the same rules, as the Journal's row environment. */
+export type TradingOverlayEnvironment = ExecutionEnvironment;
 export type TradingOverlayKind =
   | "HISTORICAL_ACTIVITY_MARKER"
   | "REALIZATION_MARKER"

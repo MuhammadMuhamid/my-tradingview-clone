@@ -7,10 +7,11 @@ import {
   MAX_OVERLAY_ITEMS, MAX_OVERLAY_RANGE_MS, overlayReadPlan, parseTradingOverlayQuery,
 } from "../src/api/routes/tradingOverlays";
 import {
-  automatedEnvironment, isActiveOrderState, overlaysWithinRange, projectCurrentOverlays,
+  isActiveOrderState, overlaysWithinRange, projectCurrentOverlays,
   projectHistoricalOverlays,
-  type BotExchangeMode, type ManualOverlayStateEvidence,
+  type ManualOverlayStateEvidence,
 } from "../src/overlays/projection";
+import { automatedEnvironment } from "../src/journal/environment";
 
 const T0 = Date.UTC(2026, 8, 1, 12);
 const provenance = { deploymentId: "11111111-1111-4111-8111-111111111111",
@@ -108,7 +109,7 @@ test("active LIMIT snapshots render; terminal orders do not", () => {
     automatedOrders: [], positions: [] }).some((item) => item.kind === "ACTIVE_ORDER_LINE"), false);
 });
 
-test("positions come only from explicit existing models and preserve REAL versus PAPER", () => {
+test("positions come only from explicit existing models and never become REAL without per-row proof", () => {
   const noPosition = projectCurrentOverlays({ symbol: "BTCUSDT", manual: manual(),
     automatedOrders: [], positions: [] });
   assert.equal(noPosition.some((item) => item.kind === "POSITION_LINE"), false,
@@ -122,43 +123,65 @@ test("positions come only from explicit existing models and preserve REAL versus
         costBasis: null, observedAt: T0 + 6000 },
       { ...provenance, deploymentId: "22222222-2222-4222-8222-222222222222",
         source: "PAPER", price: 102, quantity: 2, costBasis: 204, observedAt: T0 + 6000 },
-    ], botExchangeMode: "MAINNET" });
+    ] });
+  /*
+   * This used to expect REAL, PAPER, REAL for a Bot reporting MAINNET. Both
+   * REALs were inferred, not proven: the automated runtime position took the
+   * Bot's CURRENT mode, and a ManualPosition carries no exchange
+   * acknowledgement of its own (in dry-run it is built from simulated fills).
+   * They are UNKNOWN now (D3); the paper position is PAPER by its model.
+   */
   assert.deepEqual(items.filter((item) => item.kind === "POSITION_LINE").map((item) => item.environment).sort(),
-    ["REAL", "PAPER", "REAL"].sort());
+    ["PAPER", "UNKNOWN", "UNKNOWN"]);
   assert.match(items.find((item) => item.id.startsWith("manual-position"))?.detail ?? "", /never|No position was reconstructed/i);
 });
 
-test("automated overlays take their environment from the Bot and never default to REAL", () => {
+test("automated overlays never take their environment from the Bot's current mode", () => {
+  /*
+   * This test used to pin the opposite: TESTNET/REAL straight from the Bot's
+   * CURRENT `exchange.mode`. That applied today's mode to every past row (a Bot
+   * moved to mainnet relabelled last week's testnet fills REAL), ignored the
+   * delivery (3commas rows took the custom Bot's mode) and ignored dry-run.
+   * Removed deliberately in D3: automated rows are labelled from their own
+   * evidence by journal/environment — the same rules as the Journal — and
+   * without any they are UNKNOWN. The projections no longer take the Bot's
+   * mode at all, and the route no longer reads it (pinned below).
+   */
   const execution = { ...provenance, kind: "EXECUTION_SNAPSHOT" as const, id: 30,
     occurredAt: T0, side: "BUY" as const, state: "FILLED", quantity: 1, price: 100,
-    intentId: null, executionId: 30, exchangeOrderId: "exchange-30" };
+    intentId: null, executionId: 30, exchangeOrderId: "exchange-30", delivery: "custom" };
   const realization = { ...provenance, id: 31, closedAt: T0 + 1000, pnlQuote: 5,
-    entryPrice: 90, exitPrice: 105, quantity: 0.5, reason: "TP1" };
+    entryPrice: 90, exitPrice: 105, quantity: 0.5, reason: "TP1",
+    sourceSystem: "BOT_CUSTOM_V1", exchangeOrderId: "exchange-31" };
   const activeOrder = { ...provenance, executionId: 32, alertId: null,
     exchangeOrderId: "exchange-32", side: "SELL" as const, orderType: "LIMIT",
     quantity: 0.2, price: 120, state: "NEW", observedAt: T0 + 2000 };
   const position = { ...provenance, source: "AUTOMATED" as const, price: 101,
     quantity: null, costBasis: null, observedAt: T0 + 2000 };
-  const environments = (botExchangeMode: BotExchangeMode): string[] => [
+  assert.deepEqual([
     ...projectHistoricalOverlays({ symbol: "BTCUSDT", automatedActivity: [execution],
-      automatedRealizations: [realization], paperFills: [], limit: 50, botExchangeMode }).items,
+      automatedRealizations: [realization], paperFills: [], limit: 50 }).items,
     ...projectCurrentOverlays({ symbol: "BTCUSDT", automatedOrders: [activeOrder],
-      positions: [position], botExchangeMode }),
-  ].map((item) => item.environment);
-
-  // A Bot on BINANCE_TESTNET=true must not label its markers as real money
-  // during exactly the testnet validation this product asks an operator to do.
-  assert.deepEqual(environments("TESTNET"), ["TESTNET", "TESTNET", "TESTNET", "TESTNET"]);
-  assert.deepEqual(environments("MAINNET"), ["REAL", "REAL", "REAL", "REAL"]);
-  // MIXED proves nothing about which account a persisted order used; an
-  // unreachable Bot, and Replay which never reads one, prove nothing at all.
-  for (const unknown of ["MIXED" as const, null, undefined]) {
-    assert.deepEqual(environments(unknown), ["UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]);
-  }
-  assert.equal(automatedEnvironment(undefined), "UNKNOWN");
-  // Only a CONNECTED Bot may speak; every other connection state is UNKNOWN.
-  assert.match(readFileSync("src/api/routes/tradingOverlays.ts", "utf8"),
-    /bot\.state === "CONNECTED" \? bot\.status\.exchange\.mode : null/);
+      positions: [position] }),
+  ].map((item) => item.environment), ["UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN"]);
+  // Per-row evidence does label them.
+  const dryExecution = { ...execution, exchangeOrderId: "dry-30" };
+  const declared = { ...realization, declaredEnvironment: "TESTNET" };
+  assert.deepEqual(projectHistoricalOverlays({ symbol: "BTCUSDT", automatedActivity: [dryExecution],
+    automatedRealizations: [declared], paperFills: [], limit: 50 })
+    .items.map((item) => item.environment), ["DRY_RUN", "TESTNET"]);
+  assert.equal(automatedEnvironment({ delivery: undefined }), "UNKNOWN");
+  assert.equal(automatedEnvironment({ delivery: "3commas", declaredEnvironment: "MAINNET" }), "UNKNOWN");
+  /*
+   * The route used to POST a deployment secret to the Bot's operations
+   * endpoint on every overlay refresh just to read `exchange.mode` — the very
+   * authority D3 removed. Pin its absence so it cannot be reconnected to the
+   * labels later.
+   */
+  const route = readFileSync("src/api/routes/tradingOverlays.ts", "utf8");
+  assert.doesNotMatch(route, /readBotStatus|exchange\.mode|botExchangeMode|operations\/botStatus/);
+  assert.doesNotMatch(readFileSync("src/overlays/projection.ts", "utf8"),
+    /botExchangeMode|operations\/botStatus/);
 });
 
 test("API parsing enforces exact range/cutoff/limit bounds before reads", () => {

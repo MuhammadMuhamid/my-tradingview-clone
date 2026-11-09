@@ -1365,8 +1365,20 @@ export interface ManualAccountStateView {
 }
 export interface ManualTradingState {
   enabled: boolean; mainnetEnabled: boolean; dryRun: boolean; mixed: boolean;
+  /** The Bot's halt latch. Absent from an older Bot: unknown, never "not halted". */
+  tradingHalted?: boolean;
   accounts: ManualAccount[]; orders: ManualOrder[]; positions: ManualPosition[];
-  protection: { type: "bot-managed"; exchangeResting: false; note: string };
+  protection: {
+    type: "bot-managed"; exchangeResting: false; note: string;
+    /**
+     * Whether the Bot's TP/SL poller is running (false while halted or with
+     * manual trading off). Absent from an older Bot: unknown, NEVER "polling".
+     */
+    polling?: boolean;
+    haltedBy?: string | null;
+    /** Whether mainnet-account positions are checked (mainnet manual trading on). */
+    mainnetPositionsChecked?: boolean;
+  };
 }
 
 export type TimelineEvidenceClass =
@@ -1599,6 +1611,11 @@ export interface BotViewTrade {
 export interface BotTradesPage { total: number; page: number; pageSize: number; rows: BotViewTrade[] }
 
 export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
+/**
+ * Which money a Journal row is about, from that row's own evidence (backend
+ * `journal/environment`). REAL is never a default; unproven is UNKNOWN.
+ */
+export type JournalEnvironment = "REAL" | "TESTNET" | "DRY_RUN" | "PAPER" | "UNKNOWN";
 export interface JournalSummarySlice {
   knownRealizedPnl: number; knownRealizedRows: number; realizationRows: number;
   knownFees: number; feeKnownRows: number; wins: number; losses: number; scratches: number;
@@ -1607,7 +1624,7 @@ export interface JournalSummarySlice {
 }
 export interface JournalRow {
   id: string; kind: "ACTIVITY" | "REALIZATION" | "CLOSED_TRADE";
-  source: JournalSource; environment: "REAL" | "PAPER"; symbol: string;
+  source: JournalSource; environment: JournalEnvironment; symbol: string;
   side: "BUY" | "SELL" | null; title: string; occurredAt: string;
   entryAt: string | null; realizationAt: string | null; durationMs: number | null;
   quantity: number | null; entryPrice: number | null; exitPrice: number | null;
@@ -1623,11 +1640,13 @@ export interface JournalResponse {
   rows: JournalRow[];
   page: { number: number; limit: number; hasNext: boolean };
   range: { from: string; toExclusive: string; period: "day" | "week" | "month" };
+  /** The root slice spans every environment: read money from the environment slices. */
   summary: JournalSummarySlice & {
     real: JournalSummarySlice; paper: JournalSummarySlice;
-    bySource: Array<{ source: JournalSource; summary: JournalSummarySlice }>;
-    bySymbol: Array<{ symbol: string; source: JournalSource; summary: JournalSummarySlice }>;
-    byPeriod: Array<{ bucket: string; source: JournalSource; summary: JournalSummarySlice }>;
+    testnet: JournalSummarySlice; dryRun: JournalSummarySlice; unknownEnvironment: JournalSummarySlice;
+    bySource: Array<{ source: JournalSource; environment: JournalEnvironment; summary: JournalSummarySlice }>;
+    bySymbol: Array<{ symbol: string; source: JournalSource; environment: JournalEnvironment; summary: JournalSummarySlice }>;
+    byPeriod: Array<{ bucket: string; source: JournalSource; environment: JournalEnvironment; summary: JournalSummarySlice }>;
     evidenceRowsScanned: number; truncated: boolean;
   };
   limitations: string[];

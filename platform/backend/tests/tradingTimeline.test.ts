@@ -383,3 +383,24 @@ test("the read boundary rejects unbounded limits and remains session-protected",
     await app.close();
   }
 });
+
+test("D3: a manual order's execution mode comes from its own id and account, not the Bot's current dry-run flag", () => {
+  const mode = (exchangeOrderId: string | null, exchangeAccountId: string, dryRun: boolean) =>
+    projectManualOrder({
+      order: { id: "m", exchangeOrderId, exchangeAccountId, symbol: "BTCUSDT", side: "BUY",
+        orderType: "MARKET", status: "filled", createdAt: at(0), updatedAt: at(1000) },
+      accounts: [{ id: "test", testnet: true, mode: "testnet" }, { id: "main", testnet: false, mode: "mainnet" }],
+      dryRun,
+    }).scope.executionMode;
+  // The same labels as the Journal badge and the chart overlay, for the same order.
+  for (const dryRun of [true, false]) {
+    assert.equal(mode("dry-cid-1", "main", dryRun), "DRY RUN · simulated by execution bot (not paper mode)");
+    // It used to read DRY RUN whenever the Bot happened to be in dry-run when
+    // the Timeline was opened, though the exchange had acknowledged the order.
+    assert.equal(mode("1001", "test", dryRun), "BINANCE TESTNET · not real funds");
+    assert.equal(mode("2002", "main", dryRun), "BINANCE MAINNET · real funds");
+    // No exchange acknowledgement on a mainnet account proves nothing.
+    assert.equal(mode(null, "main", dryRun), "UNKNOWN EXECUTION MODE");
+    assert.equal(mode("2003", "deleted", dryRun), "UNKNOWN EXECUTION MODE");
+  }
+});
