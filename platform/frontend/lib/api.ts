@@ -1424,6 +1424,162 @@ export interface BotSummary {
     totalRealizedPnl: number; botCount: number; activeBotCount: number; stoppedBotCount: number;
   };
 }
+
+// ── Bot controls (BOT_CONTROL_CONTRACT v1.2; backend `api/routes/botControl.ts`) ──
+
+/** Signed reachability of the Bot, one word per distinct fact (contract §7). */
+export type BotSignedState = "CONNECTED" | "REJECTED" | "UNREACHABLE" | "INVALID" | "RATE_LIMITED" | "NOT_CONFIGURED";
+export type BotSignedCause = "auth" | "proxy" | "replay" | "bot_unconfigured" | null;
+export interface BotRiskLimitsView {
+  maxTotalExposureQuote: number | null; maxConcurrentTrades: number | null;
+  maxDailyLossQuote: number | null; dailyLossWindowHours: number;
+}
+export interface BotRiskView {
+  limits: BotRiskLimitsView;
+  snapshot: { openExposureQuote: number; openTrades: number; realisedPnlInWindow: number };
+  summary: string;
+  /** The daily-loss halt is latched: resuming re-checks the loss. */
+  latched: boolean;
+}
+/** C0, as the Bot reports it. `dryRun` and `halt` are independent facts. */
+export interface BotControlStatus {
+  operational: BotOperationalStatus;
+  dryRun: boolean;
+  halt: { halted: boolean; haltedBy: string | null; haltedReason: string | null; haltedAt: string | null };
+  exchange: { defaultTestnet: boolean; accounts: { testnet: number; mainnet: number };
+    routing: "TESTNET" | "MAINNET" | "MIXED" | "NONE" };
+  risk: BotRiskView;
+  bots: { active: number; paused: number };
+  protection: { mode: string; intervalSec: number; exchangeResting: boolean; note: string };
+  shariahFloor: { mode: string; policyVersion: string | null };
+  manual: { enabled: boolean; mainnetEnabled: boolean };
+  version: string | null;
+  time: string;
+}
+/** Every Bot fact under its own name. `facts` null means "could not read", never "off". */
+export interface BotControlPanel {
+  channel: { configured: boolean };
+  signed: { state: BotSignedState; cause: BotSignedCause };
+  webhook: BotStatusConnection;
+  preferred: "signed" | "webhook";
+  facts: BotControlStatus | null;
+  readAt: string;
+  /** Only on `/api/bot/control/status`: the Platform's own, separate halt switch. */
+  platformHalt?: { halted: boolean; haltedBy: string | null; haltedReason: string | null } | null;
+}
+/** `/api/ops/status` carries the panel beside `bot`. */
+export type OpsStatusBotControl = { botControl?: BotControlPanel };
+
+export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close";
+/** Re-entered for every command; never stored and never sent on to the Bot. */
+export interface BotCredential { password?: string; code?: string }
+/**
+ * What a command amounted to. `uncertain` is not a failure: the Bot may have
+ * acted, and only C8 (`botControlApi.command`) can say. `refused` is
+ * definitive: nothing ran.
+ */
+export type BotCommandAnswer =
+  | { kind: "succeeded"; requestId: string; result: Record<string, unknown>; replayed: boolean }
+  | { kind: "pending"; requestId: string; result: Record<string, unknown> }
+  | { kind: "uncertain"; requestId: string }
+  | { kind: "refused"; status: number; code: string; message: string; method?: "totp" | "password" };
+/** C8: what the Bot recorded for one request id. */
+export interface BotCommandRecord {
+  requestId: string; kind: string; target?: string;
+  status: "processing" | "succeeded" | "failed" | "pending";
+  result?: unknown; error?: string; code?: string;
+  live?: { outcome?: "executed" | "not_executed" | "pending" | "unknown"; status?: string } | null;
+  createdAt?: string; updatedAt?: string;
+}
+export type BotCommandLookup =
+  | { kind: "found"; record: BotCommandRecord }
+  /** The Bot has no record of this request id: the one case "nothing was changed" is true. */
+  | { kind: "not_found" }
+  | { kind: "unavailable"; message: string };
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A Bot command. Never throws for anything the server or the network does.
+ *
+ * `req` would turn a 202 "outcome unknown" into a success and a coded refusal
+ * into an `Error`, and a failed `fetch` into "could not". A request that may
+ * have reached the Platform is uncertain, so a network failure here is too.
+ */
+async function botControlSend(method: "POST" | "PATCH", path: string,
+  body: Record<string, unknown> & { requestId: string }): Promise<BotCommandAnswer> {
+  if (await refusedForThisAccount(path)) {
+    return { kind: "refused", status: 403, code: "admin_only",
+      message: "This part of the platform is available to the administrator only." };
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, { method, headers: { "content-type": "application/json" },
+      body: JSON.stringify(body), cache: "no-store" });
+  } catch {
+    return { kind: "uncertain", requestId: body.requestId };
+  }
+  let parsed: unknown;
+  try { parsed = await res.json(); } catch { parsed = undefined; }
+  const payload = isPlainObject(parsed) ? parsed : {};
+  if (res.status === 200 && payload.status === "succeeded") {
+    return { kind: "succeeded", requestId: body.requestId,
+      result: isPlainObject(payload.result) ? payload.result : {}, replayed: payload.replayed === true };
+  }
+  if (res.status === 202 && payload.status === "pending") {
+    return { kind: "pending", requestId: body.requestId, result: isPlainObject(payload.result) ? payload.result : {} };
+  }
+  if (res.status === 401) {
+    redirectToSignIn(path);
+    return { kind: "refused", status: 401, code: "not_authenticated", message: "Your session has ended. Sign in again." };
+  }
+  if (res.status >= 400 && typeof payload.code === "string") {
+    return { kind: "refused", status: res.status, code: payload.code,
+      message: typeof payload.error === "string" ? payload.error : payload.code,
+      ...(payload.method === "totp" || payload.method === "password" ? { method: payload.method } : {}) };
+  }
+  return { kind: "uncertain", requestId: body.requestId };
+}
+
+/** The Bot's controls. Every mutating call carries the browser's request id and a credential. */
+export const botControlApi = {
+  status: () => req<BotControlPanel>("/api/bot/control/status"),
+  riskLimits: () => req<BotRiskView>("/api/bot/control/risk-limits"),
+  halt: (requestId: string, reason: string, credential: BotCredential) =>
+    botControlSend("POST", "/api/bot/control/halt", { requestId, confirmation: "HALT_TRADING", reason, credential }),
+  resume: (requestId: string, credential: BotCredential) =>
+    botControlSend("POST", "/api/bot/control/resume", { requestId, confirmation: "RESUME_TRADING", credential }),
+  setRiskLimits: (requestId: string, patch: Partial<BotRiskLimitsView>, credential: BotCredential) =>
+    botControlSend("PATCH", "/api/bot/control/risk-limits", { requestId, ...patch, credential }),
+  setBotStatus: (requestId: string, botId: string, status: "active" | "paused", credential: BotCredential) =>
+    botControlSend("POST", `/api/bot/control/bots/${encodeURIComponent(botId)}/status`, { requestId, status, credential }),
+  closeTrade: (requestId: string, tradeId: string, credential: BotCredential) =>
+    botControlSend("POST", `/api/bot/control/trades/${encodeURIComponent(tradeId)}/close`, { requestId, credential }),
+  partialCloseTrade: (requestId: string, tradeId: string, pct: number, credential: BotCredential) =>
+    botControlSend("POST", `/api/bot/control/trades/${encodeURIComponent(tradeId)}/partial-close`,
+      { requestId, pct, credential }),
+  /** C8. Reads never move anything, so any failure is simply "could not ask". */
+  command: async (requestId: string): Promise<BotCommandLookup> => {
+    const path = `/api/bot/control/commands/${encodeURIComponent(requestId)}`;
+    if (await refusedForThisAccount(path)) return { kind: "unavailable", message: "administrator only" };
+    try {
+      const res = await fetch(path, { cache: "no-store" });
+      let parsed: unknown;
+      try { parsed = await res.json(); } catch { parsed = undefined; }
+      const payload = isPlainObject(parsed) ? parsed : {};
+      // Only the Bot's own "no such command", relayed under this code, means nothing ran.
+      if (res.status === 404 && payload.code === "command_not_found") return { kind: "not_found" };
+      if (res.ok && typeof payload.requestId === "string" && typeof payload.status === "string") {
+        return { kind: "found", record: payload as unknown as BotCommandRecord };
+      }
+      return { kind: "unavailable", message: typeof payload.error === "string" ? payload.error : `${res.status}` };
+    } catch (error) {
+      return { kind: "unavailable", message: error instanceof Error ? error.message : String(error) };
+    }
+  },
+};
+
 export interface BotViewAccount { name: string; testnet: boolean }
 export interface BotViewBot {
   id: string; name: string; status: string; pairs: string[]; investment: string;

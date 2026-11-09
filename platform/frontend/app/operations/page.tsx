@@ -2,7 +2,10 @@
 import { AdminOnlyPage } from "@/components/AdminOnlyPage";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type OpsStatus, type UnresolvedIntents } from "@/lib/api";
+import Link from "next/link";
+import { api, type OpsStatus, type OpsStatusBotControl, type UnresolvedIntents } from "@/lib/api";
+import { BotStatusStrip } from "@/components/bot/BotStatusStrip";
+import { HALT_SCOPE_TEXT } from "@/components/bot/botCopy";
 import { api as scannerApi } from "@/lib/scanner/api";
 import { describeAction, said, shortReason, type FailureCopy } from "@/lib/errorCopy";
 import {
@@ -60,12 +63,6 @@ const FEED_STYLE: Record<string, string> = {
   unknown: "text-ink-faint",
 };
 
-const BOT_STYLE: Record<string, string> = {
-  CONNECTED: "text-up",
-  NOT_CONFIGURED: "text-ink-muted",
-  UNAVAILABLE: "text-down",
-};
-
 const DELIVERY_STYLE: Record<string, string> = {
   healthy: "text-up",
   idle: "text-ink-muted",
@@ -118,6 +115,67 @@ function Owner({ of }: { of: "platform" | "bot" }) {
 
 const when = (iso: string | null): string =>
   iso === null ? "—" : new Date(iso).toLocaleString();
+
+/**
+ * The execution Bot, each fact under its own name (U1, contract §7).
+ *
+ * This card used to lead with one word — CONNECTED, NOT CONFIGURED — read
+ * only from a custom webhook deployment, so a Platform with a working signed
+ * channel and no such deployment said NOT CONFIGURED, and CONNECTED read as
+ * "ready" for a Bot that was halted or simulated. The separate statuses come
+ * from `/api/ops/status` `botControl`; the figures below them from `bot`.
+ */
+function BotPanel({ status }: { status: OpsStatus }) {
+  const panel = (status as OpsStatus & OpsStatusBotControl).botControl;
+  const bot = status.bot;
+  const halted = panel?.facts?.halt.halted ?? (bot.state === "CONNECTED" ? bot.status.execution.halted : null);
+  return (
+    <Card>
+      <CardHeader
+        title={<><Owner of="bot" />Execution bot — authoritative</>}
+        right={<Link href="/bot" className="inline-flex min-h-11 items-center text-xs text-ink-muted underline hover:text-ink sm:min-h-0">Open the Bot page</Link>}
+      />
+      <div className="space-y-3 px-4 pb-4">
+        {panel ? <BotStatusStrip panel={panel} /> : (
+          <p role={bot.state === "UNAVAILABLE" ? "alert" : undefined} className="text-sm text-ink-muted">
+            {bot.state === "CONNECTED" ? "The execution bot answered; its separate statuses are not available from this server."
+              : bot.state === "NOT_CONFIGURED"
+                ? "No signed control channel and no custom execution-bot webhook are configured."
+                : bot.reason === "authentication_rejected"
+                  ? "The execution bot rejected this Platform's credential."
+                  : bot.reason === "invalid_response"
+                    ? "The execution bot returned an unsupported status contract."
+                    : "The execution bot status endpoint is currently unreachable."}
+          </p>
+        )}
+        {halted && (
+          <Notice tone="error">
+            The Bot is halted{panel?.facts?.halt.haltedReason ? ` (${panel.facts.halt.haltedReason})` : ""}. TP/SL protection is NOT being checked.
+          </Notice>
+        )}
+        <p className="text-xs text-ink-faint">
+          {HALT_SCOPE_TEXT} The Bot halt is a separate switch from the Platform halt above; change it on the Bot page.
+        </p>
+        {bot.state === "CONNECTED" && (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink-muted md:grid-cols-4">
+            <dt>Realized today (UTC)</dt>
+            <dd className={`text-right font-medium ${bot.status.realisedPnl.today < 0 ? "text-down" : bot.status.realisedPnl.today > 0 ? "text-up" : "text-ink"}`}>
+              {bot.status.realisedPnl.today.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+            </dd>
+            <dt>Open trades</dt>
+            <dd className="text-right font-medium text-ink">
+              {bot.status.openTrades.count} · {bot.status.openTrades.exposureQuote.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+            </dd>
+            <dt>Service version</dt>
+            <dd className="text-right font-mono text-ink">{bot.status.service.version ?? "unavailable"}</dd>
+            <dt>Bot read</dt>
+            <dd className="text-right text-ink">{when(bot.status.time)}</dd>
+          </dl>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 /** A limit and what is currently used against it, as one readable line. */
 /**
@@ -505,67 +563,7 @@ function OperationsView() {
       </Card>
 
       {/* The execution bot owns fills, exchange routing and realized P/L. */}
-      <Card>
-        <CardHeader
-          title={<><Owner of="bot" />Execution bot — authoritative</>}
-          right={
-            <span className={`text-xs font-medium ${BOT_STYLE[status.bot.state] ?? ""}`}>
-              {status.bot.state.replaceAll("_", " ")}
-            </span>
-          }
-        />
-        {status.bot.state === "CONNECTED" ? (
-          <div className="space-y-3 px-4 pb-4">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink-muted md:grid-cols-4">
-              <dt>Bot execution</dt>
-              <dd className="text-right font-medium text-ink">{status.bot.status.execution.mode}</dd>
-              <dt>Exchange routing</dt>
-              <dd className="text-right font-medium text-ink">{status.bot.status.exchange.mode}</dd>
-              <dt>Realized today (UTC)</dt>
-              <dd className={`text-right font-medium ${status.bot.status.realisedPnl.today < 0 ? "text-down" : "text-up"}`}>
-                {status.bot.status.realisedPnl.today.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
-              </dd>
-              <dt>Open trades</dt>
-              <dd className="text-right font-medium text-ink">
-                {status.bot.status.openTrades.count} · {status.bot.status.openTrades.exposureQuote.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
-              </dd>
-              <dt>Bot halt</dt>
-              <dd className="text-right text-ink">
-                {status.bot.status.execution.halted
-                  ? `halted${status.bot.status.execution.haltedBy ? ` by ${status.bot.status.execution.haltedBy}` : ""}`
-                  : "not halted"}
-              </dd>
-              <dt>Bot daily-loss protection</dt>
-              <dd className="text-right text-ink">
-                {status.bot.status.dailyLossProtection.enabled
-                  ? `${status.bot.status.dailyLossProtection.limitQuote} USDT / ${status.bot.status.dailyLossProtection.windowHours}h`
-                  : "off"}
-              </dd>
-              <dt>Service version</dt>
-              <dd className="text-right font-mono text-ink">{status.bot.status.service.version ?? "unavailable"}</dd>
-              <dt>Bot read</dt>
-              <dd className="text-right text-ink">{when(status.bot.status.time)}</dd>
-            </dl>
-            {status.bot.status.execution.haltedReason && (
-              <Notice tone="error">
-                Bot halt reason: {status.bot.status.execution.haltedReason}
-              </Notice>
-            )}
-          </div>
-        ) : (
-          <div className="px-4 pb-4">
-            <p role={status.bot.state === "UNAVAILABLE" ? "alert" : undefined} className="text-sm text-ink-muted">
-              {status.bot.state === "NOT_CONFIGURED"
-                ? "No custom execution-bot webhook is configured on a platform deployment."
-                : status.bot.reason === "authentication_rejected"
-                  ? "The execution bot rejected the configured webhook credential."
-                  : status.bot.reason === "invalid_response"
-                    ? "The execution bot returned an unsupported status contract."
-                    : "The execution bot status endpoint is currently unreachable."}
-            </p>
-          </div>
-        )}
-      </Card>
+      <BotPanel status={status} />
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* ── Risk ─────────────────────────────────────────────────────── */}

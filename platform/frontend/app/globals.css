@@ -311,6 +311,58 @@
 }
 
 /*
+ * ── Classic Bot appearance (opt-in; the /bot page body only; dark theme only) ─
+ *
+ * A DOCUMENTED EXCEPTION to §2's neutral rule (docs/TRADING_SCENE_UI_UX_CONTRACT.md):
+ * the standalone Bot dashboard's navy surfaces and teal accent
+ * (bot/frontend/src/index.css), for an administrator who ticks "Classic Bot
+ * appearance" on /bot. Nothing else changes: every Platform colour class reads
+ * these tokens, so redefining them on the page's wrapper recolours the page
+ * without a second styling framework or a forked component, and the Nav, the
+ * dialogs (portalled outside the wrapper) and every other page keep the
+ * Platform skin.
+ *
+ * Dark only: the Bot has no light palette, and a navy island on a white page
+ * is not a theme. Placed AFTER the light block on purpose — `lightTheme.test`
+ * reads "dark" as everything before `:root[data-theme="light"]`.
+ *
+ * Two deliberate departures from the Bot's values: its muted text #6b7a90 is
+ * 4.0:1 on its own panel (below WCAG AA), so muted/faint are lifted to the
+ * Platform's own contrast (7.9:1 and 6.0:1); the control outline is one step
+ * above the hairline so a field still reads as a field.
+ */
+:root:not([data-theme="light"]) [data-bot-appearance="classic"] {
+  --ts-bg: #0b0f14;
+  --ts-surface: #131a24;
+  --ts-surface-2: #192030;
+  --ts-surface-3: #1f2840;
+  --ts-line: #243044;
+  --ts-line-strong: #243044;
+  --ts-control-border: #33415a;
+  --ts-ink: #dde4ee;
+  --ts-ink-muted: #a3b0c2;
+  --ts-ink-faint: #8a98ad;
+  --ts-accent: #00d1c1;
+  --ts-positive: #0ecb81;
+  --ts-negative: #f6465d;
+  --ts-caution: #f0a500;
+  --ts-state-hover: #192030;
+  --ts-state-active: #1f2840;
+  --ts-popover: #192030;
+  --ts-bg-rgb: 11 15 20;
+  --ts-surface-rgb: 19 26 36;
+  --ts-surface-2-rgb: 25 32 48;
+  --ts-line-rgb: 36 48 68;
+  --ts-ink-rgb: 221 228 238;
+  --ts-ink-muted-rgb: 163 176 194;
+  --ts-ink-faint-rgb: 138 152 173;
+  --ts-accent-rgb: 0 209 193;
+  --ts-positive-rgb: 14 203 129;
+  --ts-negative-rgb: 246 70 93;
+  --ts-caution-rgb: 240 165 0;
+}
+
+/*
  * ── Two scopes, one grammar ────────────────────────────────────────────────
  *
  * `.tv-workstation` is the CHART's density: 14px at 1.35, a leading tight

@@ -18,6 +18,7 @@ import * as accountSecurity from "../../repositories/accountSecurity";
 import * as users from "../../repositories/users";
 import { isEmailConfigured, sendVerificationEmail } from "../../email/mailer";
 import { checkPassword, noteSignIn, publicUser, setSessionCookies, startSession } from "./auth";
+import { appendAdminAudit } from "../../repositories/adminAudit";
 
 type SecondFactor = { code?: unknown; recoveryCode?: unknown };
 
@@ -65,6 +66,32 @@ export async function confirmIdentity(account: users.UserRow, body: { password?:
     : await passPassword(account, body.password);
   if (result === "ok") twoFactorLimiter.reset(account.id);
   return result;
+}
+
+/**
+ * A two-factor change, recorded for detection (contract F1).
+ *
+ * Bot controls trust two-factor as the second factor. An attacker holding a
+ * session and a password could otherwise enrol their own authenticator and
+ * leave no trace, so each step lands in the append-only `admin_audit`. It is
+ * recorded after the change has happened, and a failure to record is logged,
+ * not turned into a failed enrolment: the database write the change itself
+ * needed has already succeeded by then.
+ *
+ * Administrator accounts only. They are the accounts whose second factor
+ * guards the Bot, and they are the only ones `admin_audit` may name:
+ * `admin_audit.actor` is `ON DELETE SET NULL`, and the table's append-only
+ * trigger refuses that UPDATE, so a row naming an ordinary account would make
+ * that account impossible to delete. `deleteUser` never deletes an admin.
+ */
+async function auditTwoFactor(req: FastifyRequest, account: users.UserRow,
+  action: "auth.2fa.setup_started" | "auth.2fa.enabled" | "auth.2fa.disabled"): Promise<void> {
+  if (account.role !== "admin") return;
+  try {
+    await appendAdminAudit(account.id, action, `user:${account.id}`, { role: account.role });
+  } catch (err) {
+    req.log.error({ err: (err as Error).name, action, userId: account.id }, "could not record a two-factor change");
+  }
 }
 
 async function currentAccount(req: FastifyRequest, reply: FastifyReply): Promise<users.UserRow | null> {
@@ -152,6 +179,7 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     twoFactorLimiter.reset(account.id);
     const secret = generateTotpSecret();
     await accountSecurity.startTotpSetup(account.id, secret);
+    await auditTwoFactor(req, account, "auth.2fa.setup_started");
     const url = totpUrl(secret, account.email ?? config.adminUsername, "Trading Scene");
     return { secret, otpauthUrl: url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 220 }) };
   });
@@ -169,6 +197,7 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     const recoveryCodes = generateRecoveryCodes();
     await accountSecurity.replaceRecoveryCodes(account.id, recoveryCodes);
     await accountSecurity.enableTotp(account.id);
+    await auditTwoFactor(req, account, "auth.2fa.enabled");
     return { ok: true, recoveryCodes };
   });
 
@@ -186,6 +215,7 @@ export async function accountSecurityRoutes(app: FastifyInstance): Promise<void>
     if (!await passSecondFactor(account.id, body)) return reply.code(400).send({ error: "That code isn't correct." });
     twoFactorLimiter.reset(account.id);
     await accountSecurity.clearTotp(account.id);
+    await auditTwoFactor(req, account, "auth.2fa.disabled");
     const version = await users.bumpSessionVersion(account.id);
     forgetUser(account.id);
     startSession(reply, { id: account.id, sessionVersion: version });

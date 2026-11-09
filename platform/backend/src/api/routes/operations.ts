@@ -21,7 +21,7 @@ import { newestClosedBarOpenTime, worstFeedState, type FeedState } from "../../d
 import { summariseDelivery } from "../../engine/deliveryHealth";
 import { config } from "../../config";
 import type { LiveRunner } from "../../engine/liveRunner";
-import { readBotStatus } from "../../operations/botStatus";
+import { readBotOperations } from "../../operations/botStatus";
 import { INTERVAL_MS, isInterval } from "../../types/market";
 import type { CandleIntegrityState, CandleIntegrityIssueCode } from "../../data/candleIntegrity";
 import * as maAlertRepo from "../../repositories/maAlerts";
@@ -363,7 +363,13 @@ export function operationsRoutes(
         await liveSafety.listDeliveryOutcomes(deliveryWindowHours),
         { now: Date.now(), windowHours: deliveryWindowHours }
       );
-      const bot = await readBotStatus([...active, ...deployments.filter((d) => d.status !== "active")]);
+      /*
+       * U1: `bot` keeps its single-connection shape, now fed by the signed
+       * control channel whenever one is configured; `botControl` carries the
+       * facts that one word used to fold together, each under its own name.
+       */
+      const { connection: bot, panel: botControl } = await readBotOperations(
+        [...active, ...deployments.filter((d) => d.status !== "active")]);
       const database = await readReadiness();
       const alertRunner = formatAlertRunnerStatus(
         alertEvaluation().enabled,
@@ -420,6 +426,7 @@ export function operationsRoutes(
           },
         },
         bot,
+        botControl,
         database,
         alertRunner,
         deployments: {
