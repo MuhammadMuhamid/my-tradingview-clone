@@ -30,6 +30,14 @@ export interface AppConfig {
   manualTradingEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
+  /**
+   * The Bot's PUBLIC origin (`https://bot.example.com`), where its key
+   * enrollment and webhook-secret reveal pages live (OD-4). Empty: enrollment
+   * links (C17) are refused with `enrollment_not_configured`. Every
+   * `enrollUrl` the Bot returns must be on exactly this origin before the
+   * browser is sent there.
+   */
+  botPublicOrigin: string;
   /** X3A paper/testnet/demo Spot execution channel. No production mode exists. */
   spotExecutionEnabled: boolean;
   /** X3B paper/testnet/demo derivatives channel. No production mode exists. */
@@ -160,6 +168,25 @@ const PUBLISHED_PLACEHOLDERS = [
   "test-only",
 ];
 
+/**
+ * BOT_PUBLIC_ORIGIN, as an origin and nothing else: https (http only for a
+ * loopback host), no credentials, path, query or fragment. Unset is "" (not
+ * configured); anything malformed fails startup rather than being guessed at.
+ */
+export function parseBotPublicOrigin(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("BOT_PUBLIC_ORIGIN must be an origin such as https://bot.example.com"); }
+  const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+  if (!(url.protocol === "https:" || (url.protocol === "http:" && loopback)) || url.username || url.password
+      || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")
+      || value.replace(/\/$/, "") !== url.origin) {
+    throw new Error("BOT_PUBLIC_ORIGIN must be an https origin without credentials, path, query or fragment");
+  }
+  return url.origin;
+}
+
 export function isPublishedPlaceholder(value: string): boolean {
   const v = value.trim().toLowerCase();
   if (!v) return false;
@@ -196,6 +223,7 @@ export const config: AppConfig = {
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
+  botPublicOrigin: parseBotPublicOrigin(process.env.BOT_PUBLIC_ORIGIN),
   spotExecutionEnabled: process.env.SPOT_EXECUTION_ENABLED === "true",
   derivativeExecutionEnabled: process.env.DERIVATIVE_EXECUTION_ENABLED === "true",
   equityPaperExecutionEnabled: process.env.EQUITY_PAPER_EXECUTION_ENABLED === "true",

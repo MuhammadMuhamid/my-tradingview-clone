@@ -86,6 +86,8 @@ export interface DeploymentRow {
   webhookUrl: string | null;
   secret: string | null;
   botUuid: string | null;
+  /** The Bot bot whose webhook secret was copied into `secret` (link-bot), if any. Not a secret. */
+  botId?: string | null;
   buyQuoteQty: number | null;
   runtimeState: RuntimeState;
   lastBarTime: string | null;

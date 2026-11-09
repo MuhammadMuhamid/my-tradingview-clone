@@ -88,6 +88,9 @@ export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | 
 const DEFAULT_TIMEOUTS = { defaultMs: 10_000, longMs: 30_000 };
 let timeouts = { ...DEFAULT_TIMEOUTS };
 
+/** The current waits, for command files that issue their own reads. */
+export const botControlTimeouts = (): { defaultMs: number; longMs: number } => ({ ...timeouts });
+
 /** Tests only: shorten the wait so a timeout can be exercised without sleeping 10 s. */
 export function setBotControlTimeoutsForTests(next: { defaultMs: number; longMs: number } | null): void {
   timeouts = next ? { ...next } : { ...DEFAULT_TIMEOUTS };
@@ -162,6 +165,24 @@ export interface CommandSpec {
    * still applies and the Bot half says why it was not sent.
    */
   platformHalf?: (context: { actor: string; requestId: string; proof: StepUpProof }) => Promise<Record<string, unknown>>;
+  /**
+   * Runs on the Bot's definitive 2xx body BEFORE it is answered, remembered
+   * or audited (a create's webhook secret is stored and stripped here, an
+   * enrollment link's origin checked). It returns the body the browser sees;
+   * optionally a different `replayBody` for the in-memory replay cache (a
+   * link that may be shown once), extra NON-secret `audit` fields, or a
+   * `refusal` that replaces the answer (never remembered: the Bot did run it).
+   * It must not throw; if it does, the body is withheld entirely.
+   */
+  shapeResult?: (body: Record<string, unknown>, context: { actor: string; requestId: string })
+    => Promise<ShapedResult>;
+}
+
+export interface ShapedResult {
+  body: Record<string, unknown>;
+  replayBody?: Record<string, unknown>;
+  audit?: Record<string, unknown>;
+  refusal?: { status: number; code: string; error: string };
 }
 
 function haltSpec(body: Record<string, unknown>): CommandSpec {
@@ -283,6 +304,8 @@ export interface Answer {
    * one of those must be able to succeed.
    */
   fromBot?: boolean;
+  /** What the replay cache keeps instead of `payload` (a shown-once link is not kept). */
+  replayPayload?: Record<string, unknown>;
 }
 
 const CHANNEL_REJECTED = "The execution bot refused this Platform's signed request (channel configuration).";
@@ -328,7 +351,7 @@ function refusalAnswer(outcome: Extract<BotControlOutcome, { outcome: "refused" 
   }
 }
 
-function readAnswer(outcome: BotControlOutcome): Answer {
+export function readAnswer(outcome: BotControlOutcome): Answer {
   if (outcome.outcome === "ok") return { status: 200, payload: outcome.body };
   if (outcome.outcome === "refused") return refusalAnswer(outcome);
   return outcome.reason === "invalid_reply" || outcome.reason === "no_code"
@@ -365,7 +388,9 @@ const SETTLED_MAX = 500;
 
 function remember(requestId: string, entry: { actor: string; hash: string; answer: Answer }): void {
   if (!entry.answer.fromBot) return;
-  settled.set(requestId, { ...entry, at: Date.now() });
+  const { replayPayload, ...answer } = entry.answer;
+  settled.set(requestId, { ...entry, answer: replayPayload ? { ...answer, payload: replayPayload } : answer,
+    at: Date.now() });
   while (settled.size > SETTLED_MAX) settled.delete(settled.keys().next().value!);
 }
 
@@ -483,12 +508,27 @@ async function sendToBot(req: FastifyRequest, spec: CommandSpec, requestId: stri
     throw new Refusal(503, "audit_unavailable", "The command was not sent because it could not be recorded. Try again.");
   }
 
-  const outcome = await botControlCommand({
+  let outcome = await botControlCommand({
     method: spec.method, path: spec.botPath, requestId,
     body: { ...spec.params, actor: { platformUserId: actor, stepUp: { method: actorStepUpMethod(proof), at: proof.at } } },
     accept: spec.accept, timeoutMs: spec.long ? timeouts.longMs : timeouts.defaultMs,
   });
-  const answer = commandAnswer(outcome, requestId);
+  let shaped: ShapedResult | null = null;
+  if (outcome.outcome === "ok" && spec.shapeResult) {
+    try {
+      shaped = await spec.shapeResult(outcome.body, { actor, requestId });
+    } catch (err) {
+      req.log.error({ err: (err as Error).name, requestId }, "a bot command result could not be shaped; withheld");
+      shaped = { body: { resultWithheld: true } };
+    }
+    outcome = { ...outcome, body: shaped.body };
+  }
+  let answer = commandAnswer(outcome, requestId);
+  if (shaped?.refusal) {
+    answer = { status: shaped.refusal.status, payload: { code: shaped.refusal.code, error: shaped.refusal.error } };
+  } else if (shaped?.replayBody && answer.fromBot) {
+    answer = { ...answer, replayPayload: { ...answer.payload, result: shaped.replayBody } };
+  }
   const verdict = auditOutcomeOf(answer);
   try {
     await appendAdminAudit(actor, `bot.${spec.kind}.${verdict}`, spec.target, {
@@ -496,6 +536,7 @@ async function sendToBot(req: FastifyRequest, spec: CommandSpec, requestId: stri
       ...(typeof answer.payload.status === "string" ? { outcome: answer.payload.status } : {}),
       ...(typeof answer.payload.code === "string" ? { code: answer.payload.code } : {}),
       ...(outcome.outcome === "uncertain" ? { reason: outcome.reason } : {}),
+      ...(shaped?.audit ?? {}),
     });
   } catch (err) {
     // The command has run (or may have); its answer must still reach the operator.
