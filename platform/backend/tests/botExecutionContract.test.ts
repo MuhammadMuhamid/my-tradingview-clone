@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeExecutionEvent } from "../src/botExecutions/notifier";
 
-const fixturePath = path.join(import.meta.dirname, "fixtures", "executionEvent.v1.json");
+const fixturePath = path.join(__dirname, "fixtures", "executionEvent.v1.json");
 
 test("the shared v1 execution event fixture validates with every field kept", () => {
   const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as Record<string, unknown>;
