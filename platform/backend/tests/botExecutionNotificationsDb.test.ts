@@ -232,8 +232,39 @@ test("bot execution notifications", async (t) => {
     assert.equal((await stored()).at(-1)!.notify_outcome, "expired");
   });
 
+  await t.test("review fix: an event that aged past 6 h while pending expires instead of a late push", async () => {
+    pushes.length = 0;
+    pushFailFor = new Set([adminA, adminB]);
+    feed = { latestSeq: 46, pages: { "45": { nextAfter: 46, events: [event(46, { eventId: "strategy:aging" })] } } };
+    await n.pollExecutionFeed(deps);
+    await n.dispatchPendingNotifications(deps); // push service down: still pending
+    pushFailFor = new Set();
+    now = new Date(NOW.getTime() + 7 * 3_600_000);
+    await n.dispatchPendingNotifications(deps);
+    assert.equal(pushes.length, 0);
+    assert.equal((await query<{ notify_outcome: string }>(
+      "SELECT notify_outcome FROM bot_execution_events WHERE event_id = 'strategy:aging'")).rows[0]!.notify_outcome, "expired");
+    now = NOW;
+  });
+
+  await t.test("review fix: a row that throws does not hold up the rows after it", async () => {
+    pushes.length = 0;
+    await query(`INSERT INTO bot_execution_events (event_id, seq, side, symbol, environment, executed_at, payload)
+                 VALUES ('strategy:broken', 100, 'BUY', 'BTCUSDT', 'TESTNET', $1, '{}')`, [NOW]);
+    await query(`INSERT INTO bot_execution_events (event_id, seq, side, symbol, environment, executed_at, payload)
+                 VALUES ('strategy:after-broken', 101, 'BUY', 'BTCUSDT', 'TESTNET', $1, $2)`,
+      [NOW, JSON.stringify(n.normalizeExecutionEvent(event(101, { eventId: "strategy:after-broken" })))]);
+    await n.dispatchPendingNotifications(deps);
+    assert.deepEqual((await query<{ notify_outcome: string }>(
+      "SELECT notify_outcome FROM bot_execution_events WHERE event_id = 'strategy:after-broken'")).rows[0]!.notify_outcome,
+      "sent", "the good row after the broken one was delivered");
+    assert.equal(pushes.length, 2, "one push per opted-in admin");
+    assert.ok(warnings.includes("bot execution notification failed"));
+    await query("DELETE FROM bot_execution_events WHERE event_id = 'strategy:broken'");
+  });
+
   await t.test("a malformed event is skipped and the feed keeps moving", async () => {
-    feed = { latestSeq: 47, pages: { "45": { nextAfter: 47, events: [{ ...event(46), side: "HOLD" }, event(47)] } } };
+    feed = { latestSeq: 47, pages: { "46": { nextAfter: 47, events: [{ ...event(47), eventId: "strategy:bad", side: "HOLD" }, event(47)] } } };
     assert.equal((await n.pollExecutionFeed(deps)).stored, 1);
     assert.equal(await n.readCursor(), 47);
     assert.ok(warnings.includes("bot execution event rejected"));
