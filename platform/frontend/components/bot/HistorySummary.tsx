@@ -13,7 +13,15 @@ import type { BotViewTrade } from "@/lib/api";
 import { fmtPct } from "@/lib/format";
 import { calcHistoryStats, signedUsdtFixed } from "./botLogic";
 
-export function HistorySummary({ rows, total }: { rows: BotViewTrade[]; total: number }) {
+/** Feature B: said wherever archived trades are left out of a figure. */
+export const ARCHIVED_HIDDEN_NOTE =
+  "Archived trades are hidden from this list. Realized P&L in the Overview, and the daily-loss limit, still count them.";
+
+export function HistorySummary({ rows, total, archivedHidden = false }: {
+  rows: BotViewTrade[]; total: number;
+  /** Feature B: archived trades are hidden from this list (they still count in the Overview's Realized P&L). */
+  archivedHidden?: boolean;
+}) {
   const [open, setOpen] = useState(true);
   if (rows.length === 0) return null;
   const stats = calcHistoryStats(rows);
@@ -22,6 +30,7 @@ export function HistorySummary({ rows, total }: { rows: BotViewTrade[]; total: n
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
         <span className="text-xs text-ink-muted">
           Summary of the {rows.length} trade{rows.length === 1 ? "" : "s"} on this page{total > rows.length ? ` (of ${total})` : ""}
+          {archivedHidden && <span className="block text-ink-faint">{ARCHIVED_HIDDEN_NOTE}</span>}
         </span>
         <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}
           className="tvc-control rounded-md border border-control-border px-2 py-0.5 text-xs text-ink-muted hover:text-ink">

@@ -80,6 +80,10 @@ export function haltLabel(panel: BotControlPanel): string | null {
   return `Halted by ${by}${panel.facts?.risk.latched ? " (latched)" : ""}`;
 }
 
+/** Feature B: the Archive confirmation, in the Classic dashboard's words. */
+export const archiveIntro = (pair: string) =>
+  `Archive this ${pair} trade? It will be hidden from History. Its P&L and daily-loss history are kept. You can restore it.`;
+
 /**
  * A refusal the Bot or this Platform gave, in plain words. Every one of these
  * is DEFINITIVE — the command did not run — and none claims more than that.
@@ -111,7 +115,15 @@ export function explainRefusal(code: string, message: string): { text: string; c
     case "bot_not_found":
       return { text: "The Bot no longer has this bot. Refresh the page." };
     case "trade_not_found":
+    case "not_found":
       return { text: "The Bot no longer has this trade. Refresh the page." };
+    // ── Archive (Feature B, `tradeArchive.v1`) ────────────────────────────────
+    case "trade_not_closed":
+      return { text: "Only a closed trade can be archived. The Bot did not change it." };
+    case "trade_has_unresolved_orders":
+      return { text: `${message} The Bot did not archive it.` };
+    case "trade_needs_attention":
+      return { text: `${message} The Bot did not archive it.` };
     case "request_id_reused":
       return { text: "That request was already used for a different command. Start the action again." };
     case "command_in_progress":
