@@ -97,7 +97,11 @@ export function botFixtures(opts: { trades?: (url: URL) => unknown; panel?: BotC
   server.routes.set("GET /api/bot/bots", () => [BOT]);
   server.routes.set("GET /api/bot/trades", (_body, url) => (opts.trades ?? (() => page([TRADE])))(url));
   server.routes.set("GET /api/bot/control/status", () => opts.panel ?? panel());
+  server.routes.set("GET /api/bot/notifications", () => NOTIFICATIONS);
 }
+
+/** P-81: the opt-in card's status, off by default. */
+export const NOTIFICATIONS = { featureEnabled: true, botFeed: "yes", enabled: false, devices: 0, recent: [] };
 
 export const failing = (status: number, error: string, extra: Record<string, unknown> = {}) => () =>
   new Response(JSON.stringify({ error, ...extra }), { status, headers: { "content-type": "application/json" } });

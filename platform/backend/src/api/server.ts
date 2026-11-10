@@ -22,6 +22,7 @@ import { operationsRoutes } from "./routes/operations";
 import { manualTradingRoutes } from "./routes/manualTrading";
 import { botViewRoutes } from "./routes/botView";
 import { botControlRoutes } from "./routes/botControl";
+import { botNotificationRoutes } from "./routes/botNotifications";
 import { botManageRoutes } from "./routes/botManage";
 import { scannerRoutes } from "./routes/scanner";
 import { tradingTimelineRoutes } from "./routes/tradingTimeline";
@@ -200,6 +201,7 @@ export function buildServer(getRunner: () => LiveRunner): FastifyInstance {
   app.register(manualTradingRoutes);
   app.register(botViewRoutes);
   app.register(botControlRoutes);
+  app.register(botNotificationRoutes);
   app.register(botManageRoutes);
   app.register(scannerRoutes);
   app.register(tradingTimelineRoutes);

@@ -40,6 +40,7 @@ import { BotShell } from "@/components/bot/BotShell";
 import { OutcomeNotices } from "@/components/bot/OutcomeNotices";
 import { BotsCard } from "@/components/bot/BotsCard";
 import { EntriesCard } from "@/components/bot/EntriesCard";
+import { ExecutionNotificationsCard } from "@/components/bot/ExecutionNotificationsCard";
 import { HistorySummary } from "@/components/bot/HistorySummary";
 import { PartialCloseFields } from "@/components/bot/PartialCloseFields";
 import { TwoFactorBanner } from "@/components/bot/TwoFactorBanner";
@@ -238,6 +239,8 @@ function BotView() {
 
       <EntriesCard panel={panel} isAdmin={isAdmin} canCommand={canCommand} commandsBlocked={commandsBlocked}
         twoFactorEnabled={!twoFactorOff} onChanged={refreshAfterCommand} />
+
+      {isAdmin && <ExecutionNotificationsCard />}
 
       <RiskLimitsCard risk={facts?.risk ?? null} disabled={!canCommand} disabledReason={commandsBlocked ?? undefined}
         onSubmit={(patch, credential) => commands.run({

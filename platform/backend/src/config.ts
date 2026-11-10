@@ -28,6 +28,12 @@ export interface AppConfig {
   isProduction: boolean;
   /** Manual orders proxy only to the execution bot; credentials never live here. */
   manualTradingEnabled: boolean;
+  /**
+   * P-81: poll the Bot's confirmed-execution feed and push to admins who opted
+   * in. On unless BOT_EXECUTION_NOTIFICATIONS_ENABLED=false: it does nothing
+   * until an admin opts in AND the Bot advertises `executions.v1`.
+   */
+  botExecutionNotificationsEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
   /**
@@ -221,6 +227,7 @@ export const config: AppConfig = {
   emitterId: process.env.EMITTER_ID ?? `${process.env.HOSTNAME ?? "unknown"}:${process.pid}`,
   isProduction: (process.env.NODE_ENV ?? "").toLowerCase() === "production",
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
+  botExecutionNotificationsEnabled: process.env.BOT_EXECUTION_NOTIFICATIONS_ENABLED !== "false",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
   botPublicOrigin: parseBotPublicOrigin(process.env.BOT_PUBLIC_ORIGIN),

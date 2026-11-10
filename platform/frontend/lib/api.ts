@@ -2147,6 +2147,26 @@ export const api = {
     req<{ ok: boolean; devices: number }>("/api/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) }),
   testPush: () =>
     req<{ sent: number; pruned: number; failed: number }>("/api/push/test", { method: "POST" }),
+
+  // Bot execution notifications (P-81, admin only)
+  botNotifications: () => req<BotNotificationStatus>("/api/bot/notifications"),
+  setBotNotifications: (enabled: boolean) =>
+    req<{ enabled: boolean; devices: number }>("/api/bot/notifications",
+      { method: "PUT", body: JSON.stringify({ enabled }) }),
 };
+
+/** P-81: whether the Bot can feed confirmed executions, and this admin's opt-in. */
+export interface BotNotificationStatus {
+  featureEnabled: boolean;
+  botFeed: "yes" | "no" | "unreachable" | "not_configured";
+  enabled: boolean;
+  devices: number;
+  recent: Array<{
+    eventId: string; side: "BUY" | "SELL"; symbol: string;
+    environment: "DRY_RUN" | "TESTNET" | "MAINNET" | "UNKNOWN";
+    executedBaseQty: number; averagePrice: number; source: string; orderComplete: boolean;
+    executedAt: string; notified: string | null;
+  }>;
+}
 
 export type { BacktestStatus };
