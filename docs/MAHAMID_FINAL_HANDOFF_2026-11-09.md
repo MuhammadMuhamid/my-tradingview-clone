@@ -2,7 +2,8 @@
 
 **From:** the owner (2ms-muzammil), working with Claude Code (lead: Opus).
 **To:** Mahamid (MuhammadMuhamid) and his Claude Code.
-**Status of this file:** canonical. It supersedes `docs/MAHAMID_HANDOFF_2026-11-09.md` (the earlier same-day handoff stays for the history of the first half of the campaign).
+**Superseded in part (2026-11-09 closeout):** [MAHAMID_RELEASE_HANDOFF_2026-11-09.md](MAHAMID_RELEASE_HANDOFF_2026-11-09.md) closes P-81 (execution push) and P-70 (archive), completes browser journeys J8 and J11, and keeps the Classic dashboard fully available (not break-glass only). This file remains the record of OD-1..OD-7 and the earlier architecture.
+**Status of this file:** canonical for OD-1..OD-7. It supersedes `docs/MAHAMID_HANDOFF_2026-11-09.md` (the earlier same-day handoff stays for the history of the first half of the campaign).
 **Nothing in this mission was deployed.** No AWS, SSH, production database, real or testnet order, OAuth, email, 3Commas call or key rotation happened. Everything below was built and verified against fakes and disposable local stacks. Production steps are listed for Mahamid to run later (sections 5 and 9).
 
 The mission did two things:

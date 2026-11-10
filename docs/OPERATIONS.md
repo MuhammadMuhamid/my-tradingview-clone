@@ -186,6 +186,7 @@ per intent, and the Platform requires it and never mints one
 | Archive / restore a closed trade (`tradeArchive.v1`; presentation only: P&L, the daily-loss limit and the halt are unchanged) | `POST /api/bot/control/trades/:id/archive` (`archived: true\|false`) | recent code |
 | Pause / resume new entries (Platform flag + C9) | `POST /api/bot/control/entries` | pause: code, or the password while two-factor is off; resume: code |
 | What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
+| Execution notifications: my opt-in and recent confirmed executions (`executions.v1`) | `GET` / `PUT /api/bot/notifications` (`{enabled}`) | none (admin session) |
 | Create a bot (C10) | `POST /api/bot/manage/bots` | fresh code; a recent one when created with entries off |
 | Read a bot (C11, plus whether Trading Scene holds its secret) | `GET /api/bot/manage/bots/:id` | none |
 | Edit a bot (C12) | `PATCH /api/bot/manage/bots/:id` | fresh code when it loosens protection, else a recent one |
@@ -327,18 +328,40 @@ are entered only on the Bot's `/enroll` page, reached from `/bot/accounts`. If a
 secret rotation's reply was lost, linked deployments are refused until you
 rotate again (the page says so).
 
-**Not in Trading Scene.** Three Classic features are exceptions: Bot execution
-push notifications (P-81), deleting a closed trade from history (P-70, unsafe,
-an archive is proposed) and Bot-specific install (P-11, equivalent for
-installation only). All three remain on the Classic dashboard. Full list:
-[the final handoff](MAHAMID_FINAL_HANDOFF_2026-11-09.md). *Classic Bot
+**Execution notifications (P-81, added 2026-11-09 closeout).**
+
+*What it does.* The *Execution notifications* card on `/bot` lets each admin opt in to a push for every **confirmed** Bot BUY/SELL execution. "Confirmed" means a fill the Bot's ledger booked: strategy, TP/SL, partial or manual. A submitted, rejected or unknown order is never announced. A manual order that fills in pieces sends one notification per fill. Each notification shows the symbol, quantity, price, source and environment (REAL only for MAINNET; TESTNET, DRY RUN or UNKNOWN otherwise). Tapping it opens `/bot`.
+
+*How it works.*
+- The Platform polls the Bot's signed feed `GET /api/manual-trading/control/executions` every 15 s, and only while an admin is opted in and C0 lists `executions.v1`.
+- It stores each Bot event once (migration `059`) and sends through the existing web push and service worker. The browser's permission and device registration are the same as for chart alerts.
+- Only admins who opted in are notified; the role is re-checked at send time. Standard users get 403 and never receive Bot events.
+
+*Retries and outages.* A push failure is retried up to 3 times with backoff, never to a recipient already delivered. An execution older than 6 h is stored but not pushed. The Bot never waits for any of this: if the Platform or the push service is down, trading continues.
+
+*Turning it off.* `BOT_EXECUTION_NOTIFICATIONS_ENABLED=false` stops the poller.
+
+*Contract.* `bot:backend/src/services/executionEvents.ts`, `platform/backend/src/botExecutions/notifier.ts`.
+
+**Archive instead of delete (P-70, added 2026-11-09 closeout).**
+- *Archive.* A closed, fully resolved trade can be archived from *Trade history* (recent code) and restored. *Show archived* lists the archived ones.
+- *What it changes.* Archive is presentation only: Realized P&L, *Realized today*, the daily-loss limit and any halt still count the trade.
+- *What it refuses.* An open trade, or one with an unresolved order or an operator flag, cannot be archived; the reason is shown.
+- *Classic dashboard.* It uses the same Bot rule, and its old *Delete* is gone: `DELETE /api/trades/:id` answers 410 and deletes nothing.
+
+**Install as an app (P-11).** Trading Scene is installable (manifest scope `/`, so `/bot` is included). Device-level install and push delivery depend on the browser and OS. On iPhone/iPad, push needs the Home Screen app; this was not device-tested.
+
+Full parity list and the remaining limits:
+[the release handoff](MAHAMID_RELEASE_HANDOFF_2026-11-09.md). *Classic Bot
 appearance* at the foot of `/bot` is an opt-in, per-browser recolouring
 ([UI contract §2](TRADING_SCENE_UI_UX_CONTRACT.md)).
 
-**Recovery.** The standalone Bot dashboard (its own password and TOTP) remains
-the restricted recovery and break-glass path; restrict it to an allow-list or
-VPN. It has its own halt, Close and
-Partial, which run the same Bot functions.
+**Recovery and Classic dashboard.** The standalone Bot dashboard (its own
+password and TOTP) stays **fully available** as an optional interface and the
+recovery path. That is an owner decision of 2026-11-09: it is not restricted to
+break-glass; an allow-list or VPN in front of it remains optional hardening. It
+runs the same Bot functions (halt, pause, Close, Partial, bots, Archive) under
+the same server rules, and keeps its own Bot-origin push notifications.
 
 ### Feed freshness
 
