@@ -40,6 +40,10 @@ const ADMIN_PASSWORD = "owner password";
  */
 const USER_FOREIGN_KEYS: Record<string, "c" | "n"> = {
   "admin_audit.actor": "n",
+  // P-81: the opt-in and per-recipient delivery marks are personal data; the
+  // Bot events themselves carry no user and stay.
+  "bot_execution_deliveries.user_id": "c",
+  "bot_execution_notification_prefs.user_id": "c",
   "chart_drawings.user_id": "c",
   "chart_layouts.user_id": "c",
   "chart_pane_studies.user_id": "c",
@@ -169,6 +173,12 @@ test("account deletion", async (t) => {
       endpoint: "https://fcm.googleapis.com/fcm/send/deleted-account",
       keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" },
     })).json().devices, 1);
+    // P-81: an execution-notification opt-in and a delivery mark (rows only; the
+    // Bot event itself names no account and must survive the deletion).
+    await query("INSERT INTO bot_execution_notification_prefs (user_id, enabled) VALUES ($1, true)", [full.id]);
+    await query(`INSERT INTO bot_execution_events (event_id, seq, side, symbol, environment, executed_at, payload)
+                 VALUES ('strategy:del-1', 1, 'BUY', 'BTCUSDT', 'TESTNET', now(), '{}')`);
+    await query("INSERT INTO bot_execution_deliveries (event_id, user_id) VALUES ('strategy:del-1', $1)", [full.id]);
     // Two-factor on (recovery codes), and a step-up grant.
     await query("UPDATE users SET email_verified_at = now() WHERE id = $1", [full.id]);
     const setup = await call(cookie, "POST", "/api/auth/2fa/setup", { password: PASSWORD });
@@ -249,6 +259,8 @@ test("account deletion", async (t) => {
     const ledgerAfter = (await query<{ n: string; s: string }>(
       "SELECT count(*) AS n, COALESCE(sum(amount), 0)::text AS s FROM ledger_entries WHERE cohort_id = $1", [settledCohort])).rows[0]!;
     assert.deepEqual(ledgerAfter, ledgerBefore, "no ledger row lost or changed");
+    assert.equal(await count("SELECT count(*) AS n FROM bot_execution_events WHERE event_id = 'strategy:del-1'", []), 1,
+      "a Bot execution event names no account and is kept");
     const detail = await packages.cohortDetail(settledCohort);
     const member = detail.members.find((m) => m.membershipId === membership)!;
     assert.equal(member.userId, null);

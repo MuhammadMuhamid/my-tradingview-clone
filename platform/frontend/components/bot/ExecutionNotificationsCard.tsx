@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, CardHeader, Checkbox, Notice } from "@/components/ui";
 import { api, type BotNotificationStatus } from "@/lib/api";
+import { describeAction, type FailureCopy } from "@/lib/errorCopy";
 import { fmtDateTime } from "@/lib/format";
 import { enablePush, pushState, subscribedHere } from "@/lib/push";
 
@@ -40,14 +41,14 @@ function deviceText(state: DeviceState | null, here: boolean | null): string {
 
 export function ExecutionNotificationsCard() {
   const [status, setStatus] = useState<BotNotificationStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FailureCopy | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
   const [here, setHere] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try { setStatus(await api.botNotifications()); setError(null); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    catch (e) { setError(describeAction(e, "read the notification settings")); }
     setDevice(pushState());
     setHere(await subscribedHere());
   }, []);
@@ -58,7 +59,7 @@ export function ExecutionNotificationsCard() {
     setBusy(true);
     setError(null);
     try { await fn(); await load(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    catch (e) { setError(describeAction(e, "change execution notifications")); }
     finally { setBusy(false); }
   };
 
@@ -77,7 +78,7 @@ export function ExecutionNotificationsCard() {
           A manual order that fills in pieces sends one notification per fill.
         </p>
         {feedNote && <Notice tone="warn">{feedNote}</Notice>}
-        {error && <Notice tone="error">{error}</Notice>}
+        {error && <Notice tone="error"><span title={error.detail || undefined}>{error.headline}</span></Notice>}
         {status && (
           <label className="flex items-center gap-2 text-ink">
             <Checkbox
