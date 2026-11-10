@@ -55,7 +55,7 @@ test("an older Bot without the execution feed is named, and the recent list labe
     recent: [
       { eventId: "exit:a", side: "SELL", symbol: "BTCUSDT", environment: "MAINNET", executedBaseQty: 0.5,
         averagePrice: 64000, source: "tpsl", orderComplete: true, executedAt: "2026-11-09T10:00:00.000Z", notified: "sent" },
-      { eventId: "manual:b:1", side: "BUY", symbol: "ETHUSDT", environment: "UNKNOWN", executedBaseQty: 0.1,
+      { eventId: "manual:b:1", side: "BUY", symbol: "ETHUSDT", environment: "UNKNOWN", executedBaseQty: 0.000285714285714,
         averagePrice: 3000, source: "manual", orderComplete: false, executedAt: "2026-11-09T09:00:00.000Z", notified: null },
     ],
   }));
@@ -66,6 +66,8 @@ test("an older Bot without the execution feed is named, and the recent list labe
   assert.ok(recent.includes("REAL"));
   assert.ok(recent.includes("UNKNOWN"));
   assert.ok(recent.includes("partial fill"));
+  assert.ok(recent.includes("0.00028571 @ 3,000"), "quantities and prices are formatted, no float noise");
+  assert.ok(recent.includes("0.5 @ 64,000"));
   assert.equal(recent.includes("MAINNET"), false, "people see REAL, never the internal word");
 });
 
