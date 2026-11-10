@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { startExecutionNotifier } from "./botExecutions/notifier";
 import { migrate } from "./db/migrate";
 import { waitForDatabase } from "./db/dbReady";
 import { closePool } from "./db/pool";
@@ -155,10 +156,15 @@ async function main(): Promise<void> {
     pruneTimer.unref();
   }
 
+  // P-81: an observer of the Bot's confirmed executions; never a trading path.
+  const stopExecutionNotifier = config.botExecutionNotificationsEnabled
+    ? startExecutionNotifier(app.log) : undefined;
+
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     runner?.stop();
     maAlerts?.stop();
+    stopExecutionNotifier?.();
     if (pruneTimer) clearInterval(pruneTimer);
     await app.close();
     await closePool();
