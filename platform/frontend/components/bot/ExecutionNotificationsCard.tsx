@@ -20,6 +20,10 @@ import { enablePush, pushState, subscribedHere } from "@/lib/push";
 
 type DeviceState = ReturnType<typeof pushState>;
 
+/** Exchange-scale numbers: at most 8 decimals, no float noise (0.000285714285714 → 0.00028571). */
+export const fmtExec = (value: number): string =>
+  Number.isFinite(value) ? Number(value.toFixed(8)).toLocaleString("en-US", { maximumFractionDigits: 8 }) : "—";
+
 export const ENV_LABEL: Record<BotNotificationStatus["recent"][number]["environment"], string> = {
   MAINNET: "REAL", TESTNET: "TESTNET", DRY_RUN: "DRY RUN", UNKNOWN: "UNKNOWN",
 };
@@ -109,7 +113,7 @@ export function ExecutionNotificationsCard() {
                 <li key={r.eventId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
                   <span className={r.side === "BUY" ? "font-medium text-up" : "font-medium text-down"}>{r.side}</span>
                   <span className="text-ink">{r.symbol}</span>
-                  <span className="tabular-nums text-ink-muted">{r.executedBaseQty} @ {r.averagePrice}</span>
+                  <span className="tabular-nums text-ink-muted">{fmtExec(r.executedBaseQty)} @ {fmtExec(r.averagePrice)}</span>
                   <span className="rounded border border-border px-1 text-[10px] text-ink-muted">{ENV_LABEL[r.environment]}</span>
                   {!r.orderComplete && <span className="text-[10px] text-ink-faint">partial fill</span>}
                   <span className="ml-auto text-ink-faint">{fmtDateTime(r.executedAt)}</span>
