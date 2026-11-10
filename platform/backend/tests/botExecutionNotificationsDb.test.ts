@@ -263,6 +263,18 @@ test("bot execution notifications", async (t) => {
     await query("DELETE FROM bot_execution_events WHERE event_id = 'strategy:broken'");
   });
 
+  await t.test("opted in but no registered device: recorded as no_devices, not sent", async () => {
+    const realPush = deps.push;
+    deps.push = async () => ({ sent: 0, pruned: 0, failed: 0 });
+    await query(`INSERT INTO bot_execution_events (event_id, seq, side, symbol, environment, executed_at, payload)
+                 VALUES ('strategy:nodevice', 102, 'BUY', 'BTCUSDT', 'TESTNET', $1, $2)`,
+      [NOW, JSON.stringify(n.normalizeExecutionEvent(event(102, { eventId: "strategy:nodevice" })))]);
+    await n.dispatchPendingNotifications(deps);
+    deps.push = realPush;
+    assert.equal((await query<{ notify_outcome: string }>(
+      "SELECT notify_outcome FROM bot_execution_events WHERE event_id = 'strategy:nodevice'")).rows[0]!.notify_outcome, "no_devices");
+  });
+
   await t.test("a malformed event is skipped and the feed keeps moving", async () => {
     feed = { latestSeq: 47, pages: { "46": { nextAfter: 47, events: [{ ...event(47), eventId: "strategy:bad", side: "HOLD" }, event(47)] } } };
     assert.equal((await n.pollExecutionFeed(deps)).stored, 1);

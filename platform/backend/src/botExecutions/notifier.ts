@@ -387,6 +387,7 @@ async function deliverOne(
       [row.event_id]);
     const message = executionMessage(row.payload);
     let failed = 0;
+    let devices = 0;
     for (const recipient of recipients) {
       let result: PushResult;
       try { result = await deps.push(message, { userId: recipient.user_id }); }
@@ -399,10 +400,12 @@ async function deliverOne(
       await query("INSERT INTO bot_execution_deliveries (event_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         [row.event_id, recipient.user_id]);
       if (result.sent > 0) sent += 1;
+      devices += result.sent;
     }
     if (failed === 0) {
       await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = $2 WHERE event_id = $1",
-        [row.event_id, recipients.length === 0 ? "no_recipients" : "sent"]);
+        // `no_devices`: opted in, but nobody had a registered device to send to.
+        [row.event_id, recipients.length === 0 ? "no_recipients" : devices === 0 ? "no_devices" : "sent"]);
     } else if (row.notify_attempts >= MAX_NOTIFY_ATTEMPTS) {
       await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = 'gave_up' WHERE event_id = $1",
         [row.event_id]);
