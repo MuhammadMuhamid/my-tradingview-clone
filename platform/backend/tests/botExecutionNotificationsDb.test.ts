@@ -275,6 +275,23 @@ test("bot execution notifications", async (t) => {
       "SELECT notify_outcome FROM bot_execution_events WHERE event_id = 'strategy:nodevice'")).rows[0]!.notify_outcome, "no_devices");
   });
 
+  await t.test("re-review fix: an event delivered to one admin earlier stays `sent` when the retry finds no device", async () => {
+    const realPush = deps.push;
+    let call = 0;
+    deps.push = async (_m, to) => { call += 1; return to.userId === adminA ? { sent: 1, pruned: 0, failed: 0 }
+      : call <= 2 ? { sent: 0, pruned: 0, failed: 1 } : { sent: 0, pruned: 0, failed: 0 }; };
+    await query(`INSERT INTO bot_execution_events (event_id, seq, side, symbol, environment, executed_at, payload)
+                 VALUES ('strategy:partly', 103, 'BUY', 'BTCUSDT', 'TESTNET', $1, $2)`,
+      [NOW, JSON.stringify(n.normalizeExecutionEvent(event(103, { eventId: "strategy:partly" })))]);
+    await n.dispatchPendingNotifications(deps); // A delivered, B failed
+    now = new Date(NOW.getTime() + 31_000);
+    await n.dispatchPendingNotifications(deps); // B now has no device
+    now = NOW;
+    deps.push = realPush;
+    assert.equal((await query<{ notify_outcome: string }>(
+      "SELECT notify_outcome FROM bot_execution_events WHERE event_id = 'strategy:partly'")).rows[0]!.notify_outcome, "sent");
+  });
+
   await t.test("a malformed event is skipped and the feed keeps moving", async () => {
     feed = { latestSeq: 47, pages: { "46": { nextAfter: 47, events: [{ ...event(47), eventId: "strategy:bad", side: "HOLD" }, event(47)] } } };
     assert.equal((await n.pollExecutionFeed(deps)).stored, 1);

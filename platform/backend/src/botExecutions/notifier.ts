@@ -372,10 +372,17 @@ async function deliverOne(
 ): Promise<number> {
   let sent = 0;
   {
+    /*
+     * Outcomes (notify_outcome; migration 059's comment predates the last two):
+     * sent | no_recipients | expired | gave_up | no_devices. An event already
+     * delivered to someone on an earlier attempt always ends as `sent`.
+     */
+    const deliveredBefore = (await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM bot_execution_deliveries WHERE event_id = $1", [row.event_id])).rows[0]?.n ?? 0;
     // Too old to be useful by now (a long push outage): kept, not pushed.
     if (now.getTime() - Date.parse(row.payload.executedAt) > NOTIFY_MAX_AGE_MS) {
-      await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = 'expired' WHERE event_id = $1",
-        [row.event_id]);
+      await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = $2 WHERE event_id = $1",
+        [row.event_id, deliveredBefore > 0 ? "sent" : "expired"]);
       return 0;
     }
     // Recipients are re-read at send time: a demoted or deleted admin, or one
@@ -405,7 +412,8 @@ async function deliverOne(
     if (failed === 0) {
       await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = $2 WHERE event_id = $1",
         // `no_devices`: opted in, but nobody had a registered device to send to.
-        [row.event_id, recipients.length === 0 ? "no_recipients" : devices === 0 ? "no_devices" : "sent"]);
+        [row.event_id, deliveredBefore > 0 || devices > 0 ? "sent"
+          : recipients.length === 0 ? "no_recipients" : "no_devices"]);
     } else if (row.notify_attempts >= MAX_NOTIFY_ATTEMPTS) {
       await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = 'gave_up' WHERE event_id = $1",
         [row.event_id]);
