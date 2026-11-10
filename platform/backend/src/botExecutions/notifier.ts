@@ -164,7 +164,8 @@ export function executionMessage(event: BotExecutionEvent): PushMessage {
   return {
     title: `${event.side} executed · ${event.symbol} · ${environmentLabel(event.environment)}`,
     body: `${fmt(event.executedBaseQty)} ${base} at ${fmt(event.averagePrice)}${quote ? ` ${quote}` : ""}`
-      + ` (${fmt(event.executedQuoteQty)}${quote ? ` ${quote}` : ""})${fill} · ${SOURCE_LABEL[event.source]}${who}`,
+      + ` (${fmt(event.executedQuoteQty)}${quote ? ` ${quote}` : ""})${fill} · ${SOURCE_LABEL[event.source]}${who}`
+      + ` · ${event.executedAt.slice(11, 16)} UTC`,
     tag: `bot-exec-${event.eventId}`.slice(0, 120),
     url: "/bot",
   };
@@ -352,6 +353,31 @@ export async function dispatchPendingNotifications(deps: NotifierDeps, limit = 2
 
   let sent = 0;
   for (const row of claimed) {
+    try { sent += await deliverOne(row, now, deps); }
+    catch (error) {
+      // One row that cannot be delivered must not hold up the others; its own
+      // attempt counter (already incremented) bounds how often it is retried.
+      deps.log.warn({ err: (error as Error).message }, "bot execution notification failed");
+      if (row.notify_attempts >= MAX_NOTIFY_ATTEMPTS) {
+        await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = 'gave_up' WHERE event_id = $1",
+          [row.event_id]).catch(() => undefined);
+      }
+    }
+  }
+  return sent;
+}
+
+async function deliverOne(
+  row: { event_id: string; payload: BotExecutionEvent; notify_attempts: number }, now: Date, deps: NotifierDeps
+): Promise<number> {
+  let sent = 0;
+  {
+    // Too old to be useful by now (a long push outage): kept, not pushed.
+    if (now.getTime() - Date.parse(row.payload.executedAt) > NOTIFY_MAX_AGE_MS) {
+      await query("UPDATE bot_execution_events SET notified_at = now(), notify_outcome = 'expired' WHERE event_id = $1",
+        [row.event_id]);
+      return 0;
+    }
     // Recipients are re-read at send time: a demoted or deleted admin, or one
     // who opted out, is not notified, and a delivered one is never re-sent.
     const { rows: recipients } = await query<{ user_id: string }>(
@@ -433,10 +459,11 @@ export function startExecutionNotifier(log: NotifierDeps["log"], intervalMs = 15
     if (running || !isManualControlChannelConfigured()) return;
     running = true;
     try {
-      await pollExecutionFeed(deps);
-      await dispatchPendingNotifications(deps);
-    } catch (error) {
-      log.warn({ err: (error as Error).message }, "bot execution notifier tick failed");
+      // Separately: a Bot outage must not stop retries of what is already stored.
+      try { await pollExecutionFeed(deps); }
+      catch (error) { log.warn({ err: (error as Error).message }, "bot execution feed poll failed"); }
+      try { await dispatchPendingNotifications(deps); }
+      catch (error) { log.warn({ err: (error as Error).message }, "bot execution notification dispatch failed"); }
     } finally {
       running = false;
     }
