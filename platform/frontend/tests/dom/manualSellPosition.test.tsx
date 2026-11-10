@@ -6,6 +6,7 @@
  * `positionFull` only to a Bot that advertises it. A manual BUY the server
  * asks to confirm opens the step-up dialog and retries with the same id.
  */
+import { StrictMode } from "react";
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, screen } from "@testing-library/react";
@@ -157,6 +158,33 @@ test("a deep link preselects exactly its position; a link to a closed one says s
   assert.equal(amount(), "0.5");
   assert.equal(reviewButton().textContent?.startsWith("Review SELL"), true);
   assert.equal(server.callsTo("/api/manual-trading/orders").length, 0, "prefill only, nothing submitted");
+});
+
+test("closeout J8: a deep link to a position on the SECOND account selects that account, even when an older state read resolves later", async () => {
+  routes([]);
+  const two = state([position("pos-a", 0.37), position("pos-b2", 0.5, { exchangeAccountId: "acct-two" })]);
+  two.accounts = [...two.accounts, { id: "acct-two", name: "Testnet B", exchange: "binance", marketType: "spot", testnet: true, mode: "testnet" }];
+  // The FIRST state read is held open until the deep link has been applied from a later one: the race the browser hit.
+  let release: () => void = () => {};
+  let reads = 0;
+  server.routes.set("GET /api/manual-trading/state", () => {
+    reads += 1;
+    if (reads === 1) return new Promise((resolve) => { release = () => resolve(two); });
+    return two;
+  });
+  await loadSession();
+  render(<StrictMode><ManualTradingPanel symbol="SOLUSDT" onStateChange={() => {}}
+    initialSell={{ accountId: "acct-two", positionId: "pos-b2" }} /></StrictMode>);
+  await settle(10);
+  assert.ok(reads >= 2, "a second read answered while the first was held");
+  assert.equal((screen.getByLabelText("Connected account") as HTMLSelectElement).value, "acct-two");
+  release();
+  await settle(8);
+  assert.equal((screen.getByLabelText("Connected account") as HTMLSelectElement).value, "acct-two",
+    "the older read must not put the first account back");
+  assert.equal((screen.getByLabelText(/Position to sell/) as HTMLSelectElement).value, "pos-b2");
+  assert.equal(amount(), "0.5");
+  assert.equal(server.callsTo("/api/manual-trading/orders").length, 0, "prefill only");
 });
 
 test("a deep link to a position that is no longer open does nothing but say so", async () => {

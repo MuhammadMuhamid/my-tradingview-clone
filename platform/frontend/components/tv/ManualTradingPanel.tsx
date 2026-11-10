@@ -248,14 +248,16 @@ export function ManualTradingPanel({
       if (!next.enabled) noteManualTradingFailure("manual trading is disabled");
       setState(next); onStateChange(next); setError(null); setStateReadFailed(false);
       const firstSandbox = next.accounts.find((candidate) => candidate.testnet);
-      if (!accountId && firstSandbox) setAccountId(firstSandbox.id);
+      // Functional update (closeout J8): a read that started before a deep link
+      // chose another account must not put the first account back.
+      if (firstSandbox) setAccountId((current) => current || firstSandbox.id);
     } catch (e) {
       const message = (e as Error).message;
       noteManualTradingFailure(message);
       setStateReadFailed(true);
       setError(describeAction(e, "read the trading state"));
     }
-  }, [accountId, onStateChange]);
+  }, [onStateChange]);
 
   useEffect(() => { void refresh(); const id = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(id); }, [refresh]);
