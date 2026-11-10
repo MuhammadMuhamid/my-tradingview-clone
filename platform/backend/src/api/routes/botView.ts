@@ -33,6 +33,14 @@ export function botTradesPath(query: Record<string, unknown>): string {
     }
     params.set("botId", query.botId);
   }
+  // Feature B: only sent when asked for, so an older Bot (whose query is
+  // strict and predates `tradeArchive.v1`) keeps answering the default view.
+  if (query.archived !== undefined) {
+    if (query.archived !== "exclude" && query.archived !== "include" && query.archived !== "only") {
+      throw new ManualBotError("archived must be exclude, include or only", 400);
+    }
+    params.set("archived", query.archived);
+  }
   params.set("page", String(positiveInt(query.page, 1, 100_000, "page")));
   params.set("pageSize", String(positiveInt(query.pageSize, 50, MAX_PAGE_SIZE, "pageSize")));
   return `/api/manual-trading/bot-view/trades?${params.toString()}`;

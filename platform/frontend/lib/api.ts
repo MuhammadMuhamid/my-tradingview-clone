@@ -1613,6 +1613,10 @@ export const botControlApi = {
   partialCloseTrade: (requestId: string, tradeId: string, pct: number, credential: BotCredential) =>
     botControlSend("POST", `/api/bot/control/trades/${encodeURIComponent(tradeId)}/partial-close`,
       { requestId, pct, credential }),
+  /** Feature B (`tradeArchive.v1`): hide (`true`) or show (`false`) a closed trade in History. P&L is unaffected. */
+  archiveTrade: (requestId: string, tradeId: string, archived: boolean, credential: BotCredential) =>
+    botControlSend("POST", `/api/bot/control/trades/${encodeURIComponent(tradeId)}/archive`,
+      { requestId, archived, credential }),
   /** C8. Reads never move anything, so any failure is simply "could not ask". */
   command: async (requestId: string): Promise<BotCommandLookup> => {
     const path = `/api/bot/control/commands/${encodeURIComponent(requestId)}`;
@@ -1657,7 +1661,14 @@ export interface BotViewTrade {
   partialPnlUsdt?: number | null;
   /** A manual position's protection state; `race_fill_sweep` = a late entry fill being sold (OD-1). */
   protectionState?: string | null;
+  /** Feature B: when the trade was hidden from History (null = shown). Absent from older Bots. */
+  archivedAt?: string | null;
+  /** Why the Bot would refuse Archive for this closed trade now (null = allowed). */
+  archiveBlocked?: { code: string; message: string } | null;
 }
+
+/** History filter for archived trades (`tradeArchive.v1`). */
+export type BotArchivedFilter = "exclude" | "include" | "only";
 export interface BotTradesPage { total: number; page: number; pageSize: number; rows: BotViewTrade[] }
 
 export type JournalSource = "MANUAL" | "AUTOMATED" | "PAPER";
@@ -1884,10 +1895,15 @@ export const api = {
     `/api/trading-timeline/deployments/${encodeURIComponent(id)}?limit=${limit}`),
   botSummary: () => req<BotSummary>("/api/bot/summary"),
   botList: () => req<BotViewBot[]>("/api/bot/bots"),
-  botTrades: (query: { status: "active" | "closed"; botId?: string; page: number; pageSize?: number }) => {
+  botTrades: (query: {
+    status: "active" | "closed"; botId?: string; page: number; pageSize?: number;
+    /** Sent only when given: an older Bot without `tradeArchive.v1` refuses the parameter. */
+    archived?: BotArchivedFilter;
+  }) => {
     const params = new URLSearchParams({ status: query.status, page: String(query.page) });
     if (query.botId) params.set("botId", query.botId);
     if (query.pageSize) params.set("pageSize", String(query.pageSize));
+    if (query.archived) params.set("archived", query.archived);
     return req<BotTradesPage>(`/api/bot/trades?${params.toString()}`);
   },
   journal: (query: {

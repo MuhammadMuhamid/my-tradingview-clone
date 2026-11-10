@@ -41,7 +41,15 @@ export interface TradeActions {
   partial: (trade: BotViewTrade) => void;
   /** Why Close cannot be offered for this trade on this Bot version (`closeBlockReason`), or null. */
   closeBlocked?: (trade: BotViewTrade) => string | null;
+  /**
+   * Feature B: archive (`true`) or restore (`false`) a closed trade. Present only
+   * when the Bot advertises `tradeArchive.v1`; absent = no Archive controls.
+   */
+  archive?: (trade: BotViewTrade, archived: boolean) => void;
 }
+
+/** Feature B: the badge an archived History row carries (shown only with "Show archived"). */
+export const ARCHIVED_LABEL = "Archived";
 
 /** The trade's account: "Testnet account (testnet)". */
 const accountText = (trade: BotViewTrade) =>
@@ -72,12 +80,37 @@ function ReasonBadge({ reason }: { reason: string | null }) {
 function TradeNotes({ trade }: { trade: BotViewTrade }) {
   const partial = partialText(trade);
   return <>
+    {trade.archivedAt && <span className="ml-2 inline-flex rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs font-medium text-ink-muted">
+      {ARCHIVED_LABEL}</span>}
     {trade.protectionState === "race_fill_sweep" && <span className="block text-xs text-warn">{RACE_FILL_LABEL}</span>}
     {partial && <span className="block text-xs text-ink-faint">{partial}</span>}
   </>;
 }
 
+/**
+ * Feature B: a closed row's Archive / Restore. Archive is presentation state on
+ * the Bot (P&L, totals and the daily-loss window keep the trade). A row the Bot
+ * already reports it would refuse is disabled with the Bot's reason.
+ */
+function HistoryActions({ trade, actions }: { trade: BotViewTrade; actions: TradeActions }) {
+  if (!actions.archive) return null;
+  if (trade.archivedAt) {
+    return <Button variant="ghost" disabled={!actions.enabled} title={actions.enabled ? undefined : actions.disabledReason}
+      label={`Restore ${trade.pair}`} onClick={() => actions.archive?.(trade, false)}>Restore…</Button>;
+  }
+  const blocked = trade.archiveBlocked?.message ?? null;
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-2">
+      <Button variant="ghost" disabled={!actions.enabled || blocked !== null}
+        title={!actions.enabled ? actions.disabledReason : blocked ? `Cannot archive yet: ${blocked}` : "Hide from History; P&L is kept"}
+        label={`Archive ${trade.pair}`} onClick={() => actions.archive?.(trade, true)}>Archive…</Button>
+      {blocked && actions.enabled && <span className="basis-full text-left text-xs text-ink-faint sm:text-right">Cannot archive yet: {blocked}</span>}
+    </span>
+  );
+}
+
 function Actions({ trade, actions }: { trade: BotViewTrade; actions: TradeActions }) {
+  if (trade.status === "closed") return <HistoryActions trade={trade} actions={actions} />;
   if (trade.status !== "active") return null;
   if (trade.source === "manual") {
     const href = tradePanelHref(trade.pair, { accountId: trade.account?.id ?? null, positionId: trade.id }); // OD-7
@@ -123,7 +156,7 @@ export function TradesTable({ tab, rows, actions }: { tab: TradeTab; rows: BotVi
             <th className="px-3 py-1.5 text-left">{tab === "active" ? "Opened" : "Closed"}</th>
             {tab === "closed" && <th className="px-3 py-1.5 text-left">Reason</th>}
             <th className="px-3 py-1.5 text-left">Order id</th>
-            {tab === "active" && <th className="px-3 py-1.5 text-right"><span className="sr-only">Actions</span></th>}
+            {(tab === "active" || actions.archive) && <th className="px-3 py-1.5 text-right"><span className="sr-only">Actions</span></th>}
           </tr>
         </thead>
         <tbody>
@@ -141,7 +174,7 @@ export function TradesTable({ tab, rows, actions }: { tab: TradeTab; rows: BotVi
                 <span className="block text-xs text-ink-faint">{ageText(trade)}</span></td>
               {tab === "closed" && <td className="px-3 py-1.5 text-ink-muted"><ReasonBadge reason={trade.closedReason} /></td>}
               <td className="px-3 py-1.5 text-ink-muted">{trade.exchangeOrderId ?? "—"}</td>
-              {tab === "active" && <td className="px-3 py-1.5 text-right"><Actions trade={trade} actions={actions} /></td>}
+              {(tab === "active" || actions.archive) && <td className="px-3 py-1.5 text-right"><Actions trade={trade} actions={actions} /></td>}
             </tr>
           ))}
         </tbody>
@@ -175,7 +208,7 @@ export function TradeCards({ tab, rows, actions }: { tab: TradeTab; rows: BotVie
             {tab === "closed" && <><dt className="text-ink-muted">Reason</dt><dd className="text-right text-ink"><ReasonBadge reason={trade.closedReason} /></dd></>}
             <dt className="text-ink-muted">Order id</dt><dd className="truncate text-right text-ink">{trade.exchangeOrderId ?? "—"}</dd>
           </dl>
-          {tab === "active" && <div><Actions trade={trade} actions={actions} /></div>}
+          {(tab === "active" || actions.archive) && <div><Actions trade={trade} actions={actions} /></div>}
         </li>
       ))}
     </ul>

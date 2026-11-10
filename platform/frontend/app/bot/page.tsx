@@ -34,7 +34,7 @@ import { StepUpDialog } from "@/components/bot/StepUpDialog";
 import { useBotCommands } from "@/components/bot/commandRunner";
 import { useClassicBotAppearance, useLightTheme } from "@/components/bot/classicAppearance";
 import {
-  BOT_HALT_BLOCKS, HALT_SCOPE_TEXT, PLATFORM_HALT_BLOCKS, RECOVERY_NOTE, routingLabel, tradePanelHref,
+  BOT_HALT_BLOCKS, HALT_SCOPE_TEXT, PLATFORM_HALT_BLOCKS, RECOVERY_NOTE, archiveIntro, routingLabel, tradePanelHref,
 } from "@/components/bot/botCopy";
 import { BotShell } from "@/components/bot/BotShell";
 import { OutcomeNotices } from "@/components/bot/OutcomeNotices";
@@ -75,7 +75,11 @@ type Dialog =
   | { type: "resume" }
   | { type: "bot"; bot: BotViewBot; target: "active" | "paused" }
   | { type: "close"; trade: BotViewTrade }
-  | { type: "partial"; trade: BotViewTrade };
+  | { type: "partial"; trade: BotViewTrade }
+  | { type: "archive"; trade: BotViewTrade; archived: boolean };
+
+/** What the trades list is showing; reloads (polling, after a command) keep it. */
+interface TradesView { tab: TradeTab; botId: string; page: number; showArchived: boolean }
 
 const num = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 
@@ -91,6 +95,8 @@ function BotView() {
   const [tab, setTab] = useState<TradeTab>("active");
   const [botId, setBotId] = useState("");
   const [page, setPage] = useState(1);
+  // Feature B: History hides archived trades unless this is on (`tradeArchive.v1`).
+  const [showArchived, setShowArchived] = useState(false);
   const [overviewError, setOverviewError] = useState<unknown>(null);
   const [tradesError, setTradesError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -99,13 +105,16 @@ function BotView() {
   const [pct, setPct] = useState(50);
   // A slower older answer must not replace what the newest request asked for.
   const latestTrades = useRef(0);
-  const view = useRef({ tab, botId, page });
-  view.current = { tab, botId, page };
+  const view = useRef<TradesView>({ tab, botId, page, showArchived });
+  view.current = { tab, botId, page, showArchived };
 
-  const loadTrades = useCallback(async (next: { tab: TradeTab; botId: string; page: number }) => {
+  const loadTrades = useCallback(async (next: TradesView) => {
     const request = ++latestTrades.current;
     try {
-      const result = await api.botTrades({ status: next.tab, botId: next.botId || undefined, page: next.page, pageSize: PAGE_SIZE });
+      // `archived` is sent only to show archived rows: the Bot's default hides them,
+      // and an older Bot (no `tradeArchive.v1`) refuses the parameter.
+      const result = await api.botTrades({ status: next.tab, botId: next.botId || undefined, page: next.page, pageSize: PAGE_SIZE,
+        ...(next.tab === "closed" && next.showArchived ? { archived: "include" as const } : {}) });
       if (request !== latestTrades.current) return;
       setTrades(result);
       setTradesError(null);
@@ -124,7 +133,7 @@ function BotView() {
   }, []);
 
   /** `silent`: the 15 s auto-refresh, which never shows "Loading…" or clears what is shown. */
-  const loadAll = useCallback(async (next: { tab: TradeTab; botId: string; page: number }, silent = false) => {
+  const loadAll = useCallback(async (next: TradesView, silent = false) => {
     if (!silent) setLoading(true);
     const [overview] = await Promise.all([
       Promise.all([api.botSummary(), api.botList()]).then(
@@ -140,16 +149,17 @@ function BotView() {
     if (!silent) setLoading(false);
   }, [loadTrades, loadPanel]);
 
-  useEffect(() => { void loadAll({ tab: "active", botId: "", page: 1 }); }, [loadAll]);
+  useEffect(() => { void loadAll({ tab: "active", botId: "", page: 1, showArchived: false }); }, [loadAll]);
 
   const refreshAfterCommand = useCallback(() => { void loadAll(view.current); }, [loadAll]);
   const commands = useBotCommands(refreshAfterCommand);
   // P-21: silent, every 15 s, only while the tab is visible.
   useVisiblePolling(() => { void loadAll(view.current, true); }, session !== null);
 
-  const showTrades = (next: { tab?: TradeTab; botId?: string; page?: number }) => {
-    const target = { tab: next.tab ?? tab, botId: next.botId ?? botId, page: next.page ?? 1 };
-    setTab(target.tab); setBotId(target.botId); setPage(target.page);
+  const showTrades = (next: { tab?: TradeTab; botId?: string; page?: number; showArchived?: boolean }) => {
+    const target = { tab: next.tab ?? tab, botId: next.botId ?? botId, page: next.page ?? 1,
+      showArchived: next.showArchived ?? showArchived };
+    setTab(target.tab); setBotId(target.botId); setPage(target.page); setShowArchived(target.showArchived);
     setTrades(null);
     void loadTrades(target);
   };
@@ -171,12 +181,16 @@ function BotView() {
 
   const operatorExit = capability(panel, "operatorExit.v1");
   const manageBots = capability(panel, "bots.v1");
+  const tradeArchive = capability(panel, "tradeArchive.v1");
   const twoFactorOff = session?.user ? !session.user.twoFactorEnabled : false;
   const tradeActions: TradeActions = {
     enabled: canCommand, disabledReason: commandsBlocked ?? undefined,
     close: (trade) => setDialog({ type: "close", trade }),
     partial: (trade) => { setPct(50); setDialog({ type: "partial", trade }); },
     closeBlocked: (trade) => closeBlockReason(trade, bots, trades?.rows ?? [], operatorExit),
+    // Feature B: only a Bot that advertises `tradeArchive.v1` gets Archive controls.
+    ...(isAdmin && tradeArchive === "yes" ? { archive: (trade: BotViewTrade, archived: boolean) =>
+      setDialog({ type: "archive", trade, archived }) } : {}),
   };
 
   const pctValid = Number.isInteger(pct) && pct >= 1 && pct <= 99;
@@ -189,7 +203,7 @@ function BotView() {
      */
     <BotShell section="overview" classic={classic} title="Bot"
       description="Operate the execution Bot: its halt, new entries, risk limits, bots and strategy trades. Exchange keys stay on the Bot. Refreshes every 15 seconds while this tab is open."
-      actions={<Button onClick={() => void loadAll({ tab, botId, page })} disabled={loading}>
+      actions={<Button onClick={() => void loadAll({ tab, botId, page, showArchived })} disabled={loading}>
         {loading ? "Loading…" : "Refresh"}
       </Button>}>
       {isAdmin && twoFactorOff && !authOff && <TwoFactorBanner />}
@@ -291,6 +305,10 @@ function BotView() {
               </Button>
             ))}
           </div>
+          {tab === "closed" && tradeArchive === "yes" && <label className="flex items-center gap-2 text-xs text-ink-muted">
+            <Checkbox checked={showArchived} onChange={(value) => showTrades({ showArchived: value })} label="Show archived" />
+            <span>Show archived</span>
+          </label>}
           {bots && bots.length > 1 && <label className="flex items-center gap-2 text-xs text-ink-muted">
             Bot
             <Select className="min-h-11 sm:min-h-0" value={botId} onChange={(event) => showTrades({ botId: event.target.value })}>
@@ -303,10 +321,15 @@ function BotView() {
           <span title={messageOf(tradesError)}>The trades could not be read from the Bot. Refresh to try again.</span>
         </Notice></div>}
         {!trades && !tradesError && <div className="p-3"><Loading>Reading trades…</Loading></div>}
+        {tab === "closed" && isAdmin && tradeArchive === "no" && <p className="px-4 pt-2 text-xs text-ink-faint">
+          {capabilityNote(tradeArchive, "Archiving trades from Trading Scene")}</p>}
         {trades && (trades.rows.length === 0
-          ? <Empty>{tab === "active" ? "No open trades." : "No closed trades yet."}</Empty>
+          ? <Empty>{tab === "active" ? "No open trades."
+            : tradeArchive === "yes" && !showArchived ? "No closed trades to show. Archived trades are hidden; turn on Show archived to see them."
+              : "No closed trades yet."}</Empty>
           : <>
-            {tab === "closed" && <HistorySummary rows={trades.rows} total={trades.total} />}
+            {tab === "closed" && <HistorySummary rows={trades.rows} total={trades.total}
+              archivedHidden={tradeArchive === "yes" && !showArchived} />}
             <TradesTable tab={tab} rows={trades.rows} actions={tradeActions} />
             <TradeCards tab={tab} rows={trades.rows} actions={tradeActions} />
           </>)}
@@ -401,6 +424,22 @@ function BotView() {
         })}>
         <PartialCloseFields trade={dialog.trade} pct={pct} onChange={setPct} />
       </StepUpDialog>}
+
+      {dialog?.type === "archive" && <StepUpDialog open tier="grant" autoSubmit
+        title={`${dialog.archived ? "Archive" : "Restore"} ${dialog.trade.pair}`}
+        confirmLabel={dialog.archived ? "Archive trade" : "Restore trade"} onCancel={close}
+        intro={dialog.archived
+          ? <><p>{archiveIntro(dialog.trade.pair)}</p>
+            <p className="text-ink-muted">Nothing is sent to the exchange. Realized P&amp;L, the daily-loss limit and any halt are unchanged.</p></>
+          : <p>The trade is shown in History again. Its P&amp;L was never removed, so no figure changes.</p>}
+        onConfirm={(credential) => commands.run({
+          intent: `trade_archive:${dialog.trade.id}:${dialog.archived}`,
+          label: `${dialog.archived ? "Archive" : "Restore"} ${dialog.trade.pair}`,
+          send: (requestId) => botControlApi.archiveTrade(requestId, dialog.trade.id, dialog.archived, credential),
+          describe: (result) => result.changed === false
+            ? `It was already ${dialog.archived ? "archived" : "shown in History"}.`
+            : dialog.archived ? "Archived. It is hidden from History; its P&L is still counted." : "Restored to History.",
+        })} />}
     </BotShell>
   );
 }

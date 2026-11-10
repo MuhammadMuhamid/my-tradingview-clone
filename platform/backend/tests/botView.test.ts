@@ -78,13 +78,25 @@ test("the query is rebuilt from checked values, and anything else is dropped", (
   );
 });
 
+test("Feature B: `archived` is passed through only when given, and only as exclude|include|only", () => {
+  assert.equal(botTradesPath({ status: "closed", archived: "only" }),
+    "/api/manual-trading/bot-view/trades?status=closed&archived=only&page=1&pageSize=50");
+  assert.equal(botTradesPath({ status: "closed", archived: "include", page: "3" }),
+    "/api/manual-trading/bot-view/trades?status=closed&archived=include&page=3&pageSize=50");
+  // Absent: nothing is added, so an older Bot (strict query, no `tradeArchive.v1`) still answers.
+  assert.equal(botTradesPath({ status: "closed" }), "/api/manual-trading/bot-view/trades?status=closed&page=1&pageSize=50");
+  for (const archived of ["all", "", "ONLY", ["only"], 1]) {
+    assert.throws(() => botTradesPath({ status: "closed", archived }), /archived must be/, JSON.stringify(archived));
+  }
+});
+
 test("a bad query is refused before the Bot is asked", async (t) => {
   withManualTrading(t, true);
   let reached = false;
   const app = await appWith(async () => { reached = true; return {}; });
   t.after(() => app.close());
   for (const query of ["", "status=everything", "status=active&botId=x%26page%3D9", "status=active&page=0",
-    "status=active&page=1.5", "status=active&pageSize=101", "status=active&page=-1", "status=active&status=closed"]) {
+    "status=active&page=1.5", "status=active&pageSize=101", "status=active&page=-1", "status=active&status=closed", "status=closed&archived=everything"]) {
     const res = await app.inject({ method: "GET", url: `/api/bot/trades?${query}` });
     assert.equal(res.statusCode, 400, query);
   }

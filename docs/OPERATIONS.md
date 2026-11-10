@@ -183,6 +183,7 @@ per intent, and the Platform requires it and never mints one
 | Start or stop a bot (target state, not a toggle) | `POST /api/bot/control/bots/:id/status` | code |
 | Close a strategy trade | `POST /api/bot/control/trades/:id/close` | code |
 | Partial close (1–99 %) | `POST /api/bot/control/trades/:id/partial-close` | code |
+| Archive / restore a closed trade (`tradeArchive.v1`; presentation only: P&L, the daily-loss limit and the halt are unchanged) | `POST /api/bot/control/trades/:id/archive` (`archived: true\|false`) | recent code |
 | Pause / resume new entries (Platform flag + C9) | `POST /api/bot/control/entries` | pause: code, or the password while two-factor is off; resume: code |
 | What happened to a command | `GET /api/bot/control/commands/:requestId` | none |
 | Create a bot (C10) | `POST /api/bot/manage/bots` | fresh code; a recent one when created with entries off |
