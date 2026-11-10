@@ -134,6 +134,9 @@ export class FakeBot {
   /** Manual orders the Platform forwarded (POST /api/manual-trading/orders). */
   readonly manualOrders: { requestId: string; body: Record<string, unknown> }[] = [];
   readonly manualTrades = new Set<string>();
+  /** Feature B: archived trade ids → when; and trades the Bot refuses to archive, with its typed answer. */
+  readonly archivedTrades = new Map<string, string>();
+  readonly archiveRefusals = new Map<string, { status: number; code: string; error: string }>();
   readonly commands = new Map<string, StoredCommand>();
   /** Slice 2 (C10-C19): bots, accounts, enrollments. */
   readonly manage = new FakeBotManage();
@@ -167,6 +170,8 @@ export class FakeBot {
     this.legacyStatus = false;
     this.manage.reset();
     this.manualOrders.length = 0;
+    this.archivedTrades.clear();
+    this.archiveRefusals.clear();
   }
 
   /** Requests that reached a command route (not C0/C3/C8 reads). */
@@ -348,6 +353,22 @@ export class FakeBot {
         return kind === "trade_close"
           ? { status: 200, body: { status: "ok", detail: "closed" } }
           : { status: 200, body: { partial: { pct: params.pct }, trade: { id }, requestedQty: 0.25, executedQty: 0.25 } };
+      });
+    }
+    const archiveMatch = /^\/api\/manual-trading\/control\/trades\/([^/]+)\/archive$/.exec(path);
+    if (method === "POST" && archiveMatch) {
+      const id = decodeURIComponent(archiveMatch[1]!);
+      return this.command(requestId, "trade_archive", `trade:${id}`, params, actor, () => {
+        const refusal = this.archiveRefusals.get(id);
+        if (refusal && params.archived === true) {
+          return { status: refusal.status, body: { error: refusal.error, code: refusal.code } };
+        }
+        const was = this.archivedTrades.get(id) ?? null;
+        if (params.archived === true && !was) this.archivedTrades.set(id, "2026-11-09T12:00:00.000Z");
+        if (params.archived === false) this.archivedTrades.delete(id);
+        const now = this.archivedTrades.get(id) ?? null;
+        return { status: 200, body: { id, archived: now !== null, archivedAt: now,
+          archivedBy: now ? "platform:actor" : null, changed: (was !== null) !== (now !== null) } };
       });
     }
     const managed = this.manage.route(method, path, params, actor, requestId,

@@ -359,6 +359,10 @@ export const botControlReplies = {
     b.status === "ok" || b.status === "ignored_duplicate" || b.status === "pending",
   partialClose: (b: Record<string, unknown>): boolean =>
     b.status === "pending" || (finite(b.requestedQty) && finite(b.executedQty)),
+  /** Feature B (`tradeArchive.v1`): the trade's presentation state after the command. */
+  archive: (b: Record<string, unknown>): boolean =>
+    typeof b.id === "string" && typeof b.archived === "boolean" && typeof b.changed === "boolean"
+    && (b.archivedAt === null || typeof b.archivedAt === "string"),
   /** C9 (OD-3). `canceledEntries` only when the pause asked for working entry orders to be cancelled. */
   entries: (b: Record<string, unknown>): boolean => {
     const entries = b.entries;

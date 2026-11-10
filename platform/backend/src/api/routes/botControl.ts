@@ -81,7 +81,7 @@ export const BOT_BASE = "/api/manual-trading/control";
  * lower_snake kind; it names the audit rows `bot.<kind>.*`.
  */
 export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close"
-  | "entries";
+  | "entries" | "trade_archive";
 
 // ── timeouts (contract §1, F8) ──────────────────────────────────────────────
 
@@ -303,6 +303,23 @@ function partialCloseSpec(body: Record<string, unknown>, rawId: unknown): Comman
   return { kind: "trade_partial_close", method: "POST", botPath: `${BOT_BASE}/trades/${id}/partial-close`,
     target: `trade:${decodeURIComponent(id)}`, params: { pct },
     accept: botControlReplies.partialClose, long: true, allowsPassword: false, tier: "grant" };
+}
+
+/**
+ * Feature B: archive (`archived: true`) or restore (`false`) one CLOSED trade
+ * on the Bot (capability `tradeArchive.v1`). Presentation state only: the Bot
+ * keeps the trade in every P&L total, the daily-loss window and the halt
+ * latch, and refuses a trade that is not fully resolved with a typed code.
+ * Not a money action, so it takes the lightest admin tier, `grant` (as C5
+ * start/stop and C6 Close do); the password is not accepted, because only
+ * risk-reducing commands may use it (OD-2).
+ */
+function archiveSpec(body: Record<string, unknown>, rawId: unknown): CommandSpec {
+  const id = pathId(rawId, "trade");
+  if (typeof body.archived !== "boolean") throw invalid("archived must be true or false.");
+  return { kind: "trade_archive", method: "POST", botPath: `${BOT_BASE}/trades/${id}/archive`,
+    target: `trade:${decodeURIComponent(id)}`, params: { archived: body.archived },
+    accept: botControlReplies.archive, long: false, allowsPassword: false, tier: "grant" };
 }
 
 // ── outcome → browser ───────────────────────────────────────────────────────
@@ -627,6 +644,9 @@ export async function botControlRoutes(app: FastifyInstance): Promise<void> {
     runCommand(req, reply, (body) => closeSpec(body, (req.params as { id?: string }).id)));
   app.post("/api/bot/control/trades/:id/partial-close", async (req, reply) =>
     runCommand(req, reply, (body) => partialCloseSpec(body, (req.params as { id?: string }).id)));
+  // Feature B (`tradeArchive.v1`): hide / show a closed trade in History.
+  app.post("/api/bot/control/trades/:id/archive", async (req, reply) =>
+    runCommand(req, reply, (body) => archiveSpec(body, (req.params as { id?: string }).id)));
 
   // ── C9 with the Platform half (OD-3) ─────────────────────────────────────
 

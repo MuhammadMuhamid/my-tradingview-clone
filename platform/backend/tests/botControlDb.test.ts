@@ -119,6 +119,7 @@ test("bot control", async (t) => {
     ["POST", `/api/bot/control/bots/${BOT_ID}/status`],
     ["POST", `/api/bot/control/trades/${TRADE_ID}/close`],
     ["POST", `/api/bot/control/trades/${TRADE_ID}/partial-close`],
+    ["POST", `/api/bot/control/trades/${TRADE_ID}/archive`],
   ];
   const halt = (credential: Record<string, string> | undefined, requestId = rid("halt")) => ({
     requestId, confirmation: "HALT_TRADING", reason: "unit test halt", ...(credential ? { credential } : {}),
@@ -461,6 +462,64 @@ test("bot control", async (t) => {
     const retried = await call(admin, "POST", "/api/bot/control/halt", halt({ code: await freshCode() }, channelId));
     assert.equal(retried.statusCode, 200, retried.body);
     assert.equal(retried.json().replayed, undefined);
+  });
+
+  await t.test("Feature B archive: grant tier, body rebuilt to {archived, actor}, audited, typed Bot refusal passed on", async () => {
+    bot.reset();
+    // Two-factor is on here: the code confirms; the password is never accepted for archive.
+    const password = await call(admin, "POST", `/api/bot/control/trades/${TRADE_ID}/archive`,
+      { requestId: rid("arch"), credential: { password: ADMIN_PASSWORD }, archived: true });
+    assert.equal(password.statusCode, 400);
+    assert.equal(password.json().code, "step_up_required");
+    assert.equal(commandsSent(), 0);
+
+    const requestId = rid("arch");
+    const res = await call(admin, "POST", `/api/bot/control/trades/${TRADE_ID}/archive`,
+      { requestId, credential: { code: await freshCode() }, archived: true, extra: "dropped",
+        actor: { platformUserId: "forged" } });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.json().status, "succeeded");
+    assert.deepEqual([res.json().result.archived, res.json().result.changed], [true, true]);
+    const sent = bot.commandRequests().at(-1)!;
+    assert.equal(sent.path, `/api/manual-trading/control/trades/${TRADE_ID}/archive`);
+    const body = sent.body as Record<string, unknown>;
+    assert.deepEqual(Object.keys(body).sort(), ["actor", "archived"]);
+    assert.equal((body.actor as { platformUserId: string }).platformUserId, ADMIN_USER_ID);
+    assert.deepEqual((await auditFor(requestId)).map((r) => r.action),
+      ["bot.trade_archive.requested", "bot.trade_archive.succeeded"]);
+
+    // The same request id again is answered from the first result; the Bot is not asked twice.
+    const again = await call(admin, "POST", `/api/bot/control/trades/${TRADE_ID}/archive`,
+      { requestId, credential: { code: "000000" }, archived: true });
+    assert.equal(again.statusCode, 200);
+    assert.equal(again.json().replayed, true);
+    assert.equal(bot.commandRequests().length, 1);
+
+    for (const bad of [{}, { archived: "yes" }, { archived: 1 }, { archived: null }]) {
+      const refused = await call(admin, "POST", `/api/bot/control/trades/${TRADE_ID}/archive`,
+        { requestId: rid(), credential: { code: "000000" }, ...bad });
+      assert.equal(refused.statusCode, 400, JSON.stringify(bad));
+      assert.equal(refused.json().code, "invalid_request");
+    }
+    const badId = await call(admin, "POST", "/api/bot/control/trades/not-a-trade/archive",
+      { requestId: rid(), credential: { code: "000000" }, archived: true });
+    assert.equal(badId.json().code, "invalid_target_id");
+
+    bot.archiveRefusals.set(MANUAL_TRADE_ID, { status: 409, code: "trade_has_unresolved_orders",
+      error: "This trade still has an order that may be working at the exchange." });
+    const refusedId = rid("arch");
+    const refused = await call(admin, "POST", `/api/bot/control/trades/${MANUAL_TRADE_ID}/archive`,
+      { requestId: refusedId, credential: { code: await freshCode() }, archived: true });
+    assert.equal(refused.statusCode, 409);
+    assert.equal(refused.json().code, "trade_has_unresolved_orders");
+    assert.match(refused.json().error, /working at the exchange/);
+    assert.deepEqual((await auditFor(refusedId)).map((r) => r.action),
+      ["bot.trade_archive.requested", "bot.trade_archive.refused"]);
+
+    const restore = await call(admin, "POST", `/api/bot/control/trades/${TRADE_ID}/archive`,
+      { requestId: rid("arch"), credential: { code: await freshCode() }, archived: false });
+    assert.equal(restore.statusCode, 200, restore.body);
+    assert.deepEqual([restore.json().result.archived, restore.json().result.changed], [false, true]);
   });
 
   await t.test("a Bot business refusal passes through with its code and words", async () => {
