@@ -752,7 +752,8 @@ any failure.
 | Earlier production; `gate` passed 2026-11-05 | `34a7bca` | `1cce9ba` |
 | Earlier production; `gate` passed 2026-11-05 with Platform `8ef0ae7` | `34a7bca` | `8d70730` |
 | Earlier production | `72ea65f` | `8d70730` |
-| Current production: the 2026-11-09 release. Its integration heads passed the cross-repo contract checks. No exchange order yet | `9f410b9` | `134037f` |
+| Earlier production: the 2026-11-09 release | `9f410b9` | `134037f` |
+| Current production: package pages and scheduler added, with no Bot boundary change. No exchange order yet | `1785964` | `134037f` |
 
 **Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
 the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
@@ -911,7 +912,7 @@ Update this section whenever production changes.
 
 | | |
 |---|---|
-| Platform | `9f410b9` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-13 (tag `20261112210600`) from `MuhammadMuhamid/my-tradingview-clone`. It is the 2026-11-09 release (`724e700`) plus deploy fixes |
+| Platform | `1785964` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-13 (tag `20261112230304`) from `MuhammadMuhamid/my-tradingview-clone`. It is the 2026-11-09 release plus the package pages and cohort scheduler ([PACKAGES.md](PACKAGES.md)) |
 | Bot | `134037f` at `bot.alphawebstudioz.com`, on its own server, deployed 2026-11-13 with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
 | Bot settings when deployed | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MANUAL_TRADING_ENABLED=true`, `MAINNET_MANUAL_TRADING_ENABLED=false`, `EXCHANGE_STOPS_ENABLED=false` |
 | Platform settings | `MANUAL_TRADING_ENABLED=true`; GitHub sign-in and `EMAIL_FROM` set ([ACCOUNTS §7](ACCOUNTS.md)) |

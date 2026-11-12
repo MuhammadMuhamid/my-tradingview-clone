@@ -1,6 +1,6 @@
 # Trading Scene — brief for writing change prompts
 
-**Snapshot:** 2026-11-13, Platform `9f410b9`, Bot `134037f`, Research `99f32ca`.
+**Snapshot:** 2026-11-13, Platform `1785964`, Bot `134037f`, Research `99f32ca`.
 
 Give this file to Claude chat. It holds enough context to turn a change idea into
 a prompt for Claude Code. Claude chat can't see the code or production, so anything
@@ -49,7 +49,7 @@ Treat this as a dated snapshot. The maintained copy is
 
 | Item | State |
 |---|---|
-| Platform | `9f410b9` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
+| Platform | `1785964` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
 | Bot | `134037f` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
 | Manual trading | On. The Trade panel showed **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 (current code says **DRY RUN (simulated)** for the Bot's dry run) |
