@@ -163,7 +163,7 @@ function PackageCard({ pkg, deployments, attachedIds, selectedCohort, onSelectCo
 
         <div>
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold text-ink-muted">Cohorts</h3>
+            <h3 className="text-xs font-semibold text-ink-muted" title="An active package is kept two terms ahead automatically.">Cohorts</h3>
             {pkg.status !== "closed" && (
               <Button variant="ghost" disabled={busy} onClick={() => void act(() => packagesAdminApi.scheduleCohort(pkg.id))}>
                 Schedule next cohort
@@ -261,7 +261,8 @@ function CohortPanel({ cohortId, onChanged }: { cohortId: string; onChanged: () 
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={detail.status} />
-          <Button variant="ghost" onClick={() => void act(() => packagesAdminApi.advanceCohort(cohortId))}>Update status</Button>
+          <Button variant="ghost" title="Cohorts also update by themselves every minute."
+            onClick={() => void act(() => packagesAdminApi.advanceCohort(cohortId))}>Update status now</Button>
         </div>
       </div>
 

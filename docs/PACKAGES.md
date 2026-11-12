@@ -65,6 +65,23 @@ should have its own Bot "bot", with its own webhook, on that account, so its pos
 stay separate in the Bot. Balances can only be checked against the exchange as a total
 across all packages.
 
+## The scheduler
+
+`platform/backend/src/packages/scheduler.ts` runs every minute inside the backend. It
+moves no money and places no orders.
+
+1. **Advancing cohorts.** It moves each cohort that is due:
+   - from open to running at its start, or to cancelled if no money was recorded;
+   - from running to settling or settled at its end;
+   - from settling to settled once the last trade closes.
+2. **Scheduling ahead.** It keeps each **active** package two terms ahead, so members can
+   always see the next term and its deadline. A paused or closed package gets no new
+   terms, but its existing cohorts still run to the end.
+
+It calls the same functions as the administrator's buttons, so every rule applies
+either way. It's safe to run twice. A database lock lets only one Platform instance run
+it at a time. `PACKAGE_SCHEDULER_ENABLED=false` turns it off; the default is on.
+
 ## API
 
 `platform/backend/src/api/routes/packages.ts`.
@@ -93,7 +110,6 @@ the same per-account limit as sign-in.
 - Recording trade results from the Bot. Realization events are off by default, and their
   fees are estimated at 0.1%, not read from the exchange, so members' values would be
   estimates until that changes.
-- The scheduler that creates and advances cohorts, and reconciliation against the
-  exchange. Until the scheduler exists, the administrator
+- Reconciliation against the exchange. Until the scheduler exists, the administrator
   schedules cohorts and presses *Update status* on the Packages page.
 - Force-closing a settling cohort's trade.

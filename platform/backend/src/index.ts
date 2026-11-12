@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { startExecutionNotifier } from "./botExecutions/notifier";
+import { startPackageScheduler } from "./packages/scheduler";
 import { migrate } from "./db/migrate";
 import { waitForDatabase } from "./db/dbReady";
 import { closePool } from "./db/pool";
@@ -160,11 +161,15 @@ async function main(): Promise<void> {
   const stopExecutionNotifier = config.botExecutionNotificationsEnabled
     ? startExecutionNotifier(app.log) : undefined;
 
+  // Starts and ends package cohorts on time; never trades or moves money.
+  const stopPackageScheduler = config.packageSchedulerEnabled ? startPackageScheduler(app.log) : undefined;
+
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, "shutting down");
     runner?.stop();
     maAlerts?.stop();
     stopExecutionNotifier?.();
+    stopPackageScheduler?.();
     if (pruneTimer) clearInterval(pruneTimer);
     await app.close();
     await closePool();

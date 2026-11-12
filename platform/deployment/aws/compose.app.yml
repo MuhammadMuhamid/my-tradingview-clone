@@ -26,6 +26,8 @@ services:
       # The Bot's public origin; enrollment links on any other origin are refused.
       BOT_PUBLIC_ORIGIN: ${BOT_PUBLIC_ORIGIN:-}
       BOT_EXECUTION_NOTIFICATIONS_ENABLED: ${BOT_EXECUTION_NOTIFICATIONS_ENABLED:-false}
+      # Starts and ends package cohorts on time. It moves no money and places no orders.
+      PACKAGE_SCHEDULER_ENABLED: ${PACKAGE_SCHEDULER_ENABLED:-true}
       MA_ALERTS_ENABLED: ${MA_ALERTS_ENABLED:-true}
       # Cookie-session sign-in (replaces the Caddy basic_auth that kept
       # signing the user out). COOKIE_SECURE stays on: Caddy terminates TLS.

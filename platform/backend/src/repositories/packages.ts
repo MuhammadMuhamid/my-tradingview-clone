@@ -581,3 +581,27 @@ export async function cohortIsJoinable(cohortId: string): Promise<boolean> {
     `SELECT (p.status = 'active') AS ok FROM cohorts c JOIN packages p ON p.id = c.package_id WHERE c.id = $1`, [cohortId]);
   return rows[0]?.ok === true;
 }
+
+// ── what the scheduler acts on ──────────────────────────────────────────────
+
+/** Cohorts whose status may change now: due to start, past their end, or settling. */
+export async function cohortsDueForAdvance(now = new Date()): Promise<string[]> {
+  const { rows } = await query<{ id: string }>(
+    `SELECT id FROM cohorts
+      WHERE (status = 'open' AND starts_at <= $1)
+         OR (status = 'running' AND ends_at <= $1)
+         OR status = 'settling'
+      ORDER BY starts_at, id`, [now]);
+  return rows.map((r) => r.id);
+}
+
+/** Active packages with fewer than `ahead` cohorts still taking members, and how many they're short. */
+export async function packagesShortOfCohorts(now = new Date(), ahead = 2): Promise<{ packageId: string; missing: number }[]> {
+  const { rows } = await query<{ id: string; upcoming: number }>(
+    `SELECT p.id, count(c.id)::int AS upcoming FROM packages p
+       LEFT JOIN cohorts c ON c.package_id = p.id AND c.status = 'open' AND c.starts_at > $1
+      WHERE p.status = 'active'
+      GROUP BY p.id HAVING count(c.id) < $2
+      ORDER BY p.created_at`, [now, ahead]);
+  return rows.map((r) => ({ packageId: r.id, missing: ahead - r.upcoming }));
+}

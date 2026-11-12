@@ -34,6 +34,7 @@ export interface AppConfig {
    * until an admin opts in AND the Bot advertises `executions.v1`.
    */
   botExecutionNotificationsEnabled: boolean;
+  packageSchedulerEnabled: boolean;
   manualTradingBotUrl: string;
   manualTradingHmacSecret: string;
   /**
@@ -228,6 +229,8 @@ export const config: AppConfig = {
   isProduction: (process.env.NODE_ENV ?? "").toLowerCase() === "production",
   manualTradingEnabled: process.env.MANUAL_TRADING_ENABLED === "true",
   botExecutionNotificationsEnabled: process.env.BOT_EXECUTION_NOTIFICATIONS_ENABLED !== "false",
+  // Starts and ends package cohorts on time. Moves no money and places no orders.
+  packageSchedulerEnabled: process.env.PACKAGE_SCHEDULER_ENABLED !== "false",
   manualTradingBotUrl: (process.env.MANUAL_TRADING_BOT_URL ?? "http://localhost:4001").replace(/\/$/, ""),
   manualTradingHmacSecret: process.env.MANUAL_TRADING_HMAC_SECRET ?? "",
   botPublicOrigin: parseBotPublicOrigin(process.env.BOT_PUBLIC_ORIGIN),
