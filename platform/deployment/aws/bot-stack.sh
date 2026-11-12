@@ -24,7 +24,7 @@ BOT_NAME=trading-scene-execution-bot
 BOT_DOMAIN=bot.alphawebstudioz.com
 BOT_TYPE="${BOT_TYPE:-t3.micro}"
 # Paired with Platform by `platform/scripts/release.sh gate`. Change them together.
-BOT_SHA=8d70730c81e2
+BOT_SHA=134037f4d833
 BOT_REPO=MuhammadMuhamid/3commabotclone
 HMAC_SECRET=trading-scene/execution-bot/control-plane-hmac
 SETUP_SECRET=trading-scene/execution-bot/setup-token
@@ -160,6 +160,13 @@ cat > "$SHARED/Caddyfile" <<'CADDY'
         @webhooks path /api/webhooks/*
         request_body @webhooks {
             max_size 10KB
+        }
+
+        # API-key enrollment is reached from the operator's browser, so it stays
+        # outside the Platform-only rule. Its bodies are tiny (bot: deploy/ENROLLMENT.md).
+        @enroll path /api/enroll/*
+        request_body @enroll {
+            max_size 4KB
         }
 
         # Straight to the backend, so its `trust proxy 1` sees one hop.
