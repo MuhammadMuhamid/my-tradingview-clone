@@ -68,7 +68,7 @@ test("the administrator keeps the tabs, with the page's own tab current", async 
   account("admin");
   render(<AppRoute path="/journal"><Nav /></AppRoute>);
   await settle(6);
-  assert.deepEqual(tabHrefs(), ["/trading", "/journal", "/bot"]);
+  assert.deepEqual(tabHrefs(), ["/trading", "/journal", "/bot", "/packages"]);
   const journal = strip().querySelector('a[href="/journal"]');
   assert.equal(journal?.getAttribute("aria-current"), "page");
 });
@@ -82,7 +82,7 @@ test("the menu indents a section tab under its destination", async () => {
   fireEvent.click(screen.getByRole("button", { name: /go to another part of the application/ }));
   await settle();
   const row = (href: string): Element | null => document.querySelector(`a[role="menuitem"][href="${href}"]`);
-  for (const nested of ["/journal", "/bot", "/stress", "/optimizers"]) {
+  for (const nested of ["/journal", "/bot", "/packages", "/stress", "/optimizers"]) {
     assert.equal(row(nested)?.getAttribute("data-nested"), "true", `${nested} is not marked nested`);
     assert.match(row(nested)?.className ?? "", /\bpl-5\b/, `${nested} is drawn flush`);
   }

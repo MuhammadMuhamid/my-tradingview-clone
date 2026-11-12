@@ -776,7 +776,7 @@ async function failureError(res: Response): Promise<ApiError> {
  * account the answer is given here, without a request.
  */
 const ADMIN_ONLY_API = [
-  /^\/api\/(ops|manual-trading|bot|strategies|configs|trading-overlays|deployments|alerts|backtests|optimizer|stress|journal|trading-timeline|spot-execution|derivative-execution|equity-execution|traditional-execution)(\/|\?|$)/,
+  /^\/api\/(admin|ops|manual-trading|bot|strategies|configs|trading-overlays|deployments|alerts|backtests|optimizer|stress|journal|trading-timeline|spot-execution|derivative-execution|equity-execution|traditional-execution)(\/|\?|$)/,
   /^\/api\/layouts\/sync-deployments/,
 ];
 
@@ -1513,6 +1513,60 @@ export type OpsStatusBotControl = { botControl?: BotControlPanel };
 export type BotCommandKind = "halt" | "resume" | "risk_limits" | "bot_status" | "trade_close" | "trade_partial_close";
 /** Re-entered for every command; never stored and never sent on to the Bot. */
 export interface BotCredential { password?: string; code?: string }
+
+// ── investor packages (administrator) ───────────────────────────────────────
+export type PackageTerm = "half_month" | "month" | "quarter" | "half_year";
+export type CohortStatus = "open" | "running" | "settling" | "settled" | "cancelled";
+export interface PackageCohortSummary {
+  id: string; status: CohortStatus; startsAt: string; endsAt: string; depositCutoffAt: string;
+  openingCapital: string | null; closingValue: string | null; members: number; requests: number;
+}
+export interface AdminPackage {
+  id: string; name: string; description: string; term: PackageTerm; minAmount: string; tradePercent: string;
+  joinInstructions: string; status: "active" | "paused" | "closed"; createdAt: string;
+  deployments: { id: string; symbol: string }[]; cohorts: PackageCohortSummary[];
+}
+export interface CohortMember {
+  membershipId: string; userId: string; email: string | null; displayName: string;
+  status: "requested" | "approved" | "rejected" | "cancelled"; requestedAt: string;
+  capitalIn: string; value: string; paidOut: string;
+}
+export interface CohortDetail {
+  id: string; packageId: string; status: CohortStatus; startsAt: string; endsAt: string; depositCutoffAt: string;
+  openingCapital: string | null; closingValue: string | null; equity: string;
+  members: CohortMember[];
+  entries: { id: string; membershipId: string | null; kind: string; amount: string; sourceType: string | null;
+    sourceId: string | null; note: string; recordedAt: string }[];
+  trades: { id: string; symbol: string; quoteSpent: string; status: string; openedAt: string; closedAt: string | null }[];
+}
+export interface AdminAuditEntry { id: string; actor: string | null; action: string; target: string; detail: unknown; at: string }
+
+const postJson = <T>(path: string, body?: unknown) =>
+  req<T>(path, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
+export const packagesAdminApi = {
+  list: () => req<{ packages: AdminPackage[] }>("/api/admin/packages"),
+  create: (body: { name: string; term: PackageTerm; minAmount: string; tradePercent: string;
+    description?: string; joinInstructions?: string }) => postJson<{ id: string }>("/api/admin/packages", body),
+  setStatus: (id: string, status: AdminPackage["status"], credential: BotCredential) =>
+    postJson<{ ok: true }>(`/api/admin/packages/${id}/status`, { status, ...credential }),
+  attachDeployment: (id: string, deploymentId: string) =>
+    postJson<{ ok: true }>(`/api/admin/packages/${id}/deployments`, { deploymentId }),
+  scheduleCohort: (id: string) => postJson<{ id: string }>(`/api/admin/packages/${id}/cohorts`),
+  cohort: (id: string) => req<CohortDetail>(`/api/admin/cohorts/${id}`),
+  advanceCohort: (id: string) => postJson<{ status: CohortStatus }>(`/api/admin/cohorts/${id}/advance`),
+  addMember: (cohortId: string, email: string) =>
+    postJson<{ membershipId: string }>(`/api/admin/cohorts/${cohortId}/members`, { email }),
+  decide: (membershipId: string, approve: boolean) =>
+    postJson<{ ok: true }>(`/api/admin/memberships/${membershipId}/decision`, { approve }),
+  deposit: (membershipId: string, body: { amount: string; reference: string; note?: string; lateReason?: string;
+    idempotencyKey: string } & BotCredential) =>
+    postJson<{ entryId: string; created: boolean }>(`/api/admin/memberships/${membershipId}/deposits`, body),
+  withdraw: (membershipId: string, body: { amount: string; reference: string; note?: string;
+    idempotencyKey: string } & BotCredential) =>
+    postJson<{ ok: true; created?: boolean }>(`/api/admin/memberships/${membershipId}/withdrawals`, body),
+  audit: () => req<{ entries: AdminAuditEntry[] }>("/api/admin/audit"),
+};
 /**
  * What a command amounted to. `uncertain` is not a failure: the Bot may have
  * acted, and only C8 (`botControlApi.command`) can say. `refused` is

@@ -427,6 +427,7 @@ export default function GettingStarted() {
                 ["Prove it first", <>A deployment can run in Paper, which simulates the fill instead of sending it.</>],
                 ["Watch it", <>Orders and positions appear in the ticket and as chart overlays. Any order row opens a <C>Timeline</C> of the evidence behind it.</>],
                 ["Account for it", <>The <A href="/journal">Journal</A> accumulates what happened; <A href="/operations">Operations</A> says whether the machinery is healthy.</>],
+                ["Run it for members", <><A href="/packages">Packages</A> is where you run a strategy for members in fixed-term cohorts and record the money they send you. It isn&rsquo;t connected to live trading yet.</>],
               ]}
             />
           </Section>

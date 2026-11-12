@@ -1,8 +1,8 @@
 # Packages and cohorts
 
-**Status:** the ledger, calendar, rules and API exist and are tested. There are no pages
-yet, and live trading doesn't use any of it. Wiring it into order sizing is a separate
-change.
+**Status:** the ledger, calendar, rules, API and the administrator's page (Trading →
+Packages, `/packages`) exist and are tested. Members have no page yet, and live trading
+doesn't use any of it. Wiring it into order sizing is a separate change.
 
 Plan: `MULTIUSER_BOT_MASTER_PROMPT_v2.md` (kept outside this repository), with the
 owner's decisions of 2026-11-05 and 2026-11-07.
@@ -92,6 +92,7 @@ the same per-account limit as sign-in.
 - Recording trade results from the Bot. Realization events are off by default, and their
   fees are estimated at 0.1%, not read from the exchange, so members' values would be
   estimates until that changes.
-- The admin panel and the members' portfolio page, the scheduler that creates and
-  advances cohorts, and reconciliation against the exchange.
+- The members' portfolio page, the scheduler that creates and advances cohorts, and
+  reconciliation against the exchange. Until the scheduler exists, the administrator
+  schedules cohorts and presses *Update status* on the Packages page.
 - Force-closing a settling cohort's trade.

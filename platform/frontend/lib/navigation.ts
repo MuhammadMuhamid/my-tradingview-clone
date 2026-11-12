@@ -59,6 +59,7 @@ export const SECTION_TABS: Readonly<Record<string, readonly NavLink[]>> = {
     { href: "/trading", label: "Automations" },
     { href: "/journal", label: "Journal" },
     { href: "/bot", label: "Bot" },
+    { href: "/packages", label: "Packages" },
   ],
   "/research": [
     { href: "/research", label: "Quick backtest" },
@@ -138,7 +139,7 @@ export const PRODUCT_NAME = "Trading Scene";
  * so a user is never shown a page made only of "administrator only" errors.
  */
 export const ADMIN_ONLY_HREFS: ReadonlySet<string> = new Set([
-  "/trading", "/journal", "/bot", "/research", "/stress", "/optimizers", "/operations",
+  "/trading", "/journal", "/bot", "/packages", "/research", "/stress", "/optimizers", "/operations",
 ]);
 
 export const isAdminOnlyPath = (path: string): boolean =>
