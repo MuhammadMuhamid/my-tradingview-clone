@@ -751,7 +751,8 @@ any failure.
 | Earlier production; `gate` passed 2026-11-05 | `d43ee5e` | `76d17c5` |
 | Earlier production; `gate` passed 2026-11-05 | `34a7bca` | `1cce9ba` |
 | Earlier production; `gate` passed 2026-11-05 with Platform `8ef0ae7` | `34a7bca` | `8d70730` |
-| Current production; Platform changes since `8ef0ae7` don't touch the Bot boundary. No exchange order yet | `72ea65f` | `8d70730` |
+| Earlier production | `72ea65f` | `8d70730` |
+| Current production: the 2026-11-09 release. Its integration heads passed the cross-repo contract checks. No exchange order yet | `9f410b9` | `134037f` |
 
 **Ingestion is opt-in.** `REALIZATION_INGESTION_ENABLED` (this service) and
 the Bot's `REALIZATION_DELIVERY_ENABLED` both default to `false`. A Platform
@@ -904,19 +905,20 @@ bash cloud-deploy.sh $TAG
 
 ---
 
-## 10. Production status (2026-11-07)
+## 10. Production status (2026-11-13)
 
 Update this section whenever production changes.
 
 | | |
 |---|---|
-| Platform | `72ea65f` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-06 (tag `20261106172520`) from `MuhammadMuhamid/my-tradingview-clone` |
-| Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server, deployed with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
+| Platform | `9f410b9` at `mytradingview.alphawebstudioz.com`, deployed 2026-11-13 (tag `20261112210600`) from `MuhammadMuhamid/my-tradingview-clone`. It is the 2026-11-09 release (`724e700`) plus deploy fixes |
+| Bot | `134037f` at `bot.alphawebstudioz.com`, on its own server, deployed 2026-11-13 with [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md) |
 | Bot settings when deployed | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MANUAL_TRADING_ENABLED=true`, `MAINNET_MANUAL_TRADING_ENABLED=false`, `EXCHANGE_STOPS_ENABLED=false` |
 | Platform settings | `MANUAL_TRADING_ENABLED=true`; GitHub sign-in and `EMAIL_FROM` set ([ACCOUNTS §7](ACCOUNTS.md)) |
 | Account email | SES domain `alphawebstudioz.com` verified with DKIM. Production access requested 2026-11-06 and under review, so until it's approved mail only reaches verified addresses |
 | Admin account | Two-factor sign-in on since 2026-11-07 |
 | Observed in a browser as admin, 2026-11-05 | The Trade panel shows PAPER SIMULATION with the testnet account. Trading → Bot shows Paper simulation and one simulated $100 BTCUSDT BUY from 2026-11-04 |
+| Off until checked | Enrollment (`ENROLLMENT_ENABLED`, `BOT_PUBLIC_ORIGIN`), Bot execution push (`BOT_EXECUTION_NOTIFICATIONS_ENABLED`), realization contract v2 (`REALIZATION_CONTRACT_V2_ENABLED`) |
 | Not yet done | No order has been placed on testnet or mainnet |
 
 Conditions to clear:
@@ -931,9 +933,13 @@ Conditions to clear:
   [BOT-DEPLOY.md](../platform/deployment/aws/BOT-DEPLOY.md).
 - **Instrument metadata sync.** The backend logged Binance's `Invalid symbol` during
   this sync at startup on 2026-11-05 and carried on. The symbol isn't named in the log.
-- **Migration count.** `/readyz` reports 52 expected and 59 applied, with none
-  missing, and returns 200. Migration `052` applied cleanly over them. The source of the extra 7 hasn't been traced. Check it
-  before adding or rolling back migrations.
+- **Migration count.** `/readyz` reports 59 expected and 66 applied, with none
+  missing, and returns 200. The 7 extra rows were identified on 2026-11-13. Six
+  are an earlier alert-gates branch: `009_alert_trigger_mode` and `032`–`036`
+  with gate, pivot and filter names. The seventh, `018_push_last_seen`, is the same
+  change as `024`. None share a name with a repository migration, and `053`–`059`
+  applied cleanly over them. Before rolling back, remember that those 7 aren't in any
+  repository the Platform deploys from.
 
 > *Pointer, added 2026-11-09 outside this production log:* questions that only
 > the operator can answer, none verified, are listed in §11.
@@ -959,11 +965,10 @@ in §10.
    server, in the operator's secret store? Has a restore of a Bot backup been
    tested end to end? Without these two values a restored database cannot
    decrypt its exchange keys.
-4. **Production migration drift.** `/readyz` reported 52 expected and 59
-   applied (§10). Where did the extra 7 come from? Settle that before
-   deploying `053`.
-5. **The `btree_gist` prerequisite.** Migration `053_package_ledger.sql` needs
-   `CREATE EXTENSION btree_gist`. Can the production database user create it?
+4. **Production migration drift.** *Answered 2026-11-13* (§10): the 7 extra rows are
+   an earlier alert-gates branch and one duplicate push migration.
+5. **The `btree_gist` prerequisite.** *Answered 2026-11-13:* `053` created it in the
+   production dry run and again in the deploy.
 6. **New migrations in the 2026-11-09 changes.**
    - The Platform adds none: the set still ends at `053`.
    - The Bot adds two additive SQLite migrations, which its entrypoint applies

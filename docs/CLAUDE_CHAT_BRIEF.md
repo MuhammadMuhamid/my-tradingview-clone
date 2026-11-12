@@ -1,6 +1,6 @@
 # Trading Scene — brief for writing change prompts
 
-**Snapshot:** 2026-11-07, Platform `72ea65f`, Bot `8d70730`, Research `2578f81`.
+**Snapshot:** 2026-11-13, Platform `9f410b9`, Bot `134037f`, Research `99f32ca`.
 
 Give this file to Claude chat. It holds enough context to turn a change idea into
 a prompt for Claude Code. Claude chat can't see the code or production, so anything
@@ -49,8 +49,8 @@ Treat this as a dated snapshot. The maintained copy is
 
 | Item | State |
 |---|---|
-| Platform | `72ea65f` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
-| Bot | `8d70730` at `bot.alphawebstudioz.com`, on its own server |
+| Platform | `9f410b9` at `mytradingview.alphawebstudioz.com`, on AWS `ap-south-1` |
+| Bot | `134037f` at `bot.alphawebstudioz.com`, on its own server |
 | Bot safety settings | `DRY_RUN=true`, `BINANCE_TESTNET=true`, `MAINNET_MANUAL_TRADING_ENABLED=false` when deployed |
 | Manual trading | On. The Trade panel showed **PAPER SIMULATION** with the testnet account, seen as admin on 2026-11-05 (current code says **DRY RUN (simulated)** for the Bot's dry run) |
 | Orders | One simulated $100 BTCUSDT BUY exists. No order has ever been placed on testnet or mainnet |
@@ -63,9 +63,10 @@ Temporary conditions to keep in mind:
 - **Bot backups:** they run every 6 hours to a private S3 bucket. Nothing alerts on a
   failure, no restore has been tested, and the Bot's encryption keys have no copy off
   the server.
-- **Database count:** production `/readyz` reports 59 migrations applied and 52 expected
-  for the deployed commit; this commit ships 53 (`053` needs `btree_gist`). None are missing. Where the extra 7 came from hasn't been traced,
-  so any migration work should check this first.
+- **Database count:** production `/readyz` reports 66 migrations applied and 59 expected,
+  with none missing. The 7 extras are an earlier alert-gates branch and one duplicate
+  push migration ([OPERATIONS §10](OPERATIONS.md)). A new migration must not reuse their
+  names: `009_alert_trigger_mode`, `018_push_last_seen` and `032`–`036`.
 
 ## 4. What exists, and how far it is proven
 
