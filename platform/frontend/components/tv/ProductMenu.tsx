@@ -470,6 +470,10 @@ export function ProductMenu(
                   </span>
                 </span>
               </Link>
+              <Link href="/portfolio" role="menuitem" onClick={() => setOpen(false)}
+                className="tvc-menu-row text-left">
+                My portfolio
+              </Link>
               <Spacer />
             </>
           )}

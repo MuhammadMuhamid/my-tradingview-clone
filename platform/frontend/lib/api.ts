@@ -1544,6 +1544,26 @@ export interface AdminAuditEntry { id: string; actor: string | null; action: str
 const postJson = <T>(path: string, body?: unknown) =>
   req<T>(path, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
+// ── investor packages (members) ─────────────────────────────────────────────
+export interface OfferedPackage {
+  id: string; name: string; description: string; term: PackageTerm; minAmount: string; joinInstructions: string;
+  nextCohort: { id: string; startsAt: string; endsAt: string; depositCutoffAt: string } | null;
+}
+export interface Holding {
+  packageName: string; cohortId: string; status: CohortStatus; startsAt: string; endsAt: string;
+  capitalIn: string; value: string; paidOut: string;
+}
+export interface PortfolioResponse {
+  pending: { membershipId: string; status: "requested" | "rejected"; cohortId: string; packageName: string }[];
+  holdings: Holding[];
+}
+
+export const portfolioApi = {
+  offered: () => req<{ packages: OfferedPackage[] }>("/api/packages"),
+  mine: () => req<PortfolioResponse>("/api/portfolio"),
+  join: (cohortId: string) => postJson<{ membershipId: string }>(`/api/packages/cohorts/${cohortId}/join`),
+};
+
 export const packagesAdminApi = {
   list: () => req<{ packages: AdminPackage[] }>("/api/admin/packages"),
   create: (body: { name: string; term: PackageTerm; minAmount: string; tradePercent: string;
